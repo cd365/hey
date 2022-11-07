@@ -1,0 +1,13 @@
+# jetbrains
+.idea
+
+# mac
+.DS_Store
+
+# vscode
+.devcontainer
+.vscode
+
+# go source file
+*ignore*.go
+*_test.go
