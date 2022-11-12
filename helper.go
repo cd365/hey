@@ -337,6 +337,7 @@ func StructUpdate(a interface{}, b interface{}, ignore ...string) (field []strin
 	var afv, bfv reflect.Value
 	var afk, bfk reflect.Kind
 	var afi, bfi interface{}
+	var asf reflect.StructField
 	var name string
 	var ok bool
 	remove := make(map[string]*struct{})
@@ -344,6 +345,10 @@ func StructUpdate(a interface{}, b interface{}, ignore ...string) (field []strin
 		remove[key] = &struct{}{}
 	}
 	for i := 0; i < length; i++ {
+		asf, ok = at.FieldByName(bt.Field(i).Name)
+		if !ok {
+			continue
+		}
 		afv = av.FieldByName(bt.Field(i).Name)
 		if !afv.IsValid() {
 			continue
@@ -368,7 +373,7 @@ func StructUpdate(a interface{}, b interface{}, ignore ...string) (field []strin
 		if afi == bfi {
 			continue
 		}
-		name = at.Field(i).Tag.Get(ScanTagName)
+		name = asf.Tag.Get(ScanTagName)
 		if name == "" || name == "-" {
 			continue
 		}
