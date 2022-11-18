@@ -85,15 +85,15 @@ func (s *Order) Result() string {
 }
 
 type Selector struct {
-	SqlTable   *Table
-	SqlWhere   Filter
-	SqlField   []string
-	SqlJoin    []*Join
-	SqlGroupBy []string
-	SqlHaving  Filter
-	SqlOrder   *Order
-	SqlLimit   int64
-	SqlOffset  int64
+	_table  *Table
+	_where  Filter
+	_field  []string
+	_join   []*Join
+	_group  []string
+	_having Filter
+	_order  *Order
+	_limit  int64
+	_offset int64
 }
 
 func NewSelector() *Selector {
@@ -101,41 +101,45 @@ func NewSelector() *Selector {
 }
 
 func (s *Selector) Clear() {
-	s.SqlTable = nil
-	s.SqlField = nil
-	s.SqlJoin = nil
-	s.SqlWhere = nil
-	s.SqlGroupBy = nil
-	s.SqlHaving = nil
-	s.SqlOrder = nil
-	s.SqlLimit = 0
-	s.SqlOffset = 0
+	s._table = nil
+	s._field = nil
+	s._join = nil
+	s._where = nil
+	s._group = nil
+	s._having = nil
+	s._order = nil
+	s._limit = 0
+	s._offset = 0
 }
 
 func (s *Selector) Table(table string, args ...interface{}) *Selector {
-	if s.SqlTable == nil {
-		s.SqlTable = &Table{}
+	if s._table == nil {
+		s._table = &Table{}
 	}
-	s.SqlTable.Table = table
-	s.SqlTable.Args = args
+	s._table.Table = table
+	s._table.Args = args
 	return s
 }
 
 func (s *Selector) Field(field ...string) *Selector {
-	s.SqlField = field
+	s._field = field
 	return s
 }
 
+func (s *Selector) FieldValue() []string {
+	return s._field
+}
+
 func (s *Selector) Where(where Filter) *Selector {
-	s.SqlWhere = where
+	s._where = where
 	return s
 }
 
 func (s *Selector) Alias(alias string) *Selector {
-	if s.SqlTable == nil {
-		s.SqlTable = &Table{}
+	if s._table == nil {
+		s._table = &Table{}
 	}
-	s.SqlTable.Alias = alias
+	s._table.Alias = alias
 	return s
 }
 
@@ -143,8 +147,8 @@ func (s *Selector) join(model JoinType, table string, alias string, on string, a
 	if model == "" || table == "" || on == "" {
 		return s
 	}
-	if s.SqlJoin == nil {
-		s.SqlJoin = make([]*Join, 0)
+	if s._join == nil {
+		s._join = make([]*Join, 0)
 	}
 	with := NewFilter()
 	length := len(and)
@@ -154,7 +158,7 @@ func (s *Selector) join(model JoinType, table string, alias string, on string, a
 		prepare, args = and[i].Result()
 		with.And(prepare, args)
 	}
-	s.SqlJoin = append(s.SqlJoin, &Join{
+	s._join = append(s._join, &Join{
 		Model: model,
 		Table: table,
 		Alias: alias,
@@ -187,86 +191,86 @@ func (s *Selector) FullJoin(table string, alias string, on string, filter ...Fil
 	return s.join(FullJoin, table, alias, on, filter...)
 }
 
-func (s *Selector) GroupBy(groupBy ...string) *Selector {
-	s.SqlGroupBy = groupBy
+func (s *Selector) Group(group ...string) *Selector {
+	s._group = group
 	return s
 }
 
 func (s *Selector) Having(having Filter) *Selector {
-	s.SqlHaving = having
+	s._having = having
 	return s
 }
 
 func (s *Selector) Asc(columns ...string) *Selector {
-	if s.SqlOrder == nil {
-		s.SqlOrder = &Order{}
+	if s._order == nil {
+		s._order = &Order{}
 	}
-	s.SqlOrder.Asc(columns...)
+	s._order.Asc(columns...)
 	return s
 }
 
 func (s *Selector) Desc(columns ...string) *Selector {
-	if s.SqlOrder == nil {
-		s.SqlOrder = &Order{}
+	if s._order == nil {
+		s._order = &Order{}
 	}
-	s.SqlOrder.Desc(columns...)
+	s._order.Desc(columns...)
 	return s
 }
 
 func (s *Selector) Limit(limit int64) *Selector {
-	s.SqlLimit = limit
+	s._limit = limit
 	return s
 }
 
 func (s *Selector) Offset(offset int64) *Selector {
-	s.SqlOffset = offset
+	s._offset = offset
 	return s
 }
 
 func (s *Selector) SqlSelect() (prepare string, args []interface{}) {
 	buf := &bytes.Buffer{}
 	fields := "*"
-	field := s.SqlField
+	field := s._field
 	length := len(field)
 	if length > 0 {
 		fields = strings.Join(field, ", ")
 	}
-	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", fields, s.SqlTable.Result()))
-	if len(s.SqlTable.Args) > 0 {
-		args = append(args, s.SqlTable.Args...)
+	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", fields, s._table.Result()))
+	if len(s._table.Args) > 0 {
+		args = append(args, s._table.Args...)
 	}
-	length = len(s.SqlJoin)
+	length = len(s._join)
 	for i := 0; i < length; i++ {
-		key, val := s.SqlJoin[i].Result()
+		key, val := s._join[i].Result()
 		buf.WriteString(fmt.Sprintf(" %s", key))
 		args = append(args, val...)
 	}
-	if s.SqlWhere != nil {
-		key, val := s.SqlWhere.Result()
+	if s._where != nil {
+		key, val := s._where.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
 			args = append(args, val...)
 		}
 	}
-	length = len(s.SqlGroupBy)
+	length = len(s._group)
 	if length > 0 {
-		groupBys := strings.Join(s.SqlGroupBy, ", ")
+		groupBys := strings.Join(s._group, ", ")
 		buf.WriteString(fmt.Sprintf(" GROUP BY %s", groupBys))
 	}
-	if s.SqlHaving != nil {
-		key, val := s.SqlHaving.Result()
+	if s._having != nil {
+		key, val := s._having.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" HAVING %s", key))
 			args = append(args, val...)
 		}
 	}
-	if s.SqlOrder != nil {
-		buf.WriteString(fmt.Sprintf(" ORDER BY %s", s.SqlOrder.Result()))
+	if s._order != nil {
+		buf.WriteString(fmt.Sprintf(" ORDER BY %s", s._order.Result()))
 	}
-	if s.SqlLimit > 0 {
-		buf.WriteString(fmt.Sprintf(" LIMIT %d", s.SqlLimit))
-		if s.SqlOffset > 0 {
-			buf.WriteString(fmt.Sprintf(" OFFSET %d", s.SqlOffset))
+	if s._limit > 0 {
+		buf.WriteString(fmt.Sprintf(" LIMIT %d", s._limit))
+		if s._offset > 0 {
+			buf.WriteString(fmt.Sprintf(" OFFSET %d", s._offset))
 		}
 	}
 	prepare = buf.String()
@@ -276,23 +280,23 @@ func (s *Selector) SqlSelect() (prepare string, args []interface{}) {
 func (s *Selector) SqlCount() (prepare string, args []interface{}) {
 	buf := &bytes.Buffer{}
 	fields := "COUNT(*)"
-	field := s.SqlField
+	field := s._field
 	length := len(field)
 	if length > 0 {
 		fields = field[0]
 	}
-	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", fields, s.SqlTable.Result()))
-	if len(s.SqlTable.Args) > 0 {
-		args = append(args, s.SqlTable.Args...)
+	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", fields, s._table.Result()))
+	if len(s._table.Args) > 0 {
+		args = append(args, s._table.Args...)
 	}
-	length = len(s.SqlJoin)
+	length = len(s._join)
 	for i := 0; i < length; i++ {
-		key, val := s.SqlJoin[i].Result()
+		key, val := s._join[i].Result()
 		buf.WriteString(fmt.Sprintf(" %s", key))
 		args = append(args, val...)
 	}
-	if s.SqlWhere != nil {
-		key, val := s.SqlWhere.Result()
+	if s._where != nil {
+		key, val := s._where.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
 		}
