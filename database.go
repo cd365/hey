@@ -242,3 +242,115 @@ func PreparePostgresql(prepare string) string {
 	}
 	return prepare
 }
+
+func Field(field ...string) []string {
+	return field
+}
+
+func Value(value ...interface{}) []interface{} {
+	return value
+}
+
+type Insert struct {
+	db    *Way
+	table string
+	field []string
+	value []interface{}
+}
+
+func NewInsert(db *Way) *Insert {
+	return &Insert{db: db}
+}
+
+func (s *Insert) Table(table string) *Insert {
+	s.table = table
+	return s
+}
+
+func (s *Insert) Field(field string, value interface{}) *Insert {
+	s.field = append(s.field, field)
+	s.value = append(s.value, value)
+	return s
+}
+
+func (s *Insert) Insert() (int64, error) {
+	prepare, args := SqlInsert(s.table, s.field, s.value)
+	return s.db.Exec(prepare, args...)
+}
+
+func (s *Insert) InsertAll(field []string, value ...[]interface{}) (int64, error) {
+	prepare, args := SqlInsert(s.table, field, value...)
+	return s.db.Exec(prepare, args...)
+}
+
+type Delete struct {
+	db    *Way
+	table string
+}
+
+func NewDelete(db *Way) *Delete {
+	return &Delete{db: db}
+}
+
+func (s *Delete) Table(table string) *Delete {
+	s.table = table
+	return s
+}
+
+func (s *Delete) Delete(where Filter) (int64, error) {
+	prepare, args := SqlDelete(s.table, where)
+	return s.db.Exec(prepare, args...)
+}
+
+type Update struct {
+	db      *Way
+	table   string
+	express []string
+	value   []interface{}
+}
+
+func NewUpdate(db *Way) *Update {
+	return &Update{db: db}
+}
+
+func (s *Update) Table(table string) *Update {
+	s.table = table
+	return s
+}
+
+func (s *Update) Express(express string, value ...interface{}) *Update {
+	s.express = append(s.express, express)
+	s.value = append(s.value, value...)
+	return s
+}
+
+func (s *Update) Field(field string, value interface{}) *Update {
+	s.express = append(s.express, fmt.Sprintf("%s = %s", field, Placeholder))
+	s.value = append(s.value, value)
+	return s
+}
+
+func (s *Update) Update(where Filter) (int64, error) {
+	length := len(s.express)
+	if length == 0 {
+		return 0, nil
+	}
+	buf := &bytes.Buffer{}
+	buf.WriteString(fmt.Sprintf("UPDATE %s SET", s.table))
+	for i := 0; i < length; i++ {
+		if i != 0 {
+			buf.WriteString(",")
+		}
+		buf.WriteString(fmt.Sprintf(" %s", s.express[i]))
+	}
+	args := s.value
+	if where != nil {
+		whereStr, whereArgs := where.Result()
+		if whereStr != "" {
+			buf.WriteString(fmt.Sprintf(" WHERE %s", whereStr))
+			args = append(args, whereArgs...)
+		}
+	}
+	prepare := buf.String()
+	return s.db.Exec(prepare, args...)
+}

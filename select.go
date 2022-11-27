@@ -7,9 +7,9 @@ import (
 )
 
 type Table struct {
-	Table string
-	Alias string
-	Args  []interface{}
+	Table string        // query table string
+	Alias string        // alias name of single table name
+	Args  []interface{} // args of table, if table is sql statement
 }
 
 func (s *Table) Result() (table string) {
@@ -84,219 +84,198 @@ func (s *Order) Result() string {
 	return strings.Join(s.Order, ", ")
 }
 
-type Selector struct {
-	_table  *Table
-	_where  Filter
-	_field  []string
-	_join   []*Join
-	_group  []string
-	_having Filter
-	_order  *Order
-	_limit  int64
-	_offset int64
+type Select struct {
+	table  *Table
+	field  []string
+	where  Filter
+	join   []*Join
+	group  []string
+	having Filter
+	order  *Order
+	limit  int64
+	offset int64
 }
 
-func NewSelector() *Selector {
-	return &Selector{}
+func NewSelect() *Select {
+	return &Select{}
 }
 
-func (s *Selector) Clear() {
-	s._table = nil
-	s._field = nil
-	s._join = nil
-	s._where = nil
-	s._group = nil
-	s._having = nil
-	s._order = nil
-	s._limit = 0
-	s._offset = 0
-}
-
-func (s *Selector) Table(table string, args ...interface{}) *Selector {
-	if s._table == nil {
-		s._table = &Table{}
+func (s *Select) Table(table string, args ...interface{}) *Select {
+	if s.table == nil {
+		s.table = &Table{}
 	}
-	s._table.Table = table
-	s._table.Args = args
+	s.table.Table = table
+	s.table.Args = args
 	return s
 }
 
-func (s *Selector) Field(field ...string) *Selector {
-	s._field = field
+func (s *Select) Field(field ...string) *Select {
+	s.field = field
 	return s
 }
 
-func (s *Selector) FieldValue() []string {
-	return s._field
-}
-
-func (s *Selector) Where(where Filter) *Selector {
-	s._where = where
+func (s *Select) Where(where Filter) *Select {
+	s.where = where
 	return s
 }
 
-func (s *Selector) Alias(alias string) *Selector {
-	if s._table == nil {
-		s._table = &Table{}
+func (s *Select) Alias(alias string) *Select {
+	if s.table == nil {
+		s.table = &Table{}
 	}
-	s._table.Alias = alias
+	s.table.Alias = alias
 	return s
 }
 
-func (s *Selector) join(model JoinType, table string, alias string, on string, and ...Filter) *Selector {
+func (s *Select) joins(model JoinType, table string, alias string, on string, and ...Filter) *Select {
 	if model == "" || table == "" || on == "" {
 		return s
 	}
-	if s._join == nil {
-		s._join = make([]*Join, 0)
+	if s.join == nil {
+		s.join = make([]*Join, 0)
 	}
-	with := NewFilter()
+	logic := NewFilter()
 	length := len(and)
 	var prepare string
 	var args []interface{}
 	for i := 0; i < length; i++ {
 		prepare, args = and[i].Result()
-		with.And(prepare, args)
+		logic.And(prepare, args...)
 	}
-	s._join = append(s._join, &Join{
+	s.join = append(s.join, &Join{
 		Model: model,
 		Table: table,
 		Alias: alias,
 		On:    on,
-		And:   with,
+		And:   logic,
 	})
 	return s
 }
 
-func (s *Selector) Join(join *Join) *Selector {
-	if join != nil {
-		s.join(join.Model, join.Table, join.Alias, join.On, join.And)
+func (s *Select) InnerJoin(table string, alias string, on string, filter ...Filter) *Select {
+	return s.joins(InnerJoin, table, alias, on, filter...)
+}
+
+func (s *Select) LeftJoin(table string, alias string, on string, filter ...Filter) *Select {
+	return s.joins(LeftJoin, table, alias, on, filter...)
+}
+
+func (s *Select) RightJoin(table string, alias string, on string, filter ...Filter) *Select {
+	return s.joins(RightJoin, table, alias, on, filter...)
+}
+
+func (s *Select) FullJoin(table string, alias string, on string, filter ...Filter) *Select {
+	return s.joins(FullJoin, table, alias, on, filter...)
+}
+
+func (s *Select) Group(group ...string) *Select {
+	s.group = group
+	return s
+}
+
+func (s *Select) Having(having Filter) *Select {
+	s.having = having
+	return s
+}
+
+func (s *Select) Asc(columns ...string) *Select {
+	if s.order == nil {
+		s.order = &Order{}
 	}
+	s.order.Asc(columns...)
 	return s
 }
 
-func (s *Selector) InnerJoin(table string, alias string, on string, filter ...Filter) *Selector {
-	return s.join(InnerJoin, table, alias, on, filter...)
-}
-
-func (s *Selector) LeftJoin(table string, alias string, on string, filter ...Filter) *Selector {
-	return s.join(LeftJoin, table, alias, on, filter...)
-}
-
-func (s *Selector) RightJoin(table string, alias string, on string, filter ...Filter) *Selector {
-	return s.join(RightJoin, table, alias, on, filter...)
-}
-
-func (s *Selector) FullJoin(table string, alias string, on string, filter ...Filter) *Selector {
-	return s.join(FullJoin, table, alias, on, filter...)
-}
-
-func (s *Selector) Group(group ...string) *Selector {
-	s._group = group
-	return s
-}
-
-func (s *Selector) Having(having Filter) *Selector {
-	s._having = having
-	return s
-}
-
-func (s *Selector) Asc(columns ...string) *Selector {
-	if s._order == nil {
-		s._order = &Order{}
+func (s *Select) Desc(columns ...string) *Select {
+	if s.order == nil {
+		s.order = &Order{}
 	}
-	s._order.Asc(columns...)
+	s.order.Desc(columns...)
 	return s
 }
 
-func (s *Selector) Desc(columns ...string) *Selector {
-	if s._order == nil {
-		s._order = &Order{}
-	}
-	s._order.Desc(columns...)
+func (s *Select) Limit(limit int64) *Select {
+	s.limit = limit
 	return s
 }
 
-func (s *Selector) Limit(limit int64) *Selector {
-	s._limit = limit
+func (s *Select) Offset(offset int64) *Select {
+	s.offset = offset
 	return s
 }
 
-func (s *Selector) Offset(offset int64) *Selector {
-	s._offset = offset
-	return s
-}
-
-func (s *Selector) SqlSelect() (prepare string, args []interface{}) {
+func (s *Select) SqlSelect() (prepare string, args []interface{}) {
 	buf := &bytes.Buffer{}
-	fields := "*"
-	field := s._field
+	columns := "*"
+	field := s.field
 	length := len(field)
 	if length > 0 {
-		fields = strings.Join(field, ", ")
+		columns = strings.Join(field, ", ")
 	}
-	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", fields, s._table.Result()))
-	if len(s._table.Args) > 0 {
-		args = append(args, s._table.Args...)
+	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", columns, s.table.Result()))
+	if s.table.Args != nil {
+		args = append(args, s.table.Args...)
 	}
-	length = len(s._join)
+	length = len(s.join)
 	for i := 0; i < length; i++ {
-		key, val := s._join[i].Result()
+		key, val := s.join[i].Result()
 		buf.WriteString(fmt.Sprintf(" %s", key))
 		args = append(args, val...)
 	}
-	if s._where != nil {
-		key, val := s._where.Result()
+	if s.where != nil {
+		key, val := s.where.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
 			args = append(args, val...)
 		}
 	}
-	length = len(s._group)
+	length = len(s.group)
 	if length > 0 {
-		groupBys := strings.Join(s._group, ", ")
+		groupBys := strings.Join(s.group, ", ")
 		buf.WriteString(fmt.Sprintf(" GROUP BY %s", groupBys))
 	}
-	if s._having != nil {
-		key, val := s._having.Result()
+	if s.having != nil {
+		key, val := s.having.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" HAVING %s", key))
 			args = append(args, val...)
 		}
 	}
-	if s._order != nil {
-		buf.WriteString(fmt.Sprintf(" ORDER BY %s", s._order.Result()))
+	if s.order != nil {
+		buf.WriteString(fmt.Sprintf(" ORDER BY %s", s.order.Result()))
 	}
-	if s._limit > 0 {
-		buf.WriteString(fmt.Sprintf(" LIMIT %d", s._limit))
-		if s._offset > 0 {
-			buf.WriteString(fmt.Sprintf(" OFFSET %d", s._offset))
+	if s.limit > 0 {
+		buf.WriteString(fmt.Sprintf(" LIMIT %d", s.limit))
+		if s.offset > 0 {
+			buf.WriteString(fmt.Sprintf(" OFFSET %d", s.offset))
 		}
 	}
 	prepare = buf.String()
 	return
 }
 
-func (s *Selector) SqlCount() (prepare string, args []interface{}) {
+func (s *Select) SqlCount(count ...string) (prepare string, args []interface{}) {
+	column := "COUNT(*)"
+	length := len(count)
+	for i := length - 1; i >= 0; i-- {
+		if count[i] != "" {
+			column = count[i]
+			break
+		}
+	}
 	buf := &bytes.Buffer{}
-	fields := "COUNT(*)"
-	field := s._field
-	length := len(field)
-	if length > 0 {
-		fields = field[0]
+	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", column, s.table.Result()))
+	if len(s.table.Args) > 0 {
+		args = append(args, s.table.Args...)
 	}
-	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", fields, s._table.Result()))
-	if len(s._table.Args) > 0 {
-		args = append(args, s._table.Args...)
-	}
-	length = len(s._join)
+	length = len(s.join)
 	for i := 0; i < length; i++ {
-		key, val := s._join[i].Result()
+		key, val := s.join[i].Result()
 		buf.WriteString(fmt.Sprintf(" %s", key))
 		args = append(args, val...)
 	}
-	if s._where != nil {
-		key, val := s._where.Result()
+	if s.where != nil {
+		key, val := s.where.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
 		}
