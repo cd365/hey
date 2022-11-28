@@ -85,6 +85,27 @@ func (s *Way) Idle() bool {
 	return s.tx == nil
 }
 
+func (s *Way) Transaction(transaction func() (err error)) (err error) {
+	if transaction == nil {
+		return
+	}
+	if s.Idle() {
+		err = s.Begin()
+		if err != nil {
+			return
+		}
+		defer func() {
+			if err != nil {
+				_ = s.Rollback()
+			} else {
+				_ = s.Commit()
+			}
+		}()
+	}
+	err = transaction()
+	return
+}
+
 func (s *Way) QueryContext(ctx context.Context, result func(rows *sql.Rows) error, prepare string, args ...interface{}) (err error) {
 	if result == nil || prepare == "" {
 		return
@@ -318,6 +339,19 @@ func (s *Update) Table(table string) *Update {
 	return s
 }
 
+func (s *Update) Assign(field []string, value []interface{}) *Update {
+	length1, length2 := len(field), len(value)
+	if length1 != length2 || length1 == 0 {
+		return s
+	}
+	for key, val := range field {
+		field[key] = fmt.Sprintf("%s = %s", val, Placeholder)
+	}
+	s.express = append(s.express, field...)
+	s.value = append(s.value, value...)
+	return s
+}
+
 func (s *Update) Express(express string, value ...interface{}) *Update {
 	s.express = append(s.express, express)
 	s.value = append(s.value, value...)
@@ -325,7 +359,8 @@ func (s *Update) Express(express string, value ...interface{}) *Update {
 }
 
 func (s *Update) Field(field string, value interface{}) *Update {
-	s.express = append(s.express, fmt.Sprintf("%s = %s", field, Placeholder))
+	field = fmt.Sprintf("%s = %s", field, Placeholder)
+	s.express = append(s.express, field)
 	s.value = append(s.value, value)
 	return s
 }
