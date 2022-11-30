@@ -21,6 +21,7 @@ type Way struct {
 	db      *sql.DB
 	tx      *sql.Tx
 	prepare func(prepare string) (result string)
+	script  func(err error, prepare string, args []interface{})
 }
 
 func NewWay(db *sql.DB) *Way {
@@ -107,11 +108,16 @@ func (s *Way) Transaction(transaction func() (err error)) (err error) {
 }
 
 func (s *Way) QueryContext(ctx context.Context, result func(rows *sql.Rows) error, prepare string, args ...interface{}) (err error) {
+	if s.prepare != nil {
+		prepare = s.prepare(prepare)
+	}
 	if result == nil || prepare == "" {
 		return
 	}
-	if s.prepare != nil {
-		prepare = s.prepare(prepare)
+	if s.script != nil {
+		defer func() {
+			s.script(err, prepare, args)
+		}()
 	}
 	var stmt *sql.Stmt
 	if s.tx != nil {
@@ -134,11 +140,16 @@ func (s *Way) QueryContext(ctx context.Context, result func(rows *sql.Rows) erro
 }
 
 func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (rowsAffected int64, err error) {
+	if s.prepare != nil {
+		prepare = s.prepare(prepare)
+	}
 	if prepare == "" {
 		return
 	}
-	if s.prepare != nil {
-		prepare = s.prepare(prepare)
+	if s.script != nil {
+		defer func() {
+			s.script(err, prepare, args)
+		}()
 	}
 	var stmt *sql.Stmt
 	if s.tx != nil {
@@ -170,6 +181,12 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 func (s *Way) Prepare(prepare func(prepare string) (result string)) {
 	if prepare != nil {
 		s.prepare = prepare
+	}
+}
+
+func (s *Way) Script(fn func(err error, prepare string, args []interface{})) {
+	if fn != nil {
+		s.script = fn
 	}
 }
 
