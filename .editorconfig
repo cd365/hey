@@ -1,7 +1,6 @@
 root = true
 
 [*.go]
-end_of_line = lf
 charset = utf8
 indent_style = tab
 indent_size = 4
