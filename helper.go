@@ -385,3 +385,69 @@ func StructUpdate(a interface{}, b interface{}, ignore ...string) (field []strin
 	}
 	return
 }
+
+// StructFuncByName build a function to get the value of a struct property based on its name
+func StructFuncByName(sss interface{}, name string) (result func(sss interface{}) interface{}) {
+	if sss == nil || name == "" {
+		return
+	}
+	ptr := false
+	rtp := reflect.TypeOf(sss)
+	kind := rtp.Kind()
+	if kind == reflect.Ptr {
+		ptr = true
+		rtp = rtp.Elem()
+		kind = rtp.Kind()
+	}
+	if kind != reflect.Struct {
+		return
+	}
+	length := rtp.NumField()
+	for i := 0; i < length; i++ {
+		if rtp.Field(i).Name != name {
+			continue
+		}
+		result = func(sss interface{}) interface{} {
+			if ptr {
+				return reflect.ValueOf(sss).Elem().Field(i).Interface()
+			}
+			return reflect.ValueOf(sss).Field(i).Interface()
+		}
+		break
+	}
+	return
+}
+
+// StructFuncByQueryField construct a function to obtain the corresponding attribute value according to the `db` tag value of the structure
+func StructFuncByQueryField(sss interface{}, field string) (result func(sss interface{}) interface{}) {
+	if sss == nil || field == "" {
+		return
+	}
+	ptr := false
+	rtp := reflect.TypeOf(sss)
+	kind := rtp.Kind()
+	if kind == reflect.Ptr {
+		ptr = true
+		rtp = rtp.Elem()
+		kind = rtp.Kind()
+	}
+	if kind != reflect.Struct {
+		return
+	}
+	length := rtp.NumField()
+	val := ""
+	for i := 0; i < length; i++ {
+		val = rtp.Field(i).Tag.Get(ScanTagName)
+		if val == "" || val == "-" || val != field {
+			continue
+		}
+		result = func(sss interface{}) interface{} {
+			if ptr {
+				return reflect.ValueOf(sss).Elem().Field(i).Interface()
+			}
+			return reflect.ValueOf(sss).Field(i).Interface()
+		}
+		break
+	}
+	return
+}
