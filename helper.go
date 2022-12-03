@@ -386,7 +386,7 @@ func StructUpdate(a interface{}, b interface{}, ignore ...string) (field []strin
 	return
 }
 
-// StructFuncByName build a function to get the value of a struct property based on its name
+// StructFuncByName build a function to get the value of a struct property based on its name; (*AnyStruct, attributeName) => func(*AnyStruct, string) | (AnyStruct, attributeName) => func(AnyStruct, string)
 func StructFuncByName(sss interface{}, name string) (result func(sss interface{}) interface{}) {
 	if sss == nil || name == "" {
 		return
@@ -418,7 +418,7 @@ func StructFuncByName(sss interface{}, name string) (result func(sss interface{}
 	return
 }
 
-// StructFuncByQueryField construct a function to obtain the corresponding attribute value according to the `db` tag value of the structure
+// StructFuncByQueryField construct a function to obtain the corresponding attribute value according to the `ScanTagName` tag value of the structure; (*AnyStruct, tagValue) => func(*AnyStruct, string) | (AnyStruct, tagValue) => func(AnyStruct, string)
 func StructFuncByQueryField(sss interface{}, field string) (result func(sss interface{}) interface{}) {
 	if sss == nil || field == "" {
 		return
@@ -448,6 +448,218 @@ func StructFuncByQueryField(sss interface{}, field string) (result func(sss inte
 			return reflect.ValueOf(sss).Field(i).Interface()
 		}
 		break
+	}
+	return
+}
+
+// SliceStructAttributeValueByName get the attributes in the slice object as a new slice; []*AnyStruct => []interface{}, []AnyStruct => []interface{}
+func SliceStructAttributeValueByName(sss interface{}, name string) (result []interface{}) {
+	result = make([]interface{}, 0)
+	if sss == nil || name == "" {
+		return
+	}
+	ptr := false
+	rtp := reflect.TypeOf(sss)
+	kind := rtp.Kind()
+	if kind == reflect.Ptr {
+		ptr = true
+		rtp = rtp.Elem()
+		kind = rtp.Kind()
+	}
+	if kind != reflect.Slice {
+		return
+	}
+	rvl := reflect.ValueOf(sss)
+	if ptr {
+		rvl = rvl.Elem()
+	}
+	var call func(sss interface{}) interface{}
+	var item interface{}
+	length := rvl.Len()
+	for i := 0; i < length; i++ {
+		item = rvl.Index(i).Interface()
+		if call == nil {
+			call = StructFuncByName(item, name)
+		}
+		if call != nil {
+			result = append(result, call(item))
+		}
+	}
+	return
+}
+
+// SliceStructAttributeValueByQueryField get the attributes in the slice object as a new slice using struct `ScanTagName` tag value; []*AnyStruct => []interface{}, []AnyStruct => []interface{}
+func SliceStructAttributeValueByQueryField(sss interface{}, field string) (result []interface{}) {
+	result = make([]interface{}, 0)
+	if sss == nil || field == "" {
+		return
+	}
+	ptr := false
+	rtp := reflect.TypeOf(sss)
+	kind := rtp.Kind()
+	if kind == reflect.Ptr {
+		ptr = true
+		rtp = rtp.Elem()
+		kind = rtp.Kind()
+	}
+	if kind != reflect.Slice {
+		return
+	}
+	rvl := reflect.ValueOf(sss)
+	if ptr {
+		rvl = rvl.Elem()
+	}
+	var call func(sss interface{}) interface{}
+	var item interface{}
+	length := rvl.Len()
+	for i := 0; i < length; i++ {
+		item = rvl.Index(i).Interface()
+		if call == nil {
+			call = StructFuncByQueryField(item, field)
+		}
+		if call != nil {
+			result = append(result, call(item))
+		}
+	}
+	return
+}
+
+// SliceToMapByName slice to map uses the slice attribute name as the key name of the map; []*AnyStruct => map[interface{}]*AnyStruct, []AnyStruct => map[interface{}]AnyStruct
+func SliceToMapByName(sss interface{}, name string, result interface{}) {
+	if sss == nil || name == "" || result == nil {
+		return
+	}
+	ptr := false
+	rtp := reflect.TypeOf(sss)
+	kind := rtp.Kind()
+	if kind == reflect.Ptr {
+		ptr = true
+		rtp = rtp.Elem()
+		kind = rtp.Kind()
+	}
+	if kind != reflect.Slice {
+		return
+	}
+	ptr1 := false
+	rtp1 := reflect.TypeOf(result)
+	kind1 := rtp1.Kind()
+	if kind1 == reflect.Ptr {
+		ptr1 = true
+		rtp1 = rtp1.Elem()
+		kind1 = rtp1.Kind()
+	}
+	if kind1 != reflect.Map {
+		return
+	}
+	if rtp.Elem().Kind() != rtp1.Elem().Kind() {
+		return
+	}
+	if rtp.Elem().Kind() == reflect.Ptr {
+		// package.Type
+		if rtp.Elem().Elem().String() != rtp1.Elem().Elem().String() {
+			return
+		}
+	} else {
+		// package.Type
+		if rtp.Elem().String() != rtp1.Elem().String() {
+			return
+		}
+	}
+	rvl := reflect.ValueOf(sss)
+	if ptr {
+		rvl = rvl.Elem()
+	}
+	var call func(sss interface{}) interface{}
+	var item interface{}
+	length := rvl.Len()
+	keyValue := make(map[interface{}]interface{}, length)
+	for i := 0; i < length; i++ {
+		item = rvl.Index(i).Interface()
+		if call == nil {
+			call = StructFuncByName(item, name)
+		}
+		if call != nil {
+			keyValue[call(item)] = item
+		}
+	}
+	var rvl1 reflect.Value
+	if ptr1 {
+		rvl1 = reflect.ValueOf(result).Elem()
+	} else {
+		rvl1 = reflect.ValueOf(result)
+	}
+	for key, val := range keyValue {
+		rvl1.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(val))
+	}
+	return
+}
+
+// SliceToMapByQueryField slice to map uses the `ScanTagName` tag value of the slice attribute as the key name of the map; []*AnyStruct => map[interface{}]*AnyStruct, []AnyStruct => map[interface{}]AnyStruct
+func SliceToMapByQueryField(sss interface{}, field string, result interface{}) {
+	if sss == nil || field == "" || field == "-" || result == nil {
+		return
+	}
+	ptr := false
+	rtp := reflect.TypeOf(sss)
+	kind := rtp.Kind()
+	if kind == reflect.Ptr {
+		ptr = true
+		rtp = rtp.Elem()
+		kind = rtp.Kind()
+	}
+	if kind != reflect.Slice {
+		return
+	}
+	ptr1 := false
+	rtp1 := reflect.TypeOf(result)
+	kind1 := rtp1.Kind()
+	if kind1 == reflect.Ptr {
+		ptr1 = true
+		rtp1 = rtp1.Elem()
+		kind1 = rtp1.Kind()
+	}
+	if kind1 != reflect.Map {
+		return
+	}
+	if rtp.Elem().Kind() != rtp1.Elem().Kind() {
+		return
+	}
+	if rtp.Elem().Kind() == reflect.Ptr {
+		// package.Type
+		if rtp.Elem().Elem().String() != rtp1.Elem().Elem().String() {
+			return
+		}
+	} else {
+		// package.Type
+		if rtp.Elem().String() != rtp1.Elem().String() {
+			return
+		}
+	}
+	rvl := reflect.ValueOf(sss)
+	if ptr {
+		rvl = rvl.Elem()
+	}
+	var call func(sss interface{}) interface{}
+	var item interface{}
+	length := rvl.Len()
+	keyValue := make(map[interface{}]interface{}, length)
+	for i := 0; i < length; i++ {
+		item = rvl.Index(i).Interface()
+		if call == nil {
+			call = StructFuncByQueryField(item, field)
+		}
+		if call != nil {
+			keyValue[call(item)] = item
+		}
+	}
+	var rvl1 reflect.Value
+	if ptr1 {
+		rvl1 = reflect.ValueOf(result).Elem()
+	} else {
+		rvl1 = reflect.ValueOf(result)
+	}
+	for key, val := range keyValue {
+		rvl1.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(val))
 	}
 	return
 }
