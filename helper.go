@@ -245,10 +245,10 @@ func RowsAny(rows *sql.Rows) ([]map[string]interface{}, error) {
 }
 
 // RemoveDuplicate remove duplicate
-func RemoveDuplicate(items ...interface{}) (result []interface{}) {
+func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 	has := make(map[interface{}]*struct{})
 	ok := false
-	for _, item := range items {
+	for _, item := range dynamic {
 		if _, ok = has[item]; ok {
 			continue
 		}
@@ -258,18 +258,18 @@ func RemoveDuplicate(items ...interface{}) (result []interface{}) {
 	return
 }
 
-// RemoveItems remove items
-func RemoveItems(items []interface{}, opt ...interface{}) (result []interface{}) {
+// RemoveSpecified remove specified element
+func RemoveSpecified(origin []interface{}, specified ...interface{}) (result []interface{}) {
 	remove := make(map[interface{}]*struct{})
-	for _, v := range opt {
+	for _, v := range specified {
 		remove[v] = &struct{}{}
 	}
 	length := len(remove)
 	if length == 0 {
-		result = items
+		result = origin
 		return
 	}
-	for _, v := range items {
+	for _, v := range origin {
 		if _, ok := remove[v]; !ok {
 			result = append(result, v)
 		}
@@ -278,8 +278,8 @@ func RemoveItems(items []interface{}, opt ...interface{}) (result []interface{})
 }
 
 // SliceAnyToInt []interface{} => []int
-func SliceAnyToInt(items ...interface{}) (result []int) {
-	for _, item := range items {
+func SliceAnyToInt(dynamic ...interface{}) (result []int) {
+	for _, item := range dynamic {
 		if val, ok := item.(int); ok {
 			result = append(result, val)
 		}
@@ -288,8 +288,8 @@ func SliceAnyToInt(items ...interface{}) (result []int) {
 }
 
 // SliceAnyToInt64 []interface{} => []int64
-func SliceAnyToInt64(items ...interface{}) (result []int64) {
-	for _, item := range items {
+func SliceAnyToInt64(dynamic ...interface{}) (result []int64) {
+	for _, item := range dynamic {
 		if val, ok := item.(int64); ok {
 			result = append(result, val)
 		}
@@ -298,8 +298,8 @@ func SliceAnyToInt64(items ...interface{}) (result []int64) {
 }
 
 // SliceAnyToString []interface{} => []string
-func SliceAnyToString(items ...interface{}) (result []string) {
-	for _, item := range items {
+func SliceAnyToString(dynamic ...interface{}) (result []string) {
+	for _, item := range dynamic {
 		if val, ok := item.(string); ok {
 			result = append(result, val)
 		}
@@ -308,31 +308,31 @@ func SliceAnyToString(items ...interface{}) (result []string) {
 }
 
 // SliceIntToAny []int => []interface{}
-func SliceIntToAny(items ...int) (result []interface{}) {
-	length := len(items)
+func SliceIntToAny(dynamic ...int) (result []interface{}) {
+	length := len(dynamic)
 	result = make([]interface{}, length)
 	for i := 0; i < length; i++ {
-		result[i] = items[i]
+		result[i] = dynamic[i]
 	}
 	return
 }
 
 // SliceInt64ToAny []int64 => []interface{}
-func SliceInt64ToAny(items ...int64) (result []interface{}) {
-	length := len(items)
+func SliceInt64ToAny(dynamic ...int64) (result []interface{}) {
+	length := len(dynamic)
 	result = make([]interface{}, length)
 	for i := 0; i < length; i++ {
-		result[i] = items[i]
+		result[i] = dynamic[i]
 	}
 	return
 }
 
 // SliceStringToAny []string => []interface{}
-func SliceStringToAny(items ...string) (result []interface{}) {
-	length := len(items)
+func SliceStringToAny(dynamic ...string) (result []interface{}) {
+	length := len(dynamic)
 	result = make([]interface{}, length)
 	for i := 0; i < length; i++ {
-		result[i] = items[i]
+		result[i] = dynamic[i]
 	}
 	return
 }
@@ -466,12 +466,12 @@ func StructUpdate(a interface{}, b interface{}, ignore ...string) (field []strin
 }
 
 // StructFuncByName build a function to get the value of a struct property based on its name; (*AnyStruct, attributeName) => func(*AnyStruct, string) | (AnyStruct, attributeName) => func(AnyStruct, string)
-func StructFuncByName(sss interface{}, name string) (result func(sss interface{}) interface{}) {
-	if sss == nil || name == "" {
+func StructFuncByName(s interface{}, name string) (result func(s interface{}) interface{}) {
+	if s == nil || name == "" {
 		return
 	}
 	ptr := false
-	rtp := reflect.TypeOf(sss)
+	rtp := reflect.TypeOf(s)
 	kind := rtp.Kind()
 	if kind == reflect.Ptr {
 		ptr = true
@@ -486,11 +486,11 @@ func StructFuncByName(sss interface{}, name string) (result func(sss interface{}
 		if rtp.Field(i).Name != name {
 			continue
 		}
-		result = func(sss interface{}) interface{} {
+		result = func(s interface{}) interface{} {
 			if ptr {
-				return reflect.ValueOf(sss).Elem().Field(i).Interface()
+				return reflect.ValueOf(s).Elem().Field(i).Interface()
 			}
-			return reflect.ValueOf(sss).Field(i).Interface()
+			return reflect.ValueOf(s).Field(i).Interface()
 		}
 		break
 	}
@@ -498,12 +498,12 @@ func StructFuncByName(sss interface{}, name string) (result func(sss interface{}
 }
 
 // StructFuncByQueryField construct a function to obtain the corresponding attribute value according to the `ScanTagName` tag value of the structure; (*AnyStruct, tagValue) => func(*AnyStruct, string) | (AnyStruct, tagValue) => func(AnyStruct, string)
-func StructFuncByQueryField(sss interface{}, field string) (result func(sss interface{}) interface{}) {
-	if sss == nil || field == "" {
+func StructFuncByQueryField(s interface{}, field string) (result func(s interface{}) interface{}) {
+	if s == nil || field == "" {
 		return
 	}
 	ptr := false
-	rtp := reflect.TypeOf(sss)
+	rtp := reflect.TypeOf(s)
 	kind := rtp.Kind()
 	if kind == reflect.Ptr {
 		ptr = true
@@ -520,11 +520,11 @@ func StructFuncByQueryField(sss interface{}, field string) (result func(sss inte
 		if val == "" || val == "-" || val != field {
 			continue
 		}
-		result = func(sss interface{}) interface{} {
+		result = func(s interface{}) interface{} {
 			if ptr {
-				return reflect.ValueOf(sss).Elem().Field(i).Interface()
+				return reflect.ValueOf(s).Elem().Field(i).Interface()
 			}
-			return reflect.ValueOf(sss).Field(i).Interface()
+			return reflect.ValueOf(s).Field(i).Interface()
 		}
 		break
 	}
