@@ -248,12 +248,12 @@ func RowsAny(rows *sql.Rows) ([]map[string]interface{}, error) {
 func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 	has := make(map[interface{}]*struct{})
 	ok := false
-	for _, item := range dynamic {
-		if _, ok = has[item]; ok {
+	for _, v := range dynamic {
+		if _, ok = has[v]; ok {
 			continue
 		}
-		has[item] = &struct{}{}
-		result = append(result, item)
+		has[v] = &struct{}{}
+		result = append(result, v)
 	}
 	return
 }
@@ -279,8 +279,8 @@ func RemoveSpecified(origin []interface{}, specified ...interface{}) (result []i
 
 // SliceAnyToInt []interface{} => []int
 func SliceAnyToInt(dynamic ...interface{}) (result []int) {
-	for _, item := range dynamic {
-		if val, ok := item.(int); ok {
+	for _, v := range dynamic {
+		if val, ok := v.(int); ok {
 			result = append(result, val)
 		}
 	}
@@ -289,8 +289,8 @@ func SliceAnyToInt(dynamic ...interface{}) (result []int) {
 
 // SliceAnyToInt64 []interface{} => []int64
 func SliceAnyToInt64(dynamic ...interface{}) (result []int64) {
-	for _, item := range dynamic {
-		if val, ok := item.(int64); ok {
+	for _, v := range dynamic {
+		if val, ok := v.(int64); ok {
 			result = append(result, val)
 		}
 	}
@@ -299,8 +299,8 @@ func SliceAnyToInt64(dynamic ...interface{}) (result []int64) {
 
 // SliceAnyToString []interface{} => []string
 func SliceAnyToString(dynamic ...interface{}) (result []string) {
-	for _, item := range dynamic {
-		if val, ok := item.(string); ok {
+	for _, v := range dynamic {
+		if val, ok := v.(string); ok {
 			result = append(result, val)
 		}
 	}
@@ -553,15 +553,15 @@ func SliceStructAttributeValueByName(sss interface{}, name string) (result []int
 		rvl = rvl.Elem()
 	}
 	var call func(sss interface{}) interface{}
-	var item interface{}
+	var f interface{}
 	length := rvl.Len()
 	for i := 0; i < length; i++ {
-		item = rvl.Index(i).Interface()
+		f = rvl.Index(i).Interface()
 		if call == nil {
-			call = StructFuncByName(item, name)
+			call = StructFuncByName(f, name)
 		}
 		if call != nil {
-			result = append(result, call(item))
+			result = append(result, call(f))
 		}
 	}
 	return
@@ -589,15 +589,15 @@ func SliceStructAttributeValueByQueryField(sss interface{}, field string) (resul
 		rvl = rvl.Elem()
 	}
 	var call func(sss interface{}) interface{}
-	var item interface{}
+	var f interface{}
 	length := rvl.Len()
 	for i := 0; i < length; i++ {
-		item = rvl.Index(i).Interface()
+		f = rvl.Index(i).Interface()
 		if call == nil {
-			call = StructFuncByQueryField(item, field)
+			call = StructFuncByQueryField(f, field)
 		}
 		if call != nil {
-			result = append(result, call(item))
+			result = append(result, call(f))
 		}
 	}
 	return
@@ -649,16 +649,16 @@ func SliceToMapByName(sss interface{}, name string, result interface{}) {
 		rvl = rvl.Elem()
 	}
 	var call func(sss interface{}) interface{}
-	var item interface{}
+	var f interface{}
 	length := rvl.Len()
 	keyValue := make(map[interface{}]interface{}, length)
 	for i := 0; i < length; i++ {
-		item = rvl.Index(i).Interface()
+		f = rvl.Index(i).Interface()
 		if call == nil {
-			call = StructFuncByName(item, name)
+			call = StructFuncByName(f, name)
 		}
 		if call != nil {
-			keyValue[call(item)] = item
+			keyValue[call(f)] = f
 		}
 	}
 	var rvl1 reflect.Value
@@ -719,16 +719,16 @@ func SliceToMapByQueryField(sss interface{}, field string, result interface{}) {
 		rvl = rvl.Elem()
 	}
 	var call func(sss interface{}) interface{}
-	var item interface{}
+	var f interface{}
 	length := rvl.Len()
 	keyValue := make(map[interface{}]interface{}, length)
 	for i := 0; i < length; i++ {
-		item = rvl.Index(i).Interface()
+		f = rvl.Index(i).Interface()
 		if call == nil {
-			call = StructFuncByQueryField(item, field)
+			call = StructFuncByQueryField(f, field)
 		}
 		if call != nil {
-			keyValue[call(item)] = item
+			keyValue[call(f)] = f
 		}
 	}
 	var rvl1 reflect.Value
