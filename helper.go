@@ -258,6 +258,25 @@ func RemoveDuplicate(items ...interface{}) (result []interface{}) {
 	return
 }
 
+// RemoveItems remove items
+func RemoveItems(items []interface{}, opt ...interface{}) (result []interface{}) {
+	remove := make(map[interface{}]*struct{})
+	for _, v := range opt {
+		remove[v] = &struct{}{}
+	}
+	length := len(remove)
+	if length == 0 {
+		result = items
+		return
+	}
+	for _, v := range items {
+		if _, ok := remove[v]; !ok {
+			result = append(result, v)
+		}
+	}
+	return
+}
+
 // SliceAnyToInt []interface{} => []int
 func SliceAnyToInt(items ...interface{}) (result []int) {
 	for _, item := range items {
