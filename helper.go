@@ -258,6 +258,66 @@ func RemoveDuplicate(items ...interface{}) (result []interface{}) {
 	return
 }
 
+// SliceAnyToInt []interface{} => []int
+func SliceAnyToInt(items ...interface{}) (result []int) {
+	for _, item := range items {
+		if val, ok := item.(int); ok {
+			result = append(result, val)
+		}
+	}
+	return
+}
+
+// SliceAnyToInt64 []interface{} => []int64
+func SliceAnyToInt64(items ...interface{}) (result []int64) {
+	for _, item := range items {
+		if val, ok := item.(int64); ok {
+			result = append(result, val)
+		}
+	}
+	return
+}
+
+// SliceAnyToString []interface{} => []string
+func SliceAnyToString(items ...interface{}) (result []string) {
+	for _, item := range items {
+		if val, ok := item.(string); ok {
+			result = append(result, val)
+		}
+	}
+	return
+}
+
+// SliceIntToAny []int => []interface{}
+func SliceIntToAny(items ...int) (result []interface{}) {
+	length := len(items)
+	result = make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		result[i] = items[i]
+	}
+	return
+}
+
+// SliceInt64ToAny []int64 => []interface{}
+func SliceInt64ToAny(items ...int64) (result []interface{}) {
+	length := len(items)
+	result = make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		result[i] = items[i]
+	}
+	return
+}
+
+// SliceStringToAny []string => []interface{}
+func SliceStringToAny(items ...string) (result []interface{}) {
+	length := len(items)
+	result = make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		result[i] = items[i]
+	}
+	return
+}
+
 // StructAssign any two structure fields with the same type can be assigned
 func StructAssign(a interface{}, b interface{}) {
 	at, av := reflect.TypeOf(a), reflect.ValueOf(a)
