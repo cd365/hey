@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const (
@@ -18,10 +19,12 @@ var (
 )
 
 type Way struct {
-	db      *sql.DB
-	tx      *sql.Tx
-	prepare func(prepare string) (result string)
-	script  func(err error, prepare string, args []interface{})
+	db           *sql.DB
+	tx           *sql.Tx
+	prepare      func(prepare string) (result string) // preprocess sql script before execute
+	script       func(result *Result)                 // sql execute result
+	insertIgnore func() []string                      // insert ignored fields
+	updateIgnore func() []string                      // update ignored fields
 }
 
 func NewWay(db *sql.DB) *Way {
@@ -114,9 +117,18 @@ func (s *Way) QueryContext(ctx context.Context, result func(rows *sql.Rows) erro
 	if result == nil || prepare == "" {
 		return
 	}
+	rs := &Result{
+		TimeStart: time.Now(),
+		Prepare:   prepare,
+		Args:      args,
+	}
 	if s.script != nil {
 		defer func() {
-			s.script(err, prepare, args)
+			rs.TimeEnd = time.Now()
+			if err != nil {
+				rs.Error = err
+			}
+			s.script(rs)
 		}()
 	}
 	var stmt *sql.Stmt
@@ -146,9 +158,18 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 	if prepare == "" {
 		return
 	}
+	rs := &Result{
+		TimeStart: time.Now(),
+		Prepare:   prepare,
+		Args:      args,
+	}
 	if s.script != nil {
 		defer func() {
-			s.script(err, prepare, args)
+			rs.TimeEnd = time.Now()
+			if err != nil {
+				rs.Error = err
+			}
+			s.script(rs)
 		}()
 	}
 	var stmt *sql.Stmt
@@ -184,10 +205,72 @@ func (s *Way) Prepare(prepare func(prepare string) (result string)) {
 	}
 }
 
-func (s *Way) Script(fn func(err error, prepare string, args []interface{})) {
+func (s *Way) Script(fn func(result *Result)) {
 	if fn != nil {
 		s.script = fn
 	}
+}
+
+func (s *Way) InsertIgnore(fn func() []string) {
+	if fn != nil {
+		s.insertIgnore = fn
+	}
+}
+
+func (s *Way) UpdateIgnore(fn func() []string) {
+	if fn != nil {
+		s.updateIgnore = fn
+	}
+}
+
+type Result struct {
+	TimeStart time.Time
+	TimeEnd   time.Time
+	Prepare   string
+	Args      []interface{}
+	Error     error
+}
+
+func (s *Result) Script() (result string) {
+	result = s.Prepare
+	length := len(s.Args)
+	if length == 0 {
+		return
+	}
+	if strings.Count(result, Placeholder) != length {
+		return
+	}
+	for i := 0; i < length; i++ {
+		val := ""
+		if _, ok := s.Args[i].(string); ok {
+			val = fmt.Sprintf("'%v'", s.Args[i])
+		} else {
+			val = fmt.Sprintf("%v", s.Args[i])
+		}
+		result = strings.Replace(result, Placeholder, val, 1)
+	}
+	return
+}
+
+func (s *Result) ScriptPostgresql() (result string) {
+	result = s.Prepare
+	length := len(s.Args)
+	if length == 0 {
+		return
+	}
+	if strings.Count(result, "$") != length {
+		return
+	}
+	for i := 0; i < length; i++ {
+		val := ""
+		if _, ok := s.Args[i].(string); ok {
+			val = fmt.Sprintf("'%v'", s.Args[i])
+		} else {
+			val = fmt.Sprintf("%v", s.Args[i])
+		}
+		result = strings.Replace(result, fmt.Sprintf("$%d", i+1), val, 1)
+	}
+	return
 }
 
 func SqlInsert(table string, field []string, value ...[]interface{}) (prepare string, args []interface{}) {
@@ -272,23 +355,6 @@ func SqlUpdate(table string, field []string, value []interface{}, where Filter) 
 	return
 }
 
-func PreparePostgresql(prepare string) string {
-	index := 0
-	for strings.Contains(prepare, Placeholder) {
-		index++
-		prepare = strings.Replace(prepare, Placeholder, fmt.Sprintf("$%d", index), 1)
-	}
-	return prepare
-}
-
-func Field(field ...string) []string {
-	return field
-}
-
-func Value(value ...interface{}) []interface{} {
-	return value
-}
-
 type Insert struct {
 	db    *Way
 	table string
@@ -312,11 +378,17 @@ func (s *Insert) Field(field string, value interface{}) *Insert {
 }
 
 func (s *Insert) Insert() (int64, error) {
+	if s.db.insertIgnore != nil {
+		s.field, s.value = FieldValueIgnore(s.db.insertIgnore(), s.field, s.value)
+	}
 	prepare, args := SqlInsert(s.table, s.field, s.value)
 	return s.db.Exec(prepare, args...)
 }
 
 func (s *Insert) InsertAll(field []string, value ...[]interface{}) (int64, error) {
+	if s.db.insertIgnore != nil {
+		field, value = FieldValueIgnores(s.db.insertIgnore(), field, value)
+	}
 	prepare, args := SqlInsert(s.table, field, value...)
 	return s.db.Exec(prepare, args...)
 }
@@ -341,10 +413,10 @@ func (s *Delete) Delete(where Filter) (int64, error) {
 }
 
 type Update struct {
-	db      *Way
-	table   string
-	express []string
-	value   []interface{}
+	db    *Way
+	table string
+	field []string
+	value []interface{}
 }
 
 func NewUpdate(db *Way) *Update {
@@ -356,53 +428,102 @@ func (s *Update) Table(table string) *Update {
 	return s
 }
 
-func (s *Update) Assign(field []string, value []interface{}) *Update {
+func (s *Update) Field(field []string, value []interface{}) *Update {
 	length1, length2 := len(field), len(value)
 	if length1 != length2 || length1 == 0 {
 		return s
 	}
-	for key, val := range field {
-		field[key] = fmt.Sprintf("%s = %s", val, Placeholder)
-	}
-	s.express = append(s.express, field...)
-	s.value = append(s.value, value...)
-	return s
-}
-
-func (s *Update) Express(express string, value ...interface{}) *Update {
-	s.express = append(s.express, express)
-	s.value = append(s.value, value...)
-	return s
-}
-
-func (s *Update) Field(field string, value interface{}) *Update {
-	field = fmt.Sprintf("%s = %s", field, Placeholder)
-	s.express = append(s.express, field)
-	s.value = append(s.value, value)
+	s.field, s.value = field, value
 	return s
 }
 
 func (s *Update) Update(where Filter) (int64, error) {
-	length := len(s.express)
-	if length == 0 {
-		return 0, nil
+	if s.db.updateIgnore != nil {
+		s.field, s.value = FieldValueIgnore(s.db.updateIgnore(), s.field, s.value)
 	}
-	buf := &bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("UPDATE %s SET", s.table))
-	for i := 0; i < length; i++ {
-		if i != 0 {
-			buf.WriteString(",")
-		}
-		buf.WriteString(fmt.Sprintf(" %s", s.express[i]))
-	}
-	args := s.value
-	if where != nil {
-		whereStr, whereArgs := where.Result()
-		if whereStr != "" {
-			buf.WriteString(fmt.Sprintf(" WHERE %s", whereStr))
-			args = append(args, whereArgs...)
-		}
-	}
-	prepare := buf.String()
+	prepare, args := SqlUpdate(s.table, s.field, s.value, where)
 	return s.db.Exec(prepare, args...)
+}
+
+func FieldValueIgnore(ignore []string, field []string, value []interface{}) (key []string, val []interface{}) {
+	len1, len2, len3 := len(ignore), len(field), len(value)
+	if len1 == 0 || len2 == 0 || len2 != len3 {
+		key, val = field, value
+		return
+	}
+	dmp := make(map[string]*struct{}, len1)
+	for _, v := range ignore {
+		dmp[v] = &struct{}{}
+	}
+	key = make([]string, 0, len2)
+	imp := make(map[int]*struct{}, len1)
+	for k, v := range field {
+		if _, ok := dmp[v]; ok {
+			imp[k] = &struct{}{}
+			continue
+		}
+		key = append(key, v)
+	}
+	val = make([]interface{}, 0, len3)
+	for k, v := range value {
+		if _, ok := imp[k]; ok {
+			continue
+		}
+		val = append(val, v)
+	}
+	return
+}
+
+func FieldValueIgnores(ignore []string, field []string, value [][]interface{}) (key []string, val [][]interface{}) {
+	len1, len2, len3 := len(ignore), len(field), len(value)
+	if len1 == 0 || len2 == 0 || len3 == 0 {
+		key, val = field, value
+		return
+	}
+	len4 := len(value[0])
+	if len4 == 0 {
+		key, val = field, value
+		return
+	}
+	dmp := make(map[string]*struct{}, len1)
+	for _, v := range ignore {
+		dmp[v] = &struct{}{}
+	}
+	key = make([]string, 0, len2)
+	imp := make(map[int]*struct{}, len1)
+	for k, v := range field {
+		if _, ok := dmp[v]; ok {
+			imp[k] = &struct{}{}
+			continue
+		}
+		key = append(key, v)
+	}
+	val = make([][]interface{}, len3)
+	for k, v := range value {
+		val[k] = make([]interface{}, 0, len4)
+		for x, y := range v {
+			if _, ok := imp[x]; ok {
+				continue
+			}
+			val[k] = append(val[k], y)
+		}
+	}
+	return
+}
+
+func PreparePostgresql(prepare string) string {
+	index := 0
+	for strings.Contains(prepare, Placeholder) {
+		index++
+		prepare = strings.Replace(prepare, Placeholder, fmt.Sprintf("$%d", index), 1)
+	}
+	return prepare
+}
+
+func Field(field ...string) []string {
+	return field
+}
+
+func Value(value ...interface{}) []interface{} {
+	return value
 }

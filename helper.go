@@ -244,7 +244,7 @@ func RowsAny(rows *sql.Rows) ([]map[string]interface{}, error) {
 	return queries, nil
 }
 
-// RemoveDuplicate remove duplicate
+// RemoveDuplicate remove duplicate element
 func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 	has := make(map[interface{}]*struct{})
 	ok := false
@@ -274,6 +274,18 @@ func RemoveSpecified(origin []interface{}, specified ...interface{}) (result []i
 			result = append(result, v)
 		}
 	}
+	return
+}
+
+// SliceAnyRemove remove an item in the slice
+func SliceAnyRemove(target []interface{}, i int) (result []interface{}) {
+	length := len(target)
+	if length == 0 || i <= 0 || length < i {
+		result = target
+		return
+	}
+	result = target[:i-1]
+	result = append(result, target[i:]...)
 	return
 }
 
