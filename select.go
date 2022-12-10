@@ -6,6 +6,15 @@ import (
 	"strings"
 )
 
+func Alias(name string, alias ...string) string {
+	for i := len(alias) - 1; i >= 0; i-- {
+		if alias[i] != "" {
+			return fmt.Sprintf("%s AS %s", name, alias[i])
+		}
+	}
+	return name
+}
+
 type Table struct {
 	Table string        // query table string
 	Alias string        // alias name of single table name
