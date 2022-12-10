@@ -20,42 +20,6 @@ func (s *Table) Result() (table string) {
 	return
 }
 
-type JoinType string
-
-const (
-	InnerJoin = "INNER JOIN"
-	LeftJoin  = "LEFT JOIN"
-	RightJoin = "RIGHT JOIN"
-	FullJoin  = "FULL JOIN"
-)
-
-type Join struct {
-	Model JoinType // one of INNER JOIN, LEFT JOIN, RIGHT JOIN, FULL JOIN
-	Table string   // table name
-	Alias string   // table alias name
-	On    string   // join on
-	And   Filter   // join on and ...
-}
-
-func (s *Join) Result() (result string, args []interface{}) {
-	if s.Table == "" || s.On == "" {
-		return
-	}
-	result = fmt.Sprintf("%s %s", s.Model, s.Table)
-	if s.Alias != "" {
-		result = fmt.Sprintf("%s AS %s", result, s.Alias)
-	}
-	result = fmt.Sprintf("%s ON %s", result, s.On)
-	if s.And != nil {
-		key, val := s.And.Result()
-		if key != "" {
-			result = fmt.Sprintf("%s AND %s", result, key)
-			args = val
-		}
-	}
-	return
-}
-
 type Order struct {
 	Order []string
 }
@@ -88,7 +52,7 @@ type Select struct {
 	table  *Table
 	field  []string
 	where  Filter
-	join   []*Join
+	join   []Joiner
 	group  []string
 	having Filter
 	order  *Order
@@ -127,45 +91,25 @@ func (s *Select) Alias(alias string) *Select {
 	return s
 }
 
-func (s *Select) joins(model JoinType, table string, alias string, on string, and ...Filter) *Select {
-	if model == "" || table == "" || on == "" {
-		return s
-	}
-	if s.join == nil {
-		s.join = make([]*Join, 0)
-	}
-	logic := NewFilter()
-	length := len(and)
-	var prepare string
-	var args []interface{}
-	for i := 0; i < length; i++ {
-		prepare, args = and[i].Result()
-		logic.And(prepare, args...)
-	}
-	s.join = append(s.join, &Join{
-		Model: model,
-		Table: table,
-		Alias: alias,
-		On:    on,
-		And:   logic,
-	})
+func (s *Select) InnerJoin(table string) Joiner {
+	return InnerJoin(table)
+}
+
+func (s *Select) LeftJoin(table string) Joiner {
+	return LeftJoin(table)
+}
+
+func (s *Select) RightJoin(table string) Joiner {
+	return RightJoin(table)
+}
+
+func (s *Select) FullJoin(table string) Joiner {
+	return FullJoin(table)
+}
+
+func (s *Select) Join(join ...Joiner) *Select {
+	s.join = join
 	return s
-}
-
-func (s *Select) InnerJoin(table string, alias string, on string, filter ...Filter) *Select {
-	return s.joins(InnerJoin, table, alias, on, filter...)
-}
-
-func (s *Select) LeftJoin(table string, alias string, on string, filter ...Filter) *Select {
-	return s.joins(LeftJoin, table, alias, on, filter...)
-}
-
-func (s *Select) RightJoin(table string, alias string, on string, filter ...Filter) *Select {
-	return s.joins(RightJoin, table, alias, on, filter...)
-}
-
-func (s *Select) FullJoin(table string, alias string, on string, filter ...Filter) *Select {
-	return s.joins(FullJoin, table, alias, on, filter...)
 }
 
 func (s *Select) Group(group ...string) *Select {
