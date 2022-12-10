@@ -451,25 +451,17 @@ func FieldValueIgnore(ignore []string, field []string, value []interface{}) (key
 		key, val = field, value
 		return
 	}
-	dmp := make(map[string]*struct{}, len1)
-	for _, v := range ignore {
-		dmp[v] = &struct{}{}
+	mp := make(map[string]*struct{}, len1)
+	for i := 0; i < len1; i++ {
+		mp[ignore[i]] = &struct{}{}
 	}
-	key = make([]string, 0, len2)
-	imp := make(map[int]*struct{}, len1)
-	for k, v := range field {
-		if _, ok := dmp[v]; ok {
-			imp[k] = &struct{}{}
+	key, val = make([]string, 0, len2), make([]interface{}, 0, len2)
+	for i := 0; i < len2; i++ {
+		if _, ok := mp[field[i]]; ok {
 			continue
 		}
-		key = append(key, v)
-	}
-	val = make([]interface{}, 0, len3)
-	for k, v := range value {
-		if _, ok := imp[k]; ok {
-			continue
-		}
-		val = append(val, v)
+		key = append(key, field[i])
+		val = append(val, value[i])
 	}
 	return
 }
@@ -480,32 +472,33 @@ func FieldValueIgnores(ignore []string, field []string, value [][]interface{}) (
 		key, val = field, value
 		return
 	}
-	len4 := len(value[0])
-	if len4 == 0 {
-		key, val = field, value
-		return
+	for i := 0; i < len3; i++ {
+		if len2 != len(value[i]) {
+			key, val = field, value
+			return
+		}
 	}
-	dmp := make(map[string]*struct{}, len1)
-	for _, v := range ignore {
-		dmp[v] = &struct{}{}
+	mp := make(map[string]*struct{}, len1)
+	for i := 0; i < len1; i++ {
+		mp[ignore[i]] = &struct{}{}
 	}
 	key = make([]string, 0, len2)
-	imp := make(map[int]*struct{}, len1)
-	for k, v := range field {
-		if _, ok := dmp[v]; ok {
-			imp[k] = &struct{}{}
+	index := make(map[int]*struct{}, len1)
+	for i := 0; i < len2; i++ {
+		if _, ok := mp[field[i]]; ok {
+			index[i] = &struct{}{}
 			continue
 		}
-		key = append(key, v)
+		key = append(key, field[i])
 	}
 	val = make([][]interface{}, len3)
-	for k, v := range value {
-		val[k] = make([]interface{}, 0, len4)
-		for x, y := range v {
-			if _, ok := imp[x]; ok {
+	for i := 0; i < len3; i++ {
+		val[i] = make([]interface{}, 0, len2)
+		for j := 0; j < len2; j++ {
+			if _, ok := index[j]; ok {
 				continue
 			}
-			val[k] = append(val[k], y)
+			val[i] = append(val[i], value[i][j])
 		}
 	}
 	return
