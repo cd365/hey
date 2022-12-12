@@ -123,7 +123,6 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 func (s *Join) Select() (result []string) {
 	length := len(s.query)
 	result = make([]string, length)
-	result = make([]string, len(s.query))
 	for i := 0; i < length; i++ {
 		result[i] = s.F(s.query[i])
 	}
