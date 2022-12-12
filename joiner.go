@@ -15,8 +15,14 @@ const (
 )
 
 type Joiner interface {
-	// Alias set current table alias name
-	Alias(alias string) Joiner
+	// As set current table name as alias-name
+	As(as string) Joiner
+	// Asa set current table name as <a>
+	Asa() Joiner
+	// Asb set current table name as <b>
+	Asb() Joiner
+	// Asc set current table name as <c>
+	Asc() Joiner
 	// OnEqual the criteria for joining the current table query
 	OnEqual(left string, right string) Joiner
 	// Filter join query additional filtering criteria
@@ -25,7 +31,7 @@ type Joiner interface {
 	Query(field ...string) Joiner
 	// Table name of table
 	Table() string
-	// Using exposes the final table name used, alias name first
+	// Using exposes the final table name for using, alias name first
 	Using() string
 	// F for get table_name.column; (email => a.email | email => account.email)
 	F(field string) string
@@ -38,18 +44,33 @@ type Joiner interface {
 type Join struct {
 	style  JoinType
 	table  string
-	alias  string
+	as     string
 	on     string
 	filter Filter
 	query  []string
 	using  string
 }
 
-func (s *Join) Alias(alias string) Joiner {
-	if alias != "" {
-		s.alias = alias
-		s.using = alias
+func (s *Join) As(as string) Joiner {
+	if as != "" {
+		s.as = as
+		s.using = as
 	}
+	return s
+}
+
+func (s *Join) Asa() Joiner {
+	s.As("a")
+	return s
+}
+
+func (s *Join) Asb() Joiner {
+	s.As("b")
+	return s
+}
+
+func (s *Join) Asc() Joiner {
+	s.As("c")
 	return s
 }
 
@@ -85,8 +106,8 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 		return
 	}
 	prepare = fmt.Sprintf("%s JOIN %s", s.style, s.table)
-	if s.alias != "" {
-		prepare = fmt.Sprintf("%s AS %s", prepare, s.alias)
+	if s.as != "" {
+		prepare = fmt.Sprintf("%s AS %s", prepare, s.as)
 	}
 	prepare = fmt.Sprintf("%s ON %s", prepare, s.on)
 	if s.filter != nil {
@@ -109,19 +130,7 @@ func (s *Join) Select() (result []string) {
 	return
 }
 
-func initMaster(table string) Joiner {
-	return &Join{
-		style: JoinMaster,
-		table: table,
-		using: table,
-	}
-}
-
-func MasterTable(table string) Joiner {
-	return initMaster(table)
-}
-
-func initSlave(style JoinType, table string) Joiner {
+func newJoin(style JoinType, table string) Joiner {
 	return &Join{
 		style: style,
 		table: table,
@@ -129,18 +138,22 @@ func initSlave(style JoinType, table string) Joiner {
 	}
 }
 
+func MasterJoin(table string) Joiner {
+	return newJoin(JoinMaster, table)
+}
+
 func InnerJoin(table string) Joiner {
-	return initSlave(JoinInner, table)
+	return newJoin(JoinInner, table)
 }
 
 func LeftJoin(table string) Joiner {
-	return initSlave(JoinLeft, table)
+	return newJoin(JoinLeft, table)
 }
 
 func RightJoin(table string) Joiner {
-	return initSlave(JoinRight, table)
+	return newJoin(JoinRight, table)
 }
 
 func FullJoin(table string) Joiner {
-	return initSlave(JoinFull, table)
+	return newJoin(JoinFull, table)
 }
