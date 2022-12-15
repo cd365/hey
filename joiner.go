@@ -131,7 +131,7 @@ func (s *Join) Select() (result []string) {
 	return
 }
 
-func newJoin(style JoinType, table string, args ...interface{}) Joiner {
+func initJoin(style JoinType, table string, args ...interface{}) Joiner {
 	return &Join{
 		style: style,
 		table: table,
@@ -140,22 +140,22 @@ func newJoin(style JoinType, table string, args ...interface{}) Joiner {
 	}
 }
 
-func MasterJoin(table string) Joiner {
-	return newJoin(JoinMaster, table)
+func MasterJoin(table string, args ...interface{}) Joiner {
+	return initJoin(JoinMaster, table, args...)
 }
 
 func InnerJoin(table string, args ...interface{}) Joiner {
-	return newJoin(JoinInner, table, args...)
+	return initJoin(JoinInner, table, args...)
 }
 
 func LeftJoin(table string, args ...interface{}) Joiner {
-	return newJoin(JoinLeft, table, args...)
+	return initJoin(JoinLeft, table, args...)
 }
 
 func RightJoin(table string, args ...interface{}) Joiner {
-	return newJoin(JoinRight, table, args...)
+	return initJoin(JoinRight, table, args...)
 }
 
 func FullJoin(table string, args ...interface{}) Joiner {
-	return newJoin(JoinFull, table, args...)
+	return initJoin(JoinFull, table, args...)
 }
