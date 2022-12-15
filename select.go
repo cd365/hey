@@ -98,20 +98,20 @@ func (s *Select) Alias(alias string) *Select {
 	return s
 }
 
-func (s *Select) InnerJoin(table string) Joiner {
-	return InnerJoin(table)
+func (s *Select) InnerJoin(table string, args ...interface{}) Joiner {
+	return InnerJoin(table, args...)
 }
 
-func (s *Select) LeftJoin(table string) Joiner {
-	return LeftJoin(table)
+func (s *Select) LeftJoin(table string, args ...interface{}) Joiner {
+	return LeftJoin(table, args...)
 }
 
-func (s *Select) RightJoin(table string) Joiner {
-	return RightJoin(table)
+func (s *Select) RightJoin(table string, args ...interface{}) Joiner {
+	return RightJoin(table, args...)
 }
 
-func (s *Select) FullJoin(table string) Joiner {
-	return FullJoin(table)
+func (s *Select) FullJoin(table string, args ...interface{}) Joiner {
+	return FullJoin(table, args...)
 }
 
 func (s *Select) Join(join ...Joiner) *Select {
@@ -164,14 +164,14 @@ func (s *Select) SqlSelect() (prepare string, args []interface{}) {
 		columns = strings.Join(field, ", ")
 	}
 	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", columns, s.table.Result()))
-	if s.table.Args != nil {
-		args = append(args, s.table.Args...)
-	}
+	args = append(args, s.table.Args...)
 	length = len(s.join)
 	for i := 0; i < length; i++ {
 		key, val := s.join[i].Result()
-		buf.WriteString(fmt.Sprintf(" %s", key))
-		args = append(args, val...)
+		if key != "" {
+			buf.WriteString(fmt.Sprintf(" %s", key))
+			args = append(args, val...)
+		}
 	}
 	if s.where != nil {
 		key, val := s.where.Result()
@@ -216,21 +216,21 @@ func (s *Select) SqlCount(count ...string) (prepare string, args []interface{}) 
 	}
 	buf := &bytes.Buffer{}
 	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", column, s.table.Result()))
-	if len(s.table.Args) > 0 {
-		args = append(args, s.table.Args...)
-	}
+	args = append(args, s.table.Args...)
 	length = len(s.join)
 	for i := 0; i < length; i++ {
 		key, val := s.join[i].Result()
-		buf.WriteString(fmt.Sprintf(" %s", key))
-		args = append(args, val...)
+		if key != "" {
+			buf.WriteString(fmt.Sprintf(" %s", key))
+			args = append(args, val...)
+		}
 	}
 	if s.where != nil {
 		key, val := s.where.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
+			args = append(args, val...)
 		}
-		args = append(args, val...)
 	}
 	prepare = buf.String()
 	return

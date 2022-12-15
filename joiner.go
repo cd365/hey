@@ -42,14 +42,14 @@ type Joiner interface {
 }
 
 type Join struct {
-	style  JoinType
-	table  string
-	as     string
-	on     string
-	args   []interface{}
-	filter Filter
-	query  []string
-	using  string
+	style     JoinType      // join type
+	table     string        // table name | SQL statement
+	as        string        // table alias name
+	on        string        // join condition
+	tableArgs []interface{} // if table value is a SQL statement
+	filter    Filter        // used for condition after on
+	query     []string      // query the fields of the table
+	using     string        // exposes the final table name for using, alias name first
 }
 
 func (s *Join) As(as string) Joiner {
@@ -107,7 +107,7 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 		return
 	}
 	prepare = fmt.Sprintf("%s JOIN %s", s.style, s.table)
-	args = s.args
+	args = s.tableArgs
 	if s.as != "" {
 		prepare = fmt.Sprintf("%s AS %s", prepare, s.as)
 	}
@@ -133,10 +133,10 @@ func (s *Join) Select() (result []string) {
 
 func initJoin(style JoinType, table string, args ...interface{}) Joiner {
 	return &Join{
-		style: style,
-		table: table,
-		args:  args,
-		using: table,
+		style:     style,
+		table:     table,
+		tableArgs: args,
+		using:     table,
 	}
 }
 
