@@ -46,6 +46,7 @@ type Join struct {
 	table  string
 	as     string
 	on     string
+	args   []interface{}
 	filter Filter
 	query  []string
 	using  string
@@ -106,6 +107,7 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 		return
 	}
 	prepare = fmt.Sprintf("%s JOIN %s", s.style, s.table)
+	args = s.args
 	if s.as != "" {
 		prepare = fmt.Sprintf("%s AS %s", prepare, s.as)
 	}
@@ -114,7 +116,7 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 		key, val := s.filter.Result()
 		if key != "" {
 			prepare = fmt.Sprintf("%s AND %s", prepare, key)
-			args = val
+			args = append(args, val...)
 		}
 	}
 	return
@@ -129,10 +131,11 @@ func (s *Join) Select() (result []string) {
 	return
 }
 
-func newJoin(style JoinType, table string) Joiner {
+func newJoin(style JoinType, table string, args ...interface{}) Joiner {
 	return &Join{
 		style: style,
 		table: table,
+		args:  args,
 		using: table,
 	}
 }
@@ -141,18 +144,18 @@ func MasterJoin(table string) Joiner {
 	return newJoin(JoinMaster, table)
 }
 
-func InnerJoin(table string) Joiner {
-	return newJoin(JoinInner, table)
+func InnerJoin(table string, args ...interface{}) Joiner {
+	return newJoin(JoinInner, table, args...)
 }
 
-func LeftJoin(table string) Joiner {
-	return newJoin(JoinLeft, table)
+func LeftJoin(table string, args ...interface{}) Joiner {
+	return newJoin(JoinLeft, table, args...)
 }
 
-func RightJoin(table string) Joiner {
-	return newJoin(JoinRight, table)
+func RightJoin(table string, args ...interface{}) Joiner {
+	return newJoin(JoinRight, table, args...)
 }
 
-func FullJoin(table string) Joiner {
-	return newJoin(JoinFull, table)
+func FullJoin(table string, args ...interface{}) Joiner {
+	return newJoin(JoinFull, table, args...)
 }

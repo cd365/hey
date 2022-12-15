@@ -35,20 +35,18 @@ type Order struct {
 
 func (s *Order) Asc(columns ...string) *Order {
 	for _, column := range columns {
-		if column == "" {
-			continue
+		if column != "" {
+			s.Order = append(s.Order, fmt.Sprintf("%s ASC", column))
 		}
-		s.Order = append(s.Order, fmt.Sprintf("%s ASC", column))
 	}
 	return s
 }
 
 func (s *Order) Desc(columns ...string) *Order {
 	for _, column := range columns {
-		if column == "" {
-			continue
+		if column != "" {
+			s.Order = append(s.Order, fmt.Sprintf("%s DESC", column))
 		}
-		s.Order = append(s.Order, fmt.Sprintf("%s DESC", column))
 	}
 	return s
 }

@@ -94,8 +94,7 @@ func (s *Way) Transaction(transaction func() (msg error, err error)) (msg error,
 		return
 	}
 	if s.Idle() {
-		err = s.Begin()
-		if err != nil {
+		if err = s.Begin(); err != nil {
 			return
 		}
 		defer func() {
@@ -124,7 +123,6 @@ func (s *Way) QueryContext(ctx context.Context, result func(rows *sql.Rows) erro
 	}
 	if s.script != nil {
 		defer func() {
-			rs.TimeEnd = time.Now()
 			if err != nil {
 				rs.Error = err
 			}
@@ -138,11 +136,13 @@ func (s *Way) QueryContext(ctx context.Context, result func(rows *sql.Rows) erro
 		stmt, err = s.db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
+		rs.TimeEnd = time.Now()
 		return
 	}
 	defer stmt.Close()
 	var rows *sql.Rows
 	rows, err = stmt.QueryContext(ctx, args...)
+	rs.TimeEnd = time.Now()
 	if err != nil {
 		return
 	}
@@ -165,7 +165,6 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 	}
 	if s.script != nil {
 		defer func() {
-			rs.TimeEnd = time.Now()
 			if err != nil {
 				rs.Error = err
 			}
@@ -179,11 +178,13 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 		stmt, err = s.db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
+		rs.TimeEnd = time.Now()
 		return
 	}
 	defer stmt.Close()
 	var result sql.Result
 	result, err = stmt.ExecContext(ctx, args...)
+	rs.TimeEnd = time.Now()
 	if err != nil {
 		return
 	}
@@ -199,28 +200,20 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
-func (s *Way) Prepare(prepare func(prepare string) (result string)) {
-	if prepare != nil {
-		s.prepare = prepare
-	}
+func (s *Way) Prepare(fn func(prepare string) (result string)) {
+	s.prepare = fn
 }
 
 func (s *Way) Script(fn func(result *Result)) {
-	if fn != nil {
-		s.script = fn
-	}
+	s.script = fn
 }
 
 func (s *Way) InsertIgnore(fn func() []string) {
-	if fn != nil {
-		s.insertIgnore = fn
-	}
+	s.insertIgnore = fn
 }
 
 func (s *Way) UpdateIgnore(fn func() []string) {
-	if fn != nil {
-		s.updateIgnore = fn
-	}
+	s.updateIgnore = fn
 }
 
 type Result struct {
