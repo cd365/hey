@@ -11,20 +11,36 @@ const (
 	ScanTagName = "db"
 )
 
-// assoc lists struct `ScanTagName` tag in struct through reflect
-func assoc(reflectType reflect.Type) map[string]int {
-	result := make(map[string]int)
+// mapReflectStruct lists struct fields in struct through reflect
+func mapReflectStruct(reflectType reflect.Type) (result map[string]int) {
+	result = make(map[string]int)
 	if reflectType == nil || reflectType.Kind() != reflect.Struct {
-		return result
+		return
 	}
 	for i := 0; i < reflectType.NumField(); i++ {
-		value := reflectType.Field(i).Tag.Get(ScanTagName)
+		value := reflectType.Field(i).Name
 		if value == "-" || value == "" {
 			continue
 		}
 		result[value] = i
 	}
-	return result
+	return
+}
+
+// mapReflectStructTag lists struct fields by tag-name in struct through reflect
+func mapReflectStructTag(reflectType reflect.Type, tagName string) (result map[string]int) {
+	result = make(map[string]int)
+	if reflectType == nil || tagName == "" || reflectType.Kind() != reflect.Struct {
+		return
+	}
+	for i := 0; i < reflectType.NumField(); i++ {
+		value := reflectType.Field(i).Tag.Get(tagName)
+		if value == "-" || value == "" {
+			continue
+		}
+		result[value] = i
+	}
+	return
 }
 
 // RowsAssoc query result reflect to query object one of *struct, *[]struct, *[]*struct
@@ -54,7 +70,7 @@ func RowsAssoc(rows *sql.Rows, result interface{}) (n int64, err error) {
 		n++
 		rlt := reflect.New(t0.Elem())
 		rlv := reflect.Indirect(rlt)
-		tags := assoc(t0.Elem())
+		tags := mapReflectStructTag(t0.Elem(), ScanTagName)
 		length := len(columns)
 		fields := make([]interface{}, length)
 		for key, val := range columns {
@@ -83,7 +99,7 @@ func RowsAssoc(rows *sql.Rows, result interface{}) (n int64, err error) {
 		lists := v0.Elem()
 		// scan to *[]AnyStruct
 		if t0.Elem().Elem().Kind() == reflect.Struct {
-			tags := assoc(t0.Elem().Elem())
+			tags := mapReflectStructTag(t0.Elem().Elem(), ScanTagName)
 			for rows.Next() {
 				n++
 				rlt := reflect.New(t0.Elem().Elem())
@@ -113,7 +129,7 @@ func RowsAssoc(rows *sql.Rows, result interface{}) (n int64, err error) {
 		}
 		// scan to *[]*AnyStruct
 		if t0.Elem().Elem().Kind() == reflect.Ptr && t0.Elem().Elem().Elem().Kind() == reflect.Struct {
-			tags := assoc(t0.Elem().Elem().Elem())
+			tags := mapReflectStructTag(t0.Elem().Elem().Elem(), ScanTagName)
 			for rows.Next() {
 				n++
 				rlt := reflect.New(t0.Elem().Elem().Elem())
@@ -365,9 +381,16 @@ func StructAssign(a interface{}, b interface{}) {
 	if length == 0 {
 		return
 	}
+	mta := mapReflectStruct(at)
+	index := 0
+	ok := false
 	var afv, bfv reflect.Value
 	for i := 0; i < length; i++ {
-		afv = av.FieldByName(bt.Field(i).Name)
+		index, ok = mta[bt.Field(i).Name]
+		if !ok {
+			continue
+		}
+		afv = av.Field(index)
 		if !afv.IsValid() {
 			continue
 		}
@@ -435,12 +458,15 @@ func StructUpdate(a interface{}, b interface{}, ignore ...string) (field []strin
 	for _, key := range ignore {
 		remove[key] = &struct{}{}
 	}
+	mta := mapReflectStruct(at)
+	index := 0
 	for i := 0; i < length; i++ {
-		asf, ok = at.FieldByName(bt.Field(i).Name)
+		index, ok = mta[bt.Field(i).Name]
 		if !ok {
 			continue
 		}
-		afv = av.FieldByName(bt.Field(i).Name)
+		asf = at.Field(index)
+		afv = av.Field(index)
 		if !afv.IsValid() {
 			continue
 		}
