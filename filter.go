@@ -342,3 +342,23 @@ func (s *filter) Result() (prepare string, args []interface{}) {
 func NewFilter() Filter {
 	return &filter{}
 }
+
+func FilterJoin(or bool, filters ...Filter) (result Filter) {
+	var prepare string
+	var args []interface{}
+	for _, f := range filters {
+		if f == nil {
+			continue
+		}
+		prepare, args = f.Result()
+		if result == nil {
+			result = NewFilter()
+		}
+		if or {
+			result.Or(prepare, args)
+		} else {
+			result.And(prepare, args)
+		}
+	}
+	return
+}
