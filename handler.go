@@ -698,16 +698,17 @@ func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
 		args = append(args, unionArgs...)
 	}
 	if s.order != nil {
-		order := strings.Join(s.group, ", ")
+		order := s.order.Result()
 		if order != "" {
 			buf.WriteString(fmt.Sprintf(" ORDER BY %s", order))
 		}
 	}
 	if s.limit != nil && *s.limit > 0 {
 		buf.WriteString(fmt.Sprintf(" LIMIT %d", *s.limit))
-		if s.offset != nil && *s.offset >= 0 {
-			buf.WriteString(fmt.Sprintf(" OFFSET %d", *s.offset))
+		if s.offset == nil {
+			s.offset = new(int64)
 		}
+		buf.WriteString(fmt.Sprintf(" OFFSET %d", *s.offset))
 	}
 	prepare = buf.String()
 	return
