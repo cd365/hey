@@ -244,13 +244,13 @@ func (s *Order) Result() string {
 	return strings.Join(s.Order, ", ")
 }
 
-func Alias(name string, alias ...string) string {
+func Alias(prepare string, alias ...string) string {
 	for i := len(alias) - 1; i >= 0; i-- {
 		if alias[i] != "" {
-			return fmt.Sprintf("%s AS %s", name, alias[i])
+			return fmt.Sprintf("%s AS %s", prepare, alias[i])
 		}
 	}
-	return name
+	return prepare
 }
 
 func FieldMerge(fields ...[]string) (result []string) {

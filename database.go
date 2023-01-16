@@ -94,8 +94,8 @@ func (s *Way) Idle() bool {
 	return s.tx == nil
 }
 
-func (s *Way) Transaction(transaction func() (msg error, err error)) (msg error, err error) {
-	if transaction == nil {
+func (s *Way) Transaction(fn func() (err error)) (err error) {
+	if fn == nil {
 		return
 	}
 	if s.Idle() {
@@ -103,14 +103,14 @@ func (s *Way) Transaction(transaction func() (msg error, err error)) (msg error,
 			return
 		}
 		defer func() {
-			if err == nil && msg == nil {
+			if err == nil {
 				_ = s.Commit()
 			} else {
 				_ = s.Rollback()
 			}
 		}()
 	}
-	msg, err = transaction()
+	err = fn()
 	return
 }
 
