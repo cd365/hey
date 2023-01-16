@@ -249,7 +249,7 @@ func (s *Way) Count(c Selector) (result int64, err error) {
 	return
 }
 
-func (s *Way) Get(c Selector, scan func(rows *sql.Rows) error) error {
+func (s *Way) Get(c Selector, scan func(rows *sql.Rows) (err error)) error {
 	prepare, args := c.Result()
 	return s.Query(func(rows *sql.Rows) error { return ForRowsNextScan(rows, scan) }, prepare, args...)
 }
@@ -276,7 +276,7 @@ func (s *Way) NewSelect(fn func(c Selector) (err error)) error {
 	return fn(NewSelector())
 }
 
-func ForRowsNextScan(rows *sql.Rows, scan func(rows *sql.Rows) error) (err error) {
+func ForRowsNextScan(rows *sql.Rows, scan func(rows *sql.Rows) (err error)) (err error) {
 	for rows.Next() {
 		if err = scan(rows); err != nil {
 			return
