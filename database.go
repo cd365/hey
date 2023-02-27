@@ -16,7 +16,7 @@ var (
 	InvalidTransaction       = fmt.Errorf("sql: invalid transaction")
 	TryBeginTransactionTwice = fmt.Errorf("sql: attempt to start transaction twice")
 	PrepareEmpty             = fmt.Errorf("sql: prepare value is empty")
-	HandleRowsFuncNil        = fmt.Errorf("sql: handle rows func value is nil")
+	HandleRowsFuncIsNil      = fmt.Errorf("sql: handle rows func value is nil")
 )
 
 type Result struct {
@@ -94,23 +94,51 @@ func (s *Way) Idle() bool {
 	return s.tx == nil
 }
 
-func (s *Way) Transaction(fn func() (err error)) (err error) {
+func (s *Way) Clone() *Way {
+	return NewWay(s.db).Prepare(s.prepare).Script(s.script)
+}
+
+func (s *Way) TransactionContext(ctx context.Context, opts *sql.TxOptions, fn func(way *Way) (err error)) (err error) {
 	if fn == nil {
 		return
 	}
-	if s.Idle() {
-		if err = s.Begin(); err != nil {
+	way := s.Clone()
+	err = way.BeginTx(ctx, opts)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			_ = way.Rollback()
 			return
 		}
-		defer func() {
-			if err == nil {
-				_ = s.Commit()
-			} else {
-				_ = s.Rollback()
-			}
-		}()
+		_ = way.Commit()
+	}()
+	if err = fn(way); err != nil {
+		return
 	}
-	err = fn()
+	return
+}
+
+func (s *Way) Transaction(fn func(way *Way) (err error)) (err error) {
+	if fn == nil {
+		return
+	}
+	way := s.Clone()
+	err = way.Begin()
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			_ = way.Rollback()
+			return
+		}
+		_ = way.Commit()
+	}()
+	if err = fn(way); err != nil {
+		return
+	}
 	return
 }
 
@@ -120,7 +148,7 @@ func (s *Way) QueryContext(ctx context.Context, handle func(rows *sql.Rows) (err
 		return
 	}
 	if handle == nil {
-		err = HandleRowsFuncNil
+		err = HandleRowsFuncIsNil
 		return
 	}
 	if s.prepare != nil {
@@ -221,23 +249,23 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
-func (s *Way) Insert(c Inserter) (int64, error) {
-	prepare, args := c.Result()
+func (s *Way) Insert(add Inserter) (int64, error) {
+	prepare, args := add.Result()
 	return s.Exec(prepare, args...)
 }
 
-func (s *Way) Delete(c Deleter) (int64, error) {
-	prepare, args := c.Result()
+func (s *Way) Delete(del Deleter) (int64, error) {
+	prepare, args := del.Result()
 	return s.Exec(prepare, args...)
 }
 
-func (s *Way) Update(c Updater) (int64, error) {
-	prepare, args := c.Result()
+func (s *Way) Update(mod Updater) (int64, error) {
+	prepare, args := mod.Result()
 	return s.Exec(prepare, args...)
 }
 
-func (s *Way) Count(c Selector) (result int64, err error) {
-	prepare, args := c.ResultForCount()
+func (s *Way) Count(get Selector) (result int64, err error) {
+	prepare, args := get.ResultForCount()
 	err = s.Query(func(rows *sql.Rows) (err error) {
 		for rows.Next() {
 			if err = rows.Scan(&result); err != nil {
@@ -249,30 +277,30 @@ func (s *Way) Count(c Selector) (result int64, err error) {
 	return
 }
 
-func (s *Way) Get(c Selector, scan func(rows *sql.Rows) (err error)) error {
-	prepare, args := c.Result()
+func (s *Way) Get(get Selector, scan func(rows *sql.Rows) (err error)) error {
+	prepare, args := get.Result()
 	return s.Query(func(rows *sql.Rows) error { return ForRowsNextScan(rows, scan) }, prepare, args...)
 }
 
-func (s *Way) NewInsert(fn func(c Inserter)) (int64, error) {
+func (s *Way) NewInsert(fn func(add Inserter)) (int64, error) {
 	add := NewInserter()
 	fn(add)
 	return s.Insert(add)
 }
 
-func (s *Way) NewDelete(fn func(c Deleter)) (int64, error) {
+func (s *Way) NewDelete(fn func(del Deleter)) (int64, error) {
 	del := NewDeleter()
 	fn(del)
 	return s.Delete(del)
 }
 
-func (s *Way) NewUpdate(fn func(c Updater)) (int64, error) {
+func (s *Way) NewUpdate(fn func(mod Updater)) (int64, error) {
 	mod := NewUpdater()
 	fn(mod)
 	return s.Update(mod)
 }
 
-func (s *Way) NewSelect(fn func(c Selector) (err error)) error {
+func (s *Way) NewSelect(fn func(get Selector) (err error)) error {
 	return fn(NewSelector())
 }
 

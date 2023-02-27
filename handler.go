@@ -377,18 +377,6 @@ type Selector interface {
 	// Where conditional filter data
 	Where(where Filter) Selector
 
-	// InnerJoin inner join query
-	InnerJoin(table string, args ...interface{}) Joiner
-
-	// LeftJoin left join query
-	LeftJoin(table string, args ...interface{}) Joiner
-
-	// RightJoin right join query
-	RightJoin(table string, args ...interface{}) Joiner
-
-	// FullJoin full join query
-	FullJoin(table string, args ...interface{}) Joiner
-
 	// Join set join single or multiple tables
 	Join(join ...Joiner) Selector
 
@@ -466,22 +454,6 @@ func (s *_select) Alias(alias string) Selector {
 func (s *_select) Field(field ...string) Selector {
 	s.field = field
 	return s
-}
-
-func (s *_select) InnerJoin(table string, args ...interface{}) Joiner {
-	return InnerJoin(table, args...)
-}
-
-func (s *_select) LeftJoin(table string, args ...interface{}) Joiner {
-	return LeftJoin(table, args...)
-}
-
-func (s *_select) RightJoin(table string, args ...interface{}) Joiner {
-	return RightJoin(table, args...)
-}
-
-func (s *_select) FullJoin(table string, args ...interface{}) Joiner {
-	return FullJoin(table, args...)
 }
 
 func (s *_select) Join(join ...Joiner) Selector {

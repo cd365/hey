@@ -53,8 +53,8 @@ type Joiner interface {
 	// QueryField get the connection query finally needs to query the field list of this table
 	QueryField() []string
 
-	// FieldFull the table's field full name value
-	FieldFull(field string) string
+	// TableField the table's field full name value
+	TableField(field string) string
 
 	// On the criteria for joining the current table query
 	On(on string, filter ...Filter) Joiner
@@ -146,7 +146,7 @@ func (s *Join) QueryField() []string {
 	return s.field
 }
 
-func (s *Join) FieldFull(field string) string {
+func (s *Join) TableField(field string) string {
 	prefix := s.prefix()
 	if !strings.Contains(field, prefix) {
 		return prefix + field
