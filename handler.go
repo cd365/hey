@@ -325,8 +325,8 @@ func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 		items = append(items, v.field)
 	}
 	sort.Strings(items)
-	field := make([]string, length, length)
-	value := make([]interface{}, length, length)
+	field := make([]string, length)
+	value := make([]interface{}, length)
 	for k, v := range items {
 		field[k] = s.update[v].result
 		value[k] = s.update[v].value

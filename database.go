@@ -13,10 +13,10 @@ const (
 )
 
 var (
-	InvalidTransaction       = fmt.Errorf("sql: invalid transaction")
-	TryBeginTransactionTwice = fmt.Errorf("sql: attempt to start transaction twice")
-	PrepareEmpty             = fmt.Errorf("sql: prepare value is empty")
-	HandleRowsFuncIsNil      = fmt.Errorf("sql: handle rows func value is nil")
+	ErrInvalidTransaction       = fmt.Errorf("sql: invalid transaction")
+	ErrTryBeginTransactionTwice = fmt.Errorf("sql: attempt to start transaction twice")
+	ErrPrepareEmpty             = fmt.Errorf("sql: prepare value is empty")
+	ErrHandleRowsFuncIsNil      = fmt.Errorf("sql: handle rows func value is nil")
 )
 
 type Result struct {
@@ -56,7 +56,7 @@ func (s *Way) DB() *sql.DB {
 
 func (s *Way) BeginTx(ctx context.Context, opts *sql.TxOptions) (err error) {
 	if s.tx != nil {
-		err = TryBeginTransactionTwice
+		err = ErrTryBeginTransactionTwice
 		return
 	}
 	s.tx, err = s.db.BeginTx(ctx, opts)
@@ -72,7 +72,7 @@ func (s *Way) Begin() error {
 
 func (s *Way) Commit() (err error) {
 	if s.tx == nil {
-		err = InvalidTransaction
+		err = ErrInvalidTransaction
 		return
 	}
 	err = s.tx.Commit()
@@ -82,7 +82,7 @@ func (s *Way) Commit() (err error) {
 
 func (s *Way) Rollback() (err error) {
 	if s.tx == nil {
-		err = InvalidTransaction
+		err = ErrInvalidTransaction
 		return
 	}
 	err = s.tx.Rollback()
@@ -144,11 +144,11 @@ func (s *Way) Transaction(fn func(way *Way) (err error)) (err error) {
 
 func (s *Way) QueryContext(ctx context.Context, handle func(rows *sql.Rows) (err error), prepare string, args ...interface{}) (err error) {
 	if prepare == "" {
-		err = PrepareEmpty
+		err = ErrPrepareEmpty
 		return
 	}
 	if handle == nil {
-		err = HandleRowsFuncIsNil
+		err = ErrHandleRowsFuncIsNil
 		return
 	}
 	if s.prepare != nil {
@@ -196,7 +196,7 @@ func (s *Way) QueryContext(ctx context.Context, handle func(rows *sql.Rows) (err
 
 func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (rowsAffected int64, err error) {
 	if prepare == "" {
-		err = PrepareEmpty
+		err = ErrPrepareEmpty
 		return
 	}
 	if s.prepare != nil {
@@ -277,9 +277,13 @@ func (s *Way) Count(get Selector) (result int64, err error) {
 	return
 }
 
-func (s *Way) Get(get Selector, scan func(rows *sql.Rows) (err error)) error {
+func (s *Way) Get(get Selector, handle func(rows *sql.Rows) (err error)) error {
 	prepare, args := get.Result()
-	return s.Query(func(rows *sql.Rows) error { return ForRowsNextScan(rows, scan) }, prepare, args...)
+	return s.Query(handle, prepare, args...)
+}
+
+func (s *Way) GetScan(get Selector, scan func(rows *sql.Rows) (err error)) error {
+	return s.Get(get, func(rows *sql.Rows) error { return ForRowsNextScan(rows, scan) })
 }
 
 func (s *Way) NewInsert(fn func(add Inserter)) (int64, error) {

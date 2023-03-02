@@ -10,10 +10,10 @@ type JoinType string
 
 const (
 	JoinMaster JoinType = "MASTER"
-	JoinInner           = "INNER"
-	JoinLeft            = "LEFT"
-	JoinRight           = "RIGHT"
-	JoinFull            = "FULL"
+	JoinInner  JoinType = "INNER"
+	JoinLeft   JoinType = "LEFT"
+	JoinRight  JoinType = "RIGHT"
+	JoinFull   JoinType = "FULL"
 )
 
 type Joiner interface {
@@ -67,23 +67,22 @@ type Joiner interface {
 }
 
 type Join struct {
-	style     JoinType      // join type
-	table     string        // table name | SQL statement
-	as        string        // table alias name
-	on        string        // join condition
-	tableArgs []interface{} // if table value is a SQL statement
-	field     []string      // the connection query finally needs to query the field list of this table
-	filter    Filter        // used for condition after on
-	query     []string      // query the fields of the table
+	joinType       JoinType      // join type
+	tableName      string        // table name | SQL statement
+	tableAliasName string        // table alias name
+	joinOn         string        // join condition
+	tableArgs      []interface{} // if table value is a SQL statement
+	queryField     []string      // the connection query finally needs to query the field list of this table
+	joinOnFilter   Filter        // used for condition after on
 }
 
 func (s *Join) As(as string) Joiner {
-	s.as = as
+	s.tableAliasName = as
 	return s
 }
 
 func (s *Join) Alias() string {
-	return s.as
+	return s.tableAliasName
 }
 
 func (s *Join) Asa() Joiner {
@@ -117,14 +116,14 @@ func (s *Join) Asf() Joiner {
 }
 
 func (s *Join) Table() string {
-	return s.table
+	return s.tableName
 }
 
 func (s *Join) Name() string {
-	if s.as != "" {
-		return s.as
+	if s.tableAliasName != "" {
+		return s.tableAliasName
 	}
-	return s.table
+	return s.tableName
 }
 
 func (s *Join) prefix() string {
@@ -138,25 +137,21 @@ func (s *Join) Field(field ...string) Joiner {
 			field[k] = prefix + v
 		}
 	}
-	s.field = field
+	s.queryField = field
 	return s
 }
 
 func (s *Join) QueryField() []string {
-	return s.field
+	return s.queryField
 }
 
 func (s *Join) TableField(field string) string {
-	prefix := s.prefix()
-	if !strings.Contains(field, prefix) {
-		return prefix + field
-	}
-	return field
+	return s.prefix() + field
 }
 
-func (s *Join) On(on string, filter ...Filter) Joiner {
-	s.on = on
-	s.filter = FilterJoin(false, filter...)
+func (s *Join) On(joinOn string, joinOnFilter ...Filter) Joiner {
+	s.joinOn = joinOn
+	s.joinOnFilter = FilterJoin(false, joinOnFilter...)
 	return s
 }
 
@@ -165,18 +160,18 @@ func (s *Join) OnEqual(left string, right string, filter ...Filter) Joiner {
 }
 
 func (s *Join) Result() (prepare string, args []interface{}) {
-	if s.style == JoinMaster || s.table == "" || s.on == "" {
+	if s.joinType == JoinMaster || s.tableName == "" || s.joinOn == "" {
 		return
 	}
 	buf := &bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("%s JOIN %s", s.style, s.table))
+	buf.WriteString(fmt.Sprintf("%s JOIN %s", s.joinType, s.tableName))
 	args = s.tableArgs
-	if s.as != "" {
-		buf.WriteString(fmt.Sprintf(" AS %s", s.as))
+	if s.tableAliasName != "" {
+		buf.WriteString(fmt.Sprintf(" AS %s", s.tableAliasName))
 	}
-	buf.WriteString(fmt.Sprintf(" ON %s", s.on))
-	if s.filter != nil {
-		key, val := s.filter.Result()
+	buf.WriteString(fmt.Sprintf(" ON %s", s.joinOn))
+	if s.joinOnFilter != nil {
+		key, val := s.joinOnFilter.Result()
 		if key != "" {
 			buf.WriteString(fmt.Sprintf(" AND %s", key))
 			args = append(args, val...)
@@ -186,10 +181,10 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 	return
 }
 
-func initJoin(style JoinType, table string, args ...interface{}) Joiner {
+func initJoin(joinType JoinType, table string, args ...interface{}) Joiner {
 	return &Join{
-		style:     style,
-		table:     table,
+		joinType:  joinType,
+		tableName: table,
 		tableArgs: args,
 	}
 }
@@ -225,7 +220,7 @@ func NewOrder() *Order {
 func (s *Order) Asc(columns ...string) *Order {
 	for _, column := range columns {
 		if column != "" {
-			s.Order = append(s.Order, fmt.Sprintf("%s ASC", column))
+			s.Order = append(s.Order, column+" ASC")
 		}
 	}
 	return s
@@ -234,7 +229,7 @@ func (s *Order) Asc(columns ...string) *Order {
 func (s *Order) Desc(columns ...string) *Order {
 	for _, column := range columns {
 		if column != "" {
-			s.Order = append(s.Order, fmt.Sprintf("%s DESC", column))
+			s.Order = append(s.Order, column+" DESC")
 		}
 	}
 	return s
@@ -247,7 +242,7 @@ func (s *Order) Result() string {
 func Alias(prepare string, alias ...string) string {
 	for i := len(alias) - 1; i >= 0; i-- {
 		if alias[i] != "" {
-			return fmt.Sprintf("%s AS %s", prepare, alias[i])
+			return prepare + " AS " + alias[i]
 		}
 	}
 	return prepare
@@ -261,5 +256,5 @@ func FieldMerge(fields ...[]string) (result []string) {
 }
 
 func SubQuery(prepare string) string {
-	return fmt.Sprintf("( %s )", prepare)
+	return "( " + prepare + " )"
 }
