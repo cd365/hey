@@ -377,6 +377,9 @@ type Selector interface {
 	// Where conditional filter data
 	Where(where Filter) Selector
 
+	// Master for join master table
+	Master(master Joiner) Selector
+
 	// Join set join single or multiple tables
 	Join(join ...Joiner) Selector
 
@@ -453,6 +456,19 @@ func (s *_select) Alias(alias string) Selector {
 
 func (s *_select) Field(field ...string) Selector {
 	s.field = field
+	return s
+}
+
+func (s *_select) Master(master Joiner) Selector {
+	s.Table(master.Table())
+	alias := master.Alias()
+	if alias != "" {
+		s.Alias(alias)
+	}
+	field := master.QueryField()
+	if field != nil {
+		s.Field(field...)
+	}
 	return s
 }
 
