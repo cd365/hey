@@ -343,7 +343,7 @@ func NewFilter() Filter {
 	return &filter{}
 }
 
-func FilterJoin(or bool, filters ...Filter) (result Filter) {
+func FilterMerge(or bool, filters ...Filter) (result Filter) {
 	var prepare string
 	var args []interface{}
 	for _, f := range filters {

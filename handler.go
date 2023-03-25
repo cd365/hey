@@ -93,6 +93,9 @@ func (s *_insert) ValuesFromQuery(prepare string, args ...interface{}) Inserter 
 }
 
 func (s *_insert) Result() (string, []interface{}) {
+	if s.table == "" || s.field == nil {
+		return "", nil
+	}
 	return buildSqlInsert(s)
 }
 
@@ -188,6 +191,9 @@ func (s *_delete) Where(where Filter) Deleter {
 }
 
 func (s *_delete) Result() (string, []interface{}) {
+	if s.table == "" {
+		return "", nil
+	}
 	return buildSqlDelete(s)
 }
 
@@ -248,7 +254,7 @@ type _update struct {
 
 func NewUpdater() Updater {
 	return &_update{
-		update: make(map[string]*_modify),
+		update: make(map[string]*_modify, 1),
 	}
 }
 
@@ -315,6 +321,9 @@ func (s *_update) Clear() Updater {
 }
 
 func (s *_update) Result() (string, []interface{}) {
+	if s.table == "" || len(s.update) == 0 {
+		return "", nil
+	}
 	return buildSqlUpdate(s)
 }
 
@@ -465,7 +474,7 @@ func (s *_select) Master(master Joiner) Selector {
 	if alias != "" {
 		s.Alias(alias)
 	}
-	field := master.QueryField()
+	field := master.QueryFields()
 	if field != nil {
 		s.Field(field...)
 	}
@@ -575,19 +584,15 @@ func (s *_select) ResultForCount() (string, []interface{}) {
 }
 
 func (s *_select) Result() (string, []interface{}) {
+	if s.table == "" {
+		return "", nil
+	}
 	return buildSqlSelect(s)
 }
 
 func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
 	buf := &bytes.Buffer{}
-	countField := DefaultColumnName
-	for _, field := range s.field {
-		if field != "" {
-			countField = field
-			break
-		}
-	}
-	buf.WriteString(fmt.Sprintf("SELECT COUNT(%s) AS %s FROM %s", countField, DefaultCountAliasName, s.table))
+	buf.WriteString(fmt.Sprintf("SELECT COUNT(%s) AS %s FROM %s", DefaultColumnName, DefaultCountAliasName, s.table))
 	args = append(args, s.tableArgs...)
 	if s.tableAs != nil && *s.tableAs != "" {
 		buf.WriteString(fmt.Sprintf(" AS %s", *s.tableAs))
@@ -650,6 +655,7 @@ func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
 	for _, join := range s.join {
 		key, val := join.Result()
 		if key != "" {
+			s.field = append(s.field, join.QueryFields()...)
 			buf.WriteString(fmt.Sprintf(" %s", key))
 			args = append(args, val...)
 		}

@@ -47,14 +47,14 @@ type Joiner interface {
 	// Name get the name used by the current table, aliases take precedence
 	Name() string
 
-	// Field set the connection query finally needs to query the field list of this table
-	Field(field ...string) Joiner
+	// Query set the connection query finally needs to query the field list of this table
+	Query(field ...string) Joiner
 
-	// QueryField get the connection query finally needs to query the field list of this table
-	QueryField() []string
+	// QueryFields get the connection query finally needs to query the field list of this table
+	QueryFields() []string
 
-	// TableField the table's field full name value
-	TableField(field string) string
+	// Field the table's field full name value
+	Field(field string) string
 
 	// On the criteria for joining the current table query
 	On(on string, filter ...Filter) Joiner
@@ -130,7 +130,7 @@ func (s *Join) prefix() string {
 	return fmt.Sprintf("%s.", s.Name())
 }
 
-func (s *Join) Field(field ...string) Joiner {
+func (s *Join) Query(field ...string) Joiner {
 	prefix := s.prefix()
 	for k, v := range field {
 		if !strings.Contains(v, prefix) {
@@ -141,17 +141,17 @@ func (s *Join) Field(field ...string) Joiner {
 	return s
 }
 
-func (s *Join) QueryField() []string {
+func (s *Join) QueryFields() []string {
 	return s.queryField
 }
 
-func (s *Join) TableField(field string) string {
+func (s *Join) Field(field string) string {
 	return s.prefix() + field
 }
 
 func (s *Join) On(joinOn string, joinOnFilter ...Filter) Joiner {
 	s.joinOn = joinOn
-	s.joinOnFilter = FilterJoin(false, joinOnFilter...)
+	s.joinOnFilter = FilterMerge(false, joinOnFilter...)
 	return s
 }
 
