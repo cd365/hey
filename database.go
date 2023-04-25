@@ -71,7 +71,7 @@ func (s *Way) DB() *sql.DB {
 }
 
 func (s *Way) clone() *Way {
-	return NewWay(s.db).Prepare(s.prepare).Scanner(s.scanner).Logger(s.logger)
+	return NewWay(s.db).Logger(s.logger).Prepare(s.prepare).Scanner(s.scanner).CallTakeWarn(s.sqlCallTakeWarn)
 }
 
 func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
