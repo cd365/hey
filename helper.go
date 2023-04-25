@@ -209,7 +209,6 @@ func StructAssign(origin interface{}, latest interface{}) {
 		}
 		originField.Set(latestField)
 	}
-	return
 }
 
 // StructModify struct attribute assignment
@@ -252,5 +251,4 @@ func StructModify(origin interface{}, latest interface{}) {
 		}
 		originField.Set(latestField.Elem())
 	}
-	return
 }
