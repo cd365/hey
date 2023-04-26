@@ -377,6 +377,9 @@ type Selector interface {
 	// Table target table name
 	Table(table string, args ...interface{}) Selector
 
+	// FromSelector select from Selector
+	FromSelector(selector Selector, alias string) Selector
+
 	// Alias target table alias name
 	Alias(alias string) Selector
 
@@ -455,6 +458,15 @@ func NewSelector() Selector {
 
 func (s *_select) Table(table string, args ...interface{}) Selector {
 	s.table, s.tableArgs = table, args
+	return s
+}
+
+func (s *_select) FromSelector(selector Selector, alias string) Selector {
+	if selector == nil || alias == "" {
+		return s
+	}
+	prepare, args := selector.Result()
+	s.Table(SubQuery(prepare), args...).Alias(alias)
 	return s
 }
 

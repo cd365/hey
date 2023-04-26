@@ -130,10 +130,10 @@ func (s *Way) output(start time.Time, end time.Time, prepare string, args []inte
 	buf := bytes.NewBuffer(nil)
 	tag := ">>>"
 	if s.tx != nil {
-		buf.WriteString(fmt.Sprintf(" %sTXID:%s", tag, s.txId))
+		buf.WriteString(fmt.Sprintf(" %stxid: %s", tag, s.txId))
 	}
-	buf.WriteString(fmt.Sprintf(" %sCOST:%s %sSTART:%s %sEND:%s", tag, end.Sub(start).String(), tag, start.Format(time.RFC3339Nano), tag, end.Format(time.RFC3339Nano)))
-	buf.WriteString(fmt.Sprintf(" %sPREPARE:%s %sARGS:%v", tag, prepare, tag, args))
+	buf.WriteString(fmt.Sprintf(" %scost: %s %sprepare: %s %sargs: %v ", tag, end.Sub(start).String(), tag, prepare, tag, args))
+	buf.WriteString(fmt.Sprintf(" %sstart: %s %send: %s", tag, start.Format(time.RFC3339Nano), tag, end.Format(time.RFC3339Nano)))
 	format := "[SQL]%s"
 	if err != nil {
 		buf.WriteString(fmt.Sprintf(" %sERROR:%s", tag, err.Error()))
