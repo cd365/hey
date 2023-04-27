@@ -329,7 +329,7 @@ func (s *_update) Where(where Filter) Updater {
 
 func (s *_update) Clear() Updater {
 	s.table = ""
-	s.update = make(map[string]*_modify)
+	s.update = make(map[string]*_modify, 1)
 	s.where = nil
 	return s
 }

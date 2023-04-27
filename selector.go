@@ -249,6 +249,11 @@ func Alias(prepare string, alias ...string) string {
 }
 
 func FieldMerge(fields ...[]string) (result []string) {
+	length := 0
+	for _, field := range fields {
+		length += len(field)
+	}
+	result = make([]string, 0, length)
 	for _, field := range fields {
 		result = append(result, field...)
 	}

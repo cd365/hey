@@ -309,7 +309,7 @@ func (s *filter) Group(group func(filter Filter) Filter) Filter {
 	if group == nil {
 		return s
 	}
-	prepare, args := group(&filter{}).Result()
+	prepare, args := group(NewFilter()).Result()
 	if prepare != "" {
 		prepare = fmt.Sprintf("( %s )", prepare)
 	}
@@ -320,7 +320,7 @@ func (s *filter) OrGroup(group func(filter Filter) Filter) Filter {
 	if group == nil {
 		return s
 	}
-	prepare, args := group(&filter{}).Result()
+	prepare, args := group(NewFilter()).Result()
 	if prepare != "" {
 		prepare = fmt.Sprintf("( %s )", prepare)
 	}
@@ -328,15 +328,12 @@ func (s *filter) OrGroup(group func(filter Filter) Filter) Filter {
 }
 
 func (s *filter) Clear() Filter {
-	s.prepare = ""
-	s.args = nil
+	s.prepare, s.args = "", nil
 	return s
 }
 
-func (s *filter) Result() (prepare string, args []interface{}) {
-	prepare = s.prepare
-	args = s.args
-	return
+func (s *filter) Result() (string, []interface{}) {
+	return s.prepare, s.args
 }
 
 func NewFilter() Filter {
@@ -344,20 +341,16 @@ func NewFilter() Filter {
 }
 
 func FilterMerge(or bool, filters ...Filter) (result Filter) {
-	var prepare string
-	var args []interface{}
+	result = NewFilter()
 	for _, f := range filters {
 		if f == nil {
 			continue
 		}
-		prepare, args = f.Result()
-		if result == nil {
-			result = NewFilter()
-		}
+		prepare, args := f.Result()
 		if or {
-			result.Or(prepare, args)
+			result.Or(prepare, args...)
 		} else {
-			result.And(prepare, args)
+			result.And(prepare, args...)
 		}
 	}
 	return
