@@ -31,6 +31,9 @@ type Inserter interface {
 	// list of unspecified fields: INSERT INTO table1 SELECT column1, column2, column3 FROM table2 WHERE ( id > 0 )
 	ValuesFromQuery(prepare string, args ...interface{}) Inserter
 
+	// ValuesFromSelector like ValuesFromQuery
+	ValuesFromSelector(selector Selector) Inserter
+
 	// Result build insert sql statement
 	Result() (prepare string, args []interface{})
 }
@@ -89,6 +92,17 @@ func (s *_insert) Values(values ...[]interface{}) Inserter {
 
 func (s *_insert) ValuesFromQuery(prepare string, args ...interface{}) Inserter {
 	s.queryPrepare, s.queryArgs = &prepare, args
+	return s
+}
+
+func (s *_insert) ValuesFromSelector(selector Selector) Inserter {
+	if selector == nil {
+		return s
+	}
+	prepare, args := selector.Result()
+	if prepare != "" {
+		s.queryPrepare, s.queryArgs = &prepare, args
+	}
 	return s
 }
 
