@@ -136,7 +136,7 @@ func (s *Way) output(start time.Time, end time.Time, prepare string, args []inte
 	buf.WriteString(fmt.Sprintf(" %sstart: %s %send: %s", tag, start.Format(time.RFC3339Nano), tag, end.Format(time.RFC3339Nano)))
 	format := "[SQL]%s"
 	if err != nil {
-		buf.WriteString(fmt.Sprintf(" %sERROR:%s", tag, err.Error()))
+		buf.WriteString(fmt.Sprintf(" %serror: %s", tag, err.Error()))
 		s.logger.Errorf(format, buf.String())
 		return
 	}
