@@ -42,7 +42,7 @@ type _insert struct {
 	table        string
 	field        []string
 	value        [][]interface{}
-	queryPrepare *string
+	queryPrepare string
 	queryArgs    []interface{}
 }
 
@@ -91,7 +91,7 @@ func (s *_insert) Values(values ...[]interface{}) Inserter {
 }
 
 func (s *_insert) ValuesFromQuery(prepare string, args ...interface{}) Inserter {
-	s.queryPrepare, s.queryArgs = &prepare, args
+	s.queryPrepare, s.queryArgs = prepare, args
 	return s
 }
 
@@ -99,10 +99,7 @@ func (s *_insert) ValuesFromSelector(selector Selector) Inserter {
 	if selector == nil {
 		return s
 	}
-	prepare, args := selector.Result()
-	if prepare != "" {
-		s.queryPrepare, s.queryArgs = &prepare, args
-	}
+	s.queryPrepare, s.queryArgs = selector.Result()
 	return s
 }
 
@@ -114,7 +111,7 @@ func (s *_insert) Result() (string, []interface{}) {
 }
 
 func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
-	if s.queryPrepare != nil && *s.queryPrepare != "" {
+	if s.queryPrepare != "" {
 		buf := &bytes.Buffer{}
 		buf.WriteString("INSERT INTO")
 		buf.WriteString(" ")
@@ -125,7 +122,7 @@ func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 			buf.WriteString(" )")
 		}
 		buf.WriteString(" ")
-		buf.WriteString(*s.queryPrepare)
+		buf.WriteString(s.queryPrepare)
 		prepare = buf.String()
 		args = s.queryArgs
 		return
