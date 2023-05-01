@@ -27,18 +27,20 @@ type Logger interface {
 }
 
 type Way struct {
-	db              *sql.DB
-	tx              *sql.Tx
-	txId            string
-	logger          Logger
+	background      context.Context                                // context.Background
+	db              *sql.DB                                        // the instance of the database connection that was opened
+	tx              *sql.Tx                                        // the transaction instance that was opened
+	txId            string                                         // the transaction id of the current process
+	logger          Logger                                         // record all executed sql
 	prepare         func(prepare string) (result string)           // preprocess sql script before execute
 	scanner         func(rows *sql.Rows, result interface{}) error // scan query result
-	sqlCallTakeWarn int64                                          // execute sql time threshold, milliseconds
+	sqlCallTakeWarn int64                                          // execute sql time threshold, the logger attribute is not nil, unit: milliseconds
 }
 
 func NewWay(db *sql.DB) *Way {
 	way := &Way{
-		db: db,
+		background: context.Background(),
+		db:         db,
 	}
 	way.scanner = func(rows *sql.Rows, result interface{}) error {
 		return ScanSliceStruct(rows, result, scannerDefaultStructTag)
@@ -120,7 +122,7 @@ func (s *Way) TransactionContext(ctx context.Context, opts *sql.TxOptions, fn fu
 }
 
 func (s *Way) Transaction(fn func(tx *Way) (err error)) error {
-	return s.TransactionContext(context.Background(), nil, fn)
+	return s.TransactionContext(s.background, nil, fn)
 }
 
 func (s *Way) output(start time.Time, end time.Time, prepare string, args []interface{}, err error) {
@@ -154,12 +156,12 @@ func (s *Way) QueryContext(ctx context.Context, handlingRows func(rows *sql.Rows
 	if s.prepare != nil {
 		prepare = s.prepare(prepare)
 	}
-	var end time.Time
-	start := time.Now()
+	var start, end time.Time
 	defer func() {
 		s.output(start, end, prepare, args, err)
 	}()
 	var stmt *sql.Stmt
+	start = time.Now()
 	if s.tx != nil {
 		stmt, err = s.tx.PrepareContext(ctx, prepare)
 	} else {
@@ -188,12 +190,12 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 	if s.prepare != nil {
 		prepare = s.prepare(prepare)
 	}
-	var end time.Time
-	start := time.Now()
+	var start, end time.Time
 	defer func() {
 		s.output(start, end, prepare, args, err)
 	}()
 	var stmt *sql.Stmt
+	start = time.Now()
 	if s.tx != nil {
 		stmt, err = s.tx.PrepareContext(ctx, prepare)
 	} else {
@@ -215,11 +217,11 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 }
 
 func (s *Way) Query(handlingRows func(rows *sql.Rows) (err error), prepare string, args ...interface{}) error {
-	return s.QueryContext(context.Background(), handlingRows, prepare, args...)
+	return s.QueryContext(s.background, handlingRows, prepare, args...)
 }
 
 func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
-	return s.ExecContext(context.Background(), prepare, args...)
+	return s.ExecContext(s.background, prepare, args...)
 }
 
 func (s *Way) ScanContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
@@ -227,7 +229,7 @@ func (s *Way) ScanContext(ctx context.Context, result interface{}, prepare strin
 }
 
 func (s *Way) Scan(result interface{}, prepare string, args ...interface{}) error {
-	return s.Query(func(rows *sql.Rows) (err error) { return s.scanner(rows, result) }, prepare, args...)
+	return s.ScanContext(s.background, result, prepare, args...)
 }
 
 func (s *Way) InsertContext(ctx context.Context, add Inserter) (int64, error) {
@@ -251,23 +253,19 @@ func (s *Way) SelectContext(ctx context.Context, get Selector, result interface{
 }
 
 func (s *Way) Insert(add Inserter) (int64, error) {
-	prepare, args := add.Result()
-	return s.Exec(prepare, args...)
+	return s.InsertContext(s.background, add)
 }
 
 func (s *Way) Delete(del Deleter) (int64, error) {
-	prepare, args := del.Result()
-	return s.Exec(prepare, args...)
+	return s.DeleteContext(s.background, del)
 }
 
 func (s *Way) Update(mod Updater) (int64, error) {
-	prepare, args := mod.Result()
-	return s.Exec(prepare, args...)
+	return s.UpdateContext(s.background, mod)
 }
 
 func (s *Way) Select(get Selector, result interface{}) error {
-	prepare, args := get.Result()
-	return s.Query(func(rows *sql.Rows) error { return s.scanner(rows, result) }, prepare, args...)
+	return s.SelectContext(s.background, get, result)
 }
 
 func (s *Way) CountContext(ctx context.Context, get Selector) (result int64, err error) {
@@ -293,16 +291,15 @@ func (s *Way) GetNextContext(ctx context.Context, get Selector, forRowsNextScan 
 }
 
 func (s *Way) Count(get Selector) (int64, error) {
-	return s.CountContext(context.Background(), get)
+	return s.CountContext(s.background, get)
 }
 
 func (s *Way) Get(get Selector, handlingRows func(rows *sql.Rows) (err error)) error {
-	prepare, args := get.Result()
-	return s.Query(handlingRows, prepare, args...)
+	return s.GetContext(s.background, get, handlingRows)
 }
 
 func (s *Way) GetNext(get Selector, forRowsNextScan func(rows *sql.Rows) (err error)) error {
-	return s.Get(get, func(rows *sql.Rows) error { return ForRowsNextScan(rows, forRowsNextScan) })
+	return s.GetNextContext(s.background, get, forRowsNextScan)
 }
 
 func (s *Way) NewInsertContext(ctx context.Context, fn func(add Inserter)) (int64, error) {

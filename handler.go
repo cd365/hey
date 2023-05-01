@@ -14,17 +14,14 @@ type Inserter interface {
 	// Field specify a list of field names to insert
 	Field(field ...string) Inserter
 
-	// Value set the corresponding value of the field to be inserted, insert single record
-	Value(value ...interface{}) Inserter
+	// Value set the corresponding value of the field to be inserted, insert single or multiple records
+	Value(values ...[]interface{}) Inserter
 
 	// ForMap set the field name and field corresponding value at the same time, insert single record, for map
 	ForMap(fieldValue map[string]interface{}) Inserter
 
 	// ForSlice set the field name and field corresponding value at the same time, insert single record, for slice
 	ForSlice(field []string, value []interface{}) Inserter
-
-	// Values set the corresponding value of the field to be inserted, insert multiple records
-	Values(values ...[]interface{}) Inserter
 
 	// ValuesFromQuery insert value from query result, insert single or multiple records
 	// list of specified fields: INSERT INTO table1 ( field1, field2, field3 ) SELECT column1, column2, column3 FROM table2 WHERE ( id > 0 )
@@ -60,8 +57,8 @@ func (s *_insert) Field(field ...string) Inserter {
 	return s
 }
 
-func (s *_insert) Value(value ...interface{}) Inserter {
-	s.value = [][]interface{}{value}
+func (s *_insert) Value(value ...[]interface{}) Inserter {
+	s.value = value
 	return s
 }
 
@@ -78,16 +75,11 @@ func (s *_insert) ForMap(fieldValue map[string]interface{}) Inserter {
 	for i, f := range field {
 		value[i] = fieldValue[f]
 	}
-	return s.Field(field...).Value(value...)
+	return s.Field(field...).Value(value)
 }
 
 func (s *_insert) ForSlice(field []string, value []interface{}) Inserter {
-	return s.Field(field...).Value(value...)
-}
-
-func (s *_insert) Values(values ...[]interface{}) Inserter {
-	s.value = values
-	return s
+	return s.Field(field...).Value(value)
 }
 
 func (s *_insert) ValuesFromQuery(prepare string, args ...interface{}) Inserter {
