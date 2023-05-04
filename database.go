@@ -97,28 +97,32 @@ func (s *Way) rollback() (err error) {
 	return
 }
 
-func (s *Way) TransactionContext(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) (err error)) error {
+func (s *Way) TransactionContext(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) (err error)) (err error) {
 	if s.tx != nil {
 		return fn(s)
 	}
 	way := s.clone()
-	err := way.begin(ctx, opts)
-	if err != nil {
-		return err
+	if err = way.begin(ctx, opts); err != nil {
+		return
 	}
 	ok := false
 	defer func() {
+		txId := s.txId
 		if err == nil && ok {
-			_ = way.commit()
+			if err = way.commit(); err != nil && s.logger != nil {
+				s.logger.Errorf("[SQL] txid: %s commit: %s", txId, err.Error())
+			}
 			return
 		}
-		_ = way.rollback()
+		if err = way.rollback(); err != nil && s.logger != nil {
+			s.logger.Errorf("[SQL] txid: %s rollback: %s", txId, err.Error())
+		}
 	}()
 	if err = fn(way); err != nil {
-		return err
+		return
 	}
 	ok = true
-	return nil
+	return
 }
 
 func (s *Way) Transaction(fn func(tx *Way) (err error)) error {
