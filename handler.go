@@ -170,6 +170,9 @@ type Deleter interface {
 	// Where delete data filter
 	Where(where Filter) Deleter
 
+	// Force it is allowed not to specify the where condition
+	Force() Deleter
+
 	// Result build delete sql statement
 	Result() (prepare string, args []interface{})
 }
@@ -177,6 +180,7 @@ type Deleter interface {
 type _delete struct {
 	table string
 	where Filter
+	force bool
 }
 
 func NewDeleter() Deleter {
@@ -193,6 +197,11 @@ func (s *_delete) Where(where Filter) Deleter {
 	return s
 }
 
+func (s *_delete) Force() Deleter {
+	s.force = true
+	return s
+}
+
 func (s *_delete) Result() (string, []interface{}) {
 	if s.table == "" {
 		return "", nil
@@ -203,14 +212,23 @@ func (s *_delete) Result() (string, []interface{}) {
 func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
 	buf := &bytes.Buffer{}
 	buf.WriteString(fmt.Sprintf("DELETE FROM %s", s.table))
-	if s.where != nil {
-		key, val := s.where.Result()
-		if key != "" {
-			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
-			prepare = buf.String()
-			args = val
+	if s.where == nil {
+		if !s.force {
+			return
 		}
+		prepare = buf.String()
+		return
 	}
+	key, val := s.where.Result()
+	if key == "" {
+		if !s.force {
+			return
+		}
+		prepare = buf.String()
+		return
+	}
+	buf.WriteString(fmt.Sprintf(" WHERE %s", key))
+	prepare, args = buf.String(), val
 	return
 }
 
@@ -236,6 +254,9 @@ type Updater interface {
 	// Where update data filter
 	Where(where Filter) Updater
 
+	// Force it is allowed not to specify the where condition
+	Force() Updater
+
 	// Clear attribute value clear
 	Clear() Updater
 
@@ -253,6 +274,7 @@ type _update struct {
 	table  string
 	update map[string]*_modify
 	where  Filter
+	force  bool
 }
 
 func NewUpdater() Updater {
@@ -316,6 +338,11 @@ func (s *_update) Where(where Filter) Updater {
 	return s
 }
 
+func (s *_update) Force() Updater {
+	s.force = true
+	return s
+}
+
 func (s *_update) Clear() Updater {
 	s.table = ""
 	s.update = make(map[string]*_modify, 1)
@@ -348,12 +375,23 @@ func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 	buf.WriteString(" ")
 	buf.WriteString(strings.Join(field, ", "))
 	args = value
-	where, whereArgs := s.where.Result()
-	if where != "" {
-		buf.WriteString(fmt.Sprintf(" WHERE %s", where))
+	if s.where == nil {
+		if !s.force {
+			return
+		}
 		prepare = buf.String()
-		args = append(args, whereArgs...)
+		return
 	}
+	key, val := s.where.Result()
+	if key == "" {
+		if !s.force {
+			return
+		}
+		prepare = buf.String()
+		return
+	}
+	buf.WriteString(fmt.Sprintf(" WHERE %s", key))
+	prepare, args = buf.String(), append(args, val...)
 	return
 }
 
