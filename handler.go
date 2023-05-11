@@ -213,18 +213,16 @@ func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
 	buf := &bytes.Buffer{}
 	buf.WriteString(fmt.Sprintf("DELETE FROM %s", s.table))
 	if s.where == nil {
-		if !s.force {
-			return
+		if s.force {
+			prepare = buf.String()
 		}
-		prepare = buf.String()
 		return
 	}
 	key, val := s.where.Result()
 	if key == "" {
-		if !s.force {
-			return
+		if s.force {
+			prepare = buf.String()
 		}
-		prepare = buf.String()
 		return
 	}
 	buf.WriteString(fmt.Sprintf(" WHERE %s", key))
@@ -376,18 +374,16 @@ func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 	buf.WriteString(strings.Join(field, ", "))
 	args = value
 	if s.where == nil {
-		if !s.force {
-			return
+		if s.force {
+			prepare = buf.String()
 		}
-		prepare = buf.String()
 		return
 	}
 	key, val := s.where.Result()
 	if key == "" {
-		if !s.force {
-			return
+		if s.force {
+			prepare = buf.String()
 		}
-		prepare = buf.String()
 		return
 	}
 	buf.WriteString(fmt.Sprintf(" WHERE %s", key))
