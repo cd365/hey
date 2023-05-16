@@ -340,6 +340,7 @@ func (s *_update) Clear() Updater {
 	s.table = ""
 	s.update = make(map[string]*_modify, 1)
 	s.where = nil
+	s.force = false
 	return s
 }
 
