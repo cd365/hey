@@ -8,6 +8,9 @@ import (
 )
 
 type Inserter interface {
+	// Tag set tag of prepare
+	Tag(tag string) Inserter
+
 	// Table target table name
 	Table(table string) Inserter
 
@@ -36,6 +39,7 @@ type Inserter interface {
 }
 
 type _insert struct {
+	tag          string
 	table        string
 	field        []string
 	value        [][]interface{}
@@ -45,6 +49,11 @@ type _insert struct {
 
 func NewInserter() Inserter {
 	return &_insert{}
+}
+
+func (s *_insert) Tag(tag string) Inserter {
+	s.tag = tag
+	return s
 }
 
 func (s *_insert) Table(table string) Inserter {
@@ -104,7 +113,10 @@ func (s *_insert) Result() (string, []interface{}) {
 
 func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 	if s.queryPrepare != "" {
-		buf := &bytes.Buffer{}
+		buf := bytes.NewBuffer(nil)
+		if s.tag != "" {
+			buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
+		}
 		buf.WriteString("INSERT INTO")
 		buf.WriteString(" ")
 		buf.WriteString(s.table)
@@ -133,7 +145,10 @@ func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 		}
 	}
 	args = make([]interface{}, amount*length)
-	buf := &bytes.Buffer{}
+	buf := bytes.NewBuffer(nil)
+	if s.tag != "" {
+		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
+	}
 	buf.WriteString(fmt.Sprintf("INSERT INTO %s ( ", s.table))
 	for i := 0; i < length; i++ {
 		if i != 0 {
@@ -164,6 +179,9 @@ func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 }
 
 type Deleter interface {
+	// Tag set tag of prepare
+	Tag(tag string) Deleter
+
 	// Table target table name
 	Table(table string) Deleter
 
@@ -178,6 +196,7 @@ type Deleter interface {
 }
 
 type _delete struct {
+	tag   string
 	table string
 	where Filter
 	force bool
@@ -185,6 +204,11 @@ type _delete struct {
 
 func NewDeleter() Deleter {
 	return &_delete{}
+}
+
+func (s *_delete) Tag(tag string) Deleter {
+	s.tag = tag
+	return s
 }
 
 func (s *_delete) Table(table string) Deleter {
@@ -210,7 +234,10 @@ func (s *_delete) Result() (string, []interface{}) {
 }
 
 func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
-	buf := &bytes.Buffer{}
+	buf := bytes.NewBuffer(nil)
+	if s.tag != "" {
+		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
+	}
 	buf.WriteString(fmt.Sprintf("DELETE FROM %s", s.table))
 	if s.where == nil {
 		if s.force {
@@ -231,6 +258,9 @@ func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
 }
 
 type Updater interface {
+	// Tag set tag of prepare
+	Tag(tag string) Updater
+
 	// Table target table name
 	Table(table string) Updater
 
@@ -271,6 +301,7 @@ type _modify struct {
 }
 
 type _update struct {
+	tag    string
 	table  string
 	update map[string]*_modify
 	where  Filter
@@ -281,6 +312,11 @@ func NewUpdater() Updater {
 	return &_update{
 		update: make(map[string]*_modify, 1),
 	}
+}
+
+func (s *_update) Tag(tag string) Updater {
+	s.tag = tag
+	return s
 }
 
 func (s *_update) Table(table string) Updater {
@@ -337,6 +373,7 @@ func (s *_update) Force() Updater {
 }
 
 func (s *_update) Clear() Updater {
+	s.tag = ""
 	s.table = ""
 	s.update = make(map[string]*_modify, 1)
 	s.where = nil
@@ -367,7 +404,10 @@ func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 		expr[k] = s.update[v].expr
 		args = append(args, s.update[v].args...)
 	}
-	buf := &bytes.Buffer{}
+	buf := bytes.NewBuffer(nil)
+	if s.tag != "" {
+		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
+	}
 	buf.WriteString(fmt.Sprintf("UPDATE %s SET ", s.table))
 	buf.WriteString(strings.Join(expr, ", "))
 	if s.where == nil {
@@ -408,6 +448,9 @@ const (
 )
 
 type Selector interface {
+	// Tag set tag of prepare
+	Tag(tag string) Selector
+
 	// Table target table name
 	Table(table string, args ...interface{}) Selector
 
@@ -472,6 +515,7 @@ type _union struct {
 }
 
 type _select struct {
+	tag       string
 	table     string
 	tableArgs []interface{}
 	tableAs   *string
@@ -488,6 +532,11 @@ type _select struct {
 
 func NewSelector() Selector {
 	return &_select{}
+}
+
+func (s *_select) Tag(tag string) Selector {
+	s.tag = tag
+	return s
 }
 
 func (s *_select) Table(table string, args ...interface{}) Selector {
@@ -610,6 +659,7 @@ func (s *_select) UnionAll(c ...Selector) Selector {
 }
 
 func (s *_select) Clear() Selector {
+	s.tag = ""
 	s.table = ""
 	s.tableArgs = nil
 	s.tableAs = nil
@@ -637,7 +687,10 @@ func (s *_select) Result() (string, []interface{}) {
 }
 
 func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
-	buf := &bytes.Buffer{}
+	buf := bytes.NewBuffer(nil)
+	if s.tag != "" {
+		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
+	}
 	buf.WriteString(fmt.Sprintf("SELECT COUNT(%s) AS %s FROM %s", DefaultColumnName, DefaultCountAliasName, s.table))
 	args = append(args, s.tableArgs...)
 	if s.tableAs != nil && *s.tableAs != "" {
@@ -688,7 +741,10 @@ func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
 }
 
 func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
-	buf := &bytes.Buffer{}
+	buf := bytes.NewBuffer(nil)
+	if s.tag != "" {
+		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
+	}
 	columns := DefaultColumnName
 	if len(s.field) > 0 {
 		columns = strings.Join(s.field, ", ")
