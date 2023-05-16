@@ -234,6 +234,9 @@ type Updater interface {
 	// Table target table name
 	Table(table string) Updater
 
+	// Expr set field value
+	Expr(expr string, value ...interface{}) Updater
+
 	// Set key-value, set the key-value that needs to be updated, field = ?
 	Set(field string, value interface{}) Updater
 
@@ -263,9 +266,8 @@ type Updater interface {
 }
 
 type _modify struct {
-	field  string
-	value  interface{}
-	result string
+	expr string
+	args []interface{}
 }
 
 type _update struct {
@@ -286,31 +288,24 @@ func (s *_update) Table(table string) Updater {
 	return s
 }
 
-func (s *_update) Set(field string, value interface{}) Updater {
-	s.update[field] = &_modify{
-		field:  field,
-		value:  value,
-		result: fmt.Sprintf("%s = ?", field),
+func (s *_update) Expr(expr string, args ...interface{}) Updater {
+	s.update[expr] = &_modify{
+		expr: expr,
+		args: args,
 	}
 	return s
+}
+
+func (s *_update) Set(field string, value interface{}) Updater {
+	return s.Expr(fmt.Sprintf("%s = ?", field), value)
 }
 
 func (s *_update) Incr(field string, value interface{}) Updater {
-	s.update[field] = &_modify{
-		field:  field,
-		value:  value,
-		result: fmt.Sprintf("%s = %s + ?", field, field),
-	}
-	return s
+	return s.Expr(fmt.Sprintf("%s = %s + ?", field, field), value)
 }
 
 func (s *_update) Decr(field string, value interface{}) Updater {
-	s.update[field] = &_modify{
-		field:  field,
-		value:  value,
-		result: fmt.Sprintf("%s = %s - ?", field, field),
-	}
-	return s
+	return s.Expr(fmt.Sprintf("%s = %s - ?", field, field), value)
 }
 
 func (s *_update) ForMap(fieldValue map[string]interface{}) Updater {
@@ -349,7 +344,7 @@ func (s *_update) Clear() Updater {
 }
 
 func (s *_update) Result() (string, []interface{}) {
-	if s.table == "" || len(s.update) == 0 {
+	if s.table == "" {
 		return "", nil
 	}
 	return buildSqlUpdate(s)
@@ -357,22 +352,23 @@ func (s *_update) Result() (string, []interface{}) {
 
 func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 	length := len(s.update)
+	if length == 0 {
+		return
+	}
 	items := make([]string, 0, length)
 	for _, v := range s.update {
-		items = append(items, v.field)
+		items = append(items, v.expr)
 	}
 	sort.Strings(items)
-	field := make([]string, length)
-	value := make([]interface{}, length)
+	expr := make([]string, length)
+	args = make([]interface{}, 0, length)
 	for k, v := range items {
-		field[k] = s.update[v].result
-		value[k] = s.update[v].value
+		expr[k] = s.update[v].expr
+		args = append(args, s.update[v].args...)
 	}
 	buf := &bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("UPDATE %s SET", s.table))
-	buf.WriteString(" ")
-	buf.WriteString(strings.Join(field, ", "))
-	args = value
+	buf.WriteString(fmt.Sprintf("UPDATE %s SET ", s.table))
+	buf.WriteString(strings.Join(expr, ", "))
 	if s.where == nil {
 		if s.force {
 			prepare = buf.String()

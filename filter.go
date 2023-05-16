@@ -2,156 +2,163 @@ package hey
 
 import (
 	"fmt"
+	"strings"
 )
 
-func _MakeIn(length int) (result string) {
-	for i := 0; i < length; i++ {
-		if i == 0 {
-			result = Placeholder
+type filterCompare string
+
+const (
+	filterCompareEqual         filterCompare = "="
+	filterCompareNotEqual      filterCompare = "<>"
+	filterCompareMoreThan      filterCompare = ">"
+	filterCompareMoreThanEqual filterCompare = ">="
+	filterCompareLessThan      filterCompare = "<"
+	filterCompareLessThanEqual filterCompare = "<="
+)
+
+type filterLogic string
+
+const (
+	filterLogicAnd filterLogic = "AND"
+	filterLogicOr  filterLogic = "OR"
+)
+
+func filterCompareExpr(column string, compare filterCompare) string {
+	if column == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s %s %s", column, compare, Placeholder)
+}
+
+func filterEqual(column string) string {
+	return filterCompareExpr(column, filterCompareEqual)
+}
+
+func filterNotEqual(column string) string {
+	return filterCompareExpr(column, filterCompareNotEqual)
+}
+
+func filterMoreThan(column string) string {
+	return filterCompareExpr(column, filterCompareMoreThan)
+}
+
+func filterMoreThanEqual(column string) string {
+	return filterCompareExpr(column, filterCompareMoreThanEqual)
+}
+
+func filterLessThan(column string) string {
+	return filterCompareExpr(column, filterCompareLessThan)
+}
+
+func filterLessThanEqual(column string) string {
+	return filterCompareExpr(column, filterCompareLessThanEqual)
+}
+
+func filterIn(column string, values []interface{}, in bool) (expr string, args []interface{}) {
+	if column == "" {
+		return
+	}
+	args = RemoveDuplicate(values...)
+	length := len(args)
+	if length == 0 {
+		return
+	}
+	if length == 1 {
+		if in {
+			expr = filterEqual(column)
 		} else {
-			result = fmt.Sprintf("%s, %s", result, Placeholder)
+			expr = filterNotEqual(column)
 		}
+		return
+	}
+	result := make([]string, length)
+	for i := 0; i < length; i++ {
+		result[i] = Placeholder
+	}
+	tmp := strings.Join(result, ", ")
+	if in {
+		expr = fmt.Sprintf("%s IN ( %s )", column, tmp)
+	} else {
+		expr = fmt.Sprintf("%s NOT IN ( %s )", column, tmp)
 	}
 	return
 }
 
-func _Equal(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s = %s", column, Placeholder)
-}
-
-func _NotEqual(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s <> %s", column, Placeholder)
-}
-
-func _GreaterThan(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s > %s", column, Placeholder)
-}
-
-func _GreaterThanEqual(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s >= %s", column, Placeholder)
-}
-
-func _LessThan(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s < %s", column, Placeholder)
-}
-
-func _LessThanEqual(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s <= %s", column, Placeholder)
-}
-
-func _In(column string, length int) string {
-	if column == "" || length <= 0 {
-		return ""
-	}
-	if length == 1 {
-		return _Equal(column)
-	}
-	return fmt.Sprintf("%s IN ( %s )", column, _MakeIn(length))
-}
-
-func _NotIn(column string, length int) string {
-	if column == "" || length <= 0 {
-		return ""
-	}
-	if length == 1 {
-		return _NotEqual(column)
-	}
-	return fmt.Sprintf("%s NOT IN ( %s )", column, _MakeIn(length))
-}
-
-func _Like(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s LIKE %s", column, Placeholder)
-}
-
-func _NotLike(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s NOT LIKE %s", column, Placeholder)
-}
-
-func _IsNull(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s IS NULL", column)
-}
-
-func _IsNotNull(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s IS NOT NULL", column)
-}
-
-func _Between(column string) string {
+func filterBetween(column string) string {
 	if column == "" {
 		return ""
 	}
 	return fmt.Sprintf("%s BETWEEN %s AND %s", column, Placeholder, Placeholder)
 }
 
-func _NotBetween(column string) string {
+func filterNotBetween(column string) string {
 	if column == "" {
 		return ""
 	}
 	return fmt.Sprintf("%s NOT BETWEEN %s AND %s", column, Placeholder, Placeholder)
 }
 
+func filterLike(column string) string {
+	if column == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s LIKE %s", column, Placeholder)
+}
+
+func filterNotLike(column string) string {
+	if column == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s NOT LIKE %s", column, Placeholder)
+}
+
+func filterIsNull(column string) string {
+	if column == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s IS NULL", column)
+}
+
+func filterIsNotNull(column string) string {
+	if column == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s IS NOT NULL", column)
+}
+
 type Filter interface {
 	And(prepare string, args ...interface{}) Filter
 	Or(prepare string, args ...interface{}) Filter
+	Group(group func(filter Filter) Filter) Filter
+	OrGroup(group func(filter Filter) Filter) Filter
 	Equal(column string, value interface{}) Filter
 	NotEqual(column string, value interface{}) Filter
-	GreaterThan(column string, value interface{}) Filter
-	GreaterThanEqual(column string, value interface{}) Filter
+	MoreThan(column string, value interface{}) Filter
+	MoreThanEqual(column string, value interface{}) Filter
 	LessThan(column string, value interface{}) Filter
 	LessThanEqual(column string, value interface{}) Filter
 	In(column string, values ...interface{}) Filter
 	NotIn(column string, values ...interface{}) Filter
+	Between(column string, start interface{}, end interface{}) Filter
+	NotBetween(column string, start interface{}, end interface{}) Filter
 	Like(column string, value interface{}) Filter
 	NotLike(column string, value interface{}) Filter
 	IsNull(column string) Filter
 	IsNotNull(column string) Filter
-	Between(column string, start interface{}, end interface{}) Filter
-	NotBetween(column string, start interface{}, end interface{}) Filter
 	OrEqual(column string, value interface{}) Filter
 	OrNotEqual(column string, value interface{}) Filter
-	OrGreaterThan(column string, value interface{}) Filter
-	OrGreaterThanEqual(column string, value interface{}) Filter
+	OrMoreThan(column string, value interface{}) Filter
+	OrMoreThanEqual(column string, value interface{}) Filter
 	OrLessThan(column string, value interface{}) Filter
 	OrLessThanEqual(column string, value interface{}) Filter
 	OrIn(column string, values ...interface{}) Filter
 	OrNotIn(column string, values ...interface{}) Filter
+	OrBetween(column string, start interface{}, end interface{}) Filter
+	OrNotBetween(column string, start interface{}, end interface{}) Filter
 	OrLike(column string, value interface{}) Filter
 	OrNotLike(column string, value interface{}) Filter
 	OrIsNull(column string) Filter
 	OrIsNotNull(column string) Filter
-	OrBetween(column string, start interface{}, end interface{}) Filter
-	OrNotBetween(column string, start interface{}, end interface{}) Filter
-	Group(group func(filter Filter) Filter) Filter
-	OrGroup(group func(filter Filter) Filter) Filter
 	Clear() Filter
 	Result() (prepare string, args []interface{})
 }
@@ -161,170 +168,162 @@ type filter struct {
 	args    []interface{}
 }
 
-func (s *filter) And(prepare string, args ...interface{}) Filter {
-	if prepare == "" {
+func (s *filter) add(logic filterLogic, expr string, args []interface{}) Filter {
+	if expr == "" {
 		return s
 	}
 	if s.prepare == "" {
-		s.prepare = prepare
+		s.prepare = expr
 		s.args = args
-	} else {
-		s.prepare = fmt.Sprintf("%s AND %s", s.prepare, prepare)
-		s.args = append(s.args, args...)
-	}
-	return s
-}
-
-func (s *filter) Or(prepare string, args ...interface{}) Filter {
-	if prepare == "" {
 		return s
 	}
-	if s.prepare == "" {
-		s.prepare = prepare
-		s.args = args
-	} else {
-		s.prepare = fmt.Sprintf("%s OR %s", s.prepare, prepare)
-		s.args = append(s.args, args...)
-	}
+	s.prepare = fmt.Sprintf("%s %s %s", s.prepare, logic, expr)
+	s.args = append(s.args, args...)
 	return s
 }
 
-func (s *filter) Equal(column string, value interface{}) Filter {
-	return s.And(_Equal(column), value)
+func (s *filter) And(expr string, args ...interface{}) Filter {
+	return s.add(filterLogicAnd, expr, args)
 }
 
-func (s *filter) NotEqual(column string, value interface{}) Filter {
-	return s.And(_NotEqual(column), value)
+func (s *filter) Or(expr string, args ...interface{}) Filter {
+	return s.add(filterLogicOr, expr, args)
 }
 
-func (s *filter) GreaterThan(column string, value interface{}) Filter {
-	return s.And(_GreaterThan(column), value)
-}
-
-func (s *filter) GreaterThanEqual(column string, value interface{}) Filter {
-	return s.And(_GreaterThanEqual(column), value)
-}
-
-func (s *filter) LessThan(column string, value interface{}) Filter {
-	return s.And(_LessThan(column), value)
-}
-
-func (s *filter) LessThanEqual(column string, value interface{}) Filter {
-	return s.And(_LessThanEqual(column), value)
-}
-
-func (s *filter) In(column string, values ...interface{}) Filter {
-	values = RemoveDuplicate(values...)
-	return s.And(_In(column, len(values)), values...)
-}
-
-func (s *filter) NotIn(column string, values ...interface{}) Filter {
-	values = RemoveDuplicate(values...)
-	return s.And(_NotIn(column, len(values)), values...)
-}
-
-func (s *filter) Like(column string, value interface{}) Filter {
-	return s.And(_Like(column), value)
-}
-
-func (s *filter) NotLike(column string, value interface{}) Filter {
-	return s.And(_NotLike(column), value)
-}
-
-func (s *filter) IsNull(column string) Filter {
-	return s.And(_IsNull(column))
-}
-
-func (s *filter) IsNotNull(column string) Filter {
-	return s.And(_IsNotNull(column))
-}
-
-func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
-	return s.And(_Between(column), start, end)
-}
-
-func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.And(_NotBetween(column), start, end)
-}
-
-func (s *filter) OrEqual(column string, value interface{}) Filter {
-	return s.Or(_Equal(column), value)
-}
-
-func (s *filter) OrNotEqual(column string, value interface{}) Filter {
-	return s.Or(_NotEqual(column), value)
-}
-
-func (s *filter) OrGreaterThan(column string, value interface{}) Filter {
-	return s.Or(_GreaterThan(column), value)
-}
-
-func (s *filter) OrGreaterThanEqual(column string, value interface{}) Filter {
-	return s.Or(_GreaterThanEqual(column), value)
-}
-
-func (s *filter) OrLessThan(column string, value interface{}) Filter {
-	return s.Or(_LessThan(column), value)
-}
-
-func (s *filter) OrLessThanEqual(column string, value interface{}) Filter {
-	return s.Or(_LessThanEqual(column), value)
-}
-
-func (s *filter) OrIn(column string, values ...interface{}) Filter {
-	values = RemoveDuplicate(values...)
-	return s.Or(_In(column, len(values)), values...)
-}
-
-func (s *filter) OrNotIn(column string, values ...interface{}) Filter {
-	values = RemoveDuplicate(values...)
-	return s.Or(_NotIn(column, len(values)), values...)
-}
-
-func (s *filter) OrLike(column string, value interface{}) Filter {
-	return s.Or(_Like(column), value)
-}
-
-func (s *filter) OrNotLike(column string, value interface{}) Filter {
-	return s.Or(_NotLike(column), value)
-}
-
-func (s *filter) OrIsNull(column string) Filter {
-	return s.Or(_IsNull(column))
-}
-
-func (s *filter) OrIsNotNull(column string) Filter {
-	return s.Or(_IsNotNull(column))
-}
-
-func (s *filter) OrBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(_Between(column), start, end)
-}
-
-func (s *filter) OrNotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(_NotBetween(column), start, end)
+func (s *filter) addGroup(logic filterLogic, group func(filter Filter) Filter) Filter {
+	if group == nil {
+		return s
+	}
+	expr, args := group(NewFilter()).Result()
+	if expr == "" {
+		return s
+	}
+	expr = fmt.Sprintf("( %s )", expr)
+	return s.add(logic, expr, args)
 }
 
 func (s *filter) Group(group func(filter Filter) Filter) Filter {
-	if group == nil {
-		return s
-	}
-	prepare, args := group(NewFilter()).Result()
-	if prepare != "" {
-		prepare = fmt.Sprintf("( %s )", prepare)
-	}
-	return s.And(prepare, args...)
+	return s.addGroup(filterLogicAnd, group)
 }
 
 func (s *filter) OrGroup(group func(filter Filter) Filter) Filter {
-	if group == nil {
-		return s
-	}
-	prepare, args := group(NewFilter()).Result()
-	if prepare != "" {
-		prepare = fmt.Sprintf("( %s )", prepare)
-	}
-	return s.Or(prepare, args...)
+	return s.addGroup(filterLogicOr, group)
+}
+
+func (s *filter) Equal(column string, value interface{}) Filter {
+	return s.And(filterEqual(column), value)
+}
+
+func (s *filter) NotEqual(column string, value interface{}) Filter {
+	return s.And(filterNotEqual(column), value)
+}
+
+func (s *filter) MoreThan(column string, value interface{}) Filter {
+	return s.And(filterMoreThan(column), value)
+}
+
+func (s *filter) MoreThanEqual(column string, value interface{}) Filter {
+	return s.And(filterMoreThanEqual(column), value)
+}
+
+func (s *filter) LessThan(column string, value interface{}) Filter {
+	return s.And(filterLessThan(column), value)
+}
+
+func (s *filter) LessThanEqual(column string, value interface{}) Filter {
+	return s.And(filterLessThanEqual(column), value)
+}
+
+func (s *filter) In(column string, values ...interface{}) Filter {
+	expr, args := filterIn(column, values, true)
+	return s.And(expr, args...)
+}
+
+func (s *filter) NotIn(column string, values ...interface{}) Filter {
+	expr, args := filterIn(column, values, false)
+	return s.And(expr, args...)
+}
+
+func (s *filter) Like(column string, value interface{}) Filter {
+	return s.And(filterLike(column), value)
+}
+
+func (s *filter) NotLike(column string, value interface{}) Filter {
+	return s.And(filterNotLike(column), value)
+}
+
+func (s *filter) IsNull(column string) Filter {
+	return s.And(filterIsNull(column))
+}
+
+func (s *filter) IsNotNull(column string) Filter {
+	return s.And(filterIsNotNull(column))
+}
+
+func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
+	return s.And(filterBetween(column), start, end)
+}
+
+func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
+	return s.And(filterNotBetween(column), start, end)
+}
+
+func (s *filter) OrEqual(column string, value interface{}) Filter {
+	return s.Or(filterEqual(column), value)
+}
+
+func (s *filter) OrNotEqual(column string, value interface{}) Filter {
+	return s.Or(filterNotEqual(column), value)
+}
+
+func (s *filter) OrMoreThan(column string, value interface{}) Filter {
+	return s.Or(filterMoreThan(column), value)
+}
+
+func (s *filter) OrMoreThanEqual(column string, value interface{}) Filter {
+	return s.Or(filterMoreThanEqual(column), value)
+}
+
+func (s *filter) OrLessThan(column string, value interface{}) Filter {
+	return s.Or(filterLessThan(column), value)
+}
+
+func (s *filter) OrLessThanEqual(column string, value interface{}) Filter {
+	return s.Or(filterLessThanEqual(column), value)
+}
+
+func (s *filter) OrIn(column string, values ...interface{}) Filter {
+	expr, args := filterIn(column, values, true)
+	return s.Or(expr, args...)
+}
+
+func (s *filter) OrNotIn(column string, values ...interface{}) Filter {
+	expr, args := filterIn(column, values, false)
+	return s.Or(expr, args...)
+}
+
+func (s *filter) OrLike(column string, value interface{}) Filter {
+	return s.Or(filterLike(column), value)
+}
+
+func (s *filter) OrNotLike(column string, value interface{}) Filter {
+	return s.Or(filterNotLike(column), value)
+}
+
+func (s *filter) OrIsNull(column string) Filter {
+	return s.Or(filterIsNull(column))
+}
+
+func (s *filter) OrIsNotNull(column string) Filter {
+	return s.Or(filterIsNotNull(column))
+}
+
+func (s *filter) OrBetween(column string, start interface{}, end interface{}) Filter {
+	return s.Or(filterBetween(column), start, end)
+}
+
+func (s *filter) OrNotBetween(column string, start interface{}, end interface{}) Filter {
+	return s.Or(filterNotBetween(column), start, end)
 }
 
 func (s *filter) Clear() Filter {
