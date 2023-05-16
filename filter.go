@@ -23,11 +23,12 @@ const (
 	filterLogicOr  filterLogic = "OR"
 )
 
-func filterCompareExpr(column string, compare filterCompare) string {
+func filterCompareExpr(column string, compare filterCompare) (expr string) {
 	if column == "" {
-		return ""
+		return
 	}
-	return fmt.Sprintf("%s %s %s", column, compare, Placeholder)
+	expr = fmt.Sprintf("%s %s %s", column, compare, Placeholder)
+	return
 }
 
 func filterEqual(column string) string {
@@ -84,46 +85,40 @@ func filterIn(column string, values []interface{}, in bool) (expr string, args [
 	return
 }
 
-func filterBetween(column string) string {
+func filterBetween(column string, not bool) (expr string) {
 	if column == "" {
-		return ""
+		return
 	}
-	return fmt.Sprintf("%s BETWEEN %s AND %s", column, Placeholder, Placeholder)
+	expr = column
+	if not {
+		expr = fmt.Sprintf("%s NOT", expr)
+	}
+	expr = fmt.Sprintf("%s BETWEEN %s AND %s", expr, Placeholder, Placeholder)
+	return
 }
 
-func filterNotBetween(column string) string {
+func filterLike(column string, not bool) (expr string) {
 	if column == "" {
-		return ""
+		return
 	}
-	return fmt.Sprintf("%s NOT BETWEEN %s AND %s", column, Placeholder, Placeholder)
+	expr = column
+	if not {
+		expr = fmt.Sprintf("%s NOT", expr)
+	}
+	expr = fmt.Sprintf("%s LIKE %s", expr, Placeholder)
+	return
 }
 
-func filterLike(column string) string {
+func filterIsNull(column string, not bool) (expr string) {
 	if column == "" {
-		return ""
+		return
 	}
-	return fmt.Sprintf("%s LIKE %s", column, Placeholder)
-}
-
-func filterNotLike(column string) string {
-	if column == "" {
-		return ""
+	expr = fmt.Sprintf("%s IS", column)
+	if not {
+		expr = fmt.Sprintf("%s NOT", expr)
 	}
-	return fmt.Sprintf("%s NOT LIKE %s", column, Placeholder)
-}
-
-func filterIsNull(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s IS NULL", column)
-}
-
-func filterIsNotNull(column string) string {
-	if column == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s IS NOT NULL", column)
+	expr = fmt.Sprintf("%s NULL", expr)
+	return
 }
 
 type Filter interface {
@@ -245,27 +240,27 @@ func (s *filter) NotIn(column string, values ...interface{}) Filter {
 }
 
 func (s *filter) Like(column string, value interface{}) Filter {
-	return s.And(filterLike(column), value)
+	return s.And(filterLike(column, false), value)
 }
 
 func (s *filter) NotLike(column string, value interface{}) Filter {
-	return s.And(filterNotLike(column), value)
+	return s.And(filterLike(column, true), value)
 }
 
 func (s *filter) IsNull(column string) Filter {
-	return s.And(filterIsNull(column))
+	return s.And(filterIsNull(column, false))
 }
 
 func (s *filter) IsNotNull(column string) Filter {
-	return s.And(filterIsNotNull(column))
+	return s.And(filterIsNull(column, true))
 }
 
 func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
-	return s.And(filterBetween(column), start, end)
+	return s.And(filterBetween(column, false), start, end)
 }
 
 func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.And(filterNotBetween(column), start, end)
+	return s.And(filterBetween(column, true), start, end)
 }
 
 func (s *filter) OrEqual(column string, value interface{}) Filter {
@@ -303,27 +298,27 @@ func (s *filter) OrNotIn(column string, values ...interface{}) Filter {
 }
 
 func (s *filter) OrLike(column string, value interface{}) Filter {
-	return s.Or(filterLike(column), value)
+	return s.Or(filterLike(column, false), value)
 }
 
 func (s *filter) OrNotLike(column string, value interface{}) Filter {
-	return s.Or(filterNotLike(column), value)
+	return s.Or(filterLike(column, true), value)
 }
 
 func (s *filter) OrIsNull(column string) Filter {
-	return s.Or(filterIsNull(column))
+	return s.Or(filterIsNull(column, false))
 }
 
 func (s *filter) OrIsNotNull(column string) Filter {
-	return s.Or(filterIsNotNull(column))
+	return s.Or(filterIsNull(column, true))
 }
 
 func (s *filter) OrBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(filterBetween(column), start, end)
+	return s.Or(filterBetween(column, false), start, end)
 }
 
 func (s *filter) OrNotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(filterNotBetween(column), start, end)
+	return s.Or(filterBetween(column, true), start, end)
 }
 
 func (s *filter) Clear() Filter {
