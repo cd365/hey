@@ -55,7 +55,7 @@ func filterLessThanEqual(column string) string {
 	return filterCompareExpr(column, filterCompareLessThanEqual)
 }
 
-func filterIn(column string, values []interface{}, in bool) (expr string, args []interface{}) {
+func filterIn(column string, values []interface{}, not bool) (expr string, args []interface{}) {
 	if column == "" {
 		return
 	}
@@ -65,10 +65,10 @@ func filterIn(column string, values []interface{}, in bool) (expr string, args [
 		return
 	}
 	if length == 1 {
-		if in {
-			expr = filterEqual(column)
-		} else {
+		if not {
 			expr = filterNotEqual(column)
+		} else {
+			expr = filterEqual(column)
 		}
 		return
 	}
@@ -77,11 +77,11 @@ func filterIn(column string, values []interface{}, in bool) (expr string, args [
 		result[i] = Placeholder
 	}
 	tmp := strings.Join(result, ", ")
-	if in {
-		expr = fmt.Sprintf("%s IN ( %s )", column, tmp)
-	} else {
-		expr = fmt.Sprintf("%s NOT IN ( %s )", column, tmp)
+	expr = column
+	if not {
+		expr = fmt.Sprintf("%s NOT", expr)
 	}
+	expr = fmt.Sprintf("%s IN ( %s )", expr, tmp)
 	return
 }
 
@@ -230,12 +230,12 @@ func (s *filter) LessThanEqual(column string, value interface{}) Filter {
 }
 
 func (s *filter) In(column string, values ...interface{}) Filter {
-	expr, args := filterIn(column, values, true)
+	expr, args := filterIn(column, values, false)
 	return s.And(expr, args...)
 }
 
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
-	expr, args := filterIn(column, values, false)
+	expr, args := filterIn(column, values, true)
 	return s.And(expr, args...)
 }
 
@@ -288,12 +288,12 @@ func (s *filter) OrLessThanEqual(column string, value interface{}) Filter {
 }
 
 func (s *filter) OrIn(column string, values ...interface{}) Filter {
-	expr, args := filterIn(column, values, true)
+	expr, args := filterIn(column, values, false)
 	return s.Or(expr, args...)
 }
 
 func (s *filter) OrNotIn(column string, values ...interface{}) Filter {
-	expr, args := filterIn(column, values, false)
+	expr, args := filterIn(column, values, true)
 	return s.Or(expr, args...)
 }
 
