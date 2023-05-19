@@ -1,7 +1,6 @@
 package hey
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strings"
@@ -113,7 +112,7 @@ func (s *_insert) Result() (string, []interface{}) {
 
 func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 	if s.queryPrepare != "" {
-		buf := bytes.NewBuffer(nil)
+		buf := strings.Builder{}
 		if s.tag != "" {
 			buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
 		}
@@ -145,7 +144,7 @@ func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 		}
 	}
 	args = make([]interface{}, amount*length)
-	buf := bytes.NewBuffer(nil)
+	buf := strings.Builder{}
 	if s.tag != "" {
 		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
 	}
@@ -234,7 +233,7 @@ func (s *_delete) Result() (string, []interface{}) {
 }
 
 func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
-	buf := bytes.NewBuffer(nil)
+	buf := strings.Builder{}
 	if s.tag != "" {
 		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
 	}
@@ -404,7 +403,7 @@ func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 		expr[k] = s.update[v].expr
 		args = append(args, s.update[v].args...)
 	}
-	buf := bytes.NewBuffer(nil)
+	buf := strings.Builder{}
 	if s.tag != "" {
 		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
 	}
@@ -687,7 +686,7 @@ func (s *_select) Result() (string, []interface{}) {
 }
 
 func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
-	buf := bytes.NewBuffer(nil)
+	buf := strings.Builder{}
 	if s.tag != "" {
 		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
 	}
@@ -713,7 +712,7 @@ func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
 	prepare = buf.String()
 	if s.union != nil && len(s.union) > 0 {
 		ok := false
-		union := &bytes.Buffer{}
+		union := strings.Builder{}
 		var unionAllArgs []interface{}
 		union.WriteString(fmt.Sprintf("SELECT SUM(%s.%s) AS %s FROM", DefaultUnionResultTableAliasName, DefaultCountAliasName, DefaultCountAliasName))
 		union.WriteString(" (")
@@ -741,7 +740,7 @@ func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
 }
 
 func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
-	buf := bytes.NewBuffer(nil)
+	buf := strings.Builder{}
 	if s.tag != "" {
 		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
 	}

@@ -1,7 +1,6 @@
 package hey
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 )
@@ -163,7 +162,7 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 	if s.joinType == JoinMaster || s.tableName == "" || s.joinOn == "" {
 		return
 	}
-	buf := &bytes.Buffer{}
+	buf := strings.Builder{}
 	buf.WriteString(fmt.Sprintf("%s JOIN %s", s.joinType, s.tableName))
 	args = s.tableArgs
 	if s.tableAliasName != "" {
