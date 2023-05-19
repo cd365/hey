@@ -2,129 +2,83 @@ package hey
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
 )
 
 // RemoveDuplicate remove duplicate element
 func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
-	has := make(map[interface{}]*struct{})
+	mp := make(map[interface{}]*struct{})
 	ok := false
-	for _, v := range dynamic {
-		if _, ok = has[v]; ok {
+	length := len(dynamic)
+	result = make([]interface{}, 0, length)
+	for i := 0; i < length; i++ {
+		if _, ok = mp[dynamic[i]]; ok {
 			continue
 		}
-		has[v] = &struct{}{}
-		result = append(result, v)
+		mp[dynamic[i]] = &struct{}{}
+		result = append(result, dynamic[i])
 	}
 	return
 }
 
-func StructAttributeIndex(rt reflect.Type) (attributeIndex map[string]int) {
-	attributeIndex = make(map[string]int)
-	kind := rt.Kind()
-	if rt == nil || kind != reflect.Struct {
-		return
+func StructAttributeIndex(rt reflect.Type) map[string]int {
+	if rt == nil {
+		return nil
 	}
-	for index := 0; index < rt.NumField(); index++ {
-		attributeIndex[rt.Field(index).Name] = index
+	if rt.Kind() != reflect.Struct {
+		return nil
 	}
-	return
+	attributeMapIndex := make(map[string]int)
+	numField := rt.NumField()
+	for index := 0; index < numField; index++ {
+		attributeMapIndex[rt.Field(index).Name] = index
+	}
+	return attributeMapIndex
 }
 
-func StructTagIndex(rt reflect.Type, tag string) (tagIndex map[string]int) {
-	tagIndex = make(map[string]int)
-	kind := rt.Kind()
-	if rt == nil || kind != reflect.Struct {
-		return
+func StructTagIndex(rt reflect.Type, tag string) map[string]int {
+	if rt == nil {
+		return nil
 	}
-	value := ""
-	for index := 0; index < rt.NumField(); index++ {
-		value = rt.Field(index).Tag.Get(tag)
+	if rt.Kind() != reflect.Struct {
+		return nil
+	}
+	tagMapIndex := make(map[string]int)
+	numField := rt.NumField()
+	for index := 0; index < numField; index++ {
+		value := rt.Field(index).Tag.Get(tag)
 		if value == "" || value == "-" {
 			continue
 		}
-		tagIndex[value] = index
+		tagMapIndex[value] = index
 	}
+	return tagMapIndex
+}
+
+func scanSliceStructColumn(rowsScanList []interface{}, rowsScanIndex int, rowsScanColumnName string, receiverMapIndex map[string]int, receiver reflect.Value) (err error) {
+	index, ok := receiverMapIndex[rowsScanColumnName]
+	if ok {
+		field := receiver.Field(index)
+		if field.CanSet() {
+			rowsScanList[rowsScanIndex] = field.Addr().Interface()
+			return
+		}
+		err = fmt.Errorf("field `%s` mapping object property is not available", rowsScanColumnName)
+		return
+	}
+	err = fmt.Errorf("the field `%s` has no mapping object property", rowsScanColumnName)
 	return
 }
 
-func ScanByte(rows *sql.Rows) ([]map[string][]byte, error) {
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, err
-	}
-	var lineValues [][]byte
-	var scanList []interface{}
-	var lineResult map[string][]byte
-	columnLength := len(columnTypes)
-	result := make([]map[string][]byte, 0)
-	for rows.Next() {
-		lineValues = make([][]byte, columnLength)
-		scanList = make([]interface{}, columnLength)
-		for i := range lineValues {
-			scanList[i] = &lineValues[i]
+func scanSliceStructColumns(rowsColumns []string, rowsScanList []interface{}, receiverMapIndex map[string]int, receiver reflect.Value) (err error) {
+	length := len(rowsColumns)
+	for i := 0; i < length; i++ {
+		if err = scanSliceStructColumn(rowsScanList, i, rowsColumns[i], receiverMapIndex, receiver); err != nil {
+			return
 		}
-		if err = rows.Scan(scanList...); err != nil {
-			return nil, err
-		}
-		lineResult = make(map[string][]byte, columnLength)
-		for index, value := range lineValues {
-			lineResult[columnTypes[index].Name()] = value
-		}
-		result = append(result, lineResult)
 	}
-	return result, nil
-}
-
-func ScanAny(rows *sql.Rows) ([]map[string]interface{}, error) {
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, err
-	}
-	var lineValues []interface{}
-	var scanList []interface{}
-	var lineResult map[string]interface{}
-	columnLength := len(columnTypes)
-	result := make([]map[string]interface{}, 0)
-	for rows.Next() {
-		lineValues = make([]interface{}, columnLength)
-		scanList = make([]interface{}, columnLength)
-		for i := range lineValues {
-			scanList[i] = &lineValues[i]
-		}
-		if err = rows.Scan(scanList...); err != nil {
-			return nil, err
-		}
-		lineResult = make(map[string]interface{}, columnLength)
-		for index, value := range lineValues {
-			lineResult[columnTypes[index].Name()] = value
-		}
-		result = append(result, lineResult)
-	}
-	return result, nil
-}
-
-func scanSliceStructColumn(rowsScanList []interface{}, rowsScanIndex int, rowsScanColumnName string, receiverTagIndex map[string]int, receiver reflect.Value) {
-	reflectZeroValue := true
-	field := reflect.Value{}
-	if index, ok := receiverTagIndex[rowsScanColumnName]; ok {
-		field = receiver.Field(index)
-		reflectZeroValue = false
-	}
-	if reflectZeroValue || !field.CanSet() {
-		empty := make([]byte, 0)
-		bytesTypePtrValue := reflect.New(reflect.TypeOf(empty))
-		bytesTypePtrValue.Elem().Set(reflect.ValueOf(empty))
-		rowsScanList[rowsScanIndex] = bytesTypePtrValue.Interface()
-		return
-	}
-	rowsScanList[rowsScanIndex] = field.Addr().Interface()
-}
-
-func scanSliceStructColumns(rowsColumns []string, rowsScanList []interface{}, receiverTagIndex map[string]int, receiver reflect.Value) {
-	for rowsScanIndex, rowsScanColumnName := range rowsColumns {
-		scanSliceStructColumn(rowsScanList, rowsScanIndex, rowsScanColumnName, receiverTagIndex, receiver)
-	}
+	return
 }
 
 // ScanSliceStruct scan queries result into slice *[]struct or *[]*struct
@@ -139,20 +93,17 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, structTag string) (err 
 	if err != nil {
 		return
 	}
-	if structTag == "" {
-		structTag = "db"
-	}
 	setValues := valueOf.Elem()
 	var elemType reflect.Type
 	elemTypeIsPtr := false
 	elem := typeOf.Elem().Elem()
 	switch elem.Kind() {
 	case reflect.Struct:
-		// *[]anyStruct
+		// *[]AnyStruct
 		elemType = elem
 	case reflect.Ptr:
 		if elem.Elem().Kind() == reflect.Struct {
-			// *[]*anyStruct
+			// *[]*AnyStruct
 			elemType = elem.Elem()
 			elemTypeIsPtr = true
 		}
@@ -160,13 +111,22 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, structTag string) (err 
 	if elemType == nil {
 		return
 	}
-	receiverTagIndex := StructTagIndex(elemType, structTag)
+	if structTag == "" {
+		structTag = scannerDefaultStructTag
+	}
+	var receiverMapIndex map[string]int
+	receiverMapIndex = StructTagIndex(elemType, structTag)
+	if len(receiverMapIndex) == 0 {
+		receiverMapIndex = StructAttributeIndex(elemType)
+	}
 	length := len(rowsColumns)
 	for rows.Next() {
 		object := reflect.New(elemType)
 		receiver := reflect.Indirect(object)
 		rowsScanList := make([]interface{}, length)
-		scanSliceStructColumns(rowsColumns, rowsScanList, receiverTagIndex, receiver)
+		if err = scanSliceStructColumns(rowsColumns, rowsScanList, receiverMapIndex, receiver); err != nil {
+			return
+		}
 		if err = rows.Scan(rowsScanList...); err != nil {
 			return
 		}
@@ -180,9 +140,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, structTag string) (err 
 	return
 }
 
-// StructAssign struct attribute assignment
-// origin.Age = latest.Age, origin.Name = latest.Name
-// both the origin and latest parameters must be struct pointers
+// StructAssign struct attribute assignment, both the origin and latest parameters must be struct pointers
 func StructAssign(origin interface{}, latest interface{}) {
 	originValue, latestValue := reflect.ValueOf(origin), reflect.ValueOf(latest)
 	originType, latestType := originValue.Type(), latestValue.Type()
@@ -211,9 +169,7 @@ func StructAssign(origin interface{}, latest interface{}) {
 	}
 }
 
-// StructModify struct attribute assignment
-// origin.Age = latest.Age, origin.Name = latest.Name OR origin.Age = *latest.Age, origin.Name = *latest.Name
-// both the origin and latest parameters must be struct pointers
+// StructModify struct attribute is not nil assignment, both the origin and latest parameters must be struct pointers
 func StructModify(origin interface{}, latest interface{}) {
 	originValue, latestValue := reflect.ValueOf(origin), reflect.ValueOf(latest)
 	originType, latestType := originValue.Type(), latestValue.Type()
