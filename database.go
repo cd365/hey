@@ -132,7 +132,7 @@ func (s *Way) output(start time.Time, end time.Time, prepare string, args []inte
 	if s.logger == nil {
 		return
 	}
-	buf := strings.Builder{}
+	buf := &strings.Builder{}
 	tag := ">>>"
 	if s.tx != nil {
 		buf.WriteString(fmt.Sprintf(" %stxid: %s", tag, s.txId))

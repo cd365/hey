@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+func sqlBuilder(comment string) (builder *strings.Builder) {
+	builder = &strings.Builder{}
+	if comment == "" {
+		return
+	}
+	builder.WriteString("/* ")
+	builder.WriteString(strings.TrimSpace(comment))
+	builder.WriteString(" */ ")
+	return
+}
+
 type Inserter interface {
 	// Tag set tag of prepare
 	Tag(tag string) Inserter
@@ -112,12 +123,8 @@ func (s *_insert) Result() (string, []interface{}) {
 
 func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 	if s.queryPrepare != "" {
-		buf := strings.Builder{}
-		if s.tag != "" {
-			buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
-		}
-		buf.WriteString("INSERT INTO")
-		buf.WriteString(" ")
+		buf := sqlBuilder(s.tag)
+		buf.WriteString("INSERT INTO ")
 		buf.WriteString(s.table)
 		if len(s.field) > 0 {
 			buf.WriteString(" ( ")
@@ -144,11 +151,10 @@ func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 		}
 	}
 	args = make([]interface{}, amount*length)
-	buf := strings.Builder{}
-	if s.tag != "" {
-		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
-	}
-	buf.WriteString(fmt.Sprintf("INSERT INTO %s ( ", s.table))
+	buf := sqlBuilder(s.tag)
+	buf.WriteString("INSERT INTO ")
+	buf.WriteString(s.table)
+	buf.WriteString(" ( ")
 	for i := 0; i < length; i++ {
 		if i != 0 {
 			buf.WriteString(", ")
@@ -233,11 +239,9 @@ func (s *_delete) Result() (string, []interface{}) {
 }
 
 func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
-	buf := strings.Builder{}
-	if s.tag != "" {
-		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
-	}
-	buf.WriteString(fmt.Sprintf("DELETE FROM %s", s.table))
+	buf := sqlBuilder(s.tag)
+	buf.WriteString("DELETE FROM ")
+	buf.WriteString(s.table)
 	if s.where == nil {
 		if s.force {
 			prepare = buf.String()
@@ -251,7 +255,8 @@ func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
 		}
 		return
 	}
-	buf.WriteString(fmt.Sprintf(" WHERE %s", key))
+	buf.WriteString(" WHERE ")
+	buf.WriteString(key)
 	prepare, args = buf.String(), val
 	return
 }
@@ -332,15 +337,16 @@ func (s *_update) Expr(expr string, args ...interface{}) Updater {
 }
 
 func (s *_update) Set(field string, value interface{}) Updater {
-	return s.Expr(fmt.Sprintf("%s = ?", field), value)
+
+	return s.Expr(fmt.Sprintf("%s = %s", field, Placeholder), value)
 }
 
 func (s *_update) Incr(field string, value interface{}) Updater {
-	return s.Expr(fmt.Sprintf("%s = %s + ?", field, field), value)
+	return s.Expr(fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
 }
 
 func (s *_update) Decr(field string, value interface{}) Updater {
-	return s.Expr(fmt.Sprintf("%s = %s - ?", field, field), value)
+	return s.Expr(fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
 }
 
 func (s *_update) ForMap(fieldValue map[string]interface{}) Updater {
@@ -403,11 +409,10 @@ func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 		expr[k] = s.update[v].expr
 		args = append(args, s.update[v].args...)
 	}
-	buf := strings.Builder{}
-	if s.tag != "" {
-		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
-	}
-	buf.WriteString(fmt.Sprintf("UPDATE %s SET ", s.table))
+	buf := sqlBuilder(s.tag)
+	buf.WriteString("UPDATE ")
+	buf.WriteString(s.table)
+	buf.WriteString(" SET ")
 	buf.WriteString(strings.Join(expr, ", "))
 	if s.where == nil {
 		if s.force {
@@ -422,7 +427,8 @@ func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
 		}
 		return
 	}
-	buf.WriteString(fmt.Sprintf(" WHERE %s", key))
+	buf.WriteString(" WHERE ")
+	buf.WriteString(key)
 	prepare, args = buf.String(), append(args, val...)
 	return
 }
@@ -686,37 +692,47 @@ func (s *_select) Result() (string, []interface{}) {
 }
 
 func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
-	buf := strings.Builder{}
-	if s.tag != "" {
-		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
-	}
-	buf.WriteString(fmt.Sprintf("SELECT COUNT(%s) AS %s FROM %s", DefaultColumnName, DefaultCountAliasName, s.table))
+	buf := sqlBuilder(s.tag)
+	buf.WriteString("SELECT COUNT(")
+	buf.WriteString(DefaultColumnName)
+	buf.WriteString(") AS ")
+	buf.WriteString(DefaultCountAliasName)
+	buf.WriteString(" FROM ")
+	buf.WriteString(s.table)
 	args = append(args, s.tableArgs...)
 	if s.tableAs != nil && *s.tableAs != "" {
-		buf.WriteString(fmt.Sprintf(" AS %s", *s.tableAs))
+		buf.WriteString(" AS ")
+		buf.WriteString(*s.tableAs)
 	}
 	for _, join := range s.join {
 		key, val := join.Result()
 		if key != "" {
-			buf.WriteString(fmt.Sprintf(" %s", key))
+			buf.WriteString(" ")
+			buf.WriteString(key)
 			args = append(args, val...)
 		}
 	}
 	if s.where != nil {
 		key, val := s.where.Result()
 		if key != "" {
-			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
+			buf.WriteString(" WHERE ")
+			buf.WriteString(key)
 			args = append(args, val...)
 		}
 	}
 	prepare = buf.String()
 	if s.union != nil && len(s.union) > 0 {
 		ok := false
-		union := strings.Builder{}
-		var unionAllArgs []interface{}
-		union.WriteString(fmt.Sprintf("SELECT SUM(%s.%s) AS %s FROM", DefaultUnionResultTableAliasName, DefaultCountAliasName, DefaultCountAliasName))
-		union.WriteString(" (")
+		union := &strings.Builder{}
+		union.WriteString("SELECT SUM(")
+		union.WriteString(DefaultUnionResultTableAliasName)
+		union.WriteString(".")
+		union.WriteString(DefaultCountAliasName)
+		union.WriteString(") AS ")
+		union.WriteString(DefaultCountAliasName)
+		union.WriteString(" FROM (")
 		union.WriteString(prepare)
+		unionArgsAll := args
 		for _, v := range s.union {
 			if v.typeUnion == UnknownUnion || v.selector == nil {
 				continue
@@ -727,57 +743,62 @@ func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
 			union.WriteString(string(v.typeUnion))
 			union.WriteString(" ")
 			union.WriteString(unionPrepare)
-			unionAllArgs = append(unionAllArgs, unionArgs...)
+			unionArgsAll = append(unionArgsAll, unionArgs...)
 		}
-		union.WriteString(" ) ")
+		union.WriteString(" ) AS ")
 		union.WriteString(DefaultUnionResultTableAliasName)
 		if ok {
 			prepare = union.String()
-			args = append(args, unionAllArgs...)
+			args = unionArgsAll
 		}
 	}
 	return
 }
 
 func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
-	buf := strings.Builder{}
-	if s.tag != "" {
-		buf.WriteString(fmt.Sprintf("/* %s */", s.tag))
-	}
+	buf := sqlBuilder(s.tag)
 	columns := DefaultColumnName
 	if len(s.field) > 0 {
 		columns = strings.Join(s.field, ", ")
 	}
-	buf.WriteString(fmt.Sprintf("SELECT %s FROM %s", columns, s.table))
+	buf.WriteString("SELECT ")
+	buf.WriteString(columns)
+	buf.WriteString(" FROM ")
+	buf.WriteString(s.table)
 	args = append(args, s.tableArgs...)
 	if s.tableAs != nil && *s.tableAs != "" {
-		buf.WriteString(fmt.Sprintf(" AS %s", *s.tableAs))
+		buf.WriteString(" AS ")
+		buf.WriteString(*s.tableAs)
 	}
 	for _, join := range s.join {
 		key, val := join.Result()
 		if key != "" {
 			s.field = append(s.field, join.QueryFields()...)
-			buf.WriteString(fmt.Sprintf(" %s", key))
+			buf.WriteString(" ")
+			buf.WriteString(key)
 			args = append(args, val...)
 		}
 	}
 	if s.where != nil {
 		key, val := s.where.Result()
 		if key != "" {
-			buf.WriteString(fmt.Sprintf(" WHERE %s", key))
+			buf.WriteString(" WHERE ")
+			buf.WriteString(key)
 			args = append(args, val...)
 		}
 	}
 	if s.group != nil {
 		group := strings.Join(s.group, ", ")
 		if group != "" {
-			buf.WriteString(fmt.Sprintf(" GROUP BY %s", group))
+			buf.WriteString(" GROUP BY ")
+			buf.WriteString(group)
 		}
 	}
 	if s.having != nil {
 		key, val := s.having.Result()
 		if key != "" {
-			buf.WriteString(fmt.Sprintf(" HAVING %s", key))
+			buf.WriteString(" HAVING ")
+			buf.WriteString(key)
 			args = append(args, val...)
 		}
 	}
@@ -795,7 +816,8 @@ func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
 	if s.order != nil {
 		order := s.order.Result()
 		if order != "" {
-			buf.WriteString(fmt.Sprintf(" ORDER BY %s", order))
+			buf.WriteString(" ORDER BY ")
+			buf.WriteString(order)
 		}
 	}
 	if s.limit != nil && *s.limit > 0 {

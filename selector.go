@@ -162,17 +162,22 @@ func (s *Join) Result() (prepare string, args []interface{}) {
 	if s.joinType == JoinMaster || s.tableName == "" || s.joinOn == "" {
 		return
 	}
-	buf := strings.Builder{}
-	buf.WriteString(fmt.Sprintf("%s JOIN %s", s.joinType, s.tableName))
+	buf := sqlBuilder("")
+	buf.WriteString(string(s.joinType))
+	buf.WriteString(" JOIN ")
+	buf.WriteString(s.tableName)
 	args = s.tableArgs
 	if s.tableAliasName != "" {
-		buf.WriteString(fmt.Sprintf(" AS %s", s.tableAliasName))
+		buf.WriteString(" AS ")
+		buf.WriteString(s.tableAliasName)
 	}
-	buf.WriteString(fmt.Sprintf(" ON %s", s.joinOn))
+	buf.WriteString(" ON ")
+	buf.WriteString(s.joinOn)
 	if s.joinOnFilter != nil {
 		key, val := s.joinOnFilter.Result()
 		if key != "" {
-			buf.WriteString(fmt.Sprintf(" AND %s", key))
+			buf.WriteString(" AND ")
+			buf.WriteString(key)
 			args = append(args, val...)
 		}
 	}
