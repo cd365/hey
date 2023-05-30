@@ -1,6 +1,8 @@
 package hey
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -17,38 +19,9 @@ func sqlBuilder(comment string) (builder *strings.Builder) {
 	return
 }
 
-type Inserter interface {
-	// Tag set tag of prepare
-	Tag(tag string) Inserter
-
-	// Table target table name
-	Table(table string) Inserter
-
-	// Field specify a list of field names to insert
-	Field(field ...string) Inserter
-
-	// Value set the corresponding value of the field to be inserted, insert single or multiple records
-	Value(values ...[]interface{}) Inserter
-
-	// ForMap set the field name and field corresponding value at the same time, insert single record, for map
-	ForMap(fieldValue map[string]interface{}) Inserter
-
-	// ForSlice set the field name and field corresponding value at the same time, insert single record, for slice
-	ForSlice(field []string, value []interface{}) Inserter
-
-	// ValuesFromQuery insert value from query result, insert single or multiple records
-	// list of specified fields: INSERT INTO table1 ( field1, field2, field3 ) SELECT column1, column2, column3 FROM table2 WHERE ( id > 0 )
-	// list of unspecified fields: INSERT INTO table1 SELECT column1, column2, column3 FROM table2 WHERE ( id > 0 )
-	ValuesFromQuery(prepare string, args ...interface{}) Inserter
-
-	// ValuesFromSelector like ValuesFromQuery
-	ValuesFromSelector(selector Selector) Inserter
-
-	// Result build insert sql statement
-	Result() (prepare string, args []interface{})
-}
-
-type _insert struct {
+type Insert struct {
+	ctx          context.Context
+	way          *Way
 	tag          string
 	table        string
 	field        []string
@@ -57,31 +30,39 @@ type _insert struct {
 	queryArgs    []interface{}
 }
 
-func NewInserter() Inserter {
-	return &_insert{}
+func NewInsert(way *Way) *Insert {
+	return &Insert{
+		ctx: way.ctx,
+		way: way,
+	}
 }
 
-func (s *_insert) Tag(tag string) Inserter {
+func (s *Insert) WithContext(ctx context.Context) *Insert {
+	s.ctx = ctx
+	return s
+}
+
+func (s *Insert) Tag(tag string) *Insert {
 	s.tag = tag
 	return s
 }
 
-func (s *_insert) Table(table string) Inserter {
+func (s *Insert) Table(table string) *Insert {
 	s.table = table
 	return s
 }
 
-func (s *_insert) Field(field ...string) Inserter {
+func (s *Insert) Field(field ...string) *Insert {
 	s.field = field
 	return s
 }
 
-func (s *_insert) Value(value ...[]interface{}) Inserter {
+func (s *Insert) Value(value ...[]interface{}) *Insert {
 	s.value = value
 	return s
 }
 
-func (s *_insert) ForMap(fieldValue map[string]interface{}) Inserter {
+func (s *Insert) ForMap(fieldValue map[string]interface{}) *Insert {
 	length := len(fieldValue)
 	field := make([]string, length)
 	value := make([]interface{}, length)
@@ -97,16 +78,16 @@ func (s *_insert) ForMap(fieldValue map[string]interface{}) Inserter {
 	return s.Field(field...).Value(value)
 }
 
-func (s *_insert) ForSlice(field []string, value []interface{}) Inserter {
+func (s *Insert) ForSlice(field []string, value []interface{}) *Insert {
 	return s.Field(field...).Value(value)
 }
 
-func (s *_insert) ValuesFromQuery(prepare string, args ...interface{}) Inserter {
+func (s *Insert) ValuesFromQuery(prepare string, args ...interface{}) *Insert {
 	s.queryPrepare, s.queryArgs = prepare, args
 	return s
 }
 
-func (s *_insert) ValuesFromSelector(selector Selector) Inserter {
+func (s *Insert) ValuesFromSelect(selector *Select) *Insert {
 	if selector == nil {
 		return s
 	}
@@ -114,14 +95,14 @@ func (s *_insert) ValuesFromSelector(selector Selector) Inserter {
 	return s
 }
 
-func (s *_insert) Result() (string, []interface{}) {
+func (s *Insert) Result() (string, []interface{}) {
 	if s.table == "" || s.field == nil {
 		return "", nil
 	}
 	return buildSqlInsert(s)
 }
 
-func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
+func buildSqlInsert(s *Insert) (prepare string, args []interface{}) {
 	if s.queryPrepare != "" {
 		buf := sqlBuilder(s.tag)
 		buf.WriteString("INSERT INTO ")
@@ -183,62 +164,55 @@ func buildSqlInsert(s *_insert) (prepare string, args []interface{}) {
 	return
 }
 
-type Deleter interface {
-	// Tag set tag of prepare
-	Tag(tag string) Deleter
-
-	// Table target table name
-	Table(table string) Deleter
-
-	// Where delete data filter
-	Where(where Filter) Deleter
-
-	// Force it is allowed not to specify the where condition
-	Force() Deleter
-
-	// Result build delete sql statement
-	Result() (prepare string, args []interface{})
-}
-
-type _delete struct {
+type Delete struct {
+	ctx   context.Context
+	way   *Way
 	tag   string
 	table string
 	where Filter
 	force bool
 }
 
-func NewDeleter() Deleter {
-	return &_delete{}
+func NewDelete(way *Way) *Delete {
+	return &Delete{
+		ctx: way.ctx,
+		way: way,
+	}
 }
 
-func (s *_delete) Tag(tag string) Deleter {
+func (s *Delete) WithContext(ctx context.Context) *Delete {
+	s.ctx = ctx
+	return s
+}
+
+func (s *Delete) Tag(tag string) *Delete {
 	s.tag = tag
 	return s
 }
 
-func (s *_delete) Table(table string) Deleter {
+func (s *Delete) Table(table string) *Delete {
 	s.table = table
 	return s
 }
 
-func (s *_delete) Where(where Filter) Deleter {
+func (s *Delete) Where(where Filter) *Delete {
 	s.where = where
 	return s
 }
 
-func (s *_delete) Force() Deleter {
+func (s *Delete) Force() *Delete {
 	s.force = true
 	return s
 }
 
-func (s *_delete) Result() (string, []interface{}) {
+func (s *Delete) Result() (string, []interface{}) {
 	if s.table == "" {
 		return "", nil
 	}
 	return buildSqlDelete(s)
 }
 
-func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
+func buildSqlDelete(s *Delete) (prepare string, args []interface{}) {
 	buf := sqlBuilder(s.tag)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.table)
@@ -261,50 +235,14 @@ func buildSqlDelete(s *_delete) (prepare string, args []interface{}) {
 	return
 }
 
-type Updater interface {
-	// Tag set tag of prepare
-	Tag(tag string) Updater
-
-	// Table target table name
-	Table(table string) Updater
-
-	// Expr set field value
-	Expr(expr string, value ...interface{}) Updater
-
-	// Set key-value, set the key-value that needs to be updated, field = ?
-	Set(field string, value interface{}) Updater
-
-	// Incr set increment value, field = field + ?
-	Incr(field string, value interface{}) Updater
-
-	// Decr set decrement value, field = field - ?
-	Decr(field string, value interface{}) Updater
-
-	// ForMap use map to batch update key-value, field = ?
-	ForMap(fieldValue map[string]interface{}) Updater
-
-	// ForSlice use slice to batch update key-value, field = ?
-	ForSlice(field []string, value []interface{}) Updater
-
-	// Where update data filter
-	Where(where Filter) Updater
-
-	// Force it is allowed not to specify the where condition
-	Force() Updater
-
-	// Clear attribute value clear
-	Clear() Updater
-
-	// Result build update sql statement
-	Result() (prepare string, args []interface{})
-}
-
 type _modify struct {
 	expr string
 	args []interface{}
 }
 
-type _update struct {
+type Update struct {
+	ctx    context.Context
+	way    *Way
 	tag    string
 	table  string
 	update map[string]*_modify
@@ -312,23 +250,30 @@ type _update struct {
 	force  bool
 }
 
-func NewUpdater() Updater {
-	return &_update{
+func NewUpdate(way *Way) *Update {
+	return &Update{
+		ctx:    way.ctx,
+		way:    way,
 		update: make(map[string]*_modify, 1),
 	}
 }
 
-func (s *_update) Tag(tag string) Updater {
+func (s *Update) WithContext(ctx context.Context) *Update {
+	s.ctx = ctx
+	return s
+}
+
+func (s *Update) Tag(tag string) *Update {
 	s.tag = tag
 	return s
 }
 
-func (s *_update) Table(table string) Updater {
+func (s *Update) Table(table string) *Update {
 	s.table = table
 	return s
 }
 
-func (s *_update) Expr(expr string, args ...interface{}) Updater {
+func (s *Update) Expr(expr string, args ...interface{}) *Update {
 	s.update[expr] = &_modify{
 		expr: expr,
 		args: args,
@@ -336,27 +281,27 @@ func (s *_update) Expr(expr string, args ...interface{}) Updater {
 	return s
 }
 
-func (s *_update) Set(field string, value interface{}) Updater {
+func (s *Update) Set(field string, value interface{}) *Update {
 
 	return s.Expr(fmt.Sprintf("%s = %s", field, Placeholder), value)
 }
 
-func (s *_update) Incr(field string, value interface{}) Updater {
+func (s *Update) Incr(field string, value interface{}) *Update {
 	return s.Expr(fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
 }
 
-func (s *_update) Decr(field string, value interface{}) Updater {
+func (s *Update) Decr(field string, value interface{}) *Update {
 	return s.Expr(fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
 }
 
-func (s *_update) ForMap(fieldValue map[string]interface{}) Updater {
+func (s *Update) ForMap(fieldValue map[string]interface{}) *Update {
 	for field, value := range fieldValue {
 		s.Set(field, value)
 	}
 	return s
 }
 
-func (s *_update) ForSlice(field []string, value []interface{}) Updater {
+func (s *Update) ForSlice(field []string, value []interface{}) *Update {
 	lf, lv := len(field), len(value)
 	if lf != lv {
 		return s
@@ -367,33 +312,24 @@ func (s *_update) ForSlice(field []string, value []interface{}) Updater {
 	return s
 }
 
-func (s *_update) Where(where Filter) Updater {
+func (s *Update) Where(where Filter) *Update {
 	s.where = where
 	return s
 }
 
-func (s *_update) Force() Updater {
+func (s *Update) Force() *Update {
 	s.force = true
 	return s
 }
 
-func (s *_update) Clear() Updater {
-	s.tag = ""
-	s.table = ""
-	s.update = make(map[string]*_modify, 1)
-	s.where = nil
-	s.force = false
-	return s
-}
-
-func (s *_update) Result() (string, []interface{}) {
+func (s *Update) Result() (string, []interface{}) {
 	if s.table == "" {
 		return "", nil
 	}
 	return buildSqlUpdate(s)
 }
 
-func buildSqlUpdate(s *_update) (prepare string, args []interface{}) {
+func buildSqlUpdate(s *Update) (prepare string, args []interface{}) {
 	length := len(s.update)
 	if length == 0 {
 		return
@@ -452,74 +388,14 @@ const (
 	UnionAll     TypeUnion = "UNION ALL"
 )
 
-type Selector interface {
-	// Tag set tag of prepare
-	Tag(tag string) Selector
-
-	// Table target table name
-	Table(table string, args ...interface{}) Selector
-
-	// FromSelector select from Selector
-	FromSelector(selector Selector, alias string) Selector
-
-	// Alias target table alias name
-	Alias(alias string) Selector
-
-	// Field select field lists
-	Field(field ...string) Selector
-
-	// Where conditional filter data
-	Where(where Filter) Selector
-
-	// Master for join master table
-	Master(master Joiner) Selector
-
-	// Join set join single or multiple tables
-	Join(join ...Joiner) Selector
-
-	// Group query result grouping
-	Group(group ...string) Selector
-
-	// Having query group filter data
-	Having(having Filter) Selector
-
-	// Order set query order
-	Order(order *Order) Selector
-
-	// Asc ORDER BY field1 ASC, field2 ASC, field3 ASC ...
-	Asc(field ...string) Selector
-
-	// Desc ORDER BY field1 DESC, field2 DESC, field3 DESC ...
-	Desc(field ...string) Selector
-
-	// Limit set limit the number of query data
-	Limit(limit int64) Selector
-
-	// Offset set query data offset
-	Offset(offset int64) Selector
-
-	// Union query for UNION, do not specify ORDER, LIMIT, OFFSET values on the object being union Selector
-	Union(c ...Selector) Selector
-
-	// UnionAll query for UNION ALL, do not specify ORDER, LIMIT, OFFSET values on the object being union Selector
-	UnionAll(c ...Selector) Selector
-
-	// Clear for clear query object
-	Clear() Selector
-
-	// ResultForCount build sql statement for the number of count, use the field specified by the Field method as the parameter value of the COUNT function, if not specified will use COUNT(*)
-	ResultForCount() (prepare string, args []interface{})
-
-	// Result build select sql statement
-	Result() (prepare string, args []interface{})
-}
-
 type _union struct {
 	typeUnion TypeUnion
-	selector  Selector
+	selector  *Select
 }
 
-type _select struct {
+type Select struct {
+	ctx       context.Context
+	way       *Way
 	tag       string
 	table     string
 	tableArgs []interface{}
@@ -535,21 +411,29 @@ type _select struct {
 	union     []*_union
 }
 
-func NewSelector() Selector {
-	return &_select{}
+func NewSelect(way *Way) *Select {
+	return &Select{
+		ctx: way.ctx,
+		way: way,
+	}
 }
 
-func (s *_select) Tag(tag string) Selector {
+func (s *Select) WithContext(ctx context.Context) *Select {
+	s.ctx = ctx
+	return s
+}
+
+func (s *Select) Tag(tag string) *Select {
 	s.tag = tag
 	return s
 }
 
-func (s *_select) Table(table string, args ...interface{}) Selector {
+func (s *Select) Table(table string, args ...interface{}) *Select {
 	s.table, s.tableArgs = table, args
 	return s
 }
 
-func (s *_select) FromSelector(selector Selector, alias string) Selector {
+func (s *Select) FromSelect(selector *Select, alias string) *Select {
 	if selector == nil || alias == "" {
 		return s
 	}
@@ -558,17 +442,17 @@ func (s *_select) FromSelector(selector Selector, alias string) Selector {
 	return s
 }
 
-func (s *_select) Alias(alias string) Selector {
+func (s *Select) Alias(alias string) *Select {
 	s.tableAs = &alias
 	return s
 }
 
-func (s *_select) Field(field ...string) Selector {
+func (s *Select) Field(field ...string) *Select {
 	s.field = field
 	return s
 }
 
-func (s *_select) Master(master Joiner) Selector {
+func (s *Select) Master(master Joiner) *Select {
 	s.Table(master.Table())
 	alias := master.Alias()
 	if alias != "" {
@@ -581,32 +465,32 @@ func (s *_select) Master(master Joiner) Selector {
 	return s
 }
 
-func (s *_select) Join(join ...Joiner) Selector {
+func (s *Select) Join(join ...Joiner) *Select {
 	s.join = join
 	return s
 }
 
-func (s *_select) Where(where Filter) Selector {
+func (s *Select) Where(where Filter) *Select {
 	s.where = where
 	return s
 }
 
-func (s *_select) Group(group ...string) Selector {
+func (s *Select) Group(group ...string) *Select {
 	s.group = group
 	return s
 }
 
-func (s *_select) Having(having Filter) Selector {
+func (s *Select) Having(having Filter) *Select {
 	s.having = having
 	return s
 }
 
-func (s *_select) Order(order *Order) Selector {
+func (s *Select) Order(order *Order) *Select {
 	s.order = order
 	return s
 }
 
-func (s *_select) Asc(field ...string) Selector {
+func (s *Select) Asc(field ...string) *Select {
 	if s.order == nil {
 		s.order = NewOrder()
 	}
@@ -614,7 +498,7 @@ func (s *_select) Asc(field ...string) Selector {
 	return s
 }
 
-func (s *_select) Desc(field ...string) Selector {
+func (s *Select) Desc(field ...string) *Select {
 	if s.order == nil {
 		s.order = NewOrder()
 	}
@@ -622,17 +506,17 @@ func (s *_select) Desc(field ...string) Selector {
 	return s
 }
 
-func (s *_select) Limit(limit int64) Selector {
+func (s *Select) Limit(limit int64) *Select {
 	s.limit = &limit
 	return s
 }
 
-func (s *_select) Offset(offset int64) Selector {
+func (s *Select) Offset(offset int64) *Select {
 	s.offset = &offset
 	return s
 }
 
-func (s *_select) typeUnion(typeUnion TypeUnion, c ...Selector) Selector {
+func (s *Select) typeUnion(typeUnion TypeUnion, c ...*Select) *Select {
 	if typeUnion == UnknownUnion {
 		return s
 	}
@@ -655,43 +539,49 @@ func (s *_select) typeUnion(typeUnion TypeUnion, c ...Selector) Selector {
 	return s
 }
 
-func (s *_select) Union(c ...Selector) Selector {
+func (s *Select) Union(c ...*Select) *Select {
 	return s.typeUnion(Union, c...)
 }
 
-func (s *_select) UnionAll(c ...Selector) Selector {
+func (s *Select) UnionAll(c ...*Select) *Select {
 	return s.typeUnion(UnionAll, c...)
 }
 
-func (s *_select) Clear() Selector {
-	s.tag = ""
-	s.table = ""
-	s.tableArgs = nil
-	s.tableAs = nil
-	s.field = nil
-	s.join = nil
-	s.where = nil
-	s.group = nil
-	s.having = nil
-	s.order = nil
-	s.limit = nil
-	s.offset = nil
-	s.union = nil
-	return s
-}
-
-func (s *_select) ResultForCount() (string, []interface{}) {
+func (s *Select) ResultForCount() (string, []interface{}) {
 	return buildSqlSelectForCount(s)
 }
 
-func (s *_select) Result() (string, []interface{}) {
+func (s *Select) Result() (string, []interface{}) {
 	if s.table == "" {
 		return "", nil
 	}
 	return buildSqlSelect(s)
 }
 
-func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
+func (s *Select) Count() (result int64, err error) {
+	prepare, args := s.ResultForCount()
+	err = s.way.QueryContext(s.ctx, func(rows *sql.Rows) (err error) {
+		for rows.Next() {
+			if err = rows.Scan(&result); err != nil {
+				return
+			}
+		}
+		return
+	}, prepare, args...)
+	return
+}
+
+func (s *Select) Get(forRowsNextScan func(rows *sql.Rows) (err error)) error {
+	prepare, args := s.Result()
+	return s.way.QueryContext(s.ctx, func(rows *sql.Rows) (err error) { return ForRowsNextScan(rows, forRowsNextScan) }, prepare, args...)
+}
+
+func (s *Select) Scan(result interface{}) error {
+	prepare, args := s.Result()
+	return s.way.QueryContext(s.ctx, func(rows *sql.Rows) error { return s.way.scanner(rows, result) }, prepare, args...)
+}
+
+func buildSqlSelectForCount(s *Select) (prepare string, args []interface{}) {
 	buf := sqlBuilder(s.tag)
 	buf.WriteString("SELECT COUNT(")
 	buf.WriteString(DefaultColumnName)
@@ -755,7 +645,7 @@ func buildSqlSelectForCount(s *_select) (prepare string, args []interface{}) {
 	return
 }
 
-func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
+func buildSqlSelect(s *Select) (prepare string, args []interface{}) {
 	buf := sqlBuilder(s.tag)
 	columns := DefaultColumnName
 	if len(s.field) > 0 {
@@ -829,4 +719,40 @@ func buildSqlSelect(s *_select) (prepare string, args []interface{}) {
 	}
 	prepare = buf.String()
 	return
+}
+
+type Table struct {
+	way   *Way
+	table string
+}
+
+func (s *Table) Insert(fn func(tmp *Insert)) (int64, error) {
+	tmp := NewInsert(s.way).Table(s.table)
+	if fn != nil {
+		fn(tmp)
+	}
+	prepare, args := tmp.Result()
+	return s.way.ExecContext(tmp.ctx, prepare, args...)
+}
+
+func (s *Table) Delete(fn func(tmp *Delete)) (int64, error) {
+	tmp := NewDelete(s.way).Table(s.table)
+	if fn != nil {
+		fn(tmp)
+	}
+	prepare, args := tmp.Result()
+	return s.way.ExecContext(tmp.ctx, prepare, args...)
+}
+
+func (s *Table) Update(fn func(tmp *Update)) (int64, error) {
+	tmp := NewUpdate(s.way).Table(s.table)
+	if fn != nil {
+		fn(tmp)
+	}
+	prepare, args := tmp.Result()
+	return s.way.ExecContext(tmp.ctx, prepare, args...)
+}
+
+func (s *Table) Select() *Select {
+	return NewSelect(s.way).Table(s.table)
 }
