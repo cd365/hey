@@ -10,24 +10,25 @@ import (
 
 func sqlBuilder(comment string) (builder *strings.Builder) {
 	builder = &strings.Builder{}
+	comment = strings.TrimSpace(comment)
 	if comment == "" {
 		return
 	}
 	builder.WriteString("/* ")
-	builder.WriteString(strings.TrimSpace(comment))
+	builder.WriteString(comment)
 	builder.WriteString(" */ ")
 	return
 }
 
 type Insert struct {
-	ctx          context.Context
-	way          *Way
-	tag          string
-	table        string
-	field        []string
-	value        [][]interface{}
-	queryPrepare string
-	queryArgs    []interface{}
+	ctx   context.Context
+	way   *Way
+	tag   string
+	table string
+	field []string
+	value [][]interface{}
+	query string
+	args  []interface{}
 }
 
 func NewInsert(way *Way) *Insert {
@@ -83,7 +84,7 @@ func (s *Insert) ForSlice(field []string, value []interface{}) *Insert {
 }
 
 func (s *Insert) ValuesFromQuery(prepare string, args ...interface{}) *Insert {
-	s.queryPrepare, s.queryArgs = prepare, args
+	s.query, s.args = prepare, args
 	return s
 }
 
@@ -91,7 +92,7 @@ func (s *Insert) ValuesFromSelect(selector *Select) *Insert {
 	if selector == nil {
 		return s
 	}
-	s.queryPrepare, s.queryArgs = selector.Result()
+	s.query, s.args = selector.Result()
 	return s
 }
 
@@ -103,7 +104,7 @@ func (s *Insert) Result() (string, []interface{}) {
 }
 
 func buildSqlInsert(s *Insert) (prepare string, args []interface{}) {
-	if s.queryPrepare != "" {
+	if s.query != "" {
 		buf := sqlBuilder(s.tag)
 		buf.WriteString("INSERT INTO ")
 		buf.WriteString(s.table)
@@ -113,9 +114,9 @@ func buildSqlInsert(s *Insert) (prepare string, args []interface{}) {
 			buf.WriteString(" )")
 		}
 		buf.WriteString(" ")
-		buf.WriteString(s.queryPrepare)
+		buf.WriteString(s.query)
 		prepare = buf.String()
-		args = s.queryArgs
+		args = s.args
 		return
 	}
 	length := len(s.field)
@@ -235,7 +236,7 @@ func buildSqlDelete(s *Delete) (prepare string, args []interface{}) {
 	return
 }
 
-type _modify struct {
+type updateExpr struct {
 	expr string
 	args []interface{}
 }
@@ -245,7 +246,7 @@ type Update struct {
 	way    *Way
 	tag    string
 	table  string
-	update map[string]*_modify
+	update map[string]*updateExpr
 	where  Filter
 	force  bool
 }
@@ -254,7 +255,7 @@ func NewUpdate(way *Way) *Update {
 	return &Update{
 		ctx:    way.ctx,
 		way:    way,
-		update: make(map[string]*_modify, 1),
+		update: make(map[string]*updateExpr, 1),
 	}
 }
 
@@ -274,7 +275,7 @@ func (s *Update) Table(table string) *Update {
 }
 
 func (s *Update) Expr(expr string, args ...interface{}) *Update {
-	s.update[expr] = &_modify{
+	s.update[expr] = &updateExpr{
 		expr: expr,
 		args: args,
 	}
@@ -370,14 +371,11 @@ func buildSqlUpdate(s *Update) (prepare string, args []interface{}) {
 }
 
 const (
-	// DefaultColumnName default column name
-	DefaultColumnName = "*"
+	DefaultColumnName = "*" // default column name
 
-	// DefaultCountAliasName default total rows alias name
-	DefaultCountAliasName = "hey_rows_total"
+	DefaultCountAliasName = "hey_rows_total" // default total rows alias name
 
-	// DefaultUnionResultTableAliasName union query result table alias name
-	DefaultUnionResultTableAliasName = "hey_union_result_table_alias_name"
+	DefaultUnionResultTableAliasName = "hey_union_result_table_alias_name" // union query result table alias name
 )
 
 type TypeUnion string
@@ -388,27 +386,27 @@ const (
 	UnionAll     TypeUnion = "UNION ALL"
 )
 
-type _union struct {
+type selectUnion struct {
 	typeUnion TypeUnion
 	selector  *Select
 }
 
 type Select struct {
-	ctx       context.Context
-	way       *Way
-	tag       string
-	table     string
-	tableArgs []interface{}
-	tableAs   *string
-	field     []string
-	join      []Joiner
-	where     Filter
-	group     []string
-	having    Filter
-	order     *Order
-	limit     *int64
-	offset    *int64
-	union     []*_union
+	ctx        context.Context
+	way        *Way
+	tag        string
+	table      string
+	tableArgs  []interface{}
+	tableAlias *string
+	field      []string
+	join       []Joiner
+	where      Filter
+	group      []string
+	having     Filter
+	order      *Order
+	limit      *int64
+	offset     *int64
+	union      []*selectUnion
 }
 
 func NewSelect(way *Way) *Select {
@@ -443,7 +441,7 @@ func (s *Select) FromSelect(selector *Select, alias string) *Select {
 }
 
 func (s *Select) Alias(alias string) *Select {
-	s.tableAs = &alias
+	s.tableAlias = &alias
 	return s
 }
 
@@ -525,12 +523,12 @@ func (s *Select) typeUnion(typeUnion TypeUnion, c ...*Select) *Select {
 		s.union = nil
 		return s
 	}
-	result := make([]*_union, 0, length)
+	result := make([]*selectUnion, 0, length)
 	for _, v := range c {
 		if v == nil {
 			continue
 		}
-		result = append(result, &_union{
+		result = append(result, &selectUnion{
 			typeUnion: typeUnion,
 			selector:  v,
 		})
@@ -590,9 +588,9 @@ func buildSqlSelectForCount(s *Select) (prepare string, args []interface{}) {
 	buf.WriteString(" FROM ")
 	buf.WriteString(s.table)
 	args = append(args, s.tableArgs...)
-	if s.tableAs != nil && *s.tableAs != "" {
+	if s.tableAlias != nil && *s.tableAlias != "" {
 		buf.WriteString(" AS ")
-		buf.WriteString(*s.tableAs)
+		buf.WriteString(*s.tableAlias)
 	}
 	for _, join := range s.join {
 		key, val := join.Result()
@@ -656,9 +654,9 @@ func buildSqlSelect(s *Select) (prepare string, args []interface{}) {
 	buf.WriteString(" FROM ")
 	buf.WriteString(s.table)
 	args = append(args, s.tableArgs...)
-	if s.tableAs != nil && *s.tableAs != "" {
+	if s.tableAlias != nil && *s.tableAlias != "" {
 		buf.WriteString(" AS ")
-		buf.WriteString(*s.tableAs)
+		buf.WriteString(*s.tableAlias)
 	}
 	for _, join := range s.join {
 		key, val := join.Result()
@@ -728,27 +726,21 @@ type Table struct {
 
 func (s *Table) Insert(fn func(tmp *Insert)) (int64, error) {
 	tmp := NewInsert(s.way).Table(s.table)
-	if fn != nil {
-		fn(tmp)
-	}
+	fn(tmp)
 	prepare, args := tmp.Result()
 	return s.way.ExecContext(tmp.ctx, prepare, args...)
 }
 
 func (s *Table) Delete(fn func(tmp *Delete)) (int64, error) {
 	tmp := NewDelete(s.way).Table(s.table)
-	if fn != nil {
-		fn(tmp)
-	}
+	fn(tmp)
 	prepare, args := tmp.Result()
 	return s.way.ExecContext(tmp.ctx, prepare, args...)
 }
 
 func (s *Table) Update(fn func(tmp *Update)) (int64, error) {
 	tmp := NewUpdate(s.way).Table(s.table)
-	if fn != nil {
-		fn(tmp)
-	}
+	fn(tmp)
 	prepare, args := tmp.Result()
 	return s.way.ExecContext(tmp.ctx, prepare, args...)
 }

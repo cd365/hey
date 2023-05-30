@@ -130,6 +130,8 @@ func filterIsNull(column string, not bool) (expr string) {
 type Filter interface {
 	And(prepare string, args ...interface{}) Filter
 	Or(prepare string, args ...interface{}) Filter
+	Filter(filters ...Filter) Filter
+	OrFilter(filters ...Filter) Filter
 	Group(group func(filter Filter) Filter) Filter
 	OrGroup(group func(filter Filter) Filter) Filter
 	Equal(column string, value interface{}) Filter
@@ -160,7 +162,6 @@ type Filter interface {
 	OrNotLike(column string, value interface{}) Filter
 	OrIsNull(column string) Filter
 	OrIsNotNull(column string) Filter
-	Clear() Filter
 	Result() (prepare string, args []interface{})
 }
 
@@ -189,6 +190,34 @@ func (s *filter) And(expr string, args ...interface{}) Filter {
 
 func (s *filter) Or(expr string, args ...interface{}) Filter {
 	return s.add(filterLogicOr, expr, args)
+}
+
+func (s *filter) Filter(filters ...Filter) Filter {
+	for _, f := range filters {
+		if f == nil {
+			continue
+		}
+		prepare, args := f.Result()
+		if prepare == "" {
+			continue
+		}
+		s.And(prepare, args...)
+	}
+	return s
+}
+
+func (s *filter) OrFilter(filters ...Filter) Filter {
+	for _, f := range filters {
+		if f == nil {
+			continue
+		}
+		prepare, args := f.Result()
+		if prepare == "" {
+			continue
+		}
+		s.Or(prepare, args...)
+	}
+	return s
 }
 
 func (s *filter) addGroup(logic filterLogic, group func(filter Filter) Filter) Filter {
@@ -327,31 +356,10 @@ func (s *filter) OrNotBetween(column string, start interface{}, end interface{})
 	return s.Or(filterBetween(column, true), start, end)
 }
 
-func (s *filter) Clear() Filter {
-	s.prepare, s.args = "", nil
-	return s
-}
-
 func (s *filter) Result() (string, []interface{}) {
 	return s.prepare, s.args
 }
 
 func NewFilter() Filter {
 	return &filter{}
-}
-
-func FilterMerge(or bool, filters ...Filter) (result Filter) {
-	result = NewFilter()
-	for _, f := range filters {
-		if f == nil {
-			continue
-		}
-		prepare, args := f.Result()
-		if or {
-			result.Or(prepare, args...)
-		} else {
-			result.And(prepare, args...)
-		}
-	}
-	return
 }

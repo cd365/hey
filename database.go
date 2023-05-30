@@ -182,6 +182,10 @@ func (s *Way) QueryContext(ctx context.Context, handlingRows func(rows *sql.Rows
 	return
 }
 
+func (s *Way) Query(handlingRows func(rows *sql.Rows) (err error), prepare string, args ...interface{}) error {
+	return s.QueryContext(s.ctx, handlingRows, prepare, args...)
+}
+
 func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (rowsAffected int64, err error) {
 	if prepare == "" {
 		return
@@ -213,10 +217,6 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 	}
 	rowsAffected, err = sqlResult.RowsAffected()
 	return
-}
-
-func (s *Way) Query(handlingRows func(rows *sql.Rows) (err error), prepare string, args ...interface{}) error {
-	return s.QueryContext(s.ctx, handlingRows, prepare, args...)
 }
 
 func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {

@@ -150,7 +150,9 @@ func (s *Join) Field(field string) string {
 
 func (s *Join) On(joinOn string, joinOnFilter ...Filter) Joiner {
 	s.joinOn = joinOn
-	s.joinOnFilter = FilterMerge(false, joinOnFilter...)
+	if len(joinOnFilter) > 0 {
+		s.joinOnFilter = NewFilter().Filter(joinOnFilter...)
+	}
 	return s
 }
 
