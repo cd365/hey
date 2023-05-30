@@ -9,10 +9,6 @@ import (
 )
 
 const (
-	Placeholder = "?"
-)
-
-const (
 	scannerDefaultStructTag = "db"
 )
 

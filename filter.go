@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+const (
+	Placeholder = "?"
+)
+
 type filterCompare string
 
 const (
@@ -59,8 +63,7 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 	if column == "" {
 		return
 	}
-	args = RemoveDuplicate(values...)
-	length := len(args)
+	length := len(values)
 	if length == 0 {
 		return
 	}
@@ -70,8 +73,11 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 		} else {
 			expr = filterEqual(column)
 		}
+		args = []interface{}{values[0]}
 		return
 	}
+	args = RemoveDuplicate(values...)
+	length = len(args)
 	result := make([]string, length)
 	for i := 0; i < length; i++ {
 		result[i] = Placeholder
