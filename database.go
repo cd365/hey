@@ -92,6 +92,10 @@ func (s *Way) rollback() (err error) {
 	return
 }
 
+func (s *Way) TxNil() bool {
+	return s.tx == nil
+}
+
 func (s *Way) TransactionContext(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) (err error)) (err error) {
 	if s.tx != nil {
 		return fn(s)
