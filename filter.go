@@ -63,6 +63,7 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 	if column == "" {
 		return
 	}
+	values = RemoveDuplicate(values...)
 	length := len(values)
 	if length == 0 {
 		return
@@ -76,8 +77,7 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 		args = []interface{}{values[0]}
 		return
 	}
-	args = RemoveDuplicate(values...)
-	length = len(args)
+	args = values
 	result := make([]string, length)
 	for i := 0; i < length; i++ {
 		result[i] = Placeholder
@@ -162,7 +162,7 @@ type Filter interface {
 	OrNotLike(column string, value interface{}) Filter
 	OrIsNull(column string) Filter
 	OrIsNotNull(column string) Filter
-	Result() (prepare string, args []interface{})
+	SQL() (prepare string, args []interface{})
 }
 
 type filter struct {
@@ -197,7 +197,7 @@ func (s *filter) Filter(filters ...Filter) Filter {
 		if f == nil {
 			continue
 		}
-		prepare, args := f.Result()
+		prepare, args := f.SQL()
 		if prepare == "" {
 			continue
 		}
@@ -211,7 +211,7 @@ func (s *filter) OrFilter(filters ...Filter) Filter {
 		if f == nil {
 			continue
 		}
-		prepare, args := f.Result()
+		prepare, args := f.SQL()
 		if prepare == "" {
 			continue
 		}
@@ -224,7 +224,7 @@ func (s *filter) addGroup(logic filterLogic, group func(filter Filter) Filter) F
 	if group == nil {
 		return s
 	}
-	expr, args := group(NewFilter()).Result()
+	expr, args := group(NewFilter()).SQL()
 	if expr == "" {
 		return s
 	}
@@ -356,7 +356,7 @@ func (s *filter) OrNotBetween(column string, start interface{}, end interface{})
 	return s.Or(filterBetween(column, true), start, end)
 }
 
-func (s *filter) Result() (string, []interface{}) {
+func (s *filter) SQL() (prepare string, args []interface{}) {
 	return s.prepare, s.args
 }
 
