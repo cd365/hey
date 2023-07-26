@@ -27,6 +27,10 @@ const (
 	filterLogicOr  filterLogic = "OR"
 )
 
+type Ser interface {
+	SQL() (prepare string, args []interface{})
+}
+
 func filterCompareExpr(column string, compare filterCompare) (expr string) {
 	if column == "" {
 		return
@@ -141,7 +145,17 @@ type Filter interface {
 	LessThan(column string, value interface{}) Filter
 	LessThanEqual(column string, value interface{}) Filter
 	In(column string, values ...interface{}) Filter
+	InSql(column string, prepare string, args ...interface{}) Filter
+	InSer(column string, ser Ser) Filter
+	InInt(column string, values []int) Filter
+	InInt64(column string, values []int64) Filter
+	InString(column string, values []string) Filter
 	NotIn(column string, values ...interface{}) Filter
+	NotInSql(column string, prepare string, args ...interface{}) Filter
+	NotInSer(column string, ser Ser) Filter
+	NotInInt(column string, values []int) Filter
+	NotInInt64(column string, values []int64) Filter
+	NotInString(column string, values []string) Filter
 	Between(column string, start interface{}, end interface{}) Filter
 	NotBetween(column string, start interface{}, end interface{}) Filter
 	Like(column string, value interface{}) Filter
@@ -155,7 +169,17 @@ type Filter interface {
 	OrLessThan(column string, value interface{}) Filter
 	OrLessThanEqual(column string, value interface{}) Filter
 	OrIn(column string, values ...interface{}) Filter
+	OrInSql(column string, prepare string, args ...interface{}) Filter
+	OrInSer(column string, ser Ser) Filter
+	OrInInt(column string, values []int) Filter
+	OrInInt64(column string, values []int64) Filter
+	OrInString(column string, values []string) Filter
 	OrNotIn(column string, values ...interface{}) Filter
+	OrNotInSql(column string, prepare string, args ...interface{}) Filter
+	OrNotInSer(column string, ser Ser) Filter
+	OrNotInInt(column string, values []int) Filter
+	OrNotInInt64(column string, values []int64) Filter
+	OrNotInString(column string, values []string) Filter
 	OrBetween(column string, start interface{}, end interface{}) Filter
 	OrNotBetween(column string, start interface{}, end interface{}) Filter
 	OrLike(column string, value interface{}) Filter
@@ -269,9 +293,113 @@ func (s *filter) In(column string, values ...interface{}) Filter {
 	return s.And(expr, args...)
 }
 
+func (s *filter) InSql(column string, prepare string, args ...interface{}) Filter {
+	if column == "" || prepare == "" {
+		return s
+	}
+	expr := fmt.Sprintf("%s IN ( %s )", column, prepare)
+	return s.And(expr, args...)
+}
+
+func (s *filter) InSer(column string, ser Ser) Filter {
+	if ser == nil {
+		return s
+	}
+	prepare, args := ser.SQL()
+	return s.InSql(column, prepare, args...)
+}
+
+func (s *filter) InInt(column string, values []int) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.In(column, args...)
+}
+
+func (s *filter) InInt64(column string, values []int64) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.In(column, args...)
+}
+
+func (s *filter) InString(column string, values []string) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.In(column, args...)
+}
+
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
 	expr, args := filterIn(column, values, true)
 	return s.And(expr, args...)
+}
+
+func (s *filter) NotInSql(column string, prepare string, args ...interface{}) Filter {
+	if column == "" || prepare == "" {
+		return s
+	}
+	expr := fmt.Sprintf("%s NOT IN ( %s )", column, prepare)
+	return s.And(expr, args...)
+}
+
+func (s *filter) NotInSer(column string, ser Ser) Filter {
+	if ser == nil {
+		return s
+	}
+	prepare, args := ser.SQL()
+	return s.NotInSql(column, prepare, args...)
+}
+
+func (s *filter) NotInInt(column string, values []int) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.NotIn(column, args...)
+}
+
+func (s *filter) NotInInt64(column string, values []int64) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.NotIn(column, args...)
+}
+
+func (s *filter) NotInString(column string, values []string) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.NotIn(column, args...)
 }
 
 func (s *filter) Like(column string, value interface{}) Filter {
@@ -327,9 +455,113 @@ func (s *filter) OrIn(column string, values ...interface{}) Filter {
 	return s.Or(expr, args...)
 }
 
+func (s *filter) OrInSql(column string, prepare string, args ...interface{}) Filter {
+	if column == "" || prepare == "" {
+		return s
+	}
+	expr := fmt.Sprintf("%s IN ( %s )", column, prepare)
+	return s.Or(expr, args...)
+}
+
+func (s *filter) OrInSer(column string, ser Ser) Filter {
+	if ser == nil {
+		return s
+	}
+	prepare, args := ser.SQL()
+	return s.OrInSql(column, prepare, args...)
+}
+
+func (s *filter) OrInInt(column string, values []int) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.OrIn(column, args...)
+}
+
+func (s *filter) OrInInt64(column string, values []int64) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.OrIn(column, args...)
+}
+
+func (s *filter) OrInString(column string, values []string) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.OrIn(column, args...)
+}
+
 func (s *filter) OrNotIn(column string, values ...interface{}) Filter {
 	expr, args := filterIn(column, values, true)
 	return s.Or(expr, args...)
+}
+
+func (s *filter) OrNotInSql(column string, prepare string, args ...interface{}) Filter {
+	if column == "" || prepare == "" {
+		return s
+	}
+	expr := fmt.Sprintf("%s NOT IN ( %s )", column, prepare)
+	return s.Or(expr, args...)
+}
+
+func (s *filter) OrNotInSer(column string, ser Ser) Filter {
+	if ser == nil {
+		return s
+	}
+	prepare, args := ser.SQL()
+	return s.OrNotInSql(column, prepare, args...)
+}
+
+func (s *filter) OrNotInInt(column string, values []int) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.OrNotIn(column, args...)
+}
+
+func (s *filter) OrNotInInt64(column string, values []int64) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.OrNotIn(column, args...)
+}
+
+func (s *filter) OrNotInString(column string, values []string) Filter {
+	length := len(values)
+	if length == 0 {
+		return s
+	}
+	args := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		args[i] = values[i]
+	}
+	return s.OrNotIn(column, args...)
 }
 
 func (s *filter) OrLike(column string, value interface{}) Filter {

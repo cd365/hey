@@ -239,15 +239,12 @@ func StructInsert(insert interface{}, tag string, except ...string) (column []st
 
 // StructUpdate compare origin and latest for update
 func StructUpdate(origin interface{}, latest interface{}, tag string) (modify map[string]interface{}) {
-	if tag == "" {
+	if origin == nil || latest == nil || tag == "" {
 		return
 	}
 	originTypeOf, latestTypeOf := reflect.TypeOf(origin), reflect.TypeOf(latest)
 	originValueOf, latestValueOf := reflect.ValueOf(origin), reflect.ValueOf(latest)
 	originKind, latestKind := originTypeOf.Kind(), latestTypeOf.Kind()
-	if originKind == reflect.Invalid || latestKind == reflect.Invalid {
-		return
-	}
 	for ; originKind == reflect.Ptr; originKind = originTypeOf.Kind() {
 		originTypeOf, originValueOf = originTypeOf.Elem(), originValueOf.Elem()
 	}
@@ -258,7 +255,6 @@ func StructUpdate(origin interface{}, latest interface{}, tag string) (modify ma
 		return
 	}
 	modify = make(map[string]interface{})
-	// latest
 	latestMapValue := make(map[string]reflect.Value)
 	latestMapIndex := make(map[string]int)
 	length := latestValueOf.Type().NumField()
@@ -266,7 +262,6 @@ func StructUpdate(origin interface{}, latest interface{}, tag string) (modify ma
 		name := latestTypeOf.Field(i).Name
 		latestMapIndex[name], latestMapValue[name] = i, latestValueOf.Field(i)
 	}
-	// origin
 	length = originTypeOf.NumField()
 	for i := 0; i < length; i++ {
 		originField := originTypeOf.Field(i)
@@ -317,7 +312,6 @@ func StructAssign(target interface{}, latest interface{}) {
 	if t0k != reflect.Struct || t1k != reflect.Struct {
 		return
 	}
-	// latest
 	mi1 := make(map[string]int)
 	mv1 := make(map[string]reflect.Value)
 	length := v1.Type().NumField()
@@ -326,7 +320,6 @@ func StructAssign(target interface{}, latest interface{}) {
 		mi1[name] = i
 		mv1[name] = v1.Field(i)
 	}
-	// target
 	length = t0.NumField()
 	for i := 0; i < length; i++ {
 		value0 := v0.Field(i)
@@ -342,9 +335,14 @@ func StructAssign(target interface{}, latest interface{}) {
 		field0type, field1type := field0.Type, field1.Type
 		assigned := false
 		for ; field1type.Kind() == reflect.Ptr; {
-			if field0type.String() == field1type.String() && !reflect.DeepEqual(value0, value1) {
+			if field0type.String() == field1type.String() {
 				assigned = true
-				value0.Set(value1)
+				if !reflect.DeepEqual(value0.Interface(), value1.Interface()) {
+					if field0type.Kind() == reflect.Ptr && value0.IsNil() {
+						value0 = reflect.Indirect(reflect.New(field0type))
+					}
+					value0.Set(value1)
+				}
 				break
 			}
 			if value1.IsNil() {
@@ -356,9 +354,11 @@ func StructAssign(target interface{}, latest interface{}) {
 		if assigned {
 			continue
 		}
-		if field0type.String() == field1type.String() && !reflect.DeepEqual(value0, value1) {
-			value0.Set(value1)
+		if field0type.String() != field1type.String() {
 			continue
+		}
+		if !reflect.DeepEqual(value0.Interface(), value1.Interface()) {
+			value0.Set(value1)
 		}
 	}
 	return

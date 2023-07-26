@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -31,13 +32,12 @@ func Choose(way *Way, items ...*Way) *Way {
 }
 
 type LogSql struct {
-	Prepare string        `json:"prepare"`
-	Args    []interface{} `json:"args"`
-	Cost    string        `json:"cost"`
-	Start   time.Time     `json:"start"`
-	End     time.Time     `json:"end"`
-	TxId    string        `json:"txid,omitempty"`
-	Error   string        `json:"error,omitempty"`
+	TxId    string
+	Prepare string
+	Args    []interface{}
+	StartAt time.Time
+	EndAt   time.Time
+	Error   error
 }
 
 type Way struct {
@@ -84,7 +84,7 @@ func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
 	if err != nil {
 		return
 	}
-	s.tid = fmt.Sprintf("txid.%d.%p", time.Now().UnixNano(), s.tx)
+	s.tid = fmt.Sprintf("tid.%d.%d.%p", time.Now().UnixNano(), os.Getpid(), s.tx)
 	return
 }
 
@@ -104,19 +104,27 @@ func (s *Way) TxNil() bool {
 	return s.tx == nil
 }
 
-func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) (err error)) error {
+func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) (err error)) (err error) {
 	if s.tx != nil {
 		return fn(s)
 	}
 	way := s.Clone()
-	if err := way.begin(ctx, opts); err != nil {
-		return err
+	if err = way.begin(ctx, opts); err != nil {
+		return
 	}
-	if err := fn(way); err != nil {
-		_ = way.rollback()
-		return err
+	ok := false
+	defer func() {
+		if err == nil && ok {
+			err = way.commit()
+		} else {
+			err = way.rollback()
+		}
+	}()
+	if err = fn(way); err != nil {
+		return
 	}
-	return way.commit()
+	ok = true
+	return
 }
 
 func (s *Way) Trans(fn func(tx *Way) (err error)) error {
@@ -130,23 +138,20 @@ func (s *Way) Query(ctx context.Context, query func(rows *sql.Rows) (err error),
 	if s.fix != nil {
 		prepare = s.fix(prepare)
 	}
-	start := time.Now()
-	end := time.Time{}
+	startAt := time.Now()
+	endAt := time.Time{}
 	if s.log != nil {
 		defer func() {
-			if end.IsZero() {
-				end = time.Now()
+			if endAt.IsZero() {
+				endAt = time.Now()
 			}
 			ls := &LogSql{
+				TxId:    s.tid,
 				Prepare: prepare,
 				Args:    args,
-				Start:   start,
-				End:     end,
-				TxId:    s.tid,
-			}
-			ls.Cost = ls.End.Sub(ls.Start).String()
-			if err != nil {
-				ls.Error = err.Error()
+				StartAt: startAt,
+				EndAt:   endAt,
+				Error:   err,
 			}
 			s.log(ls)
 		}()
@@ -162,7 +167,7 @@ func (s *Way) Query(ctx context.Context, query func(rows *sql.Rows) (err error),
 	}
 	defer stmt.Close()
 	rows, err := stmt.QueryContext(ctx, args...)
-	end = time.Now()
+	endAt = time.Now()
 	if err != nil {
 		return
 	}
@@ -178,23 +183,20 @@ func (s *Way) Exec(ctx context.Context, prepare string, args ...interface{}) (ro
 	if s.fix != nil {
 		prepare = s.fix(prepare)
 	}
-	start := time.Now()
-	end := time.Time{}
+	startAt := time.Now()
+	endAt := time.Time{}
 	if s.log != nil {
 		defer func() {
-			if end.IsZero() {
-				end = time.Now()
+			if endAt.IsZero() {
+				endAt = time.Now()
 			}
 			ls := &LogSql{
+				TxId:    s.tid,
 				Prepare: prepare,
 				Args:    args,
-				Start:   start,
-				End:     end,
-				TxId:    s.tid,
-			}
-			ls.Cost = ls.End.Sub(ls.Start).String()
-			if err != nil {
-				ls.Error = err.Error()
+				StartAt: startAt,
+				EndAt:   endAt,
+				Error:   err,
 			}
 			s.log(ls)
 		}()
@@ -210,7 +212,7 @@ func (s *Way) Exec(ctx context.Context, prepare string, args ...interface{}) (ro
 	}
 	defer stmt.Close()
 	sqlResult, err := stmt.ExecContext(ctx, args...)
-	end = time.Now()
+	endAt = time.Now()
 	if err != nil {
 		return
 	}
