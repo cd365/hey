@@ -115,7 +115,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 
 func (s *Del) Del() (int64, error) {
 	prepare, args := s.SQL()
-	return s.schema.way.Exec(s.schema.ctx, prepare, args...)
+	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
 type Add struct {
@@ -286,7 +286,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 
 func (s *Add) Add() (int64, error) {
 	prepare, args := s.SQL()
-	return s.schema.way.Exec(s.schema.ctx, prepare, args...)
+	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
 type modify struct {
@@ -439,7 +439,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 
 func (s *Mod) Mod() (int64, error) {
 	prepare, args := s.SQL()
-	return s.schema.way.Exec(s.schema.ctx, prepare, args...)
+	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
 type SubQuery struct {
@@ -859,12 +859,12 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 
 func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
 	prepare, args := s.SQL()
-	return s.schema.way.Query(s.schema.ctx, query, prepare, args...)
+	return s.schema.way.QueryContext(s.schema.ctx, query, prepare, args...)
 }
 
 func (s *Get) Count(column ...string) (count int64, err error) {
 	prepare, args := s.SQLCount(column...)
-	err = s.schema.way.Query(s.schema.ctx, func(rows *sql.Rows) (err error) {
+	err = s.schema.way.QueryContext(s.schema.ctx, func(rows *sql.Rows) (err error) {
 		if rows.Next() {
 			err = rows.Scan(&count)
 		}
@@ -875,7 +875,7 @@ func (s *Get) Count(column ...string) (count int64, err error) {
 
 func (s *Get) Get(result interface{}) error {
 	prepare, args := s.SQL()
-	return s.schema.way.ScanAll(s.schema.ctx, result, prepare, args...)
+	return s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...)
 }
 
 func (s *Get) CountGet(result interface{}, countColumn ...string) (count int64, err error) {

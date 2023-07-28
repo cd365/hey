@@ -334,7 +334,7 @@ func StructAssign(target interface{}, latest interface{}) {
 		field1 := t1.Field(mi1[field0.Name])
 		field0type, field1type := field0.Type, field1.Type
 		assigned := false
-		for ; field1type.Kind() == reflect.Ptr; {
+		for field1type.Kind() == reflect.Ptr {
 			if field0type.String() == field1type.String() {
 				assigned = true
 				if !reflect.DeepEqual(value0.Interface(), value1.Interface()) {

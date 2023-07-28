@@ -117,7 +117,7 @@ func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 		if err == nil && ok {
 			err = way.commit()
 		} else {
-			err = way.rollback()
+			_ = way.rollback()
 		}
 	}()
 	if err = fn(way); err != nil {
@@ -131,7 +131,7 @@ func (s *Way) Trans(fn func(tx *Way) (err error)) error {
 	return s.Transaction(context.Background(), nil, fn)
 }
 
-func (s *Way) Query(ctx context.Context, query func(rows *sql.Rows) (err error), prepare string, args ...interface{}) (err error) {
+func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) (err error), prepare string, args ...interface{}) (err error) {
 	if query == nil || prepare == "" {
 		return
 	}
@@ -176,7 +176,11 @@ func (s *Way) Query(ctx context.Context, query func(rows *sql.Rows) (err error),
 	return
 }
 
-func (s *Way) Exec(ctx context.Context, prepare string, args ...interface{}) (rowsAffected int64, err error) {
+func (s *Way) Query(query func(rows *sql.Rows) (err error), prepare string, args ...interface{}) error {
+	return s.QueryContext(context.Background(), query, prepare, args...)
+}
+
+func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (rowsAffected int64, err error) {
 	if prepare == "" {
 		return
 	}
@@ -220,7 +224,11 @@ func (s *Way) Exec(ctx context.Context, prepare string, args ...interface{}) (ro
 	return
 }
 
-func (s *Way) ExecAll(ctx context.Context, script string, args ...interface{}) (int64, error) {
+func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
+	return s.ExecContext(context.Background(), prepare, args...)
+}
+
+func (s *Way) ExecAllContext(ctx context.Context, script string, args ...interface{}) (int64, error) {
 	result, err := s.db.ExecContext(ctx, script, args...)
 	if err != nil {
 		return 0, err
@@ -228,10 +236,16 @@ func (s *Way) ExecAll(ctx context.Context, script string, args ...interface{}) (
 	return result.RowsAffected()
 }
 
-func (s *Way) ScanAll(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
-	return s.Query(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.tag)
-	}, prepare, args...)
+func (s *Way) ExecAll(script string, args ...interface{}) (int64, error) {
+	return s.ExecAllContext(context.Background(), script, args...)
+}
+
+func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
+	return s.QueryContext(ctx, func(rows *sql.Rows) error { return ScanSliceStruct(rows, result, s.tag) }, prepare, args...)
+}
+
+func (s *Way) ScanAll(result interface{}, prepare string, args ...interface{}) error {
+	return s.ScanAllContext(context.Background(), result, prepare, args...)
 }
 
 func (s *Way) Add(table string) *Add {
