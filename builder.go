@@ -4,14 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
 
 const (
-	SqlAs   = "AS"
-	SqlAsc  = "ASC"
-	SqlDesc = "DESC"
+	SqlAs       = "AS"
+	SqlAsc      = "ASC"
+	SqlDesc     = "DESC"
+	SqlUnion    = "UNION"
+	SqlUnionAll = "UNION ALL"
 )
 
 type JoinType string
@@ -23,25 +26,28 @@ const (
 	SqlJoinFull  JoinType = "FULL JOIN"
 )
 
-func comment(comment string) (builder *strings.Builder) {
-	builder = &strings.Builder{}
-	comment = strings.TrimSpace(comment)
-	if comment == "" {
-		return
-	}
-	builder.WriteString("/* ")
-	builder.WriteString(comment)
-	builder.WriteString(" */ ")
-	return
-}
-
+// schema used to store basic information such as context.Context, *Way, SQL comment, table name.
 type schema struct {
 	ctx     context.Context // context
 	way     *Way            // way
-	comment string          // sql statement comment
+	comment string          // SQL statement comment
 	table   string          // table name
 }
 
+// comment build SQL statements starting with comments
+func comment(schema *schema) (builder *strings.Builder) {
+	builder = &strings.Builder{}
+	schema.comment = strings.TrimSpace(schema.comment)
+	if schema.comment == "" {
+		return
+	}
+	builder.WriteString("/* ")
+	builder.WriteString(schema.comment)
+	builder.WriteString(" */")
+	return
+}
+
+// newSchema create and initialize the value of *schema
 func newSchema(way *Way) *schema {
 	return &schema{
 		ctx: context.Background(),
@@ -49,56 +55,59 @@ func newSchema(way *Way) *schema {
 	}
 }
 
+// Del build delete SQL statement
 type Del struct {
 	schema *schema
 	where  Filter
 }
 
+// NewDel for build SQL
 func NewDel(way *Way) *Del {
 	return &Del{
 		schema: newSchema(way),
 	}
 }
 
+// Comment set SQL statement comment
 func (s *Del) Comment(comment string) *Del {
 	s.schema.comment = comment
 	return s
 }
 
+// Context with context
 func (s *Del) Context(ctx context.Context) *Del {
 	s.schema.ctx = ctx
 	return s
 }
 
+// Table set SQL statement table name
 func (s *Del) Table(table string) *Del {
 	s.schema.table = table
 	return s
 }
 
+// Where set where
 func (s *Del) Where(where Filter) *Del {
 	s.where = where
 	return s
 }
 
-func (s *Del) WhereFunc(where func(f Filter)) *Del {
-	newFilter := NewFilter()
-	where(newFilter)
-	return s.Where(newFilter)
-}
-
+// WhereIn set where
 func (s *Del) WhereIn(column string, values ...interface{}) *Del {
 	return s.Where(NewFilter().In(column, values...))
 }
 
+// WhereEqual set where
 func (s *Del) WhereEqual(column string, values interface{}) *Del {
 	return s.Where(NewFilter().Equal(column, values))
 }
 
+// SQL build SQL statement
 func (s *Del) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == "" {
 		return
 	}
-	buf := comment(s.schema.comment)
+	buf := comment(s.schema)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.schema.table)
 	if s.where != nil {
@@ -113,11 +122,13 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 	return
 }
 
+// Del execute the built SQL statement
 func (s *Del) Del() (int64, error) {
 	prepare, args := s.SQL()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
+// Add build insert SQL statement
 type Add struct {
 	schema   *schema
 	column   []string
@@ -126,52 +137,62 @@ type Add struct {
 	subQuery *SubQuery
 }
 
+// NewAdd for build SQL
 func NewAdd(way *Way) *Add {
 	return &Add{
 		schema: newSchema(way),
 	}
 }
 
+// Comment set SQL statement comment
 func (s *Add) Comment(comment string) *Add {
 	s.schema.comment = comment
 	return s
 }
 
+// Context with context
 func (s *Add) Context(ctx context.Context) *Add {
 	s.schema.ctx = ctx
 	return s
 }
 
+// Table set SQL statement table name
 func (s *Add) Table(table string) *Add {
 	s.schema.table = table
 	return s
 }
 
+// Column set columns
 func (s *Add) Column(column ...string) *Add {
 	s.column = column
 	return s
 }
 
+// Values set values
 func (s *Add) Values(values ...[]interface{}) *Add {
 	s.values = values
 	return s
 }
 
+// AppendValues append values
 func (s *Add) AppendValues(values ...[]interface{}) *Add {
 	s.values = append(s.values, values...)
 	return s
 }
 
+// ColumnValues set column list and column values at the same time
 func (s *Add) ColumnValues(column []string, values ...[]interface{}) *Add {
 	s.column, s.values = column, values
 	return s
 }
 
+// Except exclude some columns from insert
 func (s *Add) Except(except ...string) *Add {
 	s.except = append(s.except, except...) // only valid for Create and Map methods
 	return s
 }
 
+// Create batch insert by struct
 func (s *Add) Create(creates ...interface{}) *Add {
 	length := len(creates)
 	if length == 0 {
@@ -196,6 +217,7 @@ func (s *Add) Create(creates ...interface{}) *Add {
 	return s.ColumnValues(column[0], values...)
 }
 
+// Map insert by map
 func (s *Add) Map(columnValue map[string]interface{}) *Add {
 	length := len(columnValue)
 	if length == 0 {
@@ -221,24 +243,30 @@ func (s *Add) Map(columnValue map[string]interface{}) *Add {
 	return s.ColumnValues(columns, values)
 }
 
+// ValuesSubQuery values is a query SQL statement
 func (s *Add) ValuesSubQuery(prepare string, args ...interface{}) *Add {
 	s.subQuery = NewSubQuery(prepare, args)
 	return s
 }
 
+// ValuesSubQueryGet values is a query SQL statement
 func (s *Add) ValuesSubQueryGet(get *Get) *Add {
+	if get == nil {
+		return s
+	}
 	prepare, args := get.SQL()
 	s.subQuery = NewSubQuery(prepare, args)
 	return s
 }
 
+// SQL build SQL statement
 func (s *Add) SQL() (prepare string, args []interface{}) {
 	length := len(s.column)
 	if length == 0 {
 		return
 	}
 	if s.subQuery != nil {
-		buf := comment(s.schema.comment)
+		buf := comment(s.schema)
 		buf.WriteString("INSERT INTO ")
 		buf.WriteString(s.schema.table)
 		if len(s.column) > 0 {
@@ -258,13 +286,13 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	}
 	place := make([]string, length)
 	for i := 0; i < length; i++ {
-		place[i] = "?"
+		place[i] = Placeholder
 	}
 	length = len(s.values)
 	if length == 0 {
 		return
 	}
-	buf := comment(s.schema.comment)
+	buf := comment(s.schema)
 	buf.WriteString("INSERT INTO ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" ( ")
@@ -284,16 +312,19 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	return
 }
 
+// Add execute the built SQL statement
 func (s *Add) Add() (int64, error) {
 	prepare, args := s.SQL()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
+// modify set the columns to be updated
 type modify struct {
 	expr string
 	args []interface{}
 }
 
+// Mod build update SQL statement
 type Mod struct {
 	schema *schema
 	update map[string]*modify
@@ -301,6 +332,7 @@ type Mod struct {
 	where  Filter
 }
 
+// NewMod for build SQL
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema: newSchema(way),
@@ -309,21 +341,25 @@ func NewMod(way *Way) *Mod {
 	}
 }
 
+// Comment set SQL statement comment
 func (s *Mod) Comment(comment string) *Mod {
 	s.schema.comment = comment
 	return s
 }
 
+// Context with context
 func (s *Mod) Context(ctx context.Context) *Mod {
 	s.schema.ctx = ctx
 	return s
 }
 
+// Table set SQL statement table name
 func (s *Mod) Table(table string) *Mod {
 	s.schema.table = table
 	return s
 }
 
+// Except exclude some columns from update
 func (s *Mod) Except(except ...string) *Mod {
 	length := len(except)
 	for i := 0; i < length; i++ {
@@ -332,6 +368,7 @@ func (s *Mod) Except(except ...string) *Mod {
 	return s
 }
 
+// columnExpr build update column expressions and column values
 func (s *Mod) columnExpr(column string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[column]; ok {
 		return s
@@ -343,18 +380,22 @@ func (s *Mod) columnExpr(column string, expr string, args ...interface{}) *Mod {
 	return s
 }
 
+// Set SET column = value
 func (s *Mod) Set(column string, value interface{}) *Mod {
 	return s.columnExpr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
 }
 
+// Incr SET column = column + value
 func (s *Mod) Incr(column string, value interface{}) *Mod {
 	return s.columnExpr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
 }
 
+// Decr SET column = column - value
 func (s *Mod) Decr(column string, value interface{}) *Mod {
 	return s.columnExpr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
 }
 
+// Map SET column = value by map
 func (s *Mod) Map(columnValue map[string]interface{}) *Mod {
 	for column, value := range columnValue {
 		s.Set(column, value)
@@ -362,6 +403,7 @@ func (s *Mod) Map(columnValue map[string]interface{}) *Mod {
 	return s
 }
 
+// Slice SET column = value by slice, require len(column) = len(value)
 func (s *Mod) Slice(column []string, value []interface{}) *Mod {
 	len1, len2 := len(column), len(value)
 	if len1 != len2 {
@@ -373,29 +415,28 @@ func (s *Mod) Slice(column []string, value []interface{}) *Mod {
 	return s
 }
 
+// Compare for compare origin and latest to automatically calculate the list of columns and corresponding values that need to be updated
 func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
 	return s.Map(StructUpdate(origin, latest, s.schema.way.tag))
 }
 
+// Where set where
 func (s *Mod) Where(where Filter) *Mod {
 	s.where = where
 	return s
 }
 
-func (s *Mod) WhereFunc(where func(f Filter)) *Mod {
-	newFilter := NewFilter()
-	where(newFilter)
-	return s.Where(newFilter)
-}
-
+// WhereIn set where
 func (s *Mod) WhereIn(column string, values ...interface{}) *Mod {
 	return s.Where(NewFilter().In(column, values...))
 }
 
+// WhereEqual set where
 func (s *Mod) WhereEqual(column string, value interface{}) *Mod {
 	return s.Where(NewFilter().Equal(column, value))
 }
 
+// SQL build SQL statement
 func (s *Mod) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == "" {
 		return
@@ -420,7 +461,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		value = append(value, s.update[v].args...)
 	}
 	args = value
-	buf := comment(s.schema.comment)
+	buf := comment(s.schema)
 	buf.WriteString("UPDATE ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
@@ -437,6 +478,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	return
 }
 
+// Mod execute the built SQL statement
 func (s *Mod) Mod() (int64, error) {
 	prepare, args := s.SQL()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
@@ -459,6 +501,7 @@ func (s *SubQuery) SQL() (prepare string, args []interface{}) {
 	return
 }
 
+// GetJoin query SQL statement of join
 type GetJoin struct {
 	joinType JoinType  // join type
 	table    string    // table name
@@ -467,6 +510,7 @@ type GetJoin struct {
 	on       string    // conditions for join query
 }
 
+// NewGetJoin initialize join query
 func NewGetJoin(joinType JoinType, table ...string) *GetJoin {
 	getJoin := &GetJoin{
 		joinType: joinType,
@@ -480,39 +524,55 @@ func NewGetJoin(joinType JoinType, table ...string) *GetJoin {
 	return getJoin
 }
 
+// Table set SQL statement table name of join
 func (s *GetJoin) Table(table string) *GetJoin {
 	s.table = table
 	return s
 }
 
+// TableSubQuery table is a query SQL statement
 func (s *GetJoin) TableSubQuery(prepare string, args ...interface{}) *GetJoin {
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
-func (s *GetJoin) TableSubQueryGet(get *Get) *GetJoin {
+// TableSubQueryGet table is a query SQL statement
+func (s *GetJoin) TableSubQueryGet(get *Get, alias ...string) *GetJoin {
+	if get == nil {
+		return s
+	}
 	prepare, args := get.SQL()
 	s.subQuery = NewSubQuery(prepare, args...)
+	for i := len(alias) - 1; i >= 0; i-- {
+		if alias[i] != "" {
+			s.TableAlias(alias[i])
+			break
+		}
+	}
 	return s
 }
 
+// TableAlias table alias name
 func (s *GetJoin) TableAlias(alias string) *GetJoin {
 	s.alias = &alias
 	return s
 }
 
+// On join query condition
 func (s *GetJoin) On(on string) *GetJoin {
 	s.on = on
 	return s
 }
 
+// OnEqual join query condition
 func (s *GetJoin) OnEqual(left string, right string) *GetJoin {
 	return s.On(fmt.Sprintf("%s = %s", left, right))
 }
 
+// SQL build SQL statement
 func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	str := &strings.Builder{}
-	str.WriteString(fmt.Sprintf("%s", s.joinType))
+	str.WriteString(string(s.joinType))
 	str.WriteString(" ")
 	if s.subQuery != nil && s.alias != nil && *s.alias != "" {
 		str.WriteString("( ")
@@ -546,36 +606,57 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-type Get struct {
-	schema   *schema    // query table
-	column   []string   // query field list
-	subQuery *SubQuery  // the query table is a sub query
-	alias    *string    // set an alias for the queried table
-	join     []*GetJoin // join query
-	where    Filter     // WHERE condition to filter data
-	group    []string   // group query results
-	having   Filter     // use HAVING to filter data after grouping
-	order    []string   // sort query results
-	limit    *int64     // limit the number of query results
-	offset   *int64     // query results offset
+// union for SQL statement "UNION" or "UNION ALL" query
+type union struct {
+	unionType string
+	prepare   string
+	args      []interface{}
 }
 
+// Limiter select the data in the query result table
+type Limiter interface {
+	GetLimit() int64
+	GetOffset() int64
+}
+
+// Get build select SQL statement
+type Get struct {
+	schema   *schema           // query table
+	column   []string          // query field list
+	subQuery *SubQuery         // the query table is a sub query
+	alias    *string           // set an alias for the queried table
+	join     []*GetJoin        // join query
+	where    Filter            // WHERE condition to filter data
+	group    []string          // group query result
+	having   Filter            // use HAVING to filter data after grouping
+	union    []*union          // union query
+	order    []string          // order query result
+	orderMap map[string]string // ordered columns map list
+	limit    *int64            // limit the number of query result
+	offset   *int64            // query result offset
+}
+
+// NewGet for build SQL
 func NewGet(way *Way) *Get {
 	return &Get{
-		schema: newSchema(way),
+		schema:   newSchema(way),
+		orderMap: map[string]string{},
 	}
 }
 
+// Comment set SQL statement comment
 func (s *Get) Comment(comment string) *Get {
 	s.schema.comment = comment
 	return s
 }
 
+// Context with context
 func (s *Get) Context(ctx context.Context) *Get {
 	s.schema.ctx = ctx
 	return s
 }
 
+// Table set SQL statement table name
 func (s *Get) Table(table string, alias ...string) *Get {
 	s.schema.table = table
 	for i := len(alias) - 1; i >= 0; i-- {
@@ -587,22 +668,35 @@ func (s *Get) Table(table string, alias ...string) *Get {
 	return s
 }
 
+// TableSubQuery table is a query SQL statement
 func (s *Get) TableSubQuery(prepare string, args ...interface{}) *Get {
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
-func (s *Get) TableSubQueryGet(get *Get) *Get {
+// TableSubQueryGet table is a query SQL statement
+func (s *Get) TableSubQueryGet(get *Get, alias ...string) *Get {
+	if get == nil {
+		return s
+	}
 	prepare, args := get.SQL()
 	s.subQuery = NewSubQuery(prepare, args...)
+	for i := len(alias) - 1; i >= 0; i-- {
+		if alias[i] != "" {
+			s.TableAlias(alias[i])
+			break
+		}
+	}
 	return s
 }
 
+// TableAlias table alias name
 func (s *Get) TableAlias(alias string) *Get {
 	s.alias = &alias
 	return s
 }
 
+// Join for join one or more tables
 func (s *Get) Join(joins ...*GetJoin) *Get {
 	length := len(joins)
 	for i := 0; i < length; i++ {
@@ -614,65 +708,115 @@ func (s *Get) Join(joins ...*GetJoin) *Get {
 	return s
 }
 
+// InnerJoin for inner join
 func (s *Get) InnerJoin(table ...string) *GetJoin {
 	return NewGetJoin(SqlJoinInner, table...)
 }
 
+// LeftJoin for left join
 func (s *Get) LeftJoin(table ...string) *GetJoin {
 	return NewGetJoin(SqlJoinLeft, table...)
 }
 
+// RightJoin for right join
 func (s *Get) RightJoin(table ...string) *GetJoin {
 	return NewGetJoin(SqlJoinRight, table...)
 }
 
+// FullJoin for full join
 func (s *Get) FullJoin(table ...string) *GetJoin {
 	return NewGetJoin(SqlJoinFull, table...)
 }
 
+// Where set where
 func (s *Get) Where(where Filter) *Get {
 	s.where = where
 	return s
 }
 
-func (s *Get) WhereFunc(where func(f Filter)) *Get {
-	newFilter := NewFilter()
-	where(newFilter)
-	return s.Where(newFilter)
-}
-
+// WhereIn set where
 func (s *Get) WhereIn(column string, values ...interface{}) *Get {
 	return s.Where(NewFilter().In(column, values...))
 }
 
+// WhereEqual set where
 func (s *Get) WhereEqual(column string, value interface{}) *Get {
 	return s.Where(NewFilter().Equal(column, value))
 }
 
+// Group set group columns
 func (s *Get) Group(group ...string) *Get {
 	s.group = append(s.group, group...)
 	return s
 }
 
+// Having set filter of group result
 func (s *Get) Having(having Filter) *Get {
 	s.having = having
 	return s
 }
 
-func (s *Get) HavingFunc(having func(f Filter)) *Get {
-	newFilter := NewFilter()
-	having(newFilter)
-	return s.Having(newFilter)
+// Union union query
+func (s *Get) Union(prepare string, args ...interface{}) *Get {
+	if prepare == "" {
+		return s
+	}
+	s.union = append(s.union, &union{
+		unionType: SqlUnion,
+		prepare:   prepare,
+		args:      args,
+	})
+	return s
 }
 
+// UnionGet union query
+func (s *Get) UnionGet(get ...*Get) *Get {
+	for _, g := range get {
+		if g == nil {
+			continue
+		}
+		prepare, args := g.SQL()
+		s.Union(prepare, args...)
+	}
+	return s
+}
+
+// UnionAll union all query
+func (s *Get) UnionAll(prepare string, args ...interface{}) *Get {
+	if prepare == "" {
+		return s
+	}
+	s.union = append(s.union, &union{
+		unionType: SqlUnionAll,
+		prepare:   prepare,
+		args:      args,
+	})
+	return s
+}
+
+// UnionAllGet union all query
+func (s *Get) UnionAllGet(get ...*Get) *Get {
+	for _, g := range get {
+		if g == nil {
+			continue
+		}
+		prepare, args := g.SQL()
+		s.UnionAll(prepare, args...)
+	}
+	return s
+}
+
+// Alias table or column set alias name
 func (s *Get) Alias(name string, alias string) string {
 	return fmt.Sprintf("%s %s %s", name, SqlAs, alias)
 }
 
+// Prefix table or column set prefix
 func (s *Get) Prefix(prefix string, name string) string {
 	return fmt.Sprintf("%s.%s", prefix, name)
 }
 
+// PrefixGroup table or column batch set prefix
 func (s *Get) PrefixGroup(prefix string, items ...string) []string {
 	for key, val := range items {
 		items[key] = s.Prefix(prefix, val)
@@ -680,101 +824,96 @@ func (s *Get) PrefixGroup(prefix string, items ...string) []string {
 	return items
 }
 
+// AddCol append the columns list of query
 func (s *Get) AddCol(column ...string) *Get {
 	s.column = append(s.column, column...)
 	return s
 }
 
+// Column set the columns list of query
 func (s *Get) Column(column ...string) *Get {
 	s.column = column
 	return s
 }
 
-func (s *Get) Order(column string, order string) *Get {
+// orderBy set order by column
+func (s *Get) orderBy(column string, order string) *Get {
 	if column == "" || (order != SqlAsc && order != SqlDesc) {
 		return s
 	}
+	if _, ok := s.orderMap[column]; ok {
+		return s
+	}
 	s.order = append(s.order, fmt.Sprintf("%s %s", column, order))
+	s.orderMap[column] = order
 	return s
 }
 
-func (s *Get) OrderAsc(column string) *Get {
-	return s.Order(column, SqlAsc)
+// Asc set order by column ASC
+func (s *Get) Asc(column string) *Get {
+	return s.orderBy(column, SqlAsc)
 }
 
-func (s *Get) OrderDesc(column string) *Get {
-	return s.Order(column, SqlDesc)
+// Desc set order by column Desc
+func (s *Get) Desc(column string) *Get {
+	return s.orderBy(column, SqlDesc)
 }
 
+var (
+	// orderByRegexp `column_name_first#a,column_name_second#d` => `column_name_first ASC, column_name_second DESC`
+	orderByRegexp = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_.]{1,31})#([ad])$`)
+)
+
+// OrderParam set the column sorting list in batches through regular expressions according to the request parameter value
+func (s *Get) OrderParam(param string) *Get {
+	for _, v := range strings.Split(param, ",") {
+		match := orderByRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
+		if len(match) != 1 || len(match[0]) != 3 {
+			continue
+		}
+		if match[0][2][0] == 97 {
+			s.Asc(match[0][1])
+			continue
+		}
+		if match[0][2][0] == 100 {
+			s.Desc(match[0][1])
+		}
+	}
+	return s
+}
+
+// Limit set limit
 func (s *Get) Limit(limit int64) *Get {
+	if limit <= 0 {
+		return s
+	}
 	s.limit = &limit
 	return s
 }
 
+// Offset set offset
 func (s *Get) Offset(offset int64) *Get {
+	if offset < 0 {
+		return s
+	}
 	s.offset = &offset
 	return s
 }
 
-func (s *Get) SQLCount(column ...string) (prepare string, args []interface{}) {
-	if s.schema.table == "" && s.subQuery == nil {
-		return
+// Limiter set limit and offset at the same time
+func (s *Get) Limiter(limiter Limiter) *Get {
+	if limiter == nil {
+		return s
 	}
-	buf := comment(s.schema.comment)
-	buf.WriteString("SELECT ")
-	if column == nil {
-		buf.WriteString(s.Alias("COUNT(*)", "count"))
-	} else {
-		buf.WriteString(strings.Join(column, ", "))
-	}
-	buf.WriteString(" FROM ")
-	if s.subQuery == nil {
-		buf.WriteString(s.schema.table)
-	} else {
-		buf.WriteString("( ")
-		subPrepare, subArgs := s.subQuery.SQL()
-		buf.WriteString(subPrepare)
-		buf.WriteString(" )")
-		args = append(args, subArgs...)
-	}
-	buf.WriteString(" ")
-	if s.alias != nil && *s.alias != "" {
-		buf.WriteString("AS ")
-		buf.WriteString(*s.alias)
-		buf.WriteString(" ")
-	}
-	if s.join != nil {
-		length := len(s.join)
-		for i := 0; i < length; i++ {
-			if s.join[i] == nil {
-				continue
-			}
-			joinPrepare, joinArgs := s.join[i].SQL()
-			if joinPrepare != "" {
-				buf.WriteString(joinPrepare)
-				buf.WriteString(" ")
-				args = append(args, joinArgs...)
-			}
-		}
-	}
-	if s.where != nil {
-		where, whereArgs := s.where.SQL()
-		if where != "" {
-			buf.WriteString("WHERE ")
-			buf.WriteString(where)
-			buf.WriteString(" ")
-			args = append(args, whereArgs...)
-		}
-	}
-	prepare = strings.TrimSpace(buf.String())
-	return
+	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
-func (s *Get) SQL() (prepare string, args []interface{}) {
+// sqlTable build query base table SQL statement
+func (s *Get) sqlTable() (prepare string, args []interface{}) {
 	if s.schema.table == "" && s.subQuery == nil {
 		return
 	}
-	buf := comment(s.schema.comment)
+	buf := comment(s.schema)
 	buf.WriteString("SELECT ")
 	if s.column == nil {
 		buf.WriteString("*")
@@ -791,11 +930,10 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 		buf.WriteString(" )")
 		args = append(args, subArgs...)
 	}
-	buf.WriteString(" ")
 	if s.alias != nil && *s.alias != "" {
+		buf.WriteString(" ")
 		buf.WriteString("AS ")
 		buf.WriteString(*s.alias)
-		buf.WriteString(" ")
 	}
 	if s.join != nil {
 		length := len(s.join)
@@ -805,8 +943,8 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 			}
 			joinPrepare, joinArgs := s.join[i].SQL()
 			if joinPrepare != "" {
-				buf.WriteString(joinPrepare)
 				buf.WriteString(" ")
+				buf.WriteString(joinPrepare)
 				args = append(args, joinArgs...)
 			}
 		}
@@ -814,54 +952,94 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 	if s.where != nil {
 		where, whereArgs := s.where.SQL()
 		if where != "" {
+			buf.WriteString(" ")
 			buf.WriteString("WHERE ")
 			buf.WriteString(where)
-			buf.WriteString(" ")
 			args = append(args, whereArgs...)
 		}
 	}
 	if s.group != nil {
 		if len(s.group) > 0 {
+			buf.WriteString(" ")
 			buf.WriteString("GROUP BY ")
 			buf.WriteString(strings.Join(s.group, ", "))
-			buf.WriteString(" ")
-		}
-	}
-	if s.having != nil {
-		having, havingArgs := s.having.SQL()
-		if having != "" {
-			buf.WriteString("HAVING ")
-			buf.WriteString(having)
-			buf.WriteString(" ")
-			args = append(args, havingArgs...)
-		}
-	}
-	if s.order != nil {
-		if len(s.order) > 0 {
-			buf.WriteString("ORDER BY ")
-			buf.WriteString(strings.Join(s.order, ", "))
-			buf.WriteString(" ")
-		}
-	}
-	if s.limit != nil {
-		if s.limit != nil {
-			buf.WriteString(fmt.Sprintf("LIMIT %d", *s.limit))
-			buf.WriteString(" ")
-			if s.offset != nil {
-				buf.WriteString(fmt.Sprintf("OFFSET %d", *s.offset))
-				buf.WriteString(" ")
+			if s.having != nil {
+				having, havingArgs := s.having.SQL()
+				if having != "" {
+					buf.WriteString(" ")
+					buf.WriteString("HAVING ")
+					buf.WriteString(having)
+					args = append(args, havingArgs...)
+				}
 			}
+		}
+	}
+	if s.union != nil {
+		for _, u := range s.union {
+			buf.WriteString(" ")
+			buf.WriteString(u.unionType)
+			buf.WriteString(" ( ")
+			buf.WriteString(u.prepare)
+			buf.WriteString(" )")
+			args = append(args, u.args...)
 		}
 	}
 	prepare = strings.TrimSpace(buf.String())
 	return
 }
 
+// SQLCount build SQL statement for count
+func (s *Get) SQLCount(columns ...string) (prepare string, args []interface{}) {
+	if columns == nil {
+		columns = []string{s.Alias("COUNT(*)", "count")}
+	}
+	if s.group != nil || s.union != nil {
+		prepare, args = s.sqlTable()
+		prepare, args = NewGet(s.schema.way).
+			TableSubQuery(prepare, args...).
+			TableAlias("count_table_rows").
+			SQLCount(columns...)
+		return
+	}
+	column := s.column // store selected columns
+	s.column = columns // set count column
+	prepare, args = s.sqlTable()
+	s.column = column // restore origin selected columns
+	return
+}
+
+// SQL build SQL statement
+func (s *Get) SQL() (prepare string, args []interface{}) {
+	prepare, args = s.sqlTable()
+	if prepare == "" {
+		return
+	}
+	buf := &strings.Builder{}
+	buf.WriteString(prepare)
+	if len(s.order) > 0 {
+		buf.WriteString(" ")
+		buf.WriteString("ORDER BY ")
+		buf.WriteString(strings.Join(s.order, ", "))
+	}
+	if s.limit != nil {
+		buf.WriteString(" ")
+		buf.WriteString(fmt.Sprintf("LIMIT %d", *s.limit))
+		if s.offset != nil {
+			buf.WriteString(" ")
+			buf.WriteString(fmt.Sprintf("OFFSET %d", *s.offset))
+		}
+	}
+	prepare = strings.TrimSpace(buf.String())
+	return
+}
+
+// Query execute the built SQL statement and scan query result
 func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
 	prepare, args := s.SQL()
 	return s.schema.way.QueryContext(s.schema.ctx, query, prepare, args...)
 }
 
+// Count execute the built SQL statement and scan query result for count
 func (s *Get) Count(column ...string) (count int64, err error) {
 	prepare, args := s.SQLCount(column...)
 	err = s.schema.way.QueryContext(s.schema.ctx, func(rows *sql.Rows) (err error) {
@@ -873,11 +1051,13 @@ func (s *Get) Count(column ...string) (count int64, err error) {
 	return
 }
 
+// Get execute the built SQL statement and scan query result
 func (s *Get) Get(result interface{}) error {
 	prepare, args := s.SQL()
 	return s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...)
 }
 
+// CountGet execute the built SQL statement and scan query result, count + get
 func (s *Get) CountGet(result interface{}, countColumn ...string) (count int64, err error) {
 	count, err = s.Count(countColumn...)
 	if err != nil || count == 0 {

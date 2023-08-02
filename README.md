@@ -44,21 +44,15 @@ func main() {
 
 	/* delete */
 	del := way.Del(table)
-	del.WhereFunc(func(f hey.Filter) {
-		f.In("id", 1, 2, 3)
-	}).Del()
+	del.Where(hey.NewFilter().In("id", 1, 2, 3)).Del()
 
 	/* update */
 	mod := way.Mod(table)
-	mod.WhereFunc(func(f hey.Filter) {
-		f.In("id", 1, 2, 3)
-	}).Incr("times", 1).Set("name", "Jerry").Mod()
+	mod.Where(hey.NewFilter().In("id", 1, 2, 3)).Incr("times", 1).Set("name", "Jerry").Mod()
 
 	/* select count */
 	get := way.Get(table)
-	get.WhereFunc(func(f hey.Filter) {
-		f.IsNotNull("id")
-	}).Count()
+	get.Where(hey.NewFilter().IsNotNull("id")).Count()
 
 	type ScanStruct struct {
 		Name  string `db:"name"`
@@ -66,10 +60,8 @@ func main() {
 	}
 	result := make([]*ScanStruct, 0)
 	query := get.Column("name", "email").
-		WhereFunc(func(f hey.Filter) {
-			f.MoreThan("id", 0)
-		}).
-		OrderDesc("id").
+		Where(hey.NewFilter().MoreThan("id", 0)).
+		Desc("id").
 		Limit(10).
 		Offset(0)
 	query.Get(&result)
