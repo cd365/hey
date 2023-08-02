@@ -496,7 +496,7 @@ func (s *GetJoin) TableSubQueryGet(get *Get) *GetJoin {
 	return s
 }
 
-func (s *GetJoin) Alias(alias string) *GetJoin {
+func (s *GetJoin) TableAlias(alias string) *GetJoin {
 	s.alias = &alias
 	return s
 }
