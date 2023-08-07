@@ -17,24 +17,22 @@ const (
 	SqlUnionAll = "UNION ALL"
 )
 
-type JoinType string
-
 const (
-	SqlJoinInner JoinType = "INNER JOIN"
-	SqlJoinLeft  JoinType = "LEFT JOIN"
-	SqlJoinRight JoinType = "RIGHT JOIN"
-	SqlJoinFull  JoinType = "FULL JOIN"
+	SqlJoinInner = "INNER JOIN"
+	SqlJoinLeft  = "LEFT JOIN"
+	SqlJoinRight = "RIGHT JOIN"
+	SqlJoinFull  = "FULL JOIN"
 )
 
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.
 type schema struct {
-	ctx     context.Context // context
-	way     *Way            // way
-	comment string          // SQL statement comment
-	table   string          // table name
+	ctx     context.Context
+	way     *Way
+	comment string
+	table   string
 }
 
-// comment build SQL statements starting with comments
+// comment make SQL statement builder
 func comment(schema *schema) (builder *strings.Builder) {
 	builder = &strings.Builder{}
 	schema.comment = strings.TrimSpace(schema.comment)
@@ -47,7 +45,7 @@ func comment(schema *schema) (builder *strings.Builder) {
 	return
 }
 
-// newSchema create and initialize the value of *schema
+// newSchema new schema with *Way
 func newSchema(way *Way) *schema {
 	return &schema{
 		ctx: context.Background(),
@@ -55,32 +53,32 @@ func newSchema(way *Way) *schema {
 	}
 }
 
-// Del build delete SQL statement
+// Del for DELETE
 type Del struct {
 	schema *schema
 	where  Filter
 }
 
-// NewDel for build SQL
+// NewDel for DELETE
 func NewDel(way *Way) *Del {
 	return &Del{
 		schema: newSchema(way),
 	}
 }
 
-// Comment set SQL statement comment
+// Comment set comment
 func (s *Del) Comment(comment string) *Del {
 	s.schema.comment = comment
 	return s
 }
 
-// Context with context
+// Context set context
 func (s *Del) Context(ctx context.Context) *Del {
 	s.schema.ctx = ctx
 	return s
 }
 
-// Table set SQL statement table name
+// Table set table name
 func (s *Del) Table(table string) *Del {
 	s.schema.table = table
 	return s
@@ -128,7 +126,7 @@ func (s *Del) Del() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// Add build insert SQL statement
+// Add for INSERT
 type Add struct {
 	schema   *schema
 	column   []string
@@ -137,62 +135,62 @@ type Add struct {
 	subQuery *SubQuery
 }
 
-// NewAdd for build SQL
+// NewAdd for INSERT
 func NewAdd(way *Way) *Add {
 	return &Add{
 		schema: newSchema(way),
 	}
 }
 
-// Comment set SQL statement comment
+// Comment set comment
 func (s *Add) Comment(comment string) *Add {
 	s.schema.comment = comment
 	return s
 }
 
-// Context with context
+// Context set context
 func (s *Add) Context(ctx context.Context) *Add {
 	s.schema.ctx = ctx
 	return s
 }
 
-// Table set SQL statement table name
+// Table set table name
 func (s *Add) Table(table string) *Add {
 	s.schema.table = table
 	return s
 }
 
-// Column set columns
+// Column set column
 func (s *Add) Column(column ...string) *Add {
 	s.column = column
 	return s
 }
 
-// Values set values
+// Values set values, insert one or more rows
 func (s *Add) Values(values ...[]interface{}) *Add {
 	s.values = values
 	return s
 }
 
-// AppendValues append values
+// AppendValues append values, insert one or more rows
 func (s *Add) AppendValues(values ...[]interface{}) *Add {
 	s.values = append(s.values, values...)
 	return s
 }
 
-// ColumnValues set column list and column values at the same time
+// ColumnValues set column list and column values at the same time, insert one or more rows
 func (s *Add) ColumnValues(column []string, values ...[]interface{}) *Add {
 	s.column, s.values = column, values
 	return s
 }
 
-// Except exclude some columns from insert
+// Except exclude some columns from insert, only valid for Create and Map methods
 func (s *Add) Except(except ...string) *Add {
-	s.except = append(s.except, except...) // only valid for Create and Map methods
+	s.except = append(s.except, except...)
 	return s
 }
 
-// Create batch insert by struct
+// Create insert by struct, insert one or more rows
 func (s *Add) Create(creates ...interface{}) *Add {
 	length := len(creates)
 	if length == 0 {
@@ -217,7 +215,7 @@ func (s *Add) Create(creates ...interface{}) *Add {
 	return s.ColumnValues(column[0], values...)
 }
 
-// Map insert by map
+// Map insert by map, insert one row
 func (s *Add) Map(columnValue map[string]interface{}) *Add {
 	length := len(columnValue)
 	if length == 0 {
@@ -318,13 +316,13 @@ func (s *Add) Add() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// modify set the columns to be updated
+// modify set the column to be updated
 type modify struct {
 	expr string
 	args []interface{}
 }
 
-// Mod build update SQL statement
+// Mod for UPDATE
 type Mod struct {
 	schema *schema
 	update map[string]*modify
@@ -332,7 +330,7 @@ type Mod struct {
 	where  Filter
 }
 
-// NewMod for build SQL
+// NewMod for UPDATE
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema: newSchema(way),
@@ -341,19 +339,19 @@ func NewMod(way *Way) *Mod {
 	}
 }
 
-// Comment set SQL statement comment
+// Comment set comment
 func (s *Mod) Comment(comment string) *Mod {
 	s.schema.comment = comment
 	return s
 }
 
-// Context with context
+// Context set context
 func (s *Mod) Context(ctx context.Context) *Mod {
 	s.schema.ctx = ctx
 	return s
 }
 
-// Table set SQL statement table name
+// Table set table name
 func (s *Mod) Table(table string) *Mod {
 	s.schema.table = table
 	return s
@@ -501,17 +499,17 @@ func (s *SubQuery) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// GetJoin query SQL statement of join
+// GetJoin join SQL statement
 type GetJoin struct {
-	joinType JoinType  // join type
+	joinType string    // join type
 	table    string    // table name
 	subQuery *SubQuery // table is sub query
 	alias    *string   // query table alias name
 	on       string    // conditions for join query
 }
 
-// NewGetJoin initialize join query
-func NewGetJoin(joinType JoinType, table ...string) *GetJoin {
+// NewGetJoin new join
+func NewGetJoin(joinType string, table ...string) *GetJoin {
 	getJoin := &GetJoin{
 		joinType: joinType,
 	}
@@ -524,7 +522,7 @@ func NewGetJoin(joinType JoinType, table ...string) *GetJoin {
 	return getJoin
 }
 
-// Table set SQL statement table name of join
+// Table set table name
 func (s *GetJoin) Table(table string) *GetJoin {
 	s.table = table
 	return s
@@ -572,33 +570,28 @@ func (s *GetJoin) OnEqual(left string, right string) *GetJoin {
 // SQL build SQL statement
 func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	str := &strings.Builder{}
-	str.WriteString(string(s.joinType))
-	str.WriteString(" ")
+	str.WriteString(s.joinType)
 	if s.subQuery != nil && s.alias != nil && *s.alias != "" {
-		str.WriteString("( ")
+		str.WriteString(" ( ")
 		subPrepare, subArgs := s.subQuery.SQL()
 		str.WriteString(subPrepare)
-		str.WriteString(" )")
-		str.WriteString(" AS ")
+		str.WriteString(" ) ")
+		str.WriteString("AS ")
 		str.WriteString(*s.alias)
-		str.WriteString(" ")
-		str.WriteString("ON")
-		str.WriteString(" ")
+		str.WriteString(" ON ")
 		str.WriteString(s.on)
 		prepare = str.String()
 		args = append(args, subArgs...)
 		return
 	}
 	if s.table != "" {
+		str.WriteString(" ")
 		str.WriteString(s.table)
-		str.WriteString(" ")
 		if s.alias != nil && *s.alias != "" {
-			str.WriteString("AS ")
+			str.WriteString(" AS ")
 			str.WriteString(*s.alias)
-			str.WriteString(" ")
 		}
-		str.WriteString("ON")
-		str.WriteString(" ")
+		str.WriteString(" ON ")
 		str.WriteString(s.on)
 		prepare = str.String()
 		return
@@ -606,20 +599,20 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// union for SQL statement "UNION" or "UNION ALL" query
+// union SQL statement union
 type union struct {
 	unionType string
 	prepare   string
 	args      []interface{}
 }
 
-// Limiter select the data in the query result table
+// Limiter limit and offset
 type Limiter interface {
 	GetLimit() int64
 	GetOffset() int64
 }
 
-// Get build select SQL statement
+// Get for SELECT
 type Get struct {
 	schema   *schema           // query table
 	column   []string          // query field list
@@ -636,7 +629,7 @@ type Get struct {
 	offset   *int64            // query result offset
 }
 
-// NewGet for build SQL
+// NewGet for SELECT
 func NewGet(way *Way) *Get {
 	return &Get{
 		schema:   newSchema(way),
@@ -644,19 +637,19 @@ func NewGet(way *Way) *Get {
 	}
 }
 
-// Comment set SQL statement comment
+// Comment set comment
 func (s *Get) Comment(comment string) *Get {
 	s.schema.comment = comment
 	return s
 }
 
-// Context with context
+// Context set context
 func (s *Get) Context(ctx context.Context) *Get {
 	s.schema.ctx = ctx
 	return s
 }
 
-// Table set SQL statement table name
+// Table set table name
 func (s *Get) Table(table string, alias ...string) *Get {
 	s.schema.table = table
 	for i := len(alias) - 1; i >= 0; i-- {

@@ -51,15 +51,26 @@ type LogSql struct {
 	Error   error
 }
 
+// LogTransaction record executed transaction
+type LogTransaction struct {
+	TxId    string
+	TxMsg   string
+	StartAt time.Time
+	EndAt   time.Time
+	State   string
+	Error   error
+}
+
 // Way quick insert, delete, update, select helper
 type Way struct {
-	db    *sql.DB             // the instance of the database connect pool
-	tx    *sql.Tx             // the transaction instance
-	txId  string              // the transaction unique id
-	txMsg string              // the transaction message
-	fix   func(string) string // fix prepare sql script before call prepare method
-	tag   string              // bind struct tag and table column
-	log   func(ls *LogSql)    // logger method
+	db    *sql.DB                  // the instance of the database connect pool
+	fix   func(string) string      // fix prepare sql script before call prepare method
+	log   func(ls *LogSql)         // logger executed SQL statement
+	tag   string                   // bind struct tag and table column
+	tx    *sql.Tx                  // the transaction instance
+	txId  string                   // the transaction unique id
+	txMsg string                   // the transaction message
+	txLog func(lt *LogTransaction) // logger executed transaction
 }
 
 // NewWay instantiate a helper
@@ -70,7 +81,7 @@ func NewWay(db *sql.DB) *Way {
 	}
 }
 
-// Fix set the method to repair the SQL statement
+// Fix set the method to fix the SQL statement
 func (s *Way) Fix(fix func(string) string) *Way {
 	s.fix = fix
 	return s
@@ -82,9 +93,15 @@ func (s *Way) Tag(tag string) *Way {
 	return s
 }
 
-// Log set the processing method of the log object
+// Log set log SQL statement method
 func (s *Way) Log(log func(ls *LogSql)) *Way {
 	s.log = log
+	return s
+}
+
+// TxLog set log transaction method
+func (s *Way) TxLog(log func(lt *LogTransaction)) *Way {
+	s.txLog = log
 	return s
 }
 
@@ -95,7 +112,7 @@ func (s *Way) DB() *sql.DB {
 
 // Clone make a copy the current object
 func (s *Way) Clone() *Way {
-	return NewWay(s.db).Fix(s.fix).Tag(s.tag).Log(s.log)
+	return NewWay(s.db).Fix(s.fix).Log(s.log).Tag(s.tag).TxLog(s.txLog)
 }
 
 // begin for open transaction
@@ -104,7 +121,7 @@ func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
 	if err != nil {
 		return
 	}
-	s.txId = fmt.Sprintf("tid.%d.%d.%p", time.Now().UnixNano(), os.Getpid(), s.tx)
+	s.txId = fmt.Sprintf("%d.%d.%p", time.Now().UnixNano(), os.Getpid(), s.tx)
 	return
 }
 
@@ -127,30 +144,47 @@ func (s *Way) TxNil() bool {
 	return s.tx == nil
 }
 
-// TxMsg set the prompt for the current transaction
+// TxMsg set the prompt for the current transaction, can only be set once
 func (s *Way) TxMsg(msg string) *Way {
-	if s.tx != nil && s.txMsg == "" {
-		s.txMsg = msg
+	if s.tx == nil {
+		return s
 	}
+	if s.txMsg != "" {
+		return s
+	}
+	s.txMsg = msg
 	return s
 }
 
 // Transaction execute SQL statements in batches in a transaction
 // When a transaction is nested, the inner transaction automatically uses the outer transaction object
-func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) (err error)) (err error) {
+func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error) (err error) {
 	if s.tx != nil {
 		return fn(s)
 	}
 	way := s.Clone()
-	if err = way.begin(ctx, opts); err != nil {
+	err = way.begin(ctx, opts)
+	if err != nil {
 		return
+	}
+	lt := &LogTransaction{
+		TxId:    way.txId,
+		StartAt: time.Now(),
 	}
 	ok := false
 	defer func() {
+		lt.Error = err
+		lt.TxMsg = way.txMsg
 		if err == nil && ok {
 			err = way.commit()
+			lt.State = "COMMIT"
 		} else {
 			_ = way.rollback()
+			lt.State = "ROLLBACK"
+		}
+		if s.txLog != nil {
+			lt.EndAt = time.Now()
+			s.txLog(lt)
 		}
 	}()
 	if err = fn(way); err != nil {
@@ -161,49 +195,135 @@ func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 }
 
 // Trans concisely call Transaction
-func (s *Way) Trans(fn func(tx *Way) (err error)) error {
+func (s *Way) Trans(fn func(tx *Way) error) error {
 	return s.Transaction(context.Background(), nil, fn)
 }
 
-// QueryContext execute the SQL statement of the query
-func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) (err error), prepare string, args ...interface{}) (err error) {
-	if query == nil || prepare == "" {
-		return
+// Stmt is a prepared statement
+type Stmt struct {
+	logSql *LogSql
+	stmt   *sql.Stmt
+	way    *Way
+}
+
+// QueryContext repeated calls with the current object
+func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
+	return s.way.queryStmtContext(ctx, query, s, args...)
+}
+
+// Query repeated calls with the current object
+func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) error {
+	return s.QueryContext(context.Background(), query, args...)
+}
+
+// ExecContext repeated calls with the current object
+func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (int64, error) {
+	return s.way.execStmtContext(ctx, s, args...)
+}
+
+// Exec repeated calls with the current object
+func (s *Stmt) Exec(args ...interface{}) (int64, error) {
+	return s.ExecContext(context.Background(), args...)
+}
+
+// ScanAllContext repeated calls with the current object
+func (s *Stmt) ScanAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
+	return s.QueryContext(ctx, func(rows *sql.Rows) error {
+		return ScanSliceStruct(rows, result, s.way.tag)
+	}, args...)
+}
+
+// ScanAll repeated calls with the current object
+func (s *Stmt) ScanAll(result interface{}, args ...interface{}) error {
+	return s.ScanAllContext(context.Background(), result, args...)
+}
+
+// Close closes the statement.
+func (s *Stmt) Close() error {
+	if s.stmt != nil {
+		return s.stmt.Close()
 	}
+	return nil
+}
+
+// PrepareContext SQL statement prepare.
+// The caller must call the statement's Close method when the statement is no longer needed.
+func (s *Way) PrepareContext(ctx context.Context, prepare string) (*Stmt, error) {
 	if s.fix != nil {
 		prepare = s.fix(prepare)
 	}
-	startAt := time.Now()
-	endAt := time.Time{}
-	if s.log != nil {
-		defer func() {
-			if endAt.IsZero() {
-				endAt = time.Now()
-			}
-			ls := &LogSql{
-				TxId:    s.txId,
-				TxMsg:   s.txMsg,
-				Prepare: prepare,
-				Args:    args,
-				StartAt: startAt,
-				EndAt:   endAt,
-				Error:   err,
-			}
-			s.log(ls)
-		}()
+	stmt := &Stmt{
+		logSql: &LogSql{
+			TxId:    s.txId,
+			TxMsg:   s.txMsg,
+			Prepare: prepare,
+		},
+		way: s,
 	}
-	var stmt *sql.Stmt
 	if s.tx != nil {
-		stmt, err = s.tx.PrepareContext(ctx, prepare)
-	} else {
-		stmt, err = s.db.PrepareContext(ctx, prepare)
+		tmp, err := s.tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return nil, err
+		}
+		stmt.stmt = tmp
+		return stmt, nil
 	}
+	tmp, err := s.db.PrepareContext(ctx, prepare)
 	if err != nil {
+		return nil, err
+	}
+	stmt.stmt = tmp
+	return stmt, nil
+}
+
+// Prepare SQL statement prepare.
+// The caller must call the statement's Close method when the statement is no longer needed.
+func (s *Way) Prepare(prepare string) (*Stmt, error) {
+	return s.PrepareContext(context.Background(), prepare)
+}
+
+// StmtContext returns a transaction-specific prepared statement from an existing statement.
+// The caller must call the statement's Close method when the statement is no longer needed.
+func (s *Way) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
+	if stmt == nil {
+		return stmt
+	}
+	if s.tx == nil {
+		return stmt
+	}
+	return &Stmt{
+		logSql: &LogSql{
+			TxId:    s.txId,  // use current *Way.txId
+			TxMsg:   s.txMsg, // use current *Way.txMsg
+			Prepare: stmt.logSql.Prepare,
+		},
+		stmt: s.tx.StmtContext(ctx, stmt.stmt),
+		way:  s,
+	}
+}
+
+// Stmt returns a transaction-specific prepared statement from an existing statement.
+// The caller must call the statement's Close method when the statement is no longer needed.
+func (s *Way) Stmt(stmt *Stmt) *Stmt {
+	return s.StmtContext(context.Background(), stmt)
+}
+
+// queryStmtContext query with stmt
+func (s *Way) queryStmtContext(ctx context.Context, query func(rows *sql.Rows) error, stmt *Stmt, args ...interface{}) (err error) {
+	if query == nil || stmt == nil {
 		return
 	}
-	defer stmt.Close()
-	rows, err := stmt.QueryContext(ctx, args...)
-	endAt = time.Now()
+	stmt.logSql.StartAt = time.Now()
+	stmt.logSql.Args = args
+	if s.log != nil {
+		defer func() {
+			stmt.logSql.Error = err
+			s.log(stmt.logSql)
+		}()
+	}
+	var rows *sql.Rows
+	rows, err = stmt.stmt.QueryContext(ctx, args...)
+	stmt.logSql.EndAt = time.Now()
 	if err != nil {
 		return
 	}
@@ -212,55 +332,52 @@ func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) (err 
 	return
 }
 
+// execStmtContext exec with stmt
+func (s *Way) execStmtContext(ctx context.Context, stmt *Stmt, args ...interface{}) (rowsAffected int64, err error) {
+	if stmt == nil {
+		return
+	}
+	stmt.logSql.StartAt = time.Now()
+	stmt.logSql.Args = args
+	if s.log != nil {
+		defer func() {
+			stmt.logSql.Error = err
+			s.log(stmt.logSql)
+		}()
+	}
+	var result sql.Result
+	result, err = stmt.stmt.ExecContext(ctx, args...)
+	stmt.logSql.EndAt = time.Now()
+	if err != nil {
+		return
+	}
+	rowsAffected, err = result.RowsAffected()
+	return
+}
+
+// QueryContext execute the SQL statement of the query
+func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+	stmt, err := s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	return s.queryStmtContext(ctx, query, stmt, args...)
+}
+
 // Query execute the SQL statement of the query
-func (s *Way) Query(query func(rows *sql.Rows) (err error), prepare string, args ...interface{}) error {
+func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	return s.QueryContext(context.Background(), query, prepare, args...)
 }
 
 // ExecContext execute the SQL statement of the not-query
 func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (rowsAffected int64, err error) {
-	if prepare == "" {
-		return
-	}
-	if s.fix != nil {
-		prepare = s.fix(prepare)
-	}
-	startAt := time.Now()
-	endAt := time.Time{}
-	if s.log != nil {
-		defer func() {
-			if endAt.IsZero() {
-				endAt = time.Now()
-			}
-			ls := &LogSql{
-				TxId:    s.txId,
-				TxMsg:   s.txMsg,
-				Prepare: prepare,
-				Args:    args,
-				StartAt: startAt,
-				EndAt:   endAt,
-				Error:   err,
-			}
-			s.log(ls)
-		}()
-	}
-	var stmt *sql.Stmt
-	if s.tx != nil {
-		stmt, err = s.tx.PrepareContext(ctx, prepare)
-	} else {
-		stmt, err = s.db.PrepareContext(ctx, prepare)
-	}
+	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
-		return
+		return 0, err
 	}
 	defer stmt.Close()
-	sqlResult, err := stmt.ExecContext(ctx, args...)
-	endAt = time.Now()
-	if err != nil {
-		return
-	}
-	rowsAffected, err = sqlResult.RowsAffected()
-	return
+	return s.execStmtContext(ctx, stmt, args...)
 }
 
 // Exec execute the SQL statement of the not-query
@@ -268,25 +385,12 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
-// ExecAllContext execute SQL scripts in batches
-// the SQL scripts executed by this method will not call the log method
-func (s *Way) ExecAllContext(ctx context.Context, script string, args ...interface{}) (int64, error) {
-	result, err := s.db.ExecContext(ctx, script, args...)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-// ExecAll concisely call ExecAllContext
-func (s *Way) ExecAll(script string, args ...interface{}) (int64, error) {
-	return s.ExecAllContext(context.Background(), script, args...)
-}
-
 // ScanAllContext scan the query results into the receiver
 // through the mapping of column names and struct tags
 func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
-	return s.QueryContext(ctx, func(rows *sql.Rows) error { return ScanSliceStruct(rows, result, s.tag) }, prepare, args...)
+	return s.QueryContext(ctx, func(rows *sql.Rows) error {
+		return ScanSliceStruct(rows, result, s.tag)
+	}, prepare, args...)
 }
 
 // ScanAll concisely call ScanAllContext
