@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,73 @@ const (
 	// DefaultTag mapping of default database column name and struct tag
 	DefaultTag = "db"
 )
+
+var (
+	// poolWay *Way pool
+	poolWay *sync.Pool
+
+	// poolStmt *Stmt pool
+	poolStmt *sync.Pool
+)
+
+// init initialize
+func init() {
+	poolWay = &sync.Pool{}
+	poolWay.New = func() interface{} {
+		return &Way{}
+	}
+
+	poolStmt = &sync.Pool{}
+	poolStmt.New = func() interface{} {
+		return &Stmt{
+			logSql: &LogSql{},
+		}
+	}
+}
+
+// getWay get *Way from pool
+func getWay(origin *Way) *Way {
+	latest := poolWay.Get().(*Way)
+	latest.db = origin.db
+	latest.fix = origin.fix
+	latest.log = origin.log
+	latest.tag = origin.tag
+	latest.txLog = origin.txLog
+	return latest
+}
+
+// putWay put *Way in the pool
+func putWay(s *Way) {
+	s.db = nil
+	s.fix = nil
+	s.log = nil
+	s.tag = ""
+	s.txLog = nil
+	poolWay.Put(s)
+}
+
+// getStmt get *Stmt from pool
+func getStmt(s *Way) *Stmt {
+	latest := poolStmt.Get().(*Stmt)
+	latest.logSql.TxId = s.txId
+	latest.logSql.TxMsg = s.txMsg
+	latest.way = s
+	return latest
+}
+
+// putStmt put *Stmt in the pool
+func putStmt(s *Stmt) {
+	s.logSql.TxId = ""
+	s.logSql.TxMsg = ""
+	s.logSql.Prepare = ""
+	s.logSql.Args = nil
+	s.logSql.StartAt = time.Time{}
+	s.logSql.EndAt = time.Time{}
+	s.logSql.Error = nil
+	s.stmt = nil
+	s.way = nil
+	poolStmt.Put(s)
+}
 
 // FixPgsql fix postgresql SQL statement
 // hey uses `?` as the placeholder symbol of the SQL statement by default
@@ -162,7 +230,8 @@ func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 	if s.tx != nil {
 		return fn(s)
 	}
-	way := s.Clone()
+	way := getWay(s)
+	defer putWay(way)
 	err = way.begin(ctx, opts)
 	if err != nil {
 		return
@@ -240,6 +309,7 @@ func (s *Stmt) ScanAll(result interface{}, args ...interface{}) error {
 
 // Close closes the statement.
 func (s *Stmt) Close() error {
+	defer putStmt(s)
 	if s.stmt != nil {
 		return s.stmt.Close()
 	}
@@ -252,14 +322,8 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string) (*Stmt, error)
 	if s.fix != nil {
 		prepare = s.fix(prepare)
 	}
-	stmt := &Stmt{
-		logSql: &LogSql{
-			TxId:    s.txId,
-			TxMsg:   s.txMsg,
-			Prepare: prepare,
-		},
-		way: s,
-	}
+	stmt := getStmt(s)
+	stmt.logSql.Prepare = prepare
 	if s.tx != nil {
 		tmp, err := s.tx.PrepareContext(ctx, prepare)
 		if err != nil {
@@ -291,15 +355,10 @@ func (s *Way) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
 	if s.tx == nil {
 		return stmt
 	}
-	return &Stmt{
-		logSql: &LogSql{
-			TxId:    s.txId,  // use current *Way.txId
-			TxMsg:   s.txMsg, // use current *Way.txMsg
-			Prepare: stmt.logSql.Prepare,
-		},
-		stmt: s.tx.StmtContext(ctx, stmt.stmt),
-		way:  s,
-	}
+	newStmt := getStmt(s)
+	newStmt.logSql.Prepare = stmt.logSql.Prepare
+	newStmt.stmt = s.tx.StmtContext(ctx, stmt.stmt)
+	return newStmt
 }
 
 // Stmt returns a transaction-specific prepared statement from an existing statement.

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 const (
@@ -24,6 +25,30 @@ const (
 	SqlJoinFull  = "FULL JOIN"
 )
 
+var (
+	// sqlBuilder sql builder pool
+	sqlBuilder *sync.Pool
+)
+
+// init initialize
+func init() {
+	sqlBuilder = &sync.Pool{}
+	sqlBuilder.New = func() interface{} {
+		return &strings.Builder{}
+	}
+}
+
+// getSqlBuilder get sql builder from pool
+func getSqlBuilder() *strings.Builder {
+	return sqlBuilder.Get().(*strings.Builder)
+}
+
+// putSqlBuilder put sql builder in the pool
+func putSqlBuilder(b *strings.Builder) {
+	b.Reset()
+	sqlBuilder.Put(b)
+}
+
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.
 type schema struct {
 	ctx     context.Context
@@ -33,15 +58,15 @@ type schema struct {
 }
 
 // comment make SQL statement builder
-func comment(schema *schema) (builder *strings.Builder) {
-	builder = &strings.Builder{}
+func comment(schema *schema) (b *strings.Builder) {
+	b = getSqlBuilder()
 	schema.comment = strings.TrimSpace(schema.comment)
 	if schema.comment == "" {
 		return
 	}
-	builder.WriteString("/* ")
-	builder.WriteString(schema.comment)
-	builder.WriteString(" */")
+	b.WriteString("/* ")
+	b.WriteString(schema.comment)
+	b.WriteString(" */")
 	return
 }
 
@@ -106,6 +131,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
+	defer putSqlBuilder(buf)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.schema.table)
 	if s.where != nil {
@@ -265,6 +291,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	}
 	if s.subQuery != nil {
 		buf := comment(s.schema)
+		defer putSqlBuilder(buf)
 		buf.WriteString("INSERT INTO ")
 		buf.WriteString(s.schema.table)
 		if len(s.column) > 0 {
@@ -291,12 +318,12 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
+	defer putSqlBuilder(buf)
 	buf.WriteString("INSERT INTO ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" ( ")
 	buf.WriteString(strings.Join(s.column, ", "))
-	buf.WriteString(" ) ")
-	buf.WriteString(" VALUES")
+	buf.WriteString(" ) VALUES")
 	for i := 0; i < length; i++ {
 		if i != 0 {
 			buf.WriteString(",")
@@ -460,6 +487,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	}
 	args = value
 	buf := comment(s.schema)
+	defer putSqlBuilder(buf)
 	buf.WriteString("UPDATE ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
@@ -569,31 +597,32 @@ func (s *GetJoin) OnEqual(left string, right string) *GetJoin {
 
 // SQL build SQL statement
 func (s *GetJoin) SQL() (prepare string, args []interface{}) {
-	str := &strings.Builder{}
-	str.WriteString(s.joinType)
+	buf := getSqlBuilder()
+	defer putSqlBuilder(buf)
+	buf.WriteString(s.joinType)
 	if s.subQuery != nil && s.alias != nil && *s.alias != "" {
-		str.WriteString(" ( ")
+		buf.WriteString(" ( ")
 		subPrepare, subArgs := s.subQuery.SQL()
-		str.WriteString(subPrepare)
-		str.WriteString(" ) ")
-		str.WriteString("AS ")
-		str.WriteString(*s.alias)
-		str.WriteString(" ON ")
-		str.WriteString(s.on)
-		prepare = str.String()
+		buf.WriteString(subPrepare)
+		buf.WriteString(" ) ")
+		buf.WriteString("AS ")
+		buf.WriteString(*s.alias)
+		buf.WriteString(" ON ")
+		buf.WriteString(s.on)
+		prepare = buf.String()
 		args = append(args, subArgs...)
 		return
 	}
 	if s.table != "" {
-		str.WriteString(" ")
-		str.WriteString(s.table)
+		buf.WriteString(" ")
+		buf.WriteString(s.table)
 		if s.alias != nil && *s.alias != "" {
-			str.WriteString(" AS ")
-			str.WriteString(*s.alias)
+			buf.WriteString(" AS ")
+			buf.WriteString(*s.alias)
 		}
-		str.WriteString(" ON ")
-		str.WriteString(s.on)
-		prepare = str.String()
+		buf.WriteString(" ON ")
+		buf.WriteString(s.on)
+		prepare = buf.String()
 		return
 	}
 	return
@@ -907,6 +936,7 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
+	defer putSqlBuilder(buf)
 	buf.WriteString("SELECT ")
 	if s.column == nil {
 		buf.WriteString("*")
@@ -1007,7 +1037,8 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 	if prepare == "" {
 		return
 	}
-	buf := &strings.Builder{}
+	buf := getSqlBuilder()
+	defer putSqlBuilder(buf)
 	buf.WriteString(prepare)
 	if len(s.order) > 0 {
 		buf.WriteString(" ")
