@@ -882,23 +882,29 @@ func (s *Get) Desc(column string) *Get {
 }
 
 var (
-	// orderByRegexp `column_name_first#a,column_name_second#d` => `column_name_first ASC, column_name_second DESC`
-	orderByRegexp = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_.]{1,31})#([ad])$`)
+	// orderParamRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`
+	orderParamRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
 )
 
 // OrderParam set the column sorting list in batches through regular expressions according to the request parameter value
 func (s *Get) OrderParam(param string) *Get {
 	for _, v := range strings.Split(param, ",") {
-		match := orderByRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
-		if len(match) != 1 || len(match[0]) != 3 {
+		if len(v) > 32 {
 			continue
 		}
-		if match[0][2][0] == 97 {
-			s.Asc(match[0][1])
+		match := orderParamRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
+		length := len(match)
+		if length != 1 {
 			continue
 		}
-		if match[0][2][0] == 100 {
-			s.Desc(match[0][1])
+		matched := match[0]
+		length = len(matched)
+		if matched[length-1][0] == 97 {
+			s.Asc(matched[1])
+			continue
+		}
+		if matched[length-1][0] == 100 {
+			s.Desc(matched[1])
 		}
 	}
 	return s
