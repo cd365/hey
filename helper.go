@@ -204,7 +204,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 // StructInsert create one by AnyStruct or *AnyStruct
 // Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure,
 // and support the exclusion of fixed fields.
-func StructInsert(insert interface{}, tag string, except ...string) (column []string, values []interface{}) {
+func StructInsert(insert interface{}, tag string, except ...string) (create map[string]interface{}) {
 	if insert == nil || tag == "" {
 		return
 	}
@@ -221,18 +221,41 @@ func StructInsert(insert interface{}, tag string, except ...string) (column []st
 	for i := 0; i < length; i++ {
 		ignore[except[i]] = struct{}{}
 	}
-	column, values = make([]string, 0, length), make([]interface{}, 0, length)
+	create = make(map[string]interface{})
 	typeOf := valueOf.Type()
 	length = typeOf.NumField()
+	add := func(column string, value interface{}) {
+		if column == "" || column == "-" || value == nil {
+			return
+		}
+		if _, ok := ignore[column]; ok {
+			return
+		}
+		create[column] = value
+	}
+	parse := func(column string, value reflect.Value) {
+		valueKind := value.Kind()
+		for valueKind == reflect.Ptr {
+			if value.IsNil() {
+				return
+			}
+			value = value.Elem()
+			valueKind = value.Kind()
+		}
+		if valueKind == reflect.Struct {
+			for c, v := range StructInsert(value.Interface(), tag, except...) {
+				add(c, v)
+			}
+			return
+		}
+		add(column, value.Interface())
+	}
 	for i := 0; i < length; i++ {
-		field := typeOf.Field(i).Tag.Get(tag)
-		if field == "" || field == "-" {
+		field := typeOf.Field(i)
+		if !field.IsExported() {
 			continue
 		}
-		if _, ok := ignore[field]; ok {
-			continue
-		}
-		column, values = append(column, field), append(values, valueOf.Field(i).Interface())
+		parse(field.Tag.Get(tag), valueOf.Field(i))
 	}
 	return
 }

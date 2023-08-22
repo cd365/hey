@@ -115,6 +115,24 @@ func (s *Del) Where(where Filter) *Del {
 	return s
 }
 
+// AndWhere and where
+func (s *Del) AndWhere(where ...Filter) *Del {
+	if s.where == nil {
+		s.where = s.schema.way.Filter()
+	}
+	s.where.Filter(where...)
+	return s
+}
+
+// OrWhere or where
+func (s *Del) OrWhere(where ...Filter) *Del {
+	if s.where == nil {
+		s.where = s.schema.way.Filter()
+	}
+	s.where.OrFilter(where...)
+	return s
+}
+
 // WhereIn set where
 func (s *Del) WhereIn(column string, values ...interface{}) *Del {
 	return s.Where(NewFilter().In(column, values...))
@@ -154,18 +172,29 @@ func (s *Del) Del() (int64, error) {
 
 // Add for INSERT
 type Add struct {
-	schema   *schema
-	column   []string
-	values   [][]interface{}
-	except   []string
+	schema *schema
+
+	// create, the columns in the first map will be used as the column list for insert data
+	create []map[string]interface{}
+
+	// except  exclude some fields not in the add list
+	except []string
+
+	// column for INSERT VALUES is query statement
+	column []string
+
+	// subQuery INSERT VALUES is query statement
 	subQuery *SubQuery
 }
 
 // NewAdd for INSERT
 func NewAdd(way *Way) *Add {
-	return &Add{
+	add := &Add{
 		schema: newSchema(way),
+		create: make([]map[string]interface{}, 1),
 	}
+	add.create[0] = make(map[string]interface{})
+	return add
 }
 
 // Comment set comment
@@ -186,33 +215,68 @@ func (s *Add) Table(table string) *Add {
 	return s
 }
 
-// Column set column
-func (s *Add) Column(column ...string) *Add {
-	s.column = column
-	return s
-}
-
-// Values set values, insert one or more rows
-func (s *Add) Values(values ...[]interface{}) *Add {
-	s.values = values
-	return s
-}
-
-// AppendValues append values, insert one or more rows
-func (s *Add) AppendValues(values ...[]interface{}) *Add {
-	s.values = append(s.values, values...)
-	return s
-}
-
-// ColumnValues set column list and column values at the same time, insert one or more rows
-func (s *Add) ColumnValues(column []string, values ...[]interface{}) *Add {
-	s.column, s.values = column, values
-	return s
-}
-
 // Except exclude some columns from insert, only valid for Create and Map methods
 func (s *Add) Except(except ...string) *Add {
 	s.except = append(s.except, except...)
+	return s
+}
+
+// getExcept except columns for map
+func (s *Add) getExcept() (except map[string]struct{}) {
+	except = make(map[string]struct{})
+	for _, field := range s.except {
+		except[field] = struct{}{}
+	}
+	return
+}
+
+// Set insert one or add column-value for more rows
+func (s *Add) Set(column string, value interface{}) *Add {
+	for i := range s.create {
+		s.create[i][column] = value
+	}
+	return s
+}
+
+// Map insert by map, insert one or add column-value for more rows
+func (s *Add) Map(add map[string]interface{}) *Add {
+	length := len(add)
+	if length == 0 {
+		return s
+	}
+	except := s.getExcept()
+	for column := range add {
+		if _, ok := except[column]; ok {
+			continue
+		}
+		s.Set(column, add[column])
+	}
+	return s
+}
+
+// Default insert one or add column-value for more rows, for set column default value
+func (s *Add) Default(column string, value interface{}) *Add {
+	for i := range s.create {
+		if _, ok := s.create[i][column]; !ok {
+			s.create[i][column] = value
+		}
+	}
+	return s
+}
+
+// MapDefault insert by map, insert one or add column-value for more rows, for set column default value
+func (s *Add) MapDefault(add map[string]interface{}) *Add {
+	length := len(add)
+	if length == 0 {
+		return s
+	}
+	except := s.getExcept()
+	for column := range add {
+		if _, ok := except[column]; ok {
+			continue
+		}
+		s.Default(column, add[column])
+	}
 	return s
 }
 
@@ -222,54 +286,42 @@ func (s *Add) Create(creates ...interface{}) *Add {
 	if length == 0 {
 		return s
 	}
-	column, values := make([][]string, length), make([][]interface{}, length)
-	count := 0
+	s.create = make([]map[string]interface{}, length)
 	for i := 0; i < length; i++ {
-		column[i], values[i] = StructInsert(creates[i], s.schema.way.tag, s.except...)
-		lc, lv := len(column[i]), len(values[i])
-		if lc != lv {
-			return s
-		}
-		if i == 0 {
-			count = lc
-			continue
-		}
-		if lc != count {
-			return s
-		}
+		s.create[i] = StructInsert(creates[i], s.schema.way.tag, s.except...)
 	}
-	return s.ColumnValues(column[0], values...)
+	return s
 }
 
-// Map insert by map, insert one row
-func (s *Add) Map(columnValue map[string]interface{}) *Add {
-	length := len(columnValue)
+// Batch insert one or more rows
+func (s *Add) Batch(batch ...map[string]interface{}) *Add {
+	length := len(batch)
 	if length == 0 {
 		return s
 	}
-	except := make(map[string]struct{})
-	for c := range except {
-		except[c] = struct{}{}
-	}
-	columns := make([]string, 0, length)
-	for column := range columnValue {
-		if _, ok := except[column]; ok {
-			continue
+	except := s.getExcept()
+	s.create = make([]map[string]interface{}, length)
+	for index := range batch {
+		s.create[index] = make(map[string]interface{})
+		for column := range batch[index] {
+			if _, ok := except[column]; ok {
+				continue
+			}
+			s.create[index][column] = batch[index][column]
 		}
-		columns = append(columns, column)
 	}
-	sort.Strings(columns)
-	length = len(columns)
-	values := make([]interface{}, length)
-	for key, val := range columns {
-		values[key] = columnValue[val]
-	}
-	return s.ColumnValues(columns, values)
+	return s
+}
+
+// Column set insert column for ValuesSubQuery
+func (s *Add) Column(column ...string) *Add {
+	s.column = column
+	return s
 }
 
 // ValuesSubQuery values is a query SQL statement
 func (s *Add) ValuesSubQuery(prepare string, args ...interface{}) *Add {
-	s.subQuery = NewSubQuery(prepare, args)
+	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
@@ -279,19 +331,18 @@ func (s *Add) ValuesSubQueryGet(get *Get) *Add {
 		return s
 	}
 	prepare, args := get.SQL()
-	s.subQuery = NewSubQuery(prepare, args)
+	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
 // SQL build SQL statement
 func (s *Add) SQL() (prepare string, args []interface{}) {
-	length := len(s.column)
-	if length == 0 {
+	if s.schema.table == "" {
 		return
 	}
+	buf := comment(s.schema)
+	defer putSqlBuilder(buf)
 	if s.subQuery != nil {
-		buf := comment(s.schema)
-		defer putSqlBuilder(buf)
 		buf.WriteString("INSERT INTO ")
 		buf.WriteString(s.schema.table)
 		if len(s.column) > 0 {
@@ -306,32 +357,53 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		args = qa
 		return
 	}
-	if s.schema.table == "" {
+	except := s.getExcept()
+	rowsCount := len(s.create)
+	columnCount := len(s.create[0])
+	columns := make([]string, 0, columnCount)
+	for field := range s.create[0] {
+		if field == "" {
+			continue
+		}
+		if _, ok := except[field]; ok {
+			continue
+		}
+		columns = append(columns, field)
+	}
+	columnCount = len(columns)
+	sort.Strings(columns)
+	values := make([][]interface{}, rowsCount)
+	for num, add := range s.create {
+		values[num] = make([]interface{}, 0, columnCount)
+		for _, field := range columns {
+			if value, ok := add[field]; !ok {
+				values[num] = append(values[num], nil)
+			} else {
+				values[num] = append(values[num], value)
+			}
+		}
+	}
+	if len(columns) == 0 {
 		return
 	}
-	place := make([]string, length)
-	for i := 0; i < length; i++ {
+	place := make([]string, columnCount)
+	for i := 0; i < columnCount; i++ {
 		place[i] = Placeholder
 	}
-	length = len(s.values)
-	if length == 0 {
-		return
-	}
-	buf := comment(s.schema)
-	defer putSqlBuilder(buf)
 	buf.WriteString("INSERT INTO ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" ( ")
-	buf.WriteString(strings.Join(s.column, ", "))
+	buf.WriteString(strings.Join(columns, ", "))
 	buf.WriteString(" ) VALUES")
-	for i := 0; i < length; i++ {
+	placeValue := strings.Join(place, ", ")
+	for i := 0; i < rowsCount; i++ {
 		if i != 0 {
 			buf.WriteString(",")
 		}
 		buf.WriteString(" ( ")
-		buf.WriteString(strings.Join(place, ", "))
+		buf.WriteString(placeValue)
 		buf.WriteString(" )")
-		args = append(args, s.values[i]...)
+		args = append(args, values[i]...)
 	}
 	prepare = buf.String()
 	return
@@ -448,6 +520,24 @@ func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
 // Where set where
 func (s *Mod) Where(where Filter) *Mod {
 	s.where = where
+	return s
+}
+
+// AndWhere and where
+func (s *Mod) AndWhere(where ...Filter) *Mod {
+	if s.where == nil {
+		s.where = s.schema.way.Filter()
+	}
+	s.where.Filter(where...)
+	return s
+}
+
+// OrWhere or where
+func (s *Mod) OrWhere(where ...Filter) *Mod {
+	if s.where == nil {
+		s.where = s.schema.way.Filter()
+	}
+	s.where.OrFilter(where...)
 	return s
 }
 
@@ -753,6 +843,24 @@ func (s *Get) FullJoin(table ...string) *GetJoin {
 // Where set where
 func (s *Get) Where(where Filter) *Get {
 	s.where = where
+	return s
+}
+
+// AndWhere and where
+func (s *Get) AndWhere(where ...Filter) *Get {
+	if s.where == nil {
+		s.where = s.schema.way.Filter()
+	}
+	s.where.Filter(where...)
+	return s
+}
+
+// OrWhere or where
+func (s *Get) OrWhere(where ...Filter) *Get {
+	if s.where == nil {
+		s.where = s.schema.way.Filter()
+	}
+	s.where.OrFilter(where...)
 	return s
 }
 

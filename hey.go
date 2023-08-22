@@ -27,11 +27,13 @@ var (
 
 // init initialize
 func init() {
+	// initialize *Way
 	poolWay = &sync.Pool{}
 	poolWay.New = func() interface{} {
 		return &Way{}
 	}
 
+	// initialize *Stmt
 	poolStmt = &sync.Pool{}
 	poolStmt.New = func() interface{} {
 		return &Stmt{
@@ -319,6 +321,9 @@ func (s *Stmt) Close() error {
 // PrepareContext SQL statement prepare.
 // The caller must call the statement's Close method when the statement is no longer needed.
 func (s *Way) PrepareContext(ctx context.Context, prepare string) (*Stmt, error) {
+	if prepare == "" {
+		return nil, nil
+	}
 	if s.fix != nil {
 		prepare = s.fix(prepare)
 	}
@@ -416,6 +421,9 @@ func (s *Way) execStmtContext(ctx context.Context, stmt *Stmt, args ...interface
 
 // QueryContext execute the SQL statement of the query
 func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+	if query == nil || prepare == "" {
+		return nil
+	}
 	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
 		return err
@@ -430,7 +438,10 @@ func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...in
 }
 
 // ExecContext execute the SQL statement of the not-query
-func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (rowsAffected int64, err error) {
+func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (int64, error) {
+	if prepare == "" {
+		return 0, nil
+	}
 	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
 		return 0, err
