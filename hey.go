@@ -46,20 +46,20 @@ func init() {
 func getWay(origin *Way) *Way {
 	latest := poolWay.Get().(*Way)
 	latest.db = origin.db
-	latest.fix = origin.fix
-	latest.log = origin.log
-	latest.tag = origin.tag
-	latest.txLog = origin.txLog
+	latest.Fix = origin.Fix
+	latest.Tag = origin.Tag
+	latest.Log = origin.Log
+	latest.TxLog = origin.TxLog
 	return latest
 }
 
 // putWay put *Way in the pool
 func putWay(s *Way) {
 	s.db = nil
-	s.fix = nil
-	s.log = nil
-	s.tag = ""
-	s.txLog = nil
+	s.Fix = nil
+	s.Tag = ""
+	s.Log = nil
+	s.TxLog = nil
 	poolWay.Put(s)
 }
 
@@ -134,45 +134,21 @@ type LogTransaction struct {
 // Way quick insert, delete, update, select helper
 type Way struct {
 	db    *sql.DB                  // the instance of the database connect pool
-	fix   func(string) string      // fix prepare sql script before call prepare method
-	log   func(ls *LogSql)         // logger executed SQL statement
-	tag   string                   // bind struct tag and table column
+	Fix   func(string) string      // fix prepare sql script before call prepare method
+	Tag   string                   // bind struct tag and table column
+	Log   func(ls *LogSql)         // logger executed SQL statement
 	tx    *sql.Tx                  // the transaction instance
 	txId  string                   // the transaction unique id
 	txMsg string                   // the transaction message
-	txLog func(lt *LogTransaction) // logger executed transaction
+	TxLog func(lt *LogTransaction) // logger executed transaction
 }
 
 // NewWay instantiate a helper
 func NewWay(db *sql.DB) *Way {
 	return &Way{
 		db:  db,
-		tag: DefaultTag,
+		Tag: DefaultTag,
 	}
-}
-
-// Fix set the method to fix the SQL statement
-func (s *Way) Fix(fix func(string) string) *Way {
-	s.fix = fix
-	return s
-}
-
-// Tag set the struct tag corresponding to the database table.column
-func (s *Way) Tag(tag string) *Way {
-	s.tag = tag
-	return s
-}
-
-// Log set log SQL statement method
-func (s *Way) Log(log func(ls *LogSql)) *Way {
-	s.log = log
-	return s
-}
-
-// TxLog set log transaction method
-func (s *Way) TxLog(log func(lt *LogTransaction)) *Way {
-	s.txLog = log
-	return s
 }
 
 // DB get the database connection pool object in the current instance
@@ -181,8 +157,20 @@ func (s *Way) DB() *sql.DB {
 }
 
 // Clone make a copy the current object
-func (s *Way) Clone() *Way {
-	return NewWay(s.db).Fix(s.fix).Log(s.log).Tag(s.tag).TxLog(s.txLog)
+func (s *Way) Clone(db ...*sql.DB) *Way {
+	way := NewWay(s.db)
+	length := len(db)
+	for i := length - 1; i >= 0; i-- {
+		if db[i] != nil {
+			way.db = db[i]
+			break
+		}
+	}
+	way.Fix = s.Fix
+	way.Tag = s.Tag
+	way.Log = s.Log
+	way.TxLog = s.TxLog
+	return way
 }
 
 // begin for open transaction
@@ -219,9 +207,6 @@ func (s *Way) TxMsg(msg string) *Way {
 	if s.tx == nil {
 		return s
 	}
-	if s.txMsg != "" {
-		return s
-	}
 	s.txMsg = msg
 	return s
 }
@@ -253,9 +238,9 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 			_ = way.rollback()
 			lt.State = "ROLLBACK"
 		}
-		if s.txLog != nil {
+		if s.TxLog != nil {
 			lt.EndAt = time.Now()
-			s.txLog(lt)
+			s.TxLog(lt)
 		}
 	}()
 	if err = fn(way); err != nil {
@@ -314,7 +299,7 @@ func (s *Stmt) Exec(args ...interface{}) (int64, error) {
 // ScanAllContext repeated calls with the current object
 func (s *Stmt) ScanAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
 	return s.QueryContext(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.way.tag)
+		return ScanSliceStruct(rows, result, s.way.Tag)
 	}, args...)
 }
 
@@ -338,8 +323,8 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string) (*Stmt, error)
 	if prepare == "" {
 		return nil, nil
 	}
-	if s.fix != nil {
-		prepare = s.fix(prepare)
+	if s.Fix != nil {
+		prepare = s.Fix(prepare)
 	}
 	stmt := getStmt(s)
 	stmt.logSql.Prepare = prepare
@@ -393,10 +378,10 @@ func (s *Way) queryStmtContext(ctx context.Context, query func(rows *sql.Rows) e
 	}
 	stmt.logSql.StartAt = time.Now()
 	stmt.logSql.Args = args
-	if s.log != nil {
+	if s.Log != nil {
 		defer func() {
 			stmt.logSql.Error = err
-			s.log(stmt.logSql)
+			s.Log(stmt.logSql)
 		}()
 	}
 	var rows *sql.Rows
@@ -417,10 +402,10 @@ func (s *Way) execStmtContext(ctx context.Context, stmt *Stmt, args ...interface
 	}
 	stmt.logSql.StartAt = time.Now()
 	stmt.logSql.Args = args
-	if s.log != nil {
+	if s.Log != nil {
 		defer func() {
 			stmt.logSql.Error = err
-			s.log(stmt.logSql)
+			s.Log(stmt.logSql)
 		}()
 	}
 	var result sql.Result
@@ -473,7 +458,7 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 // through the mapping of column names and struct tags
 func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
 	return s.QueryContext(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.tag)
+		return ScanSliceStruct(rows, result, s.Tag)
 	}, prepare, args...)
 }
 

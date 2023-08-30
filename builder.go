@@ -288,7 +288,7 @@ func (s *Add) Create(creates ...interface{}) *Add {
 	}
 	s.create = make([]map[string]interface{}, length)
 	for i := 0; i < length; i++ {
-		s.create[i] = StructInsert(creates[i], s.schema.way.tag, s.except...)
+		s.create[i] = StructInsert(creates[i], s.schema.way.Tag, s.except...)
 	}
 	return s
 }
@@ -523,7 +523,7 @@ func (s *Mod) Slice(column []string, value []interface{}) *Mod {
 
 // Compare for compare origin and latest to automatically calculate the list of columns and corresponding values that need to be updated
 func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
-	return s.Map(StructUpdate(origin, latest, s.schema.way.tag))
+	return s.Map(StructUpdate(origin, latest, s.schema.way.Tag))
 }
 
 // secExpr build update column expressions and column values

@@ -1,7 +1,6 @@
 package hey
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -9,29 +8,25 @@ const (
 	Placeholder = "?"
 )
 
-type filterCompare string
-
 const (
-	filterCompareEqual         filterCompare = "="
-	filterCompareNotEqual      filterCompare = "<>"
-	filterCompareMoreThan      filterCompare = ">"
-	filterCompareMoreThanEqual filterCompare = ">="
-	filterCompareLessThan      filterCompare = "<"
-	filterCompareLessThanEqual filterCompare = "<="
+	filterCompareEqual         = "="
+	filterCompareNotEqual      = "<>"
+	filterCompareMoreThan      = ">"
+	filterCompareMoreThanEqual = ">="
+	filterCompareLessThan      = "<"
+	filterCompareLessThanEqual = "<="
 )
 
-type filterLogic string
-
 const (
-	filterLogicAnd filterLogic = "AND"
-	filterLogicOr  filterLogic = "OR"
+	filterLogicAnd = "AND"
+	filterLogicOr  = "OR"
 )
 
-func filterCompareExpr(column string, compare filterCompare) (expr string) {
+func filterCompareExpr(column string, compare string) (expr string) {
 	if column == "" {
 		return
 	}
-	expr = fmt.Sprintf("%s %s %s", column, compare, Placeholder)
+	expr = ConcatString(column, " ", compare, " ", Placeholder)
 	return
 }
 
@@ -78,16 +73,24 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 		return
 	}
 	args = values
-	result := make([]string, length)
+	length2 := length * 2
+	result := make([]string, 0, length2)
 	for i := 0; i < length; i++ {
-		result[i] = Placeholder
+		if i == 0 {
+			result = append(result, Placeholder)
+			continue
+		}
+		result = append(result, ", ", Placeholder)
 	}
-	tmp := strings.Join(result, ", ")
-	expr = column
+	tmp := make([]string, 0, length2+3)
+	tmp = append(tmp, column)
 	if not {
-		expr = fmt.Sprintf("%s NOT", expr)
+		tmp = append(tmp, " NOT")
 	}
-	expr = fmt.Sprintf("%s IN ( %s )", expr, tmp)
+	tmp = append(tmp, " IN ( ")
+	tmp = append(tmp, result...)
+	tmp = append(tmp, " )")
+	expr = ConcatString(tmp...)
 	return
 }
 
@@ -97,9 +100,9 @@ func filterBetween(column string, not bool) (expr string) {
 	}
 	expr = column
 	if not {
-		expr = fmt.Sprintf("%s NOT", expr)
+		expr = ConcatString(expr, " NOT")
 	}
-	expr = fmt.Sprintf("%s BETWEEN %s AND %s", expr, Placeholder, Placeholder)
+	expr = ConcatString(expr, " BETWEEN ", Placeholder, " AND ", Placeholder)
 	return
 }
 
@@ -109,9 +112,9 @@ func filterLike(column string, not bool) (expr string) {
 	}
 	expr = column
 	if not {
-		expr = fmt.Sprintf("%s NOT", expr)
+		expr = ConcatString(expr, " NOT")
 	}
-	expr = fmt.Sprintf("%s LIKE %s", expr, Placeholder)
+	expr = ConcatString(expr, " LIKE ", Placeholder)
 	return
 }
 
@@ -119,11 +122,11 @@ func filterIsNull(column string, not bool) (expr string) {
 	if column == "" {
 		return
 	}
-	expr = fmt.Sprintf("%s IS", column)
+	expr = ConcatString(column, " IS")
 	if not {
-		expr = fmt.Sprintf("%s NOT", expr)
+		expr = ConcatString(expr, " NOT")
 	}
-	expr = fmt.Sprintf("%s NULL", expr)
+	expr = ConcatString(expr, " NULL")
 	return
 }
 
@@ -186,20 +189,20 @@ type Filter interface {
 }
 
 type filter struct {
-	prepare string
+	prepare *strings.Builder
 	args    []interface{}
 }
 
-func (s *filter) add(logic filterLogic, expr string, args []interface{}) Filter {
+func (s *filter) add(logic string, expr string, args []interface{}) Filter {
 	if expr == "" {
 		return s
 	}
-	if s.prepare == "" {
-		s.prepare = expr
+	if s.prepare.Len() == 0 {
+		s.prepare.WriteString(expr)
 		s.args = args
 		return s
 	}
-	s.prepare = fmt.Sprintf("%s %s %s", s.prepare, logic, expr)
+	s.prepare.WriteString(ConcatString(" ", logic, " ", expr))
 	s.args = append(s.args, args...)
 	return s
 }
@@ -240,7 +243,7 @@ func (s *filter) OrFilter(filters ...Filter) Filter {
 	return s
 }
 
-func (s *filter) addGroup(logic filterLogic, group func(filter Filter)) Filter {
+func (s *filter) addGroup(logic string, group func(filter Filter)) Filter {
 	if group == nil {
 		return s
 	}
@@ -250,7 +253,7 @@ func (s *filter) addGroup(logic filterLogic, group func(filter Filter)) Filter {
 	if expr == "" {
 		return s
 	}
-	expr = fmt.Sprintf("( %s )", expr)
+	expr = ConcatString("( ", expr, " )")
 	return s.add(logic, expr, args)
 }
 
@@ -295,7 +298,7 @@ func (s *filter) InSQL(column string, prepare string, args ...interface{}) Filte
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := fmt.Sprintf("%s IN ( %s )", column, prepare)
+	expr := ConcatString(column, " IN ( ", prepare, " )")
 	return s.And(expr, args...)
 }
 
@@ -352,7 +355,7 @@ func (s *filter) NotInSQL(column string, prepare string, args ...interface{}) Fi
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := fmt.Sprintf("%s NOT IN ( %s )", column, prepare)
+	expr := ConcatString(column, " NOT IN ( ", prepare, " )")
 	return s.And(expr, args...)
 }
 
@@ -457,7 +460,7 @@ func (s *filter) OrInSQL(column string, prepare string, args ...interface{}) Fil
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := fmt.Sprintf("%s IN ( %s )", column, prepare)
+	expr := ConcatString(column, " IN ( ", prepare, " )")
 	return s.Or(expr, args...)
 }
 
@@ -514,7 +517,7 @@ func (s *filter) OrNotInSQL(column string, prepare string, args ...interface{}) 
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := fmt.Sprintf("%s NOT IN ( %s )", column, prepare)
+	expr := ConcatString(column, " NOT IN ( ", prepare, " )")
 	return s.Or(expr, args...)
 }
 
@@ -587,9 +590,11 @@ func (s *filter) OrNotBetween(column string, start interface{}, end interface{})
 }
 
 func (s *filter) SQL() (prepare string, args []interface{}) {
-	return s.prepare, s.args
+	return s.prepare.String(), s.args
 }
 
 func NewFilter() Filter {
-	return &filter{}
+	return &filter{
+		prepare: &strings.Builder{},
+	}
 }

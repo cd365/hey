@@ -44,7 +44,8 @@ func bindStructInit() *bindStruct {
 func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string) {
 	refStructTypeString := refStructType.String()
 	if _, ok := s.structType[refStructTypeString]; ok {
-		return // prevent structure loop nesting
+		// prevent structure loop nesting
+		return
 	}
 	s.structType[refStructTypeString] = struct{}{}
 	length := refStructType.NumField()
@@ -202,8 +203,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 }
 
 // StructInsert create one by AnyStruct or *AnyStruct
-// Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure,
-// and support the exclusion of fixed fields.
+// Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure, and support the exclusion of fixed fields.
 func StructInsert(insert interface{}, tag string, except ...string) (create map[string]interface{}) {
 	if insert == nil || tag == "" {
 		return
@@ -366,4 +366,15 @@ func StructAssign(target interface{}, latest interface{}) {
 			value0.Set(value1)
 		}
 	}
+}
+
+// ConcatString concatenate string
+func ConcatString(sss ...string) string {
+	b := getSqlBuilder()
+	defer putSqlBuilder(b)
+	length := len(sss)
+	for i := 0; i < length; i++ {
+		b.WriteString(sss[i])
+	}
+	return b.String()
 }
