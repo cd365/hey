@@ -226,9 +226,9 @@ func (s *Way) TxMsg(msg string) *Way {
 	return s
 }
 
-// Transaction execute SQL statements in batches in a transaction
+// transaction execute SQL statements in batches in a transaction
 // When a transaction is nested, the inner transaction automatically uses the outer transaction object
-func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error) (err error) {
+func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error) (err error) {
 	if s.tx != nil {
 		return fn(s)
 	}
@@ -265,9 +265,23 @@ func (s *Way) Transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 	return
 }
 
-// Trans concisely call Transaction
-func (s *Way) Trans(fn func(tx *Way) error) error {
-	return s.Transaction(context.Background(), nil, fn)
+// TxTryCtx call transaction multiple times
+func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error, times int) (err error) {
+	if times < 1 {
+		times = 1
+	}
+	for i := 0; i < times; i++ {
+		err = s.transaction(ctx, opts, fn)
+		if err == nil {
+			return
+		}
+	}
+	return
+}
+
+// TxTry call transaction multiple times
+func (s *Way) TxTry(fn func(tx *Way) error, times int) error {
+	return s.TxTryCtx(context.Background(), nil, fn, times)
 }
 
 // Stmt is a prepared statement
