@@ -424,17 +424,26 @@ type modify struct {
 // Mod for UPDATE
 type Mod struct {
 	schema *schema
+
+	// update main updated columns
 	update map[string]*modify
+
+	// modify secondary updated columns, the effective condition is len(update) > 0
+	secondaryUpdate map[string]*modify
+
+	// except excepted columns
 	except map[string]struct{}
-	where  Filter
+
+	where Filter
 }
 
 // NewMod for UPDATE
 func NewMod(way *Way) *Mod {
 	return &Mod{
-		schema: newSchema(way),
-		update: make(map[string]*modify),
-		except: make(map[string]struct{}),
+		schema:          newSchema(way),
+		update:          make(map[string]*modify),
+		secondaryUpdate: make(map[string]*modify),
+		except:          make(map[string]struct{}),
 	}
 }
 
@@ -465,8 +474,8 @@ func (s *Mod) Except(except ...string) *Mod {
 	return s
 }
 
-// columnExpr build update column expressions and column values
-func (s *Mod) columnExpr(column string, expr string, args ...interface{}) *Mod {
+// expr build update column expressions and column values
+func (s *Mod) expr(column string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[column]; ok {
 		return s
 	}
@@ -479,17 +488,17 @@ func (s *Mod) columnExpr(column string, expr string, args ...interface{}) *Mod {
 
 // Set SET column = value
 func (s *Mod) Set(column string, value interface{}) *Mod {
-	return s.columnExpr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
+	return s.expr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
 }
 
 // Incr SET column = column + value
 func (s *Mod) Incr(column string, value interface{}) *Mod {
-	return s.columnExpr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
+	return s.expr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
 }
 
 // Decr SET column = column - value
 func (s *Mod) Decr(column string, value interface{}) *Mod {
-	return s.columnExpr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
+	return s.expr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
 }
 
 // Map SET column = value by map
@@ -515,6 +524,44 @@ func (s *Mod) Slice(column []string, value []interface{}) *Mod {
 // Compare for compare origin and latest to automatically calculate the list of columns and corresponding values that need to be updated
 func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
 	return s.Map(StructUpdate(origin, latest, s.schema.way.tag))
+}
+
+// secExpr build update column expressions and column values
+func (s *Mod) secExpr(column string, expr string, args ...interface{}) *Mod {
+	if _, ok := s.except[column]; ok {
+		return s
+	}
+	if _, ok := s.update[column]; ok {
+		return s
+	}
+	s.secondaryUpdate[column] = &modify{
+		expr: expr,
+		args: args,
+	}
+	return s
+}
+
+// SecSet SET column = value
+func (s *Mod) SecSet(column string, value interface{}) *Mod {
+	return s.secExpr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
+}
+
+// SecIncr SET column = column + value
+func (s *Mod) SecIncr(column string, value interface{}) *Mod {
+	return s.secExpr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
+}
+
+// SecDecr SET column = column - value
+func (s *Mod) SecDecr(column string, value interface{}) *Mod {
+	return s.secExpr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
+}
+
+// SecMap SET column = value by map
+func (s *Mod) SecMap(columnValue map[string]interface{}) *Mod {
+	for column, value := range columnValue {
+		s.SecSet(column, value)
+	}
+	return s
 }
 
 // Where set where
@@ -567,13 +614,25 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		}
 		columns = append(columns, column)
 	}
+	for column := range s.secondaryUpdate {
+		if _, ok := s.except[column]; ok {
+			continue
+		}
+		columns = append(columns, column)
+	}
 	length = len(columns)
 	sort.Strings(columns)
 	field := make([]string, length)
 	value := make([]interface{}, 0, length)
+	ok := false
 	for k, v := range columns {
-		field[k] = s.update[v].expr
-		value = append(value, s.update[v].args...)
+		if _, ok = s.update[v]; ok {
+			field[k] = s.update[v].expr
+			value = append(value, s.update[v].args...)
+			continue
+		}
+		field[k] = s.secondaryUpdate[v].expr
+		value = append(value, s.secondaryUpdate[v].args...)
 	}
 	args = value
 	buf := comment(s.schema)
