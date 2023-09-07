@@ -22,6 +22,11 @@ const (
 	filterLogicOr  = "OR"
 )
 
+type Preparer interface {
+	// SQL get the prepare sql statement and parameter list
+	SQL() (prepare string, args []interface{})
+}
+
 func filterCompareExpr(column string, compare string) (expr string) {
 	if column == "" {
 		return
@@ -55,14 +60,15 @@ func filterLessThanEqual(column string) string {
 }
 
 func filterIn(column string, values []interface{}, not bool) (expr string, args []interface{}) {
-	if column == "" {
+	if column == "" || values == nil {
 		return
 	}
-	values = RemoveDuplicate(values...)
 	length := len(values)
 	if length == 0 {
 		return
 	}
+	values = RemoveDuplicate(values...)
+	length = len(values)
 	if length == 1 {
 		if not {
 			expr = filterNotEqual(column)
@@ -145,13 +151,13 @@ type Filter interface {
 	LessThanEqual(column string, value interface{}) Filter
 	In(column string, values ...interface{}) Filter
 	InSQL(column string, prepare string, args ...interface{}) Filter
-	InGet(column string, get *Get) Filter
+	InGet(column string, preparer Preparer) Filter
 	InInt(column string, values []int) Filter
 	InInt64(column string, values []int64) Filter
 	InString(column string, values []string) Filter
 	NotIn(column string, values ...interface{}) Filter
 	NotInSQL(column string, prepare string, args ...interface{}) Filter
-	NotInGet(column string, get *Get) Filter
+	NotInGet(column string, preparer Preparer) Filter
 	NotInInt(column string, values []int) Filter
 	NotInInt64(column string, values []int64) Filter
 	NotInString(column string, values []string) Filter
@@ -169,13 +175,13 @@ type Filter interface {
 	OrLessThanEqual(column string, value interface{}) Filter
 	OrIn(column string, values ...interface{}) Filter
 	OrInSQL(column string, prepare string, args ...interface{}) Filter
-	OrInGet(column string, get *Get) Filter
+	OrInGet(column string, preparer Preparer) Filter
 	OrInInt(column string, values []int) Filter
 	OrInInt64(column string, values []int64) Filter
 	OrInString(column string, values []string) Filter
 	OrNotIn(column string, values ...interface{}) Filter
 	OrNotInSQL(column string, prepare string, args ...interface{}) Filter
-	OrNotInGet(column string, get *Get) Filter
+	OrNotInGet(column string, preparer Preparer) Filter
 	OrNotInInt(column string, values []int) Filter
 	OrNotInInt64(column string, values []int64) Filter
 	OrNotInString(column string, values []string) Filter
@@ -298,15 +304,14 @@ func (s *filter) InSQL(column string, prepare string, args ...interface{}) Filte
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := ConcatString(column, " IN ( ", prepare, " )")
-	return s.And(expr, args...)
+	return s.And(ConcatString(column, " IN ( ", prepare, " )"), args...)
 }
 
-func (s *filter) InGet(column string, get *Get) Filter {
-	if get == nil {
+func (s *filter) InGet(column string, preparer Preparer) Filter {
+	if preparer == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := preparer.SQL()
 	return s.InSQL(column, prepare, args...)
 }
 
@@ -355,15 +360,14 @@ func (s *filter) NotInSQL(column string, prepare string, args ...interface{}) Fi
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := ConcatString(column, " NOT IN ( ", prepare, " )")
-	return s.And(expr, args...)
+	return s.And(ConcatString(column, " NOT IN ( ", prepare, " )"), args...)
 }
 
-func (s *filter) NotInGet(column string, get *Get) Filter {
-	if get == nil {
+func (s *filter) NotInGet(column string, preparer Preparer) Filter {
+	if preparer == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := preparer.SQL()
 	return s.NotInSQL(column, prepare, args...)
 }
 
@@ -403,6 +407,14 @@ func (s *filter) NotInString(column string, values []string) Filter {
 	return s.NotIn(column, args...)
 }
 
+func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
+	return s.And(filterBetween(column, false), start, end)
+}
+
+func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
+	return s.And(filterBetween(column, true), start, end)
+}
+
 func (s *filter) Like(column string, value interface{}) Filter {
 	return s.And(filterLike(column, false), value)
 }
@@ -417,14 +429,6 @@ func (s *filter) IsNull(column string) Filter {
 
 func (s *filter) IsNotNull(column string) Filter {
 	return s.And(filterIsNull(column, true))
-}
-
-func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
-	return s.And(filterBetween(column, false), start, end)
-}
-
-func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.And(filterBetween(column, true), start, end)
 }
 
 func (s *filter) OrEqual(column string, value interface{}) Filter {
@@ -460,15 +464,14 @@ func (s *filter) OrInSQL(column string, prepare string, args ...interface{}) Fil
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := ConcatString(column, " IN ( ", prepare, " )")
-	return s.Or(expr, args...)
+	return s.Or(ConcatString(column, " IN ( ", prepare, " )"), args...)
 }
 
-func (s *filter) OrInGet(column string, get *Get) Filter {
-	if get == nil {
+func (s *filter) OrInGet(column string, preparer Preparer) Filter {
+	if preparer == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := preparer.SQL()
 	return s.OrInSQL(column, prepare, args...)
 }
 
@@ -517,15 +520,14 @@ func (s *filter) OrNotInSQL(column string, prepare string, args ...interface{}) 
 	if column == "" || prepare == "" {
 		return s
 	}
-	expr := ConcatString(column, " NOT IN ( ", prepare, " )")
-	return s.Or(expr, args...)
+	return s.Or(ConcatString(column, " NOT IN ( ", prepare, " )"), args...)
 }
 
-func (s *filter) OrNotInGet(column string, get *Get) Filter {
-	if get == nil {
+func (s *filter) OrNotInGet(column string, preparer Preparer) Filter {
+	if preparer == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := preparer.SQL()
 	return s.OrNotInSQL(column, prepare, args...)
 }
 
@@ -565,6 +567,14 @@ func (s *filter) OrNotInString(column string, values []string) Filter {
 	return s.OrNotIn(column, args...)
 }
 
+func (s *filter) OrBetween(column string, start interface{}, end interface{}) Filter {
+	return s.Or(filterBetween(column, false), start, end)
+}
+
+func (s *filter) OrNotBetween(column string, start interface{}, end interface{}) Filter {
+	return s.Or(filterBetween(column, true), start, end)
+}
+
 func (s *filter) OrLike(column string, value interface{}) Filter {
 	return s.Or(filterLike(column, false), value)
 }
@@ -579,14 +589,6 @@ func (s *filter) OrIsNull(column string) Filter {
 
 func (s *filter) OrIsNotNull(column string) Filter {
 	return s.Or(filterIsNull(column, true))
-}
-
-func (s *filter) OrBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(filterBetween(column, false), start, end)
-}
-
-func (s *filter) OrNotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(filterBetween(column, true), start, end)
 }
 
 func (s *filter) SQL() (prepare string, args []interface{}) {
