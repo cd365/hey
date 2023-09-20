@@ -607,15 +607,20 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	if length == 0 {
 		return
 	}
+	mod := make(map[string]struct{})
 	columns := make([]string, 0, length)
 	for column := range s.update {
 		if _, ok := s.except[column]; ok {
 			continue
 		}
+		mod[column] = struct{}{}
 		columns = append(columns, column)
 	}
 	for column := range s.secondaryUpdate {
 		if _, ok := s.except[column]; ok {
+			continue
+		}
+		if _, ok := mod[column]; ok {
 			continue
 		}
 		columns = append(columns, column)
