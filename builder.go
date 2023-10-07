@@ -254,8 +254,8 @@ func (s *Add) Map(add map[string]interface{}) *Add {
 	return s
 }
 
-// Default insert one or add column-value for more rows, for set column default value
-func (s *Add) Default(column string, value interface{}) *Add {
+// DefaultSet insert one or add column-value for more rows, for set column default value
+func (s *Add) DefaultSet(column string, value interface{}) *Add {
 	for i := range s.create {
 		if _, ok := s.create[i][column]; !ok {
 			s.create[i][column] = value
@@ -264,8 +264,8 @@ func (s *Add) Default(column string, value interface{}) *Add {
 	return s
 }
 
-// MapDefault insert by map, insert one or add column-value for more rows, for set column default value
-func (s *Add) MapDefault(add map[string]interface{}) *Add {
+// DefaultMap insert by map, insert one or add column-value for more rows, for set column default value
+func (s *Add) DefaultMap(add map[string]interface{}) *Add {
 	length := len(add)
 	if length == 0 {
 		return s
@@ -275,7 +275,7 @@ func (s *Add) MapDefault(add map[string]interface{}) *Add {
 		if _, ok := except[column]; ok {
 			continue
 		}
-		s.Default(column, add[column])
+		s.DefaultSet(column, add[column])
 	}
 	return s
 }
@@ -526,8 +526,8 @@ func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
 	return s.Map(StructUpdate(origin, latest, s.schema.way.Tag))
 }
 
-// secExpr build update column expressions and column values
-func (s *Mod) secExpr(column string, expr string, args ...interface{}) *Mod {
+// defaultExpr build update column expressions and column values
+func (s *Mod) defaultExpr(column string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[column]; ok {
 		return s
 	}
@@ -541,25 +541,25 @@ func (s *Mod) secExpr(column string, expr string, args ...interface{}) *Mod {
 	return s
 }
 
-// SecSet SET column = value
-func (s *Mod) SecSet(column string, value interface{}) *Mod {
-	return s.secExpr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
+// DefaultSet SET column = value
+func (s *Mod) DefaultSet(column string, value interface{}) *Mod {
+	return s.defaultExpr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
 }
 
-// SecIncr SET column = column + value
-func (s *Mod) SecIncr(column string, value interface{}) *Mod {
-	return s.secExpr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
+// DefaultIncr SET column = column + value
+func (s *Mod) DefaultIncr(column string, value interface{}) *Mod {
+	return s.defaultExpr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
 }
 
-// SecDecr SET column = column - value
-func (s *Mod) SecDecr(column string, value interface{}) *Mod {
-	return s.secExpr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
+// DefaultDecr SET column = column - value
+func (s *Mod) DefaultDecr(column string, value interface{}) *Mod {
+	return s.defaultExpr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
 }
 
-// SecMap SET column = value by map
-func (s *Mod) SecMap(columnValue map[string]interface{}) *Mod {
+// DefaultMap SET column = value by map
+func (s *Mod) DefaultMap(columnValue map[string]interface{}) *Mod {
 	for column, value := range columnValue {
-		s.SecSet(column, value)
+		s.DefaultSet(column, value)
 	}
 	return s
 }

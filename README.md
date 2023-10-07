@@ -27,7 +27,7 @@ func main() {
 	/* insert one */
 	add.Set("name", "Jack").
 		Set("email", "jack@gmail.com").
-		Default("created_at", time.Now().Unix()).
+		DefaultSet("created_at", time.Now().Unix()).
 		Add()
 
 	/* insert batch */
@@ -57,7 +57,7 @@ func main() {
 	).
 		Incr("times", 1).
 		Set("name", "Jerry").
-		SecSet("updated_at", time.Now().Unix()).
+		DefaultSet("updated_at", time.Now().Unix()).
 		Mod()
 
 	/* select count */
