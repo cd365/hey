@@ -207,7 +207,9 @@ func (s *Way) TxMsg(msg string) *Way {
 	if s.tx == nil {
 		return s
 	}
-	s.txMsg = msg
+	if s.txMsg == "" {
+		s.txMsg = msg
+	}
 	return s
 }
 

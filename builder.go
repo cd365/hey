@@ -57,7 +57,15 @@ type schema struct {
 	table   string
 }
 
-// comment make SQL statement builder
+// newSchema new schema with *Way
+func newSchema(way *Way) *schema {
+	return &schema{
+		ctx: context.Background(),
+		way: way,
+	}
+}
+
+// comment make SQL statement builder, defer putSqlBuilder(builder) should be called immediately after calling the current method
 func comment(schema *schema) (b *strings.Builder) {
 	b = getSqlBuilder()
 	schema.comment = strings.TrimSpace(schema.comment)
@@ -68,14 +76,6 @@ func comment(schema *schema) (b *strings.Builder) {
 	b.WriteString(schema.comment)
 	b.WriteString(" */")
 	return
-}
-
-// newSchema new schema with *Way
-func newSchema(way *Way) *schema {
-	return &schema{
-		ctx: context.Background(),
-		way: way,
-	}
 }
 
 // Del for DELETE
@@ -133,12 +133,12 @@ func (s *Del) OrWhere(where ...Filter) *Del {
 	return s
 }
 
-// WhereIn set where
+// WhereIn set where IN
 func (s *Del) WhereIn(column string, values ...interface{}) *Del {
 	return s.Where(NewFilter().In(column, values...))
 }
 
-// WhereEqual set where
+// WhereEqual set where =
 func (s *Del) WhereEqual(column string, values interface{}) *Del {
 	return s.Where(NewFilter().Equal(column, values))
 }
@@ -230,7 +230,7 @@ func (s *Add) getExcept() (except map[string]struct{}) {
 	return
 }
 
-// Set insert one or add column-value for more rows
+// Set add column-value for insert one or more rows
 func (s *Add) Set(column string, value interface{}) *Add {
 	for i := range s.create {
 		s.create[i][column] = value
@@ -238,7 +238,7 @@ func (s *Add) Set(column string, value interface{}) *Add {
 	return s
 }
 
-// Map insert by map, insert one or add column-value for more rows
+// Map add column-value for insert one or more rows, skip ignored fields list
 func (s *Add) Map(add map[string]interface{}) *Add {
 	length := len(add)
 	if length == 0 {
@@ -254,7 +254,7 @@ func (s *Add) Map(add map[string]interface{}) *Add {
 	return s
 }
 
-// DefaultSet insert one or add column-value for more rows, for set column default value
+// DefaultSet add column-value for insert one or more rows, for set column default value
 func (s *Add) DefaultSet(column string, value interface{}) *Add {
 	for i := range s.create {
 		if _, ok := s.create[i][column]; !ok {
@@ -264,7 +264,7 @@ func (s *Add) DefaultSet(column string, value interface{}) *Add {
 	return s
 }
 
-// DefaultMap insert by map, insert one or add column-value for more rows, for set column default value
+// DefaultMap add column-value for insert one or more rows, for set column default value, skip ignored fields list
 func (s *Add) DefaultMap(add map[string]interface{}) *Add {
 	length := len(add)
 	if length == 0 {
@@ -286,14 +286,14 @@ func (s *Add) Create(creates ...interface{}) *Add {
 	if length == 0 {
 		return s
 	}
-	s.create = make([]map[string]interface{}, length)
+	s.create = make([]map[string]interface{}, 0, length)
 	for i := 0; i < length; i++ {
-		s.create[i] = StructInsert(creates[i], s.schema.way.Tag, s.except...)
+		s.create = append(s.create, StructInsert(creates[i], s.schema.way.Tag, s.except...))
 	}
 	return s
 }
 
-// Batch insert one or more rows
+// Batch insert by []map, insert one or more rows
 func (s *Add) Batch(batch ...map[string]interface{}) *Add {
 	length := len(batch)
 	if length == 0 {
@@ -371,6 +371,9 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		columns = append(columns, field)
 	}
 	columnCount = len(columns)
+	if columnCount == 0 {
+		return
+	}
 	sort.Strings(columns)
 	values := make([][]interface{}, rowsCount)
 	for num, add := range s.create {
@@ -382,9 +385,6 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 				values[num] = append(values[num], value)
 			}
 		}
-	}
-	if len(columns) == 0 {
-		return
 	}
 	place := make([]string, columnCount)
 	for i := 0; i < columnCount; i++ {
@@ -526,7 +526,7 @@ func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
 	return s.Map(StructUpdate(origin, latest, s.schema.way.Tag))
 }
 
-// defaultExpr build update column expressions and column values
+// defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
 func (s *Mod) defaultExpr(column string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[column]; ok {
 		return s
@@ -588,12 +588,12 @@ func (s *Mod) OrWhere(where ...Filter) *Mod {
 	return s
 }
 
-// WhereIn set where
+// WhereIn set where IN
 func (s *Mod) WhereIn(column string, values ...interface{}) *Mod {
 	return s.Where(NewFilter().In(column, values...))
 }
 
-// WhereEqual set where
+// WhereEqual set where =
 func (s *Mod) WhereEqual(column string, value interface{}) *Mod {
 	return s.Where(NewFilter().Equal(column, value))
 }
@@ -732,7 +732,7 @@ func (s *GetJoin) TableSubQueryGet(get *Get, alias ...string) *GetJoin {
 	return s
 }
 
-// TableAlias table alias name
+// TableAlias table alias name, don’t forget to call the current method when the table is a SQL statement
 func (s *GetJoin) TableAlias(alias string) *GetJoin {
 	s.alias = &alias
 	return s
@@ -866,7 +866,7 @@ func (s *Get) TableSubQueryGet(get *Get, alias ...string) *Get {
 	return s
 }
 
-// TableAlias table alias name
+// TableAlias table alias name, don’t forget to call the current method when the table is a SQL statement
 func (s *Get) TableAlias(alias string) *Get {
 	s.alias = &alias
 	return s
@@ -928,12 +928,12 @@ func (s *Get) OrWhere(where ...Filter) *Get {
 	return s
 }
 
-// WhereIn set where
+// WhereIn set where IN
 func (s *Get) WhereIn(column string, values ...interface{}) *Get {
 	return s.Where(NewFilter().In(column, values...))
 }
 
-// WhereEqual set where
+// WhereEqual set where =
 func (s *Get) WhereEqual(column string, value interface{}) *Get {
 	return s.Where(NewFilter().Equal(column, value))
 }
