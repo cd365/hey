@@ -261,7 +261,7 @@ func StructInsert(insert interface{}, tag string, except ...string) (create map[
 }
 
 // StructUpdate compare origin and latest for update
-func StructUpdate(origin interface{}, latest interface{}, tag string) (modify map[string]interface{}) {
+func StructUpdate(origin interface{}, latest interface{}, tag string, except ...string) (modify map[string]interface{}) {
 	if origin == nil || latest == nil || tag == "" {
 		return
 	}
@@ -276,6 +276,10 @@ func StructUpdate(origin interface{}, latest interface{}, tag string) (modify ma
 	}
 	if originKind != reflect.Struct || latestKind != reflect.Struct {
 		return
+	}
+	excepted := make(map[string]struct{})
+	for _, field := range except {
+		excepted[field] = struct{}{}
 	}
 	modify = make(map[string]interface{})
 	latestMapValue := make(map[string]reflect.Value)
@@ -292,6 +296,9 @@ func StructUpdate(origin interface{}, latest interface{}, tag string) (modify ma
 		if column == "" || column == "-" {
 			continue
 		}
+		if _, ok := excepted[column]; ok {
+			continue
+		}
 		originFieldName := originField.Name
 		latestFieldValue, ok := latestMapValue[originFieldName]
 		if !ok {
@@ -299,14 +306,20 @@ func StructUpdate(origin interface{}, latest interface{}, tag string) (modify ma
 		}
 		latestFieldType := latestTypeOf.Field(latestMapIndex[originFieldName]).Type
 		latestFieldTypeKind := latestFieldType.Kind()
+		originFieldType := originTypeOf.Field(i).Type
 		if latestFieldTypeKind != reflect.Ptr {
+			if latestFieldTypeKind == originFieldType.Kind() {
+				originValue, latestValue := originValueOf.Field(i).Interface(), latestFieldValue.Interface()
+				if !reflect.DeepEqual(originValue, latestValue) {
+					modify[column] = latestValue
+				}
+			}
 			continue
 		}
 		if latestFieldValue.IsNil() {
 			continue
 		}
 		latestFieldType = latestFieldType.Elem()
-		originFieldType := originTypeOf.Field(i).Type
 		if latestFieldType.String() != originFieldType.String() {
 			continue
 		}

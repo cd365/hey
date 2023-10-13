@@ -523,7 +523,11 @@ func (s *Mod) Slice(column []string, value []interface{}) *Mod {
 
 // Compare for compare origin and latest to automatically calculate the list of columns and corresponding values that need to be updated
 func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
-	return s.Map(StructUpdate(origin, latest, s.schema.way.Tag))
+	except := make([]string, 0, len(s.except))
+	for v := range s.except {
+		except = append(except, v)
+	}
+	return s.Map(StructUpdate(origin, latest, s.schema.way.Tag, except...))
 }
 
 // defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
