@@ -430,9 +430,9 @@ func (s *Way) RowsNextIndex(rows *sql.Rows, fc func(i int) error) (err error) {
 	return RowsNextIndex(rows, fc)
 }
 
-// RowsNextOneRow single scan query results
-func (s *Way) RowsNextOneRow(rows *sql.Rows, dest ...interface{}) error {
-	return RowsNextOneRow(rows, dest...)
+// RowsNextRow single scan query results
+func (s *Way) RowsNextRow(rows *sql.Rows, dest ...interface{}) error {
+	return RowsNextRow(rows, dest...)
 }
 
 // QueryContext execute the SQL statement of the query

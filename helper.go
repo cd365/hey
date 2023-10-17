@@ -415,13 +415,16 @@ func RowsNextIndex(rows *sql.Rows, fc func(i int) error) (err error) {
 	for rows.Next() {
 		if err = fc(i); err != nil {
 			return
+		} else {
+			// index value increment
+			i++
 		}
 	}
 	return
 }
 
-// RowsNextOneRow scan one line of query results
-func RowsNextOneRow(rows *sql.Rows, dest ...interface{}) error {
+// RowsNextRow scan one line of query results
+func RowsNextRow(rows *sql.Rows, dest ...interface{}) error {
 	if rows.Next() {
 		return rows.Scan(dest...)
 	}
