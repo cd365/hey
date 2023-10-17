@@ -14,7 +14,8 @@ func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 		if _, ok = mp[dynamic[i]]; ok {
 			continue
 		}
-		mp[dynamic[i]], result = &struct{}{}, append(result, dynamic[i])
+		mp[dynamic[i]] = &struct{}{}
+		result = append(result, dynamic[i])
 	}
 	return
 }
@@ -55,7 +56,8 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 			continue
 		}
 		// anonymous structure, or named structure
-		if attribute.Type.Kind() == reflect.Struct || (attribute.Type.Kind() == reflect.Ptr && attribute.Type.Elem().Kind() == reflect.Struct) {
+		if attribute.Type.Kind() == reflect.Struct ||
+			(attribute.Type.Kind() == reflect.Ptr && attribute.Type.Elem().Kind() == reflect.Struct) {
 			at := attribute.Type
 			kind := at.Kind()
 			if kind == reflect.Ptr {
@@ -65,7 +67,8 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 			if kind == reflect.Struct {
 				dst := depth[:]
 				dst = append(dst, i)
-				s.binding(at, dst, tag) // recursive call
+				// recursive call
+				s.binding(at, dst, tag)
 			}
 			continue
 		}
@@ -87,8 +90,10 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 	}
 }
 
-// prepare The preparatory work before executing rows.Scan, find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
-// When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear when the root structure accesses the properties of substructures, resulting in panic.
+// prepare The preparatory work before executing rows.Scan
+// find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
+// When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear
+// when the root structure accesses the properties of substructures, resulting in panic.
 func (s *bindStruct) prepare(columns []string, rowsScanList []interface{}, indirect reflect.Value) error {
 	length := len(columns)
 	for i := 0; i < length; i++ {
@@ -160,20 +165,26 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	if typeOfKind != reflect.Ptr || typeOf.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("the receiving parameter needs to be a slice pointer, yours is `%s`", typeOf.String())
 	}
-	setValues := valueOf.Elem()
 	var elemType reflect.Type
+	setValues := valueOf.Elem()
 	elemTypeIsPtr := false
 	elem := typeOf.Elem().Elem()
 	switch elem.Kind() {
-	case reflect.Struct: // *[]AnyStruct
+	// *[]AnyStruct
+	case reflect.Struct:
 		elemType = elem
 	case reflect.Ptr:
-		if elem.Elem().Kind() == reflect.Struct { // *[]*AnyStruct
-			elemType, elemTypeIsPtr = elem.Elem(), true
+		// *[]*AnyStruct
+		if elem.Elem().Kind() == reflect.Struct {
+			elemType = elem.Elem()
+			elemTypeIsPtr = true
 		}
 	}
 	if elemType == nil {
-		return fmt.Errorf("slice elements need to be structures or pointers to structures, yours is `%s`", elem.String())
+		return fmt.Errorf(
+			"slice elements need to be structures or pointers to structures, yours is `%s`",
+			elem.String(),
+		)
 	}
 	b := bindStructInit()
 	columns, err := rows.Columns()
@@ -203,7 +214,8 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 }
 
 // StructInsert create one by AnyStruct or *AnyStruct
-// Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure, and support the exclusion of fixed fields.
+// Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure,
+// and support the exclusion of fixed fields.
 func StructInsert(insert interface{}, tag string, except ...string) (create map[string]interface{}) {
 	if insert == nil || tag == "" {
 		return
@@ -269,10 +281,12 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	originValueOf, latestValueOf := reflect.ValueOf(origin), reflect.ValueOf(latest)
 	originKind, latestKind := originTypeOf.Kind(), latestTypeOf.Kind()
 	for ; originKind == reflect.Ptr; originKind = originTypeOf.Kind() {
-		originTypeOf, originValueOf = originTypeOf.Elem(), originValueOf.Elem()
+		originTypeOf = originTypeOf.Elem()
+		originValueOf = originValueOf.Elem()
 	}
 	for ; latestKind == reflect.Ptr; latestKind = latestTypeOf.Kind() {
-		latestTypeOf, latestValueOf = latestTypeOf.Elem(), latestValueOf.Elem()
+		latestTypeOf = latestTypeOf.Elem()
+		latestValueOf = latestValueOf.Elem()
 	}
 	if originKind != reflect.Struct || latestKind != reflect.Struct {
 		return
@@ -287,7 +301,8 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	length := latestValueOf.Type().NumField()
 	for i := 0; i < length; i++ {
 		name := latestTypeOf.Field(i).Name
-		latestMapIndex[name], latestMapValue[name] = i, latestValueOf.Field(i)
+		latestMapIndex[name] = i
+		latestMapValue[name] = latestValueOf.Field(i)
 	}
 	length = originTypeOf.NumField()
 	for i := 0; i < length; i++ {
@@ -340,10 +355,12 @@ func StructAssign(target interface{}, latest interface{}) {
 		return
 	}
 	for ; t0k == reflect.Ptr; t0k = t0.Kind() {
-		t0, v0 = t0.Elem(), v0.Elem()
+		t0 = t0.Elem()
+		v0 = v0.Elem()
 	}
 	for ; t1k == reflect.Ptr; t1k = t1.Kind() {
-		t1, v1 = t1.Elem(), v1.Elem()
+		t1 = t1.Elem()
+		v1 = v1.Elem()
 	}
 	if t0k != reflect.Struct || t1k != reflect.Struct {
 		return
@@ -368,7 +385,8 @@ func StructAssign(target interface{}, latest interface{}) {
 			continue
 		}
 		field1 := t1.Field(mi1[field0.Name])
-		field0type, field1type := field0.Type, field1.Type
+		field0type := field0.Type
+		field1type := field1.Type
 		if field0type.String() != field1type.String() {
 			continue
 		}
@@ -379,6 +397,35 @@ func StructAssign(target interface{}, latest interface{}) {
 			value0.Set(value1)
 		}
 	}
+}
+
+// RowsNext traversing and processing query results
+func RowsNext(rows *sql.Rows, fc func() error) (err error) {
+	for rows.Next() {
+		if err = fc(); err != nil {
+			return
+		}
+	}
+	return
+}
+
+// RowsNextIndex traverse with slice index and process query results
+func RowsNextIndex(rows *sql.Rows, fc func(i int) error) (err error) {
+	i := 0
+	for rows.Next() {
+		if err = fc(i); err != nil {
+			return
+		}
+	}
+	return
+}
+
+// RowsNextOneRow scan one line of query results
+func RowsNextOneRow(rows *sql.Rows, dest ...interface{}) error {
+	if rows.Next() {
+		return rows.Scan(dest...)
+	}
+	return nil
 }
 
 // ConcatString concatenate string

@@ -420,6 +420,21 @@ func (s *Way) execStmtContext(ctx context.Context, stmt *Stmt, args ...interface
 	return
 }
 
+// RowsNext traversing and processing query results
+func (s *Way) RowsNext(rows *sql.Rows, fc func() error) error {
+	return RowsNext(rows, fc)
+}
+
+// RowsNextIndex traverse with slice index and process query results
+func (s *Way) RowsNextIndex(rows *sql.Rows, fc func(i int) error) (err error) {
+	return RowsNextIndex(rows, fc)
+}
+
+// RowsNextOneRow single scan query results
+func (s *Way) RowsNextOneRow(rows *sql.Rows, dest ...interface{}) error {
+	return RowsNextOneRow(rows, dest...)
+}
+
 // QueryContext execute the SQL statement of the query
 func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	if query == nil || prepare == "" {

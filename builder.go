@@ -824,6 +824,60 @@ func NewGet(way *Way) *Get {
 	}
 }
 
+// Clone create a new object based on all properties of the current object
+func (s *Get) Clone() *Get {
+	get := NewGet(s.schema.way)
+	get.schema.ctx = s.schema.ctx
+	get.schema.comment = s.schema.comment
+	get.schema.table = s.schema.table
+	get.Column(s.column...)
+	if s.subQuery != nil {
+		get.subQuery = NewSubQuery(s.subQuery.prepare, s.subQuery.args...)
+	}
+	if s.alias != nil {
+		get.TableAlias(*s.alias)
+	}
+	for _, v := range s.join {
+		join := NewGetJoin(v.joinType)
+		join.table = v.table
+		if v.subQuery != nil {
+			join.subQuery = NewSubQuery(v.subQuery.prepare, v.subQuery.args...)
+		}
+		if v.alias != nil {
+			join.TableAlias(*v.alias)
+		}
+		join.on = v.on
+		get.join = append(get.join, join)
+	}
+	if s.where != nil {
+		get.where = s.where.Copy(s.where)
+	}
+	get.Group(s.group...)
+	if s.having != nil {
+		get.having = s.having.Copy(s.having)
+	}
+	for _, v := range s.union {
+		get.union = append(get.union, &union{
+			unionType: v.unionType,
+			prepare:   v.prepare,
+			args:      v.args,
+		})
+	}
+	if s.order != nil {
+		get.order = s.order[:]
+	}
+	for k, v := range s.orderMap {
+		get.orderMap[k] = v
+	}
+	if s.limit != nil {
+		get.Limit(*s.limit)
+	}
+	if s.offset != nil {
+		get.Offset(*s.offset)
+	}
+	return get
+}
+
 // Comment set comment
 func (s *Get) Comment(comment string) *Get {
 	s.schema.comment = comment

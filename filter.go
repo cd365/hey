@@ -271,17 +271,12 @@ func filterIsNull(column string, not bool) (expr string) {
 	return
 }
 
-// Indexing may be abandoned when filtering data:
-// 1. It is not recommended to directly call methods with Not, Or, Null keywords;
-// 2. Be careful when calling methods with the Like keyword;
-
 type Filter interface {
 	Copy(filter ...Filter) Filter
 	And(prepare string, args ...interface{}) Filter
 	Filter(filters ...Filter) Filter
 	Group(group func(filter Filter)) Filter
 	Equal(column string, value interface{}) Filter
-	NotEqual(column string, value interface{}) Filter
 	MoreThan(column string, value interface{}) Filter
 	MoreThanEqual(column string, value interface{}) Filter
 	LessThan(column string, value interface{}) Filter
@@ -299,6 +294,7 @@ type Filter interface {
 	Exists(fc func() (prepare string, args []interface{})) Filter
 	Like(column string, value interface{}) Filter
 	IsNull(column string) Filter
+	NotEqual(column string, value interface{}) Filter
 	NotBetween(column string, start interface{}, end interface{}) Filter
 	NotIn(column string, values ...interface{}) Filter
 	NotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
@@ -316,7 +312,6 @@ type Filter interface {
 	OrFilter(filters ...Filter) Filter
 	OrGroup(group func(filter Filter)) Filter
 	OrEqual(column string, value interface{}) Filter
-	OrNotEqual(column string, value interface{}) Filter
 	OrMoreThan(column string, value interface{}) Filter
 	OrMoreThanEqual(column string, value interface{}) Filter
 	OrLessThan(column string, value interface{}) Filter
@@ -334,6 +329,7 @@ type Filter interface {
 	OrExists(fc func() (prepare string, args []interface{})) Filter
 	OrLike(column string, value interface{}) Filter
 	OrIsNull(column string) Filter
+	OrNotEqual(column string, value interface{}) Filter
 	OrNotBetween(column string, start interface{}, end interface{}) Filter
 	OrNotIn(column string, values ...interface{}) Filter
 	OrNotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
@@ -377,10 +373,6 @@ func (s *filter) And(expr string, args ...interface{}) Filter {
 	return s.add(filterLogicAnd, expr, args)
 }
 
-func (s *filter) Or(expr string, args ...interface{}) Filter {
-	return s.add(filterLogicOr, expr, args)
-}
-
 func (s *filter) andSlice(expr string, args []interface{}) Filter {
 	return s.And(expr, args...)
 }
@@ -403,20 +395,6 @@ func (s *filter) Filter(filters ...Filter) Filter {
 	return s
 }
 
-func (s *filter) OrFilter(filters ...Filter) Filter {
-	for _, f := range filters {
-		if f == nil {
-			continue
-		}
-		prepare, args := f.SQL()
-		if prepare == "" {
-			continue
-		}
-		s.Or(prepare, args...)
-	}
-	return s
-}
-
 func (s *filter) addGroup(logic string, group func(filter Filter)) Filter {
 	if group == nil {
 		return s
@@ -435,16 +413,8 @@ func (s *filter) Group(group func(filter Filter)) Filter {
 	return s.addGroup(filterLogicAnd, group)
 }
 
-func (s *filter) OrGroup(group func(filter Filter)) Filter {
-	return s.addGroup(filterLogicOr, group)
-}
-
 func (s *filter) Equal(column string, value interface{}) Filter {
 	return s.And(filterEqual(column), value)
-}
-
-func (s *filter) NotEqual(column string, value interface{}) Filter {
-	return s.And(filterNotEqual(column), value)
 }
 
 func (s *filter) MoreThan(column string, value interface{}) Filter {
@@ -515,6 +485,10 @@ func (s *filter) IsNull(column string) Filter {
 	return s.And(filterIsNull(column, false))
 }
 
+func (s *filter) NotEqual(column string, value interface{}) Filter {
+	return s.And(filterNotEqual(column), value)
+}
+
 func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
 	return s.And(filterBetween(column, true), start, end)
 }
@@ -567,12 +541,30 @@ func (s *filter) IsNotNull(column string) Filter {
 	return s.And(filterIsNull(column, true))
 }
 
-func (s *filter) OrEqual(column string, value interface{}) Filter {
-	return s.Or(filterEqual(column), value)
+func (s *filter) Or(expr string, args ...interface{}) Filter {
+	return s.add(filterLogicOr, expr, args)
 }
 
-func (s *filter) OrNotEqual(column string, value interface{}) Filter {
-	return s.Or(filterNotEqual(column), value)
+func (s *filter) OrFilter(filters ...Filter) Filter {
+	for _, f := range filters {
+		if f == nil {
+			continue
+		}
+		prepare, args := f.SQL()
+		if prepare == "" {
+			continue
+		}
+		s.Or(prepare, args...)
+	}
+	return s
+}
+
+func (s *filter) OrGroup(group func(filter Filter)) Filter {
+	return s.addGroup(filterLogicOr, group)
+}
+
+func (s *filter) OrEqual(column string, value interface{}) Filter {
+	return s.Or(filterEqual(column), value)
 }
 
 func (s *filter) OrMoreThan(column string, value interface{}) Filter {
@@ -641,6 +633,10 @@ func (s *filter) OrLike(column string, value interface{}) Filter {
 
 func (s *filter) OrIsNull(column string) Filter {
 	return s.Or(filterIsNull(column, false))
+}
+
+func (s *filter) OrNotEqual(column string, value interface{}) Filter {
+	return s.Or(filterNotEqual(column), value)
 }
 
 func (s *filter) OrNotBetween(column string, start interface{}, end interface{}) Filter {
