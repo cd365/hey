@@ -37,7 +37,7 @@ func init() {
 	poolStmt = &sync.Pool{}
 	poolStmt.New = func() interface{} {
 		return &Stmt{
-			logSql: &LogSql{},
+			logSql: &OfPrepare{},
 		}
 	}
 }
@@ -66,21 +66,17 @@ func putWay(s *Way) {
 // getStmt get *Stmt from pool
 func getStmt(s *Way) *Stmt {
 	latest := poolStmt.Get().(*Stmt)
-	latest.logSql.TxId = s.txId
-	latest.logSql.TxMsg = s.txMsg
+	latest.logSql.txId = s.txId
+	latest.logSql.txMsg = s.txMsg
 	latest.way = s
 	return latest
 }
 
 // putStmt put *Stmt in the pool
 func putStmt(s *Stmt) {
-	s.logSql.TxId = ""
-	s.logSql.TxMsg = ""
-	s.logSql.Prepare = ""
-	s.logSql.Args = nil
-	s.logSql.StartAt = time.Time{}
-	s.logSql.EndAt = time.Time{}
-	s.logSql.Error = nil
+	s.logSql.txId = ""
+	s.logSql.txMsg = ""
+	s.logSql.prepare = ""
 	s.stmt = nil
 	s.way = nil
 	poolStmt.Put(s)
@@ -110,37 +106,56 @@ func Choose(way *Way, items ...*Way) *Way {
 	return way
 }
 
-// LogSql record executed SQL statement
-type LogSql struct {
-	TxId    string
-	TxMsg   string
-	Prepare string
+// OfPrepare record executed prepare
+type OfPrepare struct {
+	txId    string
+	txMsg   string
+	prepare string
+}
+
+// TxId get transaction id
+func (s *OfPrepare) TxId() string {
+	return s.txId
+}
+
+// TxMsg get transaction message
+func (s *OfPrepare) TxMsg() string {
+	return s.txMsg
+}
+
+// Prepare get execute prepare
+func (s *OfPrepare) Prepare() string {
+	return s.prepare
+}
+
+// OfArgs record executed args of prepare
+type OfArgs struct {
 	Args    []interface{}
 	StartAt time.Time
 	EndAt   time.Time
 	Error   error
 }
 
-// LogTransaction record executed transaction
-type LogTransaction struct {
-	TxId    string
-	TxMsg   string
-	StartAt time.Time
-	EndAt   time.Time
-	State   string
-	Error   error
+// OfTransaction record executed transaction
+type OfTransaction struct {
+	TxId    string    // transaction id
+	TxMsg   string    // transaction message
+	StartAt time.Time // time start at
+	EndAt   time.Time // time end at
+	State   string    // COMMIT || ROLLBACK
+	Error   error     // error
 }
 
 // Way quick insert, delete, update, select helper
 type Way struct {
-	db    *sql.DB                  // the instance of the database connect pool
-	Fix   func(string) string      // fix prepare sql script before call prepare method
-	Tag   string                   // bind struct tag and table column
-	Log   func(ls *LogSql)         // logger executed SQL statement
-	tx    *sql.Tx                  // the transaction instance
-	txId  string                   // the transaction unique id
-	txMsg string                   // the transaction message
-	TxLog func(lt *LogTransaction) // logger executed transaction
+	db    *sql.DB                           // the instance of the database connect pool
+	Fix   func(string) string               // fix prepare sql script before call prepare method
+	Tag   string                            // bind struct tag and table column
+	Log   func(lop *OfPrepare, loa *OfArgs) // logger executed SQL statement
+	tx    *sql.Tx                           // the transaction instance
+	txId  string                            // the transaction unique id
+	txMsg string                            // the transaction message
+	TxLog func(lt *OfTransaction)           // logger executed transaction
 }
 
 // NewWay instantiate a helper
@@ -225,7 +240,7 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 	if err != nil {
 		return
 	}
-	lt := &LogTransaction{
+	lt := &OfTransaction{
 		TxId:    way.txId,
 		StartAt: time.Now(),
 	}
@@ -273,7 +288,7 @@ func (s *Way) TxTry(fn func(tx *Way) error, times int) error {
 
 // Stmt is a prepared statement
 type Stmt struct {
-	logSql *LogSql
+	logSql *OfPrepare
 	stmt   *sql.Stmt
 	way    *Way
 }
@@ -329,7 +344,7 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string) (*Stmt, error)
 		prepare = s.Fix(prepare)
 	}
 	stmt := getStmt(s)
-	stmt.logSql.Prepare = prepare
+	stmt.logSql.prepare = prepare
 	if s.tx != nil {
 		tmp, err := s.tx.PrepareContext(ctx, prepare)
 		if err != nil {
@@ -362,7 +377,7 @@ func (s *Way) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
 		return stmt
 	}
 	newStmt := getStmt(s)
-	newStmt.logSql.Prepare = stmt.logSql.Prepare
+	newStmt.logSql.prepare = stmt.logSql.prepare
 	newStmt.stmt = s.tx.StmtContext(ctx, stmt.stmt)
 	return newStmt
 }
@@ -378,17 +393,19 @@ func (s *Way) queryStmtContext(ctx context.Context, query func(rows *sql.Rows) e
 	if query == nil || stmt == nil {
 		return
 	}
-	stmt.logSql.StartAt = time.Now()
-	stmt.logSql.Args = args
+	loa := &OfArgs{
+		Args:    args,
+		StartAt: time.Now(),
+	}
 	if s.Log != nil {
 		defer func() {
-			stmt.logSql.Error = err
-			s.Log(stmt.logSql)
+			loa.Error = err
+			s.Log(stmt.logSql, loa)
 		}()
 	}
 	var rows *sql.Rows
 	rows, err = stmt.stmt.QueryContext(ctx, args...)
-	stmt.logSql.EndAt = time.Now()
+	loa.EndAt = time.Now()
 	if err != nil {
 		return
 	}
@@ -402,17 +419,19 @@ func (s *Way) execStmtContext(ctx context.Context, stmt *Stmt, args ...interface
 	if stmt == nil {
 		return
 	}
-	stmt.logSql.StartAt = time.Now()
-	stmt.logSql.Args = args
+	loa := &OfArgs{
+		Args:    args,
+		StartAt: time.Now(),
+	}
 	if s.Log != nil {
 		defer func() {
-			stmt.logSql.Error = err
-			s.Log(stmt.logSql)
+			loa.Error = err
+			s.Log(stmt.logSql, loa)
 		}()
 	}
 	var result sql.Result
 	result, err = stmt.stmt.ExecContext(ctx, args...)
-	stmt.logSql.EndAt = time.Now()
+	loa.EndAt = time.Now()
 	if err != nil {
 		return
 	}
