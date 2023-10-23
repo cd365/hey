@@ -444,12 +444,7 @@ func (s *Way) RowsNext(rows *sql.Rows, fc func() error) error {
 	return RowsNext(rows, fc)
 }
 
-// RowsNextIndex traverse with slice index and process query results
-func (s *Way) RowsNextIndex(rows *sql.Rows, fc func(i int) error) (err error) {
-	return RowsNextIndex(rows, fc)
-}
-
-// RowsNextRow single scan query results
+// RowsNextRow scan one line of query results
 func (s *Way) RowsNextRow(rows *sql.Rows, dest ...interface{}) error {
 	return RowsNextRow(rows, dest...)
 }
@@ -533,4 +528,9 @@ func (s *Way) Get(table ...string) *Get {
 		}
 	}
 	return get
+}
+
+// TableField new table helper
+func (s *Way) TableField(table ...string) *TableField {
+	return newTableField(table...)
 }
