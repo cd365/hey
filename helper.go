@@ -591,13 +591,18 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 	defer putSqlBuilder(buf)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.schema.table)
+	filter := false
 	if s.where != nil {
 		where, whereArgs := s.where.SQL()
 		if where != "" {
+			filter = true
 			buf.WriteString(" WHERE ")
 			buf.WriteString(where)
 			args = whereArgs
 		}
+	}
+	if s.schema.way.Config.DeleteMustUseWhere && !filter {
+		return
 	}
 	prepare = buf.String()
 	return
@@ -1089,13 +1094,19 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
 	buf.WriteString(strings.Join(field, ", "))
+	filter := false
 	if s.where != nil {
 		key, val := s.where.SQL()
 		if key != "" {
+			filter = true
 			buf.WriteString(" WHERE ")
 			buf.WriteString(key)
 			args = append(args, val...)
 		}
+	}
+	if s.schema.way.Config.UpdateMustUseWhere && !filter {
+		args = nil
+		return
 	}
 	prepare = buf.String()
 	return
