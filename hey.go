@@ -106,6 +106,19 @@ func Choose(way *Way, items ...*Way) *Way {
 	return way
 }
 
+// Config configure of Way
+type Config struct {
+	DeleteMustUseWhere bool
+	UpdateMustUseWhere bool
+}
+
+var (
+	DefaultConfig = Config{
+		DeleteMustUseWhere: true,
+		UpdateMustUseWhere: true,
+	}
+)
+
 // OfPrepare record executed prepare
 type OfPrepare struct {
 	txId    string
@@ -148,21 +161,23 @@ type OfTransaction struct {
 
 // Way quick insert, delete, update, select helper
 type Way struct {
-	db    *sql.DB                           // the instance of the database connect pool
-	Fix   func(string) string               // fix prepare sql script before call prepare method
-	Tag   string                            // bind struct tag and table column
-	Log   func(lop *OfPrepare, loa *OfArgs) // logger executed SQL statement
-	tx    *sql.Tx                           // the transaction instance
-	txId  string                            // the transaction unique id
-	txMsg string                            // the transaction message
-	TxLog func(lt *OfTransaction)           // logger executed transaction
+	db     *sql.DB                           // the instance of the database connect pool
+	Fix    func(string) string               // fix prepare sql script before call prepare method
+	Tag    string                            // bind struct tag and table column
+	Log    func(lop *OfPrepare, loa *OfArgs) // logger executed SQL statement
+	tx     *sql.Tx                           // the transaction instance
+	txId   string                            // the transaction unique id
+	txMsg  string                            // the transaction message
+	TxLog  func(lt *OfTransaction)           // logger executed transaction
+	Config Config                            // configure of Way
 }
 
 // NewWay instantiate a helper
 func NewWay(db *sql.DB) *Way {
 	return &Way{
-		db:  db,
-		Tag: DefaultTag,
+		db:     db,
+		Tag:    DefaultTag,
+		Config: DefaultConfig,
 	}
 }
 
@@ -185,6 +200,7 @@ func (s *Way) Clone(db ...*sql.DB) *Way {
 	way.Tag = s.Tag
 	way.Log = s.Log
 	way.TxLog = s.TxLog
+	way.Config = s.Config
 	return way
 }
 
