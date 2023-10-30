@@ -14,6 +14,9 @@ import (
 var (
 	// sqlBuilder sql builder pool
 	sqlBuilder *sync.Pool
+
+	// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
+	insertByStructPool *sync.Pool
 )
 
 // init initialize
@@ -21,6 +24,11 @@ func init() {
 	sqlBuilder = &sync.Pool{}
 	sqlBuilder.New = func() interface{} {
 		return &strings.Builder{}
+	}
+
+	insertByStructPool = &sync.Pool{}
+	insertByStructPool.New = func() interface{} {
+		return &insertByStruct{}
 	}
 }
 
@@ -33,6 +41,19 @@ func getSqlBuilder() *strings.Builder {
 func putSqlBuilder(b *strings.Builder) {
 	b.Reset()
 	sqlBuilder.Put(b)
+}
+
+// getInsertByStruct get *insertByStruct from pool
+func getInsertByStruct() *insertByStruct {
+	return insertByStructPool.Get().(*insertByStruct)
+}
+
+// putInsertByStruct put *insertByStruct in the pool
+func putInsertByStruct(b *insertByStruct) {
+	b.tag = ""
+	b.used = nil
+	b.except = nil
+	insertByStructPool.Put(b)
 }
 
 // RemoveDuplicate remove duplicate element
@@ -242,62 +263,156 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	return nil
 }
 
-// StructInsert create one by AnyStruct or *AnyStruct
-// Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure,
-// and support the exclusion of fixed fields.
-func StructInsert(insert interface{}, tag string, except ...string) (create map[string]interface{}) {
-	if insert == nil || tag == "" {
-		return
-	}
-	valueOf := reflect.ValueOf(insert)
-	kind := valueOf.Kind()
-	for ; kind == reflect.Ptr; kind = valueOf.Kind() {
-		valueOf = valueOf.Elem()
-	}
-	if kind != reflect.Struct {
-		return
-	}
+type insertByStruct struct {
+	tag    string              // struct tag name value used as table.column name
+	except map[string]struct{} // ignored field Hash table
+	used   map[string]struct{} // already existing field Hash table
+}
+
+// setExcept filter the list of unwanted fields, prioritize method calls structFieldsValues() and structValues()
+func (s *insertByStruct) setExcept(except []string) {
 	length := len(except)
-	ignore := make(map[string]struct{}, length)
+	s.except = make(map[string]struct{}, length)
 	for i := 0; i < length; i++ {
-		ignore[except[i]] = struct{}{}
+		if _, ok := s.except[except[i]]; ok {
+			continue
+		}
+		s.except[except[i]] = struct{}{}
 	}
-	create = make(map[string]interface{})
-	typeOf := valueOf.Type()
-	length = typeOf.NumField()
-	add := func(column string, value interface{}) {
-		if column == "" || column == "-" || value == nil {
-			return
-		}
-		if _, ok := ignore[column]; ok {
-			return
-		}
-		create[column] = value
-	}
-	parse := func(column string, value reflect.Value) {
-		valueKind := value.Kind()
-		for valueKind == reflect.Ptr {
-			if value.IsNil() {
-				return
-			}
-			value = value.Elem()
-			valueKind = value.Kind()
-		}
-		if valueKind == reflect.Struct {
-			for c, v := range StructInsert(value.Interface(), tag, except...) {
-				add(c, v)
-			}
-			return
-		}
-		add(column, value.Interface())
-	}
+	// prevent the same field name from appearing twice in the field list
+	s.used = make(map[string]struct{})
+}
+
+// structFieldsValues checkout fields, values
+func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (fields []string, values []interface{}) {
+	reflectType := structReflectValue.Type()
+	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
-		field := typeOf.Field(i)
+		field := reflectType.Field(i)
 		if !field.IsExported() {
 			continue
 		}
-		parse(field.Tag.Get(tag), valueOf.Field(i))
+
+		valueIndexField := structReflectValue.Field(i)
+		valueIndexFieldKind := valueIndexField.Kind()
+		for valueIndexFieldKind == reflect.Ptr {
+			if valueIndexField.IsNil() {
+				break
+			}
+			valueIndexField = valueIndexField.Elem()
+			valueIndexFieldKind = valueIndexField.Kind()
+		}
+		if valueIndexFieldKind == reflect.Struct {
+			tmpFields, tmpValues := s.structFieldsValues(valueIndexField)
+			fields = append(fields, tmpFields...)
+			values = append(values, tmpValues...)
+			continue
+		}
+
+		valueIndexFieldTag := field.Tag.Get(s.tag)
+		if valueIndexFieldTag == "" || valueIndexFieldTag == "-" {
+			continue
+		}
+		if _, ok := s.except[valueIndexFieldTag]; ok {
+			continue
+		}
+		if _, ok := s.used[valueIndexFieldTag]; ok {
+			continue
+		}
+		s.used[valueIndexFieldTag] = struct{}{}
+
+		fields = append(fields, valueIndexFieldTag)
+		values = append(values, valueIndexField.Interface())
 	}
+	return
+}
+
+// structValues checkout values
+func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values []interface{}) {
+	reflectType := structReflectValue.Type()
+	length := reflectType.NumField()
+	for i := 0; i < length; i++ {
+		field := reflectType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		valueIndexField := structReflectValue.Field(i)
+		valueIndexFieldKind := valueIndexField.Kind()
+		for valueIndexFieldKind == reflect.Ptr {
+			if valueIndexField.IsNil() {
+				break
+			}
+			valueIndexField = valueIndexField.Elem()
+			valueIndexFieldKind = valueIndexField.Kind()
+		}
+		if valueIndexFieldKind == reflect.Struct {
+			values = append(values, s.structValues(valueIndexField)...)
+			continue
+		}
+
+		valueIndexFieldTag := field.Tag.Get(s.tag)
+		if valueIndexFieldTag == "" || valueIndexFieldTag == "-" {
+			continue
+		}
+		if _, ok := s.except[valueIndexFieldTag]; ok {
+			continue
+		}
+		if _, ok := s.used[valueIndexFieldTag]; ok {
+			continue
+		}
+		s.used[valueIndexFieldTag] = struct{}{}
+
+		values = append(values, valueIndexField.Interface())
+	}
+	return
+}
+
+// Insert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
+func (s *insertByStruct) Insert(object interface{}, tag string, except ...string) (fields []string, values [][]interface{}) {
+	if object == nil || tag == "" {
+		return
+	}
+	reflectValue := reflect.ValueOf(object)
+	kind := reflectValue.Kind()
+	for ; kind == reflect.Ptr; kind = reflectValue.Kind() {
+		reflectValue = reflectValue.Elem()
+	}
+	s.tag = tag
+	s.setExcept(except)
+	switch kind {
+	case reflect.Struct:
+		values = make([][]interface{}, 1)
+		fields, values[0] = s.structFieldsValues(reflectValue)
+		return
+	case reflect.Slice:
+		sliceLength := reflectValue.Len()
+		values = make([][]interface{}, sliceLength)
+		for i := 0; i < sliceLength; i++ {
+			indexValue := reflectValue.Index(i)
+			for indexValue.Kind() == reflect.Ptr {
+				indexValue = indexValue.Elem()
+			}
+			if indexValue.Kind() != reflect.Struct {
+				continue
+			}
+			if i == 0 {
+				fields, values[i] = s.structFieldsValues(reflectValue)
+			} else {
+				values[i] = s.structValues(reflectValue)
+			}
+		}
+	}
+	return
+}
+
+// StructInsert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
+// Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure,
+// and support the exclusion of fixed fields.
+func StructInsert(object interface{}, tag string, except ...string) (fields []string, values [][]interface{}) {
+	b := getInsertByStruct()
+	defer putInsertByStruct(b)
+	fields, values = b.Insert(object, tag, except...)
 	return
 }
 
@@ -618,14 +733,11 @@ func (s *Del) Del() (int64, error) {
 type Add struct {
 	schema *schema
 
-	// create, the columns in the first map will be used as the column list for insert data
-	create []map[string]interface{}
-
-	// except  exclude some fields not in the add list
-	except []string
-
-	// column for INSERT VALUES is query statement
-	column []string
+	/* insert one or more rows */
+	except    []string
+	fieldsMap map[string]struct{}
+	fields    []string
+	values    [][]interface{}
 
 	// subQuery INSERT VALUES is query statement
 	subQuery *SubQuery
@@ -634,10 +746,11 @@ type Add struct {
 // NewAdd for INSERT
 func NewAdd(way *Way) *Add {
 	add := &Add{
-		schema: newSchema(way),
-		create: make([]map[string]interface{}, 1),
+		schema:    newSchema(way),
+		fieldsMap: make(map[string]struct{}),
+		fields:    make([]string, 0),
+		values:    make([][]interface{}, 1),
 	}
-	add.create[0] = make(map[string]interface{})
 	return add
 }
 
@@ -659,112 +772,65 @@ func (s *Add) Table(table string) *Add {
 	return s
 }
 
-// Except exclude some columns from insert, only valid for Create and Map methods
-func (s *Add) Except(except ...string) *Add {
-	s.except = append(s.except, except...)
+// Fields set fields
+func (s *Add) Fields(fields []string) *Add {
+	s.fields = fields
 	return s
 }
 
-// getExcept except columns for map
-func (s *Add) getExcept() (except map[string]struct{}) {
-	except = make(map[string]struct{})
-	for _, field := range s.except {
-		except[field] = struct{}{}
-	}
-	return
+// Values set values
+func (s *Add) Values(values [][]interface{}) *Add {
+	s.values = values
+	return s
+}
+
+// Column set fields, with fields...
+func (s *Add) Column(fields ...string) *Add {
+	return s.Fields(fields)
+}
+
+// FieldsValues set fields and values
+func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
+	return s.Fields(fields).Values(values)
 }
 
 // Set add column-value for insert one or more rows
 func (s *Add) Set(column string, value interface{}) *Add {
-	for i := range s.create {
-		s.create[i][column] = value
+	if _, ok := s.fieldsMap[column]; ok {
+		return s
+	}
+	s.fieldsMap[column] = struct{}{}
+	s.fields = append(s.fields, column)
+	for i := range s.values {
+		s.values[i] = append(s.values[i], value)
 	}
 	return s
 }
 
 // Map add column-value for insert one or more rows, skip ignored fields list
 func (s *Add) Map(add map[string]interface{}) *Add {
-	length := len(add)
-	if length == 0 {
-		return s
-	}
-	except := s.getExcept()
-	for column := range add {
-		if _, ok := except[column]; ok {
-			continue
-		}
-		s.Set(column, add[column])
+	for column, value := range add {
+		s.Set(column, value)
 	}
 	return s
 }
 
-// DefaultSet add column-value for insert one or more rows, for set column default value
-func (s *Add) DefaultSet(column string, value interface{}) *Add {
-	for i := range s.create {
-		if _, ok := s.create[i][column]; !ok {
-			s.create[i][column] = value
-		}
-	}
+// Except exclude some columns from insert, only valid for Create methods
+func (s *Add) Except(except ...string) *Add {
+	s.except = append(s.except, except...)
 	return s
 }
 
-// DefaultMap add column-value for insert one or more rows, for set column default value, skip ignored fields list
-func (s *Add) DefaultMap(add map[string]interface{}) *Add {
-	length := len(add)
-	if length == 0 {
-		return s
-	}
-	except := s.getExcept()
-	for column := range add {
-		if _, ok := except[column]; ok {
-			continue
-		}
-		s.DefaultSet(column, add[column])
-	}
-	return s
-}
-
-// Create insert by struct, insert one or more rows
-func (s *Add) Create(creates ...interface{}) *Add {
-	length := len(creates)
-	if length == 0 {
-		return s
-	}
-	s.create = make([]map[string]interface{}, 0, length)
-	for i := 0; i < length; i++ {
-		s.create = append(s.create, StructInsert(creates[i], s.schema.way.Tag, s.except...))
-	}
-	return s
-}
-
-// Batch insert by []map, insert one or more rows
-func (s *Add) Batch(batch ...map[string]interface{}) *Add {
-	length := len(batch)
-	if length == 0 {
-		return s
-	}
-	except := s.getExcept()
-	s.create = make([]map[string]interface{}, length)
-	for index := range batch {
-		s.create[index] = make(map[string]interface{})
-		for column := range batch[index] {
-			if _, ok := except[column]; ok {
-				continue
-			}
-			s.create[index][column] = batch[index][column]
-		}
-	}
-	return s
-}
-
-// Column set insert column for ValuesSubQuery
-func (s *Add) Column(column ...string) *Add {
-	s.column = column
-	return s
+// Create struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{} one or more rows
+func (s *Add) Create(create interface{}) *Add {
+	return s.FieldsValues(StructInsert(create, s.schema.way.Tag, s.except...))
 }
 
 // ValuesSubQuery values is a query SQL statement
 func (s *Add) ValuesSubQuery(prepare string, args ...interface{}) *Add {
+	if prepare == "" {
+		return s
+	}
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
@@ -775,8 +841,7 @@ func (s *Add) ValuesSubQueryGet(get *Get) *Add {
 		return s
 	}
 	prepare, args := get.SQL()
-	s.subQuery = NewSubQuery(prepare, args...)
-	return s
+	return s.ValuesSubQuery(prepare, args)
 }
 
 // SQL build SQL statement
@@ -784,71 +849,50 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == "" {
 		return
 	}
+
 	buf := comment(s.schema)
 	defer putSqlBuilder(buf)
+
 	if s.subQuery != nil {
 		buf.WriteString("INSERT INTO ")
 		buf.WriteString(s.schema.table)
-		if len(s.column) > 0 {
+		if len(s.fields) > 0 {
 			buf.WriteString(" ( ")
-			buf.WriteString(strings.Join(s.column, ", "))
+			buf.WriteString(strings.Join(s.fields, ", "))
 			buf.WriteString(" )")
 		}
 		buf.WriteString(" ")
-		qp, qa := s.subQuery.SQL()
-		buf.WriteString(qp)
+		subPrepare, subArgs := s.subQuery.SQL()
+		buf.WriteString(subPrepare)
 		prepare = buf.String()
-		args = qa
+		args = subArgs
 		return
 	}
-	except := s.getExcept()
-	rowsCount := len(s.create)
-	columnCount := len(s.create[0])
-	columns := make([]string, 0, columnCount)
-	for field := range s.create[0] {
-		if field == "" {
-			continue
-		}
-		if _, ok := except[field]; ok {
-			continue
-		}
-		columns = append(columns, field)
-	}
-	columnCount = len(columns)
-	if columnCount == 0 {
+
+	count := len(s.fields)
+	if count == 0 {
 		return
 	}
-	sort.Strings(columns)
-	values := make([][]interface{}, rowsCount)
-	for num, add := range s.create {
-		values[num] = make([]interface{}, 0, columnCount)
-		for _, field := range columns {
-			if value, ok := add[field]; !ok {
-				values[num] = append(values[num], nil)
-			} else {
-				values[num] = append(values[num], value)
-			}
-		}
+
+	tmpList := make([]string, count)
+	for i := 0; i < count; i++ {
+		tmpList[i] = Placeholder
 	}
-	place := make([]string, columnCount)
-	for i := 0; i < columnCount; i++ {
-		place[i] = Placeholder
+	value := fmt.Sprintf("( %s )", strings.Join(tmpList, ", "))
+
+	length := len(s.values)
+	values := make([]string, length)
+	for i := 0; i < length; i++ {
+		args = append(args, s.values[i]...)
+		values[i] = value
 	}
+
 	buf.WriteString("INSERT INTO ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" ( ")
-	buf.WriteString(strings.Join(columns, ", "))
-	buf.WriteString(" ) VALUES")
-	placeValue := strings.Join(place, ", ")
-	for i := 0; i < rowsCount; i++ {
-		if i != 0 {
-			buf.WriteString(",")
-		}
-		buf.WriteString(" ( ")
-		buf.WriteString(placeValue)
-		buf.WriteString(" )")
-		args = append(args, values[i]...)
-	}
+	buf.WriteString(strings.Join(s.fields, ", "))
+	buf.WriteString(" ) VALUES ")
+	buf.WriteString(strings.Join(values, ", "))
 	prepare = buf.String()
 	return
 }
