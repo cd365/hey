@@ -20,9 +20,6 @@ const (
 var (
 	// poolWay *Way pool
 	poolWay *sync.Pool
-
-	// poolStmt *Stmt pool
-	poolStmt *sync.Pool
 )
 
 // init initialize
@@ -31,14 +28,6 @@ func init() {
 	poolWay = &sync.Pool{}
 	poolWay.New = func() interface{} {
 		return &Way{}
-	}
-
-	// initialize *Stmt
-	poolStmt = &sync.Pool{}
-	poolStmt.New = func() interface{} {
-		return &Stmt{
-			logSql: &OfPrepare{},
-		}
 	}
 }
 
@@ -50,6 +39,7 @@ func getWay(origin *Way) *Way {
 	latest.Tag = origin.Tag
 	latest.Log = origin.Log
 	latest.TxLog = origin.TxLog
+	latest.Config = origin.Config
 	return latest
 }
 
@@ -61,25 +51,6 @@ func putWay(s *Way) {
 	s.Log = nil
 	s.TxLog = nil
 	poolWay.Put(s)
-}
-
-// getStmt get *Stmt from pool
-func getStmt(s *Way) *Stmt {
-	latest := poolStmt.Get().(*Stmt)
-	latest.logSql.txId = s.txId
-	latest.logSql.txMsg = s.txMsg
-	latest.way = s
-	return latest
-}
-
-// putStmt put *Stmt in the pool
-func putStmt(s *Stmt) {
-	s.logSql.txId = ""
-	s.logSql.txMsg = ""
-	s.logSql.prepare = ""
-	s.stmt = nil
-	s.way = nil
-	poolStmt.Put(s)
 }
 
 // FixPgsql fix postgresql SQL statement
@@ -106,6 +77,12 @@ func Choose(way *Way, items ...*Way) *Way {
 	return way
 }
 
+// MasterSlaver for achieve reading and writing separation
+type MasterSlaver interface {
+	Master() *Way // take out a *Way of the master role
+	Slaver() *Way // take out a *Way of the slaver role
+}
+
 // Config configure of Way
 type Config struct {
 	DeleteMustUseWhere bool
@@ -116,6 +93,13 @@ type Config struct {
 	// postgresql: COALESCE($field, $replace)
 	// call example: NullReplace("email", "''"), NullReplace("account.balance", "0")
 	NullReplace func(fieldName string, replaceValue string) string
+
+	// MasterSlaver for achieve reading and writing separation
+	MasterSlaver MasterSlaver
+
+	// Comment set annotations for the current object
+	// for example: Master, SlaverNode1
+	Comment string
 }
 
 var (
@@ -210,9 +194,23 @@ func (s *Way) Clone(db ...*sql.DB) *Way {
 	return way
 }
 
+func (s *Way) GetMaster() *Way {
+	if s.tx != nil || s.Config.MasterSlaver == nil {
+		return s
+	}
+	return s.Config.MasterSlaver.Master()
+}
+
+func (s *Way) GetSlaver() *Way {
+	if s.tx != nil || s.Config.MasterSlaver == nil {
+		return s
+	}
+	return s.Config.MasterSlaver.Slaver()
+}
+
 // begin for open transaction
 func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
-	s.tx, err = s.db.BeginTx(ctx, opts)
+	s.tx, err = s.GetMaster().db.BeginTx(ctx, opts)
 	if err != nil {
 		return
 	}
@@ -315,6 +313,18 @@ type Stmt struct {
 	way    *Way
 }
 
+// newStmt new stmt
+func newStmt(way *Way) *Stmt {
+	stmt := &Stmt{
+		logSql: &OfPrepare{
+			txId:  way.txId,
+			txMsg: way.txMsg,
+		},
+		way: way,
+	}
+	return stmt
+}
+
 // QueryContext repeated calls with the current object
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
 	return s.way.queryStmtContext(ctx, query, s, args...)
@@ -349,7 +359,6 @@ func (s *Stmt) ScanAll(result interface{}, args ...interface{}) error {
 
 // Close closes the statement.
 func (s *Stmt) Close() error {
-	defer putStmt(s)
 	if s.stmt != nil {
 		return s.stmt.Close()
 	}
@@ -357,40 +366,29 @@ func (s *Stmt) Close() error {
 }
 
 // PrepareContext SQL statement prepare.
-// The caller must call the statement's Close method when the statement is no longer needed.
-func (s *Way) PrepareContext(ctx context.Context, prepare string) (*Stmt, error) {
+func (s *Way) PrepareContext(ctx context.Context, prepare string) (stmt *Stmt, err error) {
 	if prepare == "" {
-		return nil, nil
+		return
 	}
 	if s.Fix != nil {
 		prepare = s.Fix(prepare)
 	}
-	stmt := getStmt(s)
+	stmt = newStmt(s)
 	stmt.logSql.prepare = prepare
 	if s.tx != nil {
-		tmp, err := s.tx.PrepareContext(ctx, prepare)
-		if err != nil {
-			return nil, err
-		}
-		stmt.stmt = tmp
-		return stmt, nil
+		stmt.stmt, err = s.tx.PrepareContext(ctx, prepare)
+		return
 	}
-	tmp, err := s.db.PrepareContext(ctx, prepare)
-	if err != nil {
-		return nil, err
-	}
-	stmt.stmt = tmp
-	return stmt, nil
+	stmt.stmt, err = s.db.PrepareContext(ctx, prepare)
+	return
 }
 
 // Prepare SQL statement prepare.
-// The caller must call the statement's Close method when the statement is no longer needed.
 func (s *Way) Prepare(prepare string) (*Stmt, error) {
 	return s.PrepareContext(context.Background(), prepare)
 }
 
 // StmtContext returns a transaction-specific prepared statement from an existing statement.
-// The caller must call the statement's Close method when the statement is no longer needed.
 func (s *Way) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
 	if stmt == nil {
 		return stmt
@@ -398,14 +396,13 @@ func (s *Way) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
 	if s.tx == nil {
 		return stmt
 	}
-	newStmt := getStmt(s)
-	newStmt.logSql.prepare = stmt.logSql.prepare
-	newStmt.stmt = s.tx.StmtContext(ctx, stmt.stmt)
-	return newStmt
+	tmpStmt := newStmt(s)
+	tmpStmt.logSql.prepare = stmt.logSql.prepare
+	tmpStmt.stmt = s.tx.StmtContext(ctx, stmt.stmt)
+	return tmpStmt
 }
 
 // Stmt returns a transaction-specific prepared statement from an existing statement.
-// The caller must call the statement's Close method when the statement is no longer needed.
 func (s *Way) Stmt(stmt *Stmt) *Stmt {
 	return s.StmtContext(context.Background(), stmt)
 }
