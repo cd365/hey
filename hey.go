@@ -110,6 +110,12 @@ func Choose(way *Way, items ...*Way) *Way {
 type Config struct {
 	DeleteMustUseWhere bool
 	UpdateMustUseWhere bool
+
+	// NullReplace replace field null value
+	// mysql: IFNULL($field, $replace)
+	// postgresql: COALESCE($field, $replace)
+	// call example: NullReplace("email", "''"), NullReplace("account.balance", "0")
+	NullReplace func(fieldName string, replaceValue string) string
 }
 
 var (
