@@ -66,6 +66,46 @@ func FixPgsql(str string) string {
 	return str
 }
 
+// SqlInsertConflictUpdate inserting data conflicts to perform updates
+type SqlInsertConflictUpdate struct {
+	InsertPrepare string
+	ConflictField []string
+	SetFieldsExpr []string
+}
+
+// SqlInsertOrUpdatePgsql postgresql SQL, update when insert conflicts
+// func InsertOrUpdatePgsql(addSql string, setFieldsExpr []string, conflictFields []string) (prepare string) {
+func SqlInsertOrUpdatePgsql(object *SqlInsertConflictUpdate) (prepare string) {
+	if object == nil {
+		return
+	}
+	lenConflictFields := len(object.ConflictField)
+	if lenConflictFields == 0 {
+		prepare = object.InsertPrepare
+		return
+	}
+	lenSetExpr := len(object.SetFieldsExpr)
+	conflict := getSqlBuilder()
+	defer putSqlBuilder(conflict)
+	conflict.WriteString(" ON CONFLICT( ")
+	conflict.WriteString(strings.Join(object.ConflictField, ", "))
+	conflict.WriteString(" ) ")
+	if lenSetExpr == 0 {
+		// ON CONFLICT( field1 ... ) DO NOTHING;
+		conflict.WriteString("DO NOTHING")
+	} else {
+		// ON CONFLICT( field1, field2, field3 ) DO UPDATE SET key = value, field1 = ?, field2 = 123 ...;
+		conflict.WriteString("UPDATE SET ")
+		conflict.WriteString(strings.Join(object.SetFieldsExpr, ", "))
+	}
+	builder := getSqlBuilder()
+	defer putSqlBuilder(builder)
+	builder.WriteString(object.InsertPrepare)
+	builder.WriteString(conflict.String())
+	prepare = builder.String()
+	return
+}
+
 // Choose returns the first instance of *Way that is not empty in items
 // returns way by default
 func Choose(way *Way, items ...*Way) *Way {
@@ -77,29 +117,19 @@ func Choose(way *Way, items ...*Way) *Way {
 	return way
 }
 
-// MasterSlaver for achieve reading and writing separation
-type MasterSlaver interface {
-	Master() *Way // take out a *Way of the master role
-	Slaver() *Way // take out a *Way of the slaver role
-}
-
 // Config configure of Way
 type Config struct {
 	DeleteMustUseWhere bool
 	UpdateMustUseWhere bool
 
-	// NullReplace replace field null value
+	// SqlNullReplace replace field null value
 	// mysql: IFNULL($field, $replace)
 	// postgresql: COALESCE($field, $replace)
 	// call example: NullReplace("email", "''"), NullReplace("account.balance", "0")
-	NullReplace func(fieldName string, replaceValue string) string
+	SqlNullReplace func(fieldName string, replaceValue string) string
 
-	// MasterSlaver for achieve reading and writing separation
-	MasterSlaver MasterSlaver
-
-	// Comment set annotations for the current object
-	// for example: Master, SlaverNode1
-	Comment string
+	// SqlInsertOrUpdate inserting data conflicts to perform updates
+	SqlInsertOrUpdate func(object *SqlInsertConflictUpdate) (prepare string)
 }
 
 var (
@@ -194,23 +224,9 @@ func (s *Way) Clone(db ...*sql.DB) *Way {
 	return way
 }
 
-func (s *Way) GetMaster() *Way {
-	if s.tx != nil || s.Config.MasterSlaver == nil {
-		return s
-	}
-	return s.Config.MasterSlaver.Master()
-}
-
-func (s *Way) GetSlaver() *Way {
-	if s.tx != nil || s.Config.MasterSlaver == nil {
-		return s
-	}
-	return s.Config.MasterSlaver.Slaver()
-}
-
 // begin for open transaction
 func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
-	s.tx, err = s.GetMaster().db.BeginTx(ctx, opts)
+	s.tx, err = s.db.BeginTx(ctx, opts)
 	if err != nil {
 		return
 	}

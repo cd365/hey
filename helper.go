@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -416,77 +415,201 @@ func StructInsert(object interface{}, tag string, except ...string) (fields []st
 	return
 }
 
-// StructUpdate compare origin and latest for update
-func StructUpdate(origin interface{}, latest interface{}, tag string, except ...string) (modify map[string]interface{}) {
-	if origin == nil || latest == nil || tag == "" {
+// StructModify object should be one of struct{}, *struct{} get the fields and values that need to be modified
+func StructModify(object interface{}, tag string, except ...string) (fields []string, values []interface{}) {
+	if object == nil || tag == "" {
 		return
 	}
-	originTypeOf, latestTypeOf := reflect.TypeOf(origin), reflect.TypeOf(latest)
-	originValueOf, latestValueOf := reflect.ValueOf(origin), reflect.ValueOf(latest)
-	originKind, latestKind := originTypeOf.Kind(), latestTypeOf.Kind()
-	for ; originKind == reflect.Ptr; originKind = originTypeOf.Kind() {
-		originTypeOf = originTypeOf.Elem()
-		originValueOf = originValueOf.Elem()
+	ofType := reflect.TypeOf(object)
+	ofValue := reflect.ValueOf(object)
+	ofKind := ofType.Kind()
+	for ; ofKind == reflect.Ptr; ofKind = ofType.Kind() {
+		ofType = ofType.Elem()
+		ofValue = ofValue.Elem()
 	}
-	for ; latestKind == reflect.Ptr; latestKind = latestTypeOf.Kind() {
-		latestTypeOf = latestTypeOf.Elem()
-		latestValueOf = latestValueOf.Elem()
-	}
-	if originKind != reflect.Struct || latestKind != reflect.Struct {
+	if ofKind != reflect.Struct {
 		return
 	}
 	excepted := make(map[string]struct{})
 	for _, field := range except {
 		excepted[field] = struct{}{}
 	}
-	modify = make(map[string]interface{})
-	latestMapValue := make(map[string]reflect.Value)
-	latestMapIndex := make(map[string]int)
-	length := latestValueOf.Type().NumField()
-	for i := 0; i < length; i++ {
-		name := latestTypeOf.Field(i).Name
-		latestMapIndex[name] = i
-		latestMapValue[name] = latestValueOf.Field(i)
+
+	length := ofType.NumField()
+
+	exists := make(map[string]struct{}, length)
+	fields = make([]string, 0, length)
+	values = make([]interface{}, 0, length)
+
+	last := 0
+	fieldsIndex := make(map[string]int)
+
+	add := func(field string, value interface{}) {
+		if _, ok := exists[field]; ok {
+			values[fieldsIndex[field]] = value
+			return
+		}
+		exists[field] = struct{}{}
+		fields = append(fields, field)
+		values = append(values, value)
+		fieldsIndex[field] = last
+		last++
 	}
-	length = originTypeOf.NumField()
+
 	for i := 0; i < length; i++ {
-		originField := originTypeOf.Field(i)
-		column := originField.Tag.Get(tag)
+		field := ofType.Field(i)
+
+		column := field.Tag.Get(tag)
 		if column == "" || column == "-" {
 			continue
 		}
 		if _, ok := excepted[column]; ok {
 			continue
 		}
-		originFieldName := originField.Name
-		latestFieldValue, ok := latestMapValue[originFieldName]
-		if !ok {
+
+		fieldType := field.Type
+		fieldKind := fieldType.Kind()
+		pointerDepth := 0
+		for fieldKind == reflect.Pointer {
+			pointerDepth++
+			fieldType = fieldType.Elem()
+			fieldKind = fieldType.Kind()
+		}
+
+		fieldValue := ofValue.Field(i)
+
+		// any
+		if pointerDepth == 0 {
+			add(column, fieldValue.Interface())
 			continue
 		}
-		latestFieldType := latestTypeOf.Field(latestMapIndex[originFieldName]).Type
-		latestFieldTypeKind := latestFieldType.Kind()
-		originFieldType := originTypeOf.Field(i).Type
-		if latestFieldTypeKind != reflect.Ptr {
-			if latestFieldTypeKind == originFieldType.Kind() {
-				originValue, latestValue := originValueOf.Field(i).Interface(), latestFieldValue.Interface()
-				if !reflect.DeepEqual(originValue, latestValue) {
-					modify[column] = latestValue
-				}
+
+		// *any
+		if pointerDepth == 1 {
+			if fieldValue.IsNil() {
+				continue
 			}
+			add(column, fieldValue.Elem().Interface())
 			continue
 		}
-		if latestFieldValue.IsNil() {
-			continue
-		}
-		latestFieldType = latestFieldType.Elem()
-		if latestFieldType.String() != originFieldType.String() {
-			continue
-		}
-		originValue, latestValue := originValueOf.Field(i).Interface(), latestFieldValue.Elem().Interface()
-		if !reflect.DeepEqual(originValue, latestValue) {
-			modify[column] = latestValue
+
+		// ***...any
+		for index := pointerDepth; index > 1; index-- {
+			if index == 2 {
+				if !fieldValue.IsNil() {
+					add(column, fieldValue.Elem().Interface())
+				}
+				break
+			}
+			if fieldValue.IsNil() {
+				break
+			}
+			fieldValue = fieldValue.Elem()
 		}
 	}
+	return
+}
+
+// StructObtain object should be one of struct{}, *struct{} for get all fields and values
+func StructObtain(object interface{}, tag string, except ...string) (fields []string, values []interface{}) {
+	if object == nil || tag == "" {
+		return
+	}
+	ofType := reflect.TypeOf(object)
+	ofValue := reflect.ValueOf(object)
+	ofKind := ofType.Kind()
+	for ; ofKind == reflect.Ptr; ofKind = ofType.Kind() {
+		ofType = ofType.Elem()
+		ofValue = ofValue.Elem()
+	}
+	if ofKind != reflect.Struct {
+		return
+	}
+	excepted := make(map[string]struct{})
+	for _, field := range except {
+		excepted[field] = struct{}{}
+	}
+
+	length := ofType.NumField()
+
+	exists := make(map[string]struct{}, length)
+	fields = make([]string, 0, length)
+	values = make([]interface{}, 0, length)
+
+	last := 0
+	fieldsIndex := make(map[string]int)
+
+	add := func(field string, value interface{}) {
+		if _, ok := exists[field]; ok {
+			values[fieldsIndex[field]] = value
+			return
+		}
+		exists[field] = struct{}{}
+		fields = append(fields, field)
+		values = append(values, value)
+		fieldsIndex[field] = last
+		last++
+	}
+
+	for i := 0; i < length; i++ {
+		field := ofType.Field(i)
+
+		column := field.Tag.Get(tag)
+		if column == "" || column == "-" {
+			continue
+		}
+		if _, ok := excepted[column]; ok {
+			continue
+		}
+
+		add(column, ofValue.Field(i))
+	}
+	return
+}
+
+// StructUpdate compare origin and latest for update
+func StructUpdate(origin interface{}, latest interface{}, tag string, except ...string) (fields []string, values []interface{}) {
+	if origin == nil || latest == nil || tag == "" {
+		return
+	}
+
+	originFields, originValues := StructObtain(origin, tag, except...)
+	latestFields, latestValues := StructModify(latest, tag, except...)
+
+	storage := make(map[string]interface{}, len(originFields))
+	for k, v := range originFields {
+		storage[v] = originValues[k]
+	}
+
+	exists := make(map[string]struct{})
+	fields = make([]string, 0)
+	values = make([]interface{}, 0)
+
+	last := 0
+	fieldsIndex := make(map[string]int)
+
+	add := func(field string, value interface{}) {
+		if _, ok := exists[field]; ok {
+			values[fieldsIndex[field]] = value
+			return
+		}
+		exists[field] = struct{}{}
+		fields = append(fields, field)
+		values = append(values, value)
+		fieldsIndex[field] = last
+		last++
+	}
+
+	for k, v := range latestFields {
+		if _, ok := storage[v]; !ok {
+			continue
+		}
+		if reflect.DeepEqual(storage[v], latestValues[k]) {
+			continue
+		}
+		add(v, latestValues[k])
+	}
+
 	return
 }
 
@@ -706,17 +829,17 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 	defer putSqlBuilder(buf)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.schema.table)
-	filter := false
+	w := false
 	if s.where != nil {
 		where, whereArgs := s.where.SQL()
 		if where != "" {
-			filter = true
+			w = true
 			buf.WriteString(" WHERE ")
 			buf.WriteString(where)
 			args = whereArgs
 		}
 	}
-	if s.schema.way.Config.DeleteMustUseWhere && !filter {
+	if s.schema.way.Config.DeleteMustUseWhere && !w {
 		return
 	}
 	prepare = buf.String()
@@ -903,6 +1026,42 @@ func (s *Add) Add() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
+// AddOrMod INSERT or UPDATE
+// addForModFieldsValues: you may need to add key-value pairs, such as count field, update timestamp field
+func (s *Add) AddOrMod(
+	object interface{},
+	modExceptFields []string,
+	conflictFields []string,
+	addForModFieldsValues func(fields []string, values []interface{}) (resultFields []string, resultValues []interface{}),
+) (int64, error) {
+	if s.schema.way.Config.SqlInsertOrUpdate == nil {
+		return 0, fmt.Errorf("please set Config.SqlInsertOrUpdate")
+	}
+
+	fields, values := StructModify(object, s.schema.way.Tag, modExceptFields...)
+
+	if addForModFieldsValues != nil {
+		fields, values = addForModFieldsValues(fields, values)
+	}
+
+	length := len(fields)
+	setFieldsExpr := make([]string, length)
+	for i := 0; i < length; i++ {
+		setFieldsExpr[i] = fmt.Sprintf("%s = %s", fields[i], Placeholder)
+	}
+
+	prepare, args := s.Create(object).SQL()
+
+	prepare = s.schema.way.Config.SqlInsertOrUpdate(&SqlInsertConflictUpdate{
+		InsertPrepare: prepare,
+		ConflictField: conflictFields,
+		SetFieldsExpr: setFieldsExpr,
+	})
+	args = append(args, values...)
+
+	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
+}
+
 // modify set the column to be updated
 type modify struct {
 	expr string
@@ -916,8 +1075,14 @@ type Mod struct {
 	// update main updated columns
 	update map[string]*modify
 
+	// updateSlice, the fields to be updated are updated sequentially
+	updateSlice []string
+
 	// modify secondary updated columns, the effective condition is len(update) > 0
 	secondaryUpdate map[string]*modify
+
+	// secondaryUpdateSlice, the fields to be updated are updated sequentially
+	secondaryUpdateSlice []string
 
 	// except excepted columns
 	except map[string]struct{}
@@ -967,6 +1132,7 @@ func (s *Mod) expr(column string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[column]; ok {
 		return s
 	}
+	s.updateSlice = append(s.updateSlice, column)
 	s.update[column] = &modify{
 		expr: expr,
 		args: args,
@@ -1015,7 +1181,7 @@ func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
 	for v := range s.except {
 		except = append(except, v)
 	}
-	return s.Map(StructUpdate(origin, latest, s.schema.way.Tag, except...))
+	return s.Slice(StructUpdate(origin, latest, s.schema.way.Tag, except...))
 }
 
 // defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
@@ -1026,6 +1192,7 @@ func (s *Mod) defaultExpr(column string, expr string, args ...interface{}) *Mod 
 	if _, ok := s.update[column]; ok {
 		return s
 	}
+	s.secondaryUpdateSlice = append(s.secondaryUpdateSlice, column)
 	s.secondaryUpdate[column] = &modify{
 		expr: expr,
 		args: args,
@@ -1101,14 +1268,14 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	}
 	mod := make(map[string]struct{})
 	columns := make([]string, 0, length)
-	for column := range s.update {
+	for _, column := range s.updateSlice {
 		if _, ok := s.except[column]; ok {
 			continue
 		}
 		mod[column] = struct{}{}
 		columns = append(columns, column)
 	}
-	for column := range s.secondaryUpdate {
+	for _, column := range s.secondaryUpdateSlice {
 		if _, ok := s.except[column]; ok {
 			continue
 		}
@@ -1118,7 +1285,6 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		columns = append(columns, column)
 	}
 	length = len(columns)
-	sort.Strings(columns)
 	field := make([]string, length)
 	value := make([]interface{}, 0, length)
 	ok := false
@@ -1138,17 +1304,17 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
 	buf.WriteString(strings.Join(field, ", "))
-	filter := false
+	w := false
 	if s.where != nil {
 		key, val := s.where.SQL()
 		if key != "" {
-			filter = true
+			w = true
 			buf.WriteString(" WHERE ")
 			buf.WriteString(key)
 			args = append(args, val...)
 		}
 	}
-	if s.schema.way.Config.UpdateMustUseWhere && !filter {
+	if s.schema.way.Config.UpdateMustUseWhere && !w {
 		args = nil
 		return
 	}
