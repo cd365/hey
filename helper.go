@@ -78,26 +78,25 @@ type bindStruct struct {
 	indirect map[string][]int
 
 	// all used struct types, including the root struct
-	structType map[string]struct{}
+	structType map[reflect.Type]struct{}
 }
 
 func bindStructInit() *bindStruct {
 	return &bindStruct{
 		direct:     make(map[string]int),
 		indirect:   make(map[string][]int),
-		structType: make(map[string]struct{}),
+		structType: make(map[reflect.Type]struct{}),
 	}
 }
 
 // binding Match the binding according to the structure "db" tag and the query column name.
 // Please ensure that the type of refStructType must be `reflect.Struct`.
 func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string) {
-	refStructTypeString := refStructType.String()
-	if _, ok := s.structType[refStructTypeString]; ok {
+	if _, ok := s.structType[refStructType]; ok {
 		// prevent structure loop nesting
 		return
 	}
-	s.structType[refStructTypeString] = struct{}{}
+	s.structType[refStructType] = struct{}{}
 	length := refStructType.NumField()
 	for i := 0; i < length; i++ {
 		attribute := refStructType.Field(i)
@@ -240,6 +239,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	if err != nil {
 		return err
 	}
+	// elemType => struct{}
 	b.binding(elemType, nil, tag)
 	length := len(columns)
 	for rows.Next() {
@@ -613,56 +613,82 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	return
 }
 
-// StructAssign struct assign, by attribute name, latest attribute value => target attribute value
-func StructAssign(target interface{}, latest interface{}) {
-	t0, v0 := reflect.TypeOf(target), reflect.ValueOf(target)
-	t1, v1 := reflect.TypeOf(latest), reflect.ValueOf(latest)
-	t0k, t1k := t0.Kind(), t1.Kind()
-	if t0k != reflect.Ptr {
+// StructAssign struct assign, by attribute name or tag name, latest attribute value => target attribute value
+func StructAssign(target interface{}, latest interface{}, tags ...string) {
+	ofType1, ofValue1 := reflect.TypeOf(target), reflect.ValueOf(target)
+	ofType2, ofValue2 := reflect.TypeOf(latest), reflect.ValueOf(latest)
+	ofKind1, ofKind2 := ofType1.Kind(), ofType2.Kind()
+	if ofKind1 != reflect.Ptr {
 		return
 	}
-	for ; t0k == reflect.Ptr; t0k = t0.Kind() {
-		t0 = t0.Elem()
-		v0 = v0.Elem()
+	for ; ofKind1 == reflect.Ptr; ofKind1 = ofType1.Kind() {
+		ofType1 = ofType1.Elem()
+		ofValue1 = ofValue1.Elem()
 	}
-	for ; t1k == reflect.Ptr; t1k = t1.Kind() {
-		t1 = t1.Elem()
-		v1 = v1.Elem()
+	for ; ofKind2 == reflect.Ptr; ofKind2 = ofType2.Kind() {
+		ofType2 = ofType2.Elem()
+		ofValue2 = ofValue2.Elem()
 	}
-	if t0k != reflect.Struct || t1k != reflect.Struct {
+	if ofKind1 != reflect.Struct || ofKind2 != reflect.Struct {
 		return
 	}
-	mi1 := make(map[string]int)
-	mv1 := make(map[string]reflect.Value)
-	length := v1.Type().NumField()
-	for i := 0; i < length; i++ {
-		name := t1.Field(i).Name
-		mi1[name] = i
-		mv1[name] = v1.Field(i)
+
+	count := len(tags)
+	tag := ""
+	for i := count - 1; i >= 0; i-- {
+		if tags[i] != "" {
+			tag = tags[i]
+			break
+		}
 	}
-	length = t0.NumField()
+
+	named := func(field reflect.StructField) string {
+		if tag == "" {
+			return field.Name
+		}
+		name := field.Tag.Get(tag)
+		if name == "-" {
+			name = ""
+		}
+		return name
+	}
+
+	index21 := make(map[string]int)
+	index22 := make(map[string]reflect.Value)
+	length := ofValue2.Type().NumField()
 	for i := 0; i < length; i++ {
-		value0 := v0.Field(i)
-		if !value0.CanAddr() || !value0.CanSet() {
+		name := named(ofType2.Field(i))
+		if name == "" {
 			continue
 		}
-		field0 := t0.Field(i)
-		value1, ok := mv1[field0.Name]
+		index21[name] = i
+		index22[name] = ofValue2.Field(i)
+	}
+
+	length = ofType1.NumField()
+	for i := 0; i < length; i++ {
+		value1 := ofValue1.Field(i)
+		if !value1.CanAddr() || !value1.CanSet() {
+			continue
+		}
+		field1 := ofType1.Field(i)
+		name := named(field1)
+		value2, ok := index22[name]
 		if !ok {
 			continue
 		}
-		field1 := t1.Field(mi1[field0.Name])
-		field0type := field0.Type
-		field1type := field1.Type
-		if field0type.String() != field1type.String() {
+		field2 := ofType2.Field(index21[name])
+		if field1.Type != field2.Type {
 			continue
 		}
-		if !reflect.DeepEqual(value0.Interface(), value1.Interface()) {
-			if field0type.Kind() == reflect.Ptr && value0.IsNil() {
-				value0 = reflect.Indirect(reflect.New(field0type))
-			}
-			value0.Set(value1)
+		if reflect.DeepEqual(value1.Interface(), value2.Interface()) {
+			continue
 		}
+		field1type := field1.Type
+		if field1type.Kind() == reflect.Ptr && value1.IsNil() {
+			value1 = reflect.Indirect(reflect.New(field1type))
+		}
+		value1.Set(value2)
 	}
 }
 
