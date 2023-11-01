@@ -25,23 +25,28 @@ func main() {
 	add := way.Add(table)
 
 	/* insert one */
-	add.Set("name", "Jack").
-		Set("email", "jack@gmail.com").
-		DefaultSet("created_at", time.Now().Unix()).
+	add.FieldValue("name", "Jack").
+		FieldValue("email", "jack@gmail.com").
+		DefaultFieldValue("created_at", time.Now().Unix()).
 		Add()
 
 	/* insert batch */
-	add.Batch(
-		map[string]interface{}{
-			"name":  "Alice",
-			"email": "alice@gmail.com",
+	addFields := []string{
+		"name",
+		"email",
+	}
+	addValues := [][]interface{}{
+		{
+			"Alice",
+			"alice@gmail.com",
 		},
-		map[string]interface{}{
-			"name":  "Tom",
-			"email": "tom@gmail.com",
+		{
+			"Tom",
+			"tom@gmail.com",
 		},
 		// ...
-	).Add()
+	}
+	add.FieldsValues(addFields, addValues).Add()
 
 	/* delete */
 	del := way.Del(table)

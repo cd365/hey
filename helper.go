@@ -406,8 +406,7 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 }
 
 // StructInsert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
-// Obtain a list of all fields to be inserted and corresponding values through the tag attribute of the structure,
-// and support the exclusion of fixed fields.
+// get fields and values based on struct tag.
 func StructInsert(object interface{}, tag string, except ...string) (fields []string, values [][]interface{}) {
 	b := getInsertByStruct()
 	defer putInsertByStruct(b)
@@ -613,7 +612,7 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	return
 }
 
-// StructAssign struct assign, by attribute name or tag name, latest attribute value => target attribute value
+// StructAssign struct assign, by field name or tag name, target field value = latest field value
 func StructAssign(target interface{}, latest interface{}, tags ...string) {
 	ofType1, ofValue1 := reflect.TypeOf(target), reflect.ValueOf(target)
 	ofType2, ofValue2 := reflect.TypeOf(latest), reflect.ValueOf(latest)
@@ -841,7 +840,7 @@ func (s *Del) WhereIn(column string, values ...interface{}) *Del {
 	return s.Where(NewFilter().In(column, values...))
 }
 
-// WhereEqual set where =
+// WhereEqual set where EQUAL
 func (s *Del) WhereEqual(column string, values interface{}) *Del {
 	return s.Where(NewFilter().Equal(column, values))
 }
@@ -883,10 +882,13 @@ type Add struct {
 	schema *schema
 
 	/* insert one or more rows */
+	exceptMap map[string]struct{}
 	except    []string
-	fieldsMap map[string]struct{}
-	fields    []string
-	values    [][]interface{}
+
+	fieldsIndex int
+	fieldsMap   map[string]int
+	fields      []string
+	values      [][]interface{}
 
 	// subQuery INSERT VALUES is query statement
 	subQuery *SubQuery
@@ -896,7 +898,8 @@ type Add struct {
 func NewAdd(way *Way) *Add {
 	add := &Add{
 		schema:    newSchema(way),
-		fieldsMap: make(map[string]struct{}),
+		exceptMap: make(map[string]struct{}),
+		fieldsMap: make(map[string]int),
 		fields:    make([]string, 0),
 		values:    make([][]interface{}, 1),
 	}
@@ -933,45 +936,72 @@ func (s *Add) Values(values [][]interface{}) *Add {
 	return s
 }
 
-// Column set fields, with fields...
-func (s *Add) Column(fields ...string) *Add {
-	return s.Fields(fields)
-}
-
 // FieldsValues set fields and values
 func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 	return s.Fields(fields).Values(values)
 }
 
-// Set add column-value for insert one or more rows
-func (s *Add) Set(column string, value interface{}) *Add {
-	if _, ok := s.fieldsMap[column]; ok {
+// Except exclude some columns from insert one or more rows
+func (s *Add) Except(except ...string) *Add {
+	for _, field := range except {
+		if field == "" {
+			continue
+		}
+		if _, ok := s.exceptMap[field]; ok {
+			continue
+		}
+		s.exceptMap[field] = struct{}{}
+		s.except = append(s.except, field)
+	}
+	return s
+}
+
+// FieldValue add field-value for insert one or more rows
+func (s *Add) FieldValue(field string, value interface{}) *Add {
+	if _, ok := s.exceptMap[field]; ok {
 		return s
 	}
-	s.fieldsMap[column] = struct{}{}
-	s.fields = append(s.fields, column)
+	if index, ok := s.fieldsMap[field]; ok {
+		for i := range s.values {
+			s.values[i][index] = value
+		}
+		return s
+	}
+	s.fieldsMap[field] = s.fieldsIndex
+	s.fieldsIndex++
+	s.fields = append(s.fields, field)
 	for i := range s.values {
 		s.values[i] = append(s.values[i], value)
 	}
 	return s
 }
 
-// Map add column-value for insert one or more rows, skip ignored fields list
-func (s *Add) Map(add map[string]interface{}) *Add {
-	for column, value := range add {
-		s.Set(column, value)
+// DefaultFieldValue customize default field-value for insert one or more rows
+func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
+	if _, ok := s.exceptMap[field]; ok {
+		return s
+	}
+	if _, ok := s.fieldsMap[field]; ok {
+		return s
+	}
+	s.fieldsMap[field] = s.fieldsIndex
+	s.fieldsIndex++
+	s.fields = append(s.fields, field)
+	for i := range s.values {
+		s.values[i] = append(s.values[i], value)
 	}
 	return s
 }
 
-// Except exclude some columns from insert, only valid for Create methods
-func (s *Add) Except(except ...string) *Add {
-	s.except = append(s.except, except...)
-	return s
-}
-
-// Create struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{} one or more rows
+// Create value of create should be oneof struct{}, *struct{}, map[string]interface{},
+// []struct, []*struct{}, *[]struct{}, *[]*struct{}
 func (s *Add) Create(create interface{}) *Add {
+	if fieldValue, ok := create.(map[string]interface{}); ok {
+		for field, value := range fieldValue {
+			s.FieldValue(field, value)
+		}
+		return s
+	}
 	return s.FieldsValues(StructInsert(create, s.schema.way.Tag, s.except...))
 }
 
@@ -1053,27 +1083,33 @@ func (s *Add) Add() (int64, error) {
 }
 
 // AddOrMod INSERT or UPDATE
-// addForModFieldsValues: you may need to add key-value pairs, such as count field, update timestamp field
+// ofModFieldsValues: you may need to add key-value pairs, such as count field, update timestamp field
+// ofModFieldsExprValues: you may need to add a custom expression such as an auto-increment count field
 func (s *Add) AddOrMod(
 	object interface{},
 	modExceptFields []string,
 	conflictFields []string,
-	addForModFieldsValues func(fields []string, values []interface{}) (resultFields []string, resultValues []interface{}),
+	ofModFieldsValues func(fields []string, values []interface{}) (fieldsResult []string, valuesResult []interface{}),
+	ofModFieldsExprValues func(fieldsExpr []string, values []interface{}) (fieldsExprResult []string, valuesResult []interface{}),
 ) (int64, error) {
 	if s.schema.way.Config.SqlInsertOrUpdate == nil {
-		return 0, fmt.Errorf("please set Config.SqlInsertOrUpdate")
+		return 0, fmt.Errorf("hey: please set Config.SqlInsertOrUpdate")
 	}
 
 	fields, values := StructModify(object, s.schema.way.Tag, modExceptFields...)
 
-	if addForModFieldsValues != nil {
-		fields, values = addForModFieldsValues(fields, values)
+	if ofModFieldsValues != nil {
+		fields, values = ofModFieldsValues(fields, values)
 	}
 
 	length := len(fields)
 	setFieldsExpr := make([]string, length)
 	for i := 0; i < length; i++ {
 		setFieldsExpr[i] = fmt.Sprintf("%s = %s", fields[i], Placeholder)
+	}
+
+	if ofModFieldsExprValues != nil {
+		setFieldsExpr, values = ofModFieldsExprValues(setFieldsExpr, values)
 	}
 
 	prepare, args := s.Create(object).SQL()
@@ -1088,30 +1124,31 @@ func (s *Add) AddOrMod(
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// modify set the column to be updated
+// modify set the field to be updated
 type modify struct {
-	expr string
-	args []interface{}
+	expression string
+	args       []interface{}
 }
 
 // Mod for UPDATE
 type Mod struct {
 	schema *schema
 
-	// update main updated columns
+	// update main updated fields
 	update map[string]*modify
 
 	// updateSlice, the fields to be updated are updated sequentially
 	updateSlice []string
 
-	// modify secondary updated columns, the effective condition is len(update) > 0
+	// modify secondary updated fields, the effective condition is len(update) > 0
 	secondaryUpdate map[string]*modify
 
 	// secondaryUpdateSlice, the fields to be updated are updated sequentially
 	secondaryUpdateSlice []string
 
-	// except excepted columns
-	except map[string]struct{}
+	// except excepted fields
+	except      map[string]struct{}
+	exceptSlice []string
 
 	where Filter
 }
@@ -1144,109 +1181,136 @@ func (s *Mod) Table(table string) *Mod {
 	return s
 }
 
-// Except exclude some columns from update
+// Except exclude some fields from update
 func (s *Mod) Except(except ...string) *Mod {
 	length := len(except)
 	for i := 0; i < length; i++ {
+		if except[i] == "" {
+			continue
+		}
+		if _, ok := s.except[except[i]]; ok {
+			continue
+		}
 		s.except[except[i]] = struct{}{}
+		s.exceptSlice = append(s.exceptSlice, except[i])
 	}
 	return s
 }
 
-// expr build update column expressions and column values
-func (s *Mod) expr(column string, expr string, args ...interface{}) *Mod {
-	if _, ok := s.except[column]; ok {
+// expression build update field expressions and field values
+func (s *Mod) expression(field string, expression string, args ...interface{}) *Mod {
+	if _, ok := s.except[field]; ok {
 		return s
 	}
-	s.updateSlice = append(s.updateSlice, column)
-	s.update[column] = &modify{
-		expr: expr,
-		args: args,
+
+	tmp := &modify{
+		expression: expression,
+		args:       args,
 	}
+
+	if _, ok := s.update[field]; ok {
+		s.update[field] = tmp
+		return s
+	}
+
+	s.updateSlice = append(s.updateSlice, field)
+	s.update[field] = tmp
 	return s
 }
 
-// Set SET column = value
-func (s *Mod) Set(column string, value interface{}) *Mod {
-	return s.expr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
+// Expression update field using custom expression
+func (s *Mod) Expression(field string, expression string, args ...interface{}) *Mod {
+	field, expression = strings.TrimSpace(field), strings.TrimSpace(expression)
+	return s.expression(field, expression, args)
 }
 
-// Incr SET column = column + value
-func (s *Mod) Incr(column string, value interface{}) *Mod {
-	return s.expr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
+// Set field = value
+func (s *Mod) Set(field string, value interface{}) *Mod {
+	return s.expression(field, fmt.Sprintf("%s = %s", field, Placeholder), value)
 }
 
-// Decr SET column = column - value
-func (s *Mod) Decr(column string, value interface{}) *Mod {
-	return s.expr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
+// Incr SET field = field + value
+func (s *Mod) Incr(field string, value interface{}) *Mod {
+	return s.expression(field, fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
 }
 
-// Map SET column = value by map
-func (s *Mod) Map(columnValue map[string]interface{}) *Mod {
-	for column, value := range columnValue {
-		s.Set(column, value)
-	}
-	return s
+// Decr SET field = field - value
+func (s *Mod) Decr(field string, value interface{}) *Mod {
+	return s.expression(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
 }
 
-// Slice SET column = value by slice, require len(column) = len(value)
-func (s *Mod) Slice(column []string, value []interface{}) *Mod {
-	len1, len2 := len(column), len(value)
+// FieldsValues SET field = value by slice, require len(fields) == len(values)
+func (s *Mod) FieldsValues(fields []string, values []interface{}) *Mod {
+	len1, len2 := len(fields), len(values)
 	if len1 != len2 {
 		return s
 	}
 	for i := 0; i < len1; i++ {
-		s.Set(column[i], value[i])
+		s.Set(fields[i], values[i])
 	}
 	return s
 }
 
-// Compare for compare origin and latest to automatically calculate the list of columns and corresponding values that need to be updated
-func (s *Mod) Compare(origin interface{}, latest interface{}) *Mod {
-	except := make([]string, 0, len(s.except))
-	for v := range s.except {
-		except = append(except, v)
-	}
-	return s.Slice(StructUpdate(origin, latest, s.schema.way.Tag, except...))
-}
-
-// defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
-func (s *Mod) defaultExpr(column string, expr string, args ...interface{}) *Mod {
-	if _, ok := s.except[column]; ok {
+// Modify value of modify should be oneof struct{}, *struct{}, map[string]interface{}
+func (s *Mod) Modify(modify interface{}) *Mod {
+	if fieldValue, ok := modify.(map[string]interface{}); ok {
+		for field, value := range fieldValue {
+			s.Set(field, value)
+		}
 		return s
 	}
-	if _, ok := s.update[column]; ok {
+	return s.FieldsValues(StructModify(modify, s.schema.way.Tag, s.exceptSlice...))
+}
+
+// Update for compare origin and latest to automatically calculate need to update fields
+func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
+	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.Tag, s.exceptSlice...))
+}
+
+// defaultExpression append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
+func (s *Mod) defaultExpression(field string, expression string, args ...interface{}) *Mod {
+	if _, ok := s.except[field]; ok {
 		return s
 	}
-	s.secondaryUpdateSlice = append(s.secondaryUpdateSlice, column)
-	s.secondaryUpdate[column] = &modify{
-		expr: expr,
-		args: args,
+
+	if _, ok := s.update[field]; ok {
+		return s
 	}
+
+	tmp := &modify{
+		expression: expression,
+		args:       args,
+	}
+
+	if _, ok := s.secondaryUpdate[field]; ok {
+		s.secondaryUpdate[field] = tmp
+		return s
+	}
+
+	s.secondaryUpdateSlice = append(s.secondaryUpdateSlice, field)
+	s.secondaryUpdate[field] = tmp
 	return s
 }
 
-// DefaultSet SET column = value
-func (s *Mod) DefaultSet(column string, value interface{}) *Mod {
-	return s.defaultExpr(column, fmt.Sprintf("%s = %s", column, Placeholder), value)
+// DefaultExpression update field using custom expression
+func (s *Mod) DefaultExpression(field string, expression string, args ...interface{}) *Mod {
+	field, expression = strings.TrimSpace(field), strings.TrimSpace(expression)
+	return s.defaultExpression(field, expression, args)
 }
 
-// DefaultIncr SET column = column + value
-func (s *Mod) DefaultIncr(column string, value interface{}) *Mod {
-	return s.defaultExpr(column, fmt.Sprintf("%s = %s + %s", column, column, Placeholder), value)
+// DefaultSet SET field = value
+func (s *Mod) DefaultSet(field string, value interface{}) *Mod {
+	return s.defaultExpression(field, fmt.Sprintf("%s = %s", field, Placeholder), value)
 }
 
-// DefaultDecr SET column = column - value
-func (s *Mod) DefaultDecr(column string, value interface{}) *Mod {
-	return s.defaultExpr(column, fmt.Sprintf("%s = %s - %s", column, column, Placeholder), value)
+// DefaultIncr SET field = field + value
+func (s *Mod) DefaultIncr(field string, value interface{}) *Mod {
+	return s.defaultExpression(field, fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
 }
 
-// DefaultMap SET column = value by map
-func (s *Mod) DefaultMap(columnValue map[string]interface{}) *Mod {
-	for column, value := range columnValue {
-		s.DefaultSet(column, value)
-	}
-	return s
+// DefaultDecr SET field = field - value
+func (s *Mod) DefaultDecr(field string, value interface{}) *Mod {
+	return s.defaultExpression(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
 }
 
 // Where set where
@@ -1274,13 +1338,13 @@ func (s *Mod) OrWhere(where ...Filter) *Mod {
 }
 
 // WhereIn set where IN
-func (s *Mod) WhereIn(column string, values ...interface{}) *Mod {
-	return s.Where(NewFilter().In(column, values...))
+func (s *Mod) WhereIn(field string, values ...interface{}) *Mod {
+	return s.Where(NewFilter().In(field, values...))
 }
 
-// WhereEqual set where =
-func (s *Mod) WhereEqual(column string, value interface{}) *Mod {
-	return s.Where(NewFilter().Equal(column, value))
+// WhereEqual set where EQUAL
+func (s *Mod) WhereEqual(field string, value interface{}) *Mod {
+	return s.Where(NewFilter().Equal(field, value))
 }
 
 // SQL build SQL statement
@@ -1293,34 +1357,34 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	mod := make(map[string]struct{})
-	columns := make([]string, 0, length)
-	for _, column := range s.updateSlice {
-		if _, ok := s.except[column]; ok {
+	fields := make([]string, 0, length)
+	for _, field := range s.updateSlice {
+		if _, ok := s.except[field]; ok {
 			continue
 		}
-		mod[column] = struct{}{}
-		columns = append(columns, column)
+		mod[field] = struct{}{}
+		fields = append(fields, field)
 	}
-	for _, column := range s.secondaryUpdateSlice {
-		if _, ok := s.except[column]; ok {
+	for _, field := range s.secondaryUpdateSlice {
+		if _, ok := s.except[field]; ok {
 			continue
 		}
-		if _, ok := mod[column]; ok {
+		if _, ok := mod[field]; ok {
 			continue
 		}
-		columns = append(columns, column)
+		fields = append(fields, field)
 	}
-	length = len(columns)
+	length = len(fields)
 	field := make([]string, length)
 	value := make([]interface{}, 0, length)
 	ok := false
-	for k, v := range columns {
+	for k, v := range fields {
 		if _, ok = s.update[v]; ok {
-			field[k] = s.update[v].expr
+			field[k] = s.update[v].expression
 			value = append(value, s.update[v].args...)
 			continue
 		}
-		field[k] = s.secondaryUpdate[v].expr
+		field[k] = s.secondaryUpdate[v].expression
 		value = append(value, s.secondaryUpdate[v].args...)
 	}
 	args = value
@@ -1750,7 +1814,7 @@ func (s *Get) WhereIn(column string, values ...interface{}) *Get {
 	return s.Where(NewFilter().In(column, values...))
 }
 
-// WhereEqual set where =
+// WhereEqual set where EQUAL
 func (s *Get) WhereEqual(column string, value interface{}) *Get {
 	return s.Where(NewFilter().Equal(column, value))
 }
