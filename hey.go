@@ -95,7 +95,7 @@ func SqlInsertOrUpdatePgsql(object *SqlInsertConflictUpdate) (prepare string) {
 		conflict.WriteString("DO NOTHING")
 	} else {
 		// ON CONFLICT( field1, field2, field3 ) DO UPDATE SET key = value, field1 = ?, field2 = 123 ...;
-		conflict.WriteString("UPDATE SET ")
+		conflict.WriteString("DO UPDATE SET ")
 		conflict.WriteString(strings.Join(object.SetFieldsExpr, ", "))
 	}
 	builder := getSqlBuilder()
