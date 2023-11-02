@@ -142,14 +142,13 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 // find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
 // When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear
 // when the root structure accesses the properties of substructures, resulting in panic.
-func (s *bindStruct) prepare(columns []string, rowsScanList []interface{}, indirect reflect.Value) error {
-	length := len(columns)
+func (s *bindStruct) prepare(columns []string, rowsScanList []interface{}, indirect reflect.Value, length int) error {
 	for i := 0; i < length; i++ {
 		index, ok := s.direct[columns[i]]
 		if ok {
 			// top structure
 			field := indirect.Field(index)
-			if !(field.CanAddr() && field.CanSet()) {
+			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("column `%s` cann't set value", columns[i])
 			}
 			if field.Kind() == reflect.Ptr && field.IsNil() {
@@ -191,7 +190,7 @@ func (s *bindStruct) prepare(columns []string, rowsScanList []interface{}, indir
 			// j + 1 == count
 			// innermost structure
 			field := parent.Field(line[j])
-			if !(field.CanAddr() && field.CanSet()) {
+			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("column `%s` cann't set value, multi-level", columns[i])
 			}
 			if field.Kind() == reflect.Ptr && field.IsNil() {
@@ -246,7 +245,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 		object := reflect.New(elemType)
 		indirect := reflect.Indirect(object)
 		rowsScanList := make([]interface{}, length)
-		if err = b.prepare(columns, rowsScanList, indirect); err != nil {
+		if err = b.prepare(columns, rowsScanList, indirect, length); err != nil {
 			return err
 		}
 		if err = rows.Scan(rowsScanList...); err != nil {
@@ -2093,12 +2092,6 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// Query execute the built SQL statement and scan query result
-func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
-	prepare, args := s.SQL()
-	return s.schema.way.QueryContext(s.schema.ctx, query, prepare, args...)
-}
-
 // Count execute the built SQL statement and scan query result for count
 func (s *Get) Count(column ...string) (count int64, err error) {
 	prepare, args := s.SQLCount(column...)
@@ -2111,28 +2104,55 @@ func (s *Get) Count(column ...string) (count int64, err error) {
 	return
 }
 
+// Query execute the built SQL statement and scan query result
+func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
+	prepare, args := s.SQL()
+	return s.schema.way.QueryContext(s.schema.ctx, query, prepare, args...)
+}
+
 // Get execute the built SQL statement and scan query result
 func (s *Get) Get(result interface{}) error {
 	prepare, args := s.SQL()
 	return s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...)
 }
 
-// CountGet execute the built SQL statement and scan query result, count + get
-func (s *Get) CountGet(result interface{}, countColumn ...string) (count int64, err error) {
-	count, err = s.Count(countColumn...)
-	if err != nil || count == 0 {
-		return
-	}
-	err = s.Get(result)
-	return
+// RowsNext execute the built SQL statement and scan query result, scan one or more rows
+func (s *Get) RowsNext(fc func() error) error {
+	return s.Query(func(rows *sql.Rows) error {
+		return s.schema.way.RowsNext(rows, fc)
+	})
+}
+
+// RowsNextRow execute the built SQL statement and scan query result, only scan one row
+func (s *Get) RowsNextRow(dest ...interface{}) error {
+	return s.Query(func(rows *sql.Rows) error {
+		return s.schema.way.RowsNextRow(rows, dest...)
+	})
 }
 
 // CountQuery execute the built SQL statement and scan query result, count + query
-func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...string) (count int64, err error) {
-	count, err = s.Count(countColumn...)
+func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...string) (int64, error) {
+	count, err := s.Count(countColumn...)
 	if err != nil || count == 0 {
-		return
+		return count, err
 	}
-	err = s.Query(query)
-	return
+	return count, s.Query(query)
+}
+
+// CountGet execute the built SQL statement and scan query result, count + get
+func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error) {
+	count, err := s.Count(countColumn...)
+	if err != nil || count == 0 {
+		return count, err
+	}
+	return count, s.Get(result)
+}
+
+// CountRowsNext execute the built SQL statement and scan query result, count + rowsNext
+func (s *Get) CountRowsNext(fc func() error, countColumn ...string) (int64, error) {
+	count, err := s.Count(countColumn...)
+	if err != nil || count == 0 {
+		return count, err
+	}
+	return count, s.RowsNext(fc)
 }
