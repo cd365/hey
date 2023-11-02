@@ -142,7 +142,7 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 // find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
 // When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear
 // when the root structure accesses the properties of substructures, resulting in panic.
-func (s *bindStruct) prepare(columns []string, rowsScanList []interface{}, indirect reflect.Value, length int) error {
+func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect reflect.Value, length int) error {
 	for i := 0; i < length; i++ {
 		index, ok := s.direct[columns[i]]
 		if ok {
@@ -153,17 +153,17 @@ func (s *bindStruct) prepare(columns []string, rowsScanList []interface{}, indir
 			}
 			if field.Kind() == reflect.Ptr && field.IsNil() {
 				indirect.Field(index).Set(reflect.New(field.Type()).Elem())
-				rowsScanList[i] = indirect.Field(index).Addr().Interface()
+				rowsScan[i] = indirect.Field(index).Addr().Interface()
 				continue
 			}
-			rowsScanList[i] = field.Addr().Interface()
+			rowsScan[i] = field.Addr().Interface()
 			continue
 		}
 		// parsing multi-layer structures
 		line, ok := s.indirect[columns[i]]
 		if !ok {
 			// unable to find mapping property for current field Use *[]byte instead to receive
-			rowsScanList[i] = new([]byte)
+			rowsScan[i] = new([]byte)
 			continue
 		}
 		count := len(line)
@@ -195,10 +195,10 @@ func (s *bindStruct) prepare(columns []string, rowsScanList []interface{}, indir
 			}
 			if field.Kind() == reflect.Ptr && field.IsNil() {
 				parent.Field(line[j]).Set(reflect.New(field.Type()).Elem())
-				rowsScanList[i] = parent.Field(line[j]).Addr().Interface()
+				rowsScan[i] = parent.Field(line[j]).Addr().Interface()
 				continue
 			}
-			rowsScanList[i] = field.Addr().Interface()
+			rowsScan[i] = field.Addr().Interface()
 		}
 	}
 	return nil
@@ -241,14 +241,14 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	// elemType => struct{}
 	b.binding(elemType, nil, tag)
 	length := len(columns)
+	rowsScan := make([]interface{}, length)
 	for rows.Next() {
 		object := reflect.New(elemType)
 		indirect := reflect.Indirect(object)
-		rowsScanList := make([]interface{}, length)
-		if err = b.prepare(columns, rowsScanList, indirect, length); err != nil {
+		if err = b.prepare(columns, rowsScan, indirect, length); err != nil {
 			return err
 		}
-		if err = rows.Scan(rowsScanList...); err != nil {
+		if err = rows.Scan(rowsScan...); err != nil {
 			return err
 		}
 		if elemTypeIsPtr {
