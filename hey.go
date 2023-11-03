@@ -569,3 +569,51 @@ func (s *Way) Get(table ...string) *Get {
 func (s *Way) TableField(table ...string) *TableField {
 	return newTableField(table...)
 }
+
+// WayWriterReader read and write separation
+type WayWriterReader interface {
+	// W get an object for write
+	W() *Way
+
+	// R get an object for read
+	R() *Way
+}
+
+type wayWriterReader struct {
+	choose    func(n int) int
+	writer    []*Way
+	writerLen int
+	reader    []*Way
+	readerLen int
+}
+
+func (s *wayWriterReader) W() *Way {
+	return s.writer[s.choose(s.writerLen)]
+}
+
+func (s *wayWriterReader) R() *Way {
+	return s.reader[s.choose(s.readerLen)]
+}
+
+func NewWayWriterReader(
+	choose func(n int) int,
+	writer []*Way,
+	reader []*Way,
+) (WayWriterReader, error) {
+	if choose == nil {
+		return nil, fmt.Errorf("param choose is nil")
+	}
+
+	writerLen, readerLen := len(writer), len(reader)
+	if writerLen == 0 || readerLen == 0 {
+		return nil, fmt.Errorf("both writer and reader should hold at least one element")
+	}
+
+	return &wayWriterReader{
+		choose:    choose,
+		writer:    writer,
+		writerLen: writerLen,
+		reader:    reader,
+		readerLen: readerLen,
+	}, nil
+}
