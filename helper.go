@@ -1440,7 +1440,8 @@ type GetJoin struct {
 	table    string    // table name
 	subQuery *SubQuery // table is sub query
 	alias    *string   // query table alias name
-	on       string    // conditions for join query
+	on       string    // conditions for join query; ON a.order_id = b.order_id  <=> USING ( order_id )
+	using    []string  // conditions for join query; USING ( order_id, ... )
 }
 
 // NewGetJoin new join
@@ -1497,6 +1498,12 @@ func (s *GetJoin) On(on string) *GetJoin {
 	return s
 }
 
+// Using join query condition
+func (s *GetJoin) Using(fields ...string) *GetJoin {
+	s.using = fields
+	return s
+}
+
 // OnEqual join query condition
 func (s *GetJoin) OnEqual(left string, right string) *GetJoin {
 	return s.On(fmt.Sprintf("%s = %s", left, right))
@@ -1504,33 +1511,45 @@ func (s *GetJoin) OnEqual(left string, right string) *GetJoin {
 
 // SQL build SQL statement
 func (s *GetJoin) SQL() (prepare string, args []interface{}) {
+	if s.table == "" && (s.subQuery == nil || s.alias == nil || *s.alias == "") {
+		return
+	}
+	usingLength := len(s.using)
+	if s.on == "" && usingLength == 0 {
+		return
+	}
+
 	buf := getSqlBuilder()
 	defer putSqlBuilder(buf)
+
 	buf.WriteString(s.joinType)
-	if s.subQuery != nil && s.alias != nil && *s.alias != "" {
+
+	if s.subQuery != nil {
 		buf.WriteString(" ( ")
 		subPrepare, subArgs := s.subQuery.SQL()
 		buf.WriteString(subPrepare)
 		buf.WriteString(" ) AS ")
 		buf.WriteString(*s.alias)
-		buf.WriteString(" ON ")
-		buf.WriteString(s.on)
-		prepare = buf.String()
 		args = append(args, subArgs...)
-		return
-	}
-	if s.table != "" {
+	} else {
 		buf.WriteString(" ")
 		buf.WriteString(s.table)
 		if s.alias != nil && *s.alias != "" {
 			buf.WriteString(" AS ")
 			buf.WriteString(*s.alias)
 		}
+	}
+
+	if usingLength > 0 {
+		buf.WriteString(" USING ( ")
+		buf.WriteString(strings.Join(s.using, ", "))
+		buf.WriteString(" )")
+	} else {
 		buf.WriteString(" ON ")
 		buf.WriteString(s.on)
-		prepare = buf.String()
-		return
 	}
+
+	prepare = buf.String()
 	return
 }
 
