@@ -484,17 +484,20 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 
 		// *any
 		if pointerDepth == 1 {
-			if fieldValue.IsNil() {
-				continue
+			if !fieldValue.IsNil() {
+				add(column, fieldValue.Elem().Interface())
 			}
-			add(column, fieldValue.Elem().Interface())
 			continue
 		}
 
 		// ***...any
 		for index := pointerDepth; index > 1; index-- {
 			if index == 2 {
-				if !fieldValue.IsNil() {
+				if fieldValue.IsNil() {
+					add(column, nil)
+					break
+				}
+				if fieldValue = fieldValue.Elem(); !fieldValue.IsNil() {
 					add(column, fieldValue.Elem().Interface())
 				}
 				break
