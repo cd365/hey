@@ -18,7 +18,7 @@ func main() {
 	var db *sql.DB
 
 	way := hey.NewWay(db)
-	way.Fix = hey.FixPgsql // PostgreSQL
+	way.Fix = hey.PgsqlPrepareFix // PostgreSQL
 
 	table := "account"
 

@@ -3,6 +3,7 @@ package hey
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -1084,45 +1085,16 @@ func (s *Add) Add() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// AddOrMod INSERT or UPDATE
-// ofModFieldsValues: you may need to add key-value pairs, such as count field, update timestamp field
-// ofModFieldsExprValues: you may need to add a custom expression such as an auto-increment count field
+// AddOrMod insert on conflict do update
 func (s *Add) AddOrMod(
-	object interface{},
-	modExceptFields []string,
-	conflictFields []string,
-	ofModFieldsValues func(fields []string, values []interface{}) (fieldsResult []string, valuesResult []interface{}),
-	ofModFieldsExprValues func(fieldsExpr []string, values []interface{}) (fieldsExprResult []string, valuesResult []interface{}),
-) (int64, error) {
-	if s.schema.way.Config.SqlInsertOrUpdate == nil {
-		return 0, fmt.Errorf("hey: please set Config.SqlInsertOrUpdate")
+	fc func(iou InsertUpdater) (string, []interface{}),
+) (rowsAffected int64, err error) {
+	if s.schema.way.Config.SqlInsertUpdater == nil {
+		return 0, errors.New("hey: please set Config.SqlInsertUpdater")
 	}
-
-	fields, values := StructModify(object, s.schema.way.Tag, modExceptFields...)
-
-	if ofModFieldsValues != nil {
-		fields, values = ofModFieldsValues(fields, values)
-	}
-
-	length := len(fields)
-	setFieldsExpr := make([]string, length)
-	for i := 0; i < length; i++ {
-		setFieldsExpr[i] = fmt.Sprintf("%s = %s", fields[i], Placeholder)
-	}
-
-	if ofModFieldsExprValues != nil {
-		setFieldsExpr, values = ofModFieldsExprValues(setFieldsExpr, values)
-	}
-
-	prepare, args := s.Create(object).SQL()
-
-	prepare = s.schema.way.Config.SqlInsertOrUpdate(&SqlInsertConflictUpdate{
-		InsertPrepare: prepare,
-		ConflictField: conflictFields,
-		SetFieldsExpr: setFieldsExpr,
-	})
-	args = append(args, values...)
-
+	iou := s.schema.way.Config.SqlInsertUpdater()
+	iou.Add(func(add *Add) { add.Table(s.schema.table) })
+	prepare, args := fc(iou)
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
@@ -1315,6 +1287,26 @@ func (s *Mod) DefaultDecr(field string, value interface{}) *Mod {
 	return s.defaultExpression(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
 }
 
+// BatchUpdate batch update
+func (s *Mod) BatchUpdate(fc func(bu BatchUpdater) ([]string, [][]interface{})) (rowsAffected int64, err error) {
+	if s.schema.way.Config.SqlBatchUpdater == nil {
+		err = errors.New("hey: please set Config.SqlBatchUpdater")
+		return
+	}
+	batchUpdater := s.schema.way.Config.SqlBatchUpdater()
+	batchUpdater.Table(s.schema.table).Except(s.exceptSlice...)
+	prepareGroup, argsGroup := fc(batchUpdater)
+	length := len(prepareGroup)
+	var n int64
+	for i := 0; i < length; i++ {
+		if n, err = s.schema.way.ExecContext(s.schema.ctx, prepareGroup[i], argsGroup[i]...); err != nil {
+			return
+		}
+		rowsAffected += n
+	}
+	return
+}
+
 // Where set where
 func (s *Mod) Where(where Filter) *Mod {
 	s.where = where
@@ -1349,11 +1341,8 @@ func (s *Mod) WhereEqual(field string, value interface{}) *Mod {
 	return s.Where(NewFilter().Equal(field, value))
 }
 
-// SQL build SQL statement
-func (s *Mod) SQL() (prepare string, args []interface{}) {
-	if s.schema.table == "" {
-		return
-	}
+// SetSQL prepare args of set
+func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	length := len(s.update)
 	if length == 0 {
 		return
@@ -1389,13 +1378,26 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		field[k] = s.secondaryUpdate[v].expression
 		value = append(value, s.secondaryUpdate[v].args...)
 	}
+	buf := comment(s.schema)
+	defer putSqlBuilder(buf)
+	buf.WriteString(strings.Join(field, ", "))
+	prepare = buf.String()
 	args = value
+	return
+}
+
+// SQL build SQL statement
+func (s *Mod) SQL() (prepare string, args []interface{}) {
+	if s.schema.table == "" {
+		return
+	}
+	prepare, args = s.SetSQL()
 	buf := comment(s.schema)
 	defer putSqlBuilder(buf)
 	buf.WriteString("UPDATE ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
-	buf.WriteString(strings.Join(field, ", "))
+	buf.WriteString(prepare)
 	w := false
 	if s.where != nil {
 		key, val := s.where.SQL()

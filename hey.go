@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -53,59 +52,6 @@ func putWay(s *Way) {
 	poolWay.Put(s)
 }
 
-// FixPgsql fix postgresql SQL statement
-// hey uses `?` as the placeholder symbol of the SQL statement by default
-// and may need to use different placeholder symbols for different databases
-// use the current method to convert ?, ?, ? ... into $1, $2, $3 ... as placeholders for SQL statements
-func FixPgsql(str string) string {
-	index := 0
-	for strings.Contains(str, Placeholder) {
-		index++
-		str = strings.Replace(str, Placeholder, fmt.Sprintf("$%d", index), 1)
-	}
-	return str
-}
-
-// SqlInsertConflictUpdate inserting data conflicts to perform updates
-type SqlInsertConflictUpdate struct {
-	InsertPrepare string
-	ConflictField []string
-	SetFieldsExpr []string
-}
-
-// SqlInsertOrUpdatePgsql postgresql SQL, update when insert conflicts
-// func InsertOrUpdatePgsql(addSql string, setFieldsExpr []string, conflictFields []string) (prepare string) {
-func SqlInsertOrUpdatePgsql(object *SqlInsertConflictUpdate) (prepare string) {
-	if object == nil {
-		return
-	}
-	lenConflictFields := len(object.ConflictField)
-	if lenConflictFields == 0 {
-		prepare = object.InsertPrepare
-		return
-	}
-	lenSetExpr := len(object.SetFieldsExpr)
-	conflict := getSqlBuilder()
-	defer putSqlBuilder(conflict)
-	conflict.WriteString(" ON CONFLICT( ")
-	conflict.WriteString(strings.Join(object.ConflictField, ", "))
-	conflict.WriteString(" ) ")
-	if lenSetExpr == 0 {
-		// ON CONFLICT( field1 ... ) DO NOTHING;
-		conflict.WriteString("DO NOTHING")
-	} else {
-		// ON CONFLICT( field1, field2, field3 ) DO UPDATE SET key = value, field1 = ?, field2 = 123 ...;
-		conflict.WriteString("DO UPDATE SET ")
-		conflict.WriteString(strings.Join(object.SetFieldsExpr, ", "))
-	}
-	builder := getSqlBuilder()
-	defer putSqlBuilder(builder)
-	builder.WriteString(object.InsertPrepare)
-	builder.WriteString(conflict.String())
-	prepare = builder.String()
-	return
-}
-
 // Choose returns the first instance of *Way that is not empty in items
 // returns way by default
 func Choose(way *Way, items ...*Way) *Way {
@@ -123,13 +69,15 @@ type Config struct {
 	UpdateMustUseWhere bool
 
 	// SqlNullReplace replace field null value
-	// mysql: IFNULL($field, $replace)
-	// postgresql: COALESCE($field, $replace)
+	// pgsql: COALESCE($field, $replace)
 	// call example: NullReplace("email", "''"), NullReplace("account.balance", "0")
 	SqlNullReplace func(fieldName string, replaceValue string) string
 
-	// SqlInsertOrUpdate inserting data conflicts to perform updates
-	SqlInsertOrUpdate func(object *SqlInsertConflictUpdate) (prepare string)
+	// SqlInsertUpdater insert on conflict do update
+	SqlInsertUpdater func() InsertUpdater
+
+	// SqlBatchUpdater batch update
+	SqlBatchUpdater func() BatchUpdater
 }
 
 var (
