@@ -395,9 +395,9 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 				continue
 			}
 			if i == 0 {
-				fields, values[i] = s.structFieldsValues(reflectValue)
+				fields, values[i] = s.structFieldsValues(indexValue)
 			} else {
-				values[i] = s.structValues(reflectValue)
+				values[i] = s.structValues(indexValue)
 			}
 		}
 	}
