@@ -45,7 +45,7 @@ type BatchUpdater interface {
 	Updates(updates interface{}, process ...func(prepare []string, args [][]interface{}) ([]string, [][]interface{})) (prepareGroup []string, argsGroup [][]interface{})
 
 	// SafeUpdates create table template(using '%s' replace table name), one of struct, *struct, []struct, []*struct, *[]struct, *[]*struct
-	SafeUpdates(createTableTemplate string, updates interface{}) (prepareGroup []string, argsGroup [][]interface{})
+	SafeUpdates(fc func(tmpTable string) (prepare []string), updates interface{}) (prepareGroup []string, argsGroup [][]interface{})
 }
 
 // argsString sql args string value

@@ -221,6 +221,7 @@ func (s *pgsqlBatchUpdate) updates(updates interface{}) (filterFieldsMap map[str
 	kind := typeOf.Kind()
 	for kind == reflect.Ptr {
 		typeOf, valueOf = typeOf.Elem(), valueOf.Elem()
+		kind = typeOf.Kind()
 	}
 
 	ffmLen := len(filterFieldsMap)
@@ -372,10 +373,7 @@ func (s *pgsqlBatchUpdate) Updates(
 }
 
 // SafeUpdates create template table, batch insert data into template table, update table data by template table, drop template table
-func (s *pgsqlBatchUpdate) SafeUpdates(createTableTemplate string, updates interface{}) (prepareGroup []string, argsGroup [][]interface{}) {
-	if strings.Count(createTableTemplate, "%s") != 1 {
-		return
-	}
+func (s *pgsqlBatchUpdate) SafeUpdates(fc func(tmpTable string) []string, updates interface{}) (prepareGroup []string, argsGroup [][]interface{}) {
 	ffm, ffs, batch := s.updates(updates)
 	now := time.Now()
 	serial := 1
@@ -387,15 +385,26 @@ func (s *pgsqlBatchUpdate) SafeUpdates(createTableTemplate string, updates inter
 
 		// create template table
 		key := fmt.Sprintf("%d_%d", os.Getpid(), now.UnixNano())
-		table := fmt.Sprintf("%s_tmp%03d%s", s.table, serial, fmt.Sprintf("%x", md5.Sum([]byte(key)))[:8])
-		createTable := fmt.Sprintf(createTableTemplate, table)
+		table := s.table
+		if index := strings.LastIndex(table, "."); index >= 0 {
+			// warn: if "." appears at the end of table, panic
+			table = table[index+1:]
+		}
+		// set template table name
+		table = fmt.Sprintf("%s_%s_%x", table, fmt.Sprintf("%x", md5.Sum([]byte(key)))[:6], serial-1)
 
-		createSql := getSqlBuilder()
-		defer putSqlBuilder(createSql)
-		createSql.WriteString(fmt.Sprintf("/* %s.1 */", sqlComment))
-		createSql.WriteString(createTable)
-		prepareGroup = append(prepareGroup, createSql.String())
-		argsGroup = append(argsGroup, nil)
+		prepare := fc(table)
+		createTable := func(i int) {
+			createSql := getSqlBuilder()
+			defer putSqlBuilder(createSql)
+			createSql.WriteString(fmt.Sprintf("/* %s.1.%d */", sqlComment, i+1))
+			createSql.WriteString(prepare[i])
+			prepareGroup = append(prepareGroup, createSql.String())
+			argsGroup = append(argsGroup, nil)
+		}
+		for i := range prepare {
+			createTable(i)
+		}
 
 		dropSql := getSqlBuilder()
 		defer putSqlBuilder(dropSql)
