@@ -134,6 +134,7 @@ type Way struct {
 	Tag    string                            // bind struct tag and table column
 	Log    func(lop *OfPrepare, loa *OfArgs) // logger executed SQL statement
 	tx     *sql.Tx                           // the transaction instance
+	txAt   *time.Time                        // the transaction start at
 	txId   string                            // the transaction unique id
 	txMsg  string                            // the transaction message
 	TxLog  func(lt *OfTransaction)           // logger executed transaction
@@ -178,21 +179,23 @@ func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
 	if err != nil {
 		return
 	}
-	s.txId = fmt.Sprintf("%d.%d.%p", time.Now().UnixNano(), os.Getpid(), s.tx)
+	now := time.Now()
+	s.txAt = &now
+	s.txId = fmt.Sprintf("%d.%d.%p", now.UnixNano(), os.Getpid(), s.tx)
 	return
 }
 
 // commit for commit transaction
 func (s *Way) commit() (err error) {
 	err = s.tx.Commit()
-	s.tx, s.txId, s.txMsg = nil, "", ""
+	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, "", ""
 	return
 }
 
 // rollback for rollback transaction
 func (s *Way) rollback() (err error) {
 	err = s.tx.Rollback()
-	s.tx, s.txId, s.txMsg = nil, "", ""
+	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, "", ""
 	return
 }
 
@@ -218,16 +221,19 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 	if s.tx != nil {
 		return fn(s)
 	}
+
 	way := getWay(s)
 	defer putWay(way)
-	err = way.begin(ctx, opts)
-	if err != nil {
+
+	if err = way.begin(ctx, opts); err != nil {
 		return
 	}
+
 	lt := &OfTransaction{
 		TxId:    way.txId,
-		StartAt: time.Now(),
+		StartAt: *(way.txAt),
 	}
+
 	ok := false
 	defer func() {
 		lt.Error = err
@@ -244,6 +250,7 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 			s.TxLog(lt)
 		}
 	}()
+
 	if err = fn(way); err != nil {
 		return
 	}
@@ -268,6 +275,14 @@ func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way
 // TxTry call transaction multiple times
 func (s *Way) TxTry(fn func(tx *Way) error, times int) error {
 	return s.TxTryCtx(context.Background(), nil, fn, times)
+}
+
+// Now get current time, the transaction open status will get the same time
+func (s *Way) Now() time.Time {
+	if s.TxNil() {
+		return time.Now()
+	}
+	return *(s.txAt)
 }
 
 // Stmt is a prepared statement
