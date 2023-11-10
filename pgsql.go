@@ -471,7 +471,7 @@ func (s *pgsqlBatchUpdate) updateOfTable(updates interface{}) (prepareGroup []st
 		updateSql.WriteString(" SET ")
 		updateSql.WriteString(strings.Join(setFields, ", "))
 		updateSql.WriteString(" FROM ")
-		updateSql.WriteString(table)
+		updateSql.WriteString(tmpTable)
 		updateSql.WriteString(" AS tmp")
 
 		// set where
