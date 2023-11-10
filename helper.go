@@ -263,9 +263,10 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 }
 
 type insertByStruct struct {
-	tag    string              // struct tag name value used as table.column name
-	except map[string]struct{} // ignored field Hash table
-	used   map[string]struct{} // already existing field Hash table
+	tag               string              // struct tag name value used as table.column name
+	except            map[string]struct{} // ignored field Hash table
+	used              map[string]struct{} // already existing field Hash table
+	structReflectType reflect.Type        // struct reflect type, make sure it is the same structure type
 }
 
 // setExcept filter the list of unwanted fields, prioritize method calls structFieldsValues() and structValues()
@@ -285,6 +286,13 @@ func (s *insertByStruct) setExcept(except []string) {
 // structFieldsValues checkout fields, values
 func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (fields []string, values []interface{}) {
 	reflectType := structReflectValue.Type()
+	if s.structReflectType == nil {
+		s.structReflectType = reflectType
+	} else {
+		if s.structReflectType != reflectType {
+			return
+		}
+	}
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
 		field := reflectType.Field(i)
@@ -329,6 +337,9 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (f
 // structValues checkout values
 func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values []interface{}) {
 	reflectType := structReflectValue.Type()
+	if s.structReflectType != reflectType {
+		panic("hey: slice element types are inconsistent")
+	}
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
 		field := reflectType.Field(i)
@@ -357,10 +368,6 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values 
 		if _, ok := s.except[valueIndexFieldTag]; ok {
 			continue
 		}
-		if _, ok := s.used[valueIndexFieldTag]; ok {
-			continue
-		}
-		s.used[valueIndexFieldTag] = struct{}{}
 
 		values = append(values, valueIndexField.Interface())
 	}
