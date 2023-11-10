@@ -38,14 +38,14 @@ type BatchUpdater interface {
 	// Match batch update filter fields, like "order_id" ...
 	Match(fields ...string) BatchUpdater
 
-	// MergePrepareArgs merge prepared SQL statements and parameter lists
-	MergePrepareArgs(fc func(prepare []string, args [][]interface{}) ([]string, [][]interface{})) BatchUpdater
+	// CloneTableStruct setting clone table structure, by CREATE TABLE, BATCH INSERT, SELECT DATA, DROP TABLE
+	CloneTableStruct(fc func(originTableName, latestTableName string) []string) BatchUpdater
 
-	// Updates one of struct, *struct, []struct, []*struct, *[]struct, *[]*struct
-	Updates(updates interface{}, process ...func(prepare []string, args [][]interface{}) ([]string, [][]interface{})) (prepareGroup []string, argsGroup [][]interface{})
+	// MergePrepareArgs merge prepared SQL statements and parameter lists, by SQL
+	MergePrepareArgs(fc func(prepare []string, args [][]interface{}) []string) BatchUpdater
 
-	// SafeUpdates create table template(using '%s' replace table name), one of struct, *struct, []struct, []*struct, *[]struct, *[]*struct
-	SafeUpdates(fc func(tmpTable string) (prepare []string), updates interface{}) (prepareGroup []string, argsGroup [][]interface{})
+	// Update one of struct, *struct, []struct, []*struct, *[]struct, *[]*struct
+	Update(update interface{}) (prepare []string, args [][]interface{})
 }
 
 // argsString sql args string value

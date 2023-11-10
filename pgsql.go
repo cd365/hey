@@ -6,7 +6,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"time"
 )
 
 // PgsqlPrepareFix fix postgresql SQL statement
@@ -20,6 +19,11 @@ func PgsqlPrepareFix(str string) string {
 		str = strings.Replace(str, Placeholder, fmt.Sprintf("$%d", index), 1)
 	}
 	return str
+}
+
+// PgsqlCloneTableStruct clone table structure
+func PgsqlCloneTableStruct(originTableName, latestTableName string) []string {
+	return []string{fmt.Sprintf("CREATE TABLE %s ( LIKE %s INCLUDING ALL )", latestTableName, originTableName)}
 }
 
 type pgsqlInsertUpdate struct {
@@ -115,13 +119,17 @@ type pgsqlBatchUpdate struct {
 	matchFields []string
 
 	// mergePrepareArgs merge sql prepare and sql args
-	mergePrepareArgs func(prepare []string, args [][]interface{}) ([]string, [][]interface{})
+	mergePrepareArgs func(prepare []string, args [][]interface{}) []string
+
+	// cloneTableStruct, clone table structure, returns the DDL of the cloned table
+	cloneTableStruct func(originTableName, latestTableName string) []string
 }
 
 func NewPgsqlBatchUpdater(way *Way) BatchUpdater {
 	return &pgsqlBatchUpdate{
-		way: way,
-		mergePrepareArgs: func(prepare []string, args [][]interface{}) ([]string, [][]interface{}) {
+		way:              way,
+		cloneTableStruct: PgsqlCloneTableStruct,
+		mergePrepareArgs: func(prepare []string, args [][]interface{}) []string {
 			for i := range prepare {
 				if args[i] == nil || len(args) == 0 {
 					continue
@@ -129,7 +137,7 @@ func NewPgsqlBatchUpdater(way *Way) BatchUpdater {
 				prepare[i] = MergePrepareArgs(prepare[i], args[i])
 				args[i] = nil
 			}
-			return prepare, args
+			return prepare
 		},
 	}
 }
@@ -186,8 +194,8 @@ func (s *pgsqlBatchUpdate) Match(fields ...string) BatchUpdater {
 	return s
 }
 
-// updates group sql using map[string][]*ofPgsqlBatchUpdate
-func (s *pgsqlBatchUpdate) updates(updates interface{}) (filterFieldsMap map[string]struct{}, filterFieldsSlice []string, batch map[string][]*ofPgsqlBatchUpdate) {
+// modify group sql using map[string][]*ofPgsqlBatchUpdate
+func (s *pgsqlBatchUpdate) modify(updates interface{}) (filterFieldsMap map[string]struct{}, filterFieldsSlice []string, batch map[string][]*ofPgsqlBatchUpdate) {
 	batch = make(map[string][]*ofPgsqlBatchUpdate)
 
 	// filter fields list
@@ -272,17 +280,22 @@ func (s *pgsqlBatchUpdate) updates(updates interface{}) (filterFieldsMap map[str
 }
 
 // MergePrepareArgs merge prepared SQL statements and parameter lists
-func (s *pgsqlBatchUpdate) MergePrepareArgs(fc func(prepare []string, args [][]interface{}) ([]string, [][]interface{})) BatchUpdater {
+func (s *pgsqlBatchUpdate) MergePrepareArgs(fc func(prepare []string, args [][]interface{}) []string) BatchUpdater {
 	s.mergePrepareArgs = fc
 	return s
 }
 
-// Updates of batch update, construct sql statements
-func (s *pgsqlBatchUpdate) Updates(
+// CloneTableStruct setting clone table structure
+func (s *pgsqlBatchUpdate) CloneTableStruct(fc func(originTableName, latestTableName string) []string) BatchUpdater {
+	s.cloneTableStruct = fc
+	return s
+}
+
+// update of batch update, construct sql statements
+func (s *pgsqlBatchUpdate) updateOfSql(
 	updates interface{},
-	process ...func(prepare []string, args [][]interface{}) ([]string, [][]interface{}),
 ) (prepareGroup []string, argsGroup [][]interface{}) {
-	ffm, ffs, batch := s.updates(updates)
+	ffm, ffs, batch := s.modify(updates)
 	serial := 1
 	addUpdate := func(fieldsString string, list []*ofPgsqlBatchUpdate) (prepare string, args []interface{}) {
 		b := getSqlBuilder()
@@ -356,26 +369,16 @@ func (s *pgsqlBatchUpdate) Updates(
 		argsGroup = append(argsGroup, args)
 		serial++
 	}
-
 	// WARN: beware of sql inject
-	length, merged := len(process), false
-	for i := 0; i < length; i++ {
-		if process[i] != nil {
-			prepareGroup, argsGroup = process[i](prepareGroup, argsGroup)
-			merged = true
-			break
-		}
-	}
-	if !merged && s.mergePrepareArgs != nil {
-		prepareGroup, argsGroup = s.mergePrepareArgs(prepareGroup, argsGroup)
-	}
+	prepareGroup = s.mergePrepareArgs(prepareGroup, argsGroup)
+	argsGroup = make([][]interface{}, len(prepareGroup))
 	return
 }
 
 // SafeUpdates create template table, batch insert data into template table, update table data by template table, drop template table
-func (s *pgsqlBatchUpdate) SafeUpdates(fc func(tmpTable string) []string, updates interface{}) (prepareGroup []string, argsGroup [][]interface{}) {
-	ffm, ffs, batch := s.updates(updates)
-	now := time.Now()
+func (s *pgsqlBatchUpdate) updateOfTable(updates interface{}) (prepareGroup []string, argsGroup [][]interface{}) {
+	ffm, ffs, batch := s.modify(updates)
+	now := s.way.Now()
 	serial := 1
 	addUpdate := func(fieldsString string, list []*ofPgsqlBatchUpdate) {
 		if s.comment == "" {
@@ -391,9 +394,8 @@ func (s *pgsqlBatchUpdate) SafeUpdates(fc func(tmpTable string) []string, update
 			table = table[index+1:]
 		}
 		// set template table name
-		table = fmt.Sprintf("%s_%s_%x", table, fmt.Sprintf("%x", md5.Sum([]byte(key)))[:6], serial-1)
-
-		prepare := fc(table)
+		tmpTable := fmt.Sprintf("%s_%s_%x", table, fmt.Sprintf("%x", md5.Sum([]byte(key)))[:6], serial-1)
+		prepare := s.cloneTableStruct(table, tmpTable)
 		createTable := func(i int) {
 			createSql := getSqlBuilder()
 			defer putSqlBuilder(createSql)
@@ -409,7 +411,7 @@ func (s *pgsqlBatchUpdate) SafeUpdates(fc func(tmpTable string) []string, update
 		dropSql := getSqlBuilder()
 		defer putSqlBuilder(dropSql)
 		dropSql.WriteString(fmt.Sprintf("/* %s.4 */", sqlComment))
-		dropSql.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
+		dropSql.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s", tmpTable))
 		dropPrepare := dropSql.String()
 
 		// drop template table
@@ -501,6 +503,14 @@ func (s *pgsqlBatchUpdate) SafeUpdates(fc func(tmpTable string) []string, update
 		serial++
 	}
 	return
+}
+
+// Update of batch update
+func (s *pgsqlBatchUpdate) Update(update interface{}) ([]string, [][]interface{}) {
+	if s.cloneTableStruct != nil {
+		return s.updateOfTable(update)
+	}
+	return s.updateOfSql(update)
 }
 
 /*
