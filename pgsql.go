@@ -426,7 +426,7 @@ func (s *pgsqlBatchUpdate) updateOfTable(updates interface{}) (prepareGroup []st
 		insertSql.WriteString(fmt.Sprintf("/* %s@%d.2 */", s.comment, serial))
 
 		insertSql.WriteString("INSERT INTO ")
-		insertSql.WriteString(table)
+		insertSql.WriteString(tmpTable)
 		insertSql.WriteString(" ")
 		insertSql.WriteString(fieldsString)
 		insertSql.WriteString(" VALUES ")
