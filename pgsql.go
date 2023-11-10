@@ -467,7 +467,7 @@ func (s *pgsqlBatchUpdate) updateOfTable(updates interface{}) (prepareGroup []st
 		updateSql.WriteString(fmt.Sprintf("/* %s@%d.3 */", s.comment, serial))
 
 		updateSql.WriteString("UPDATE ")
-		updateSql.WriteString(s.table)
+		updateSql.WriteString(table)
 		updateSql.WriteString(" SET ")
 		updateSql.WriteString(strings.Join(setFields, ", "))
 		updateSql.WriteString(" FROM ")
@@ -484,7 +484,7 @@ func (s *pgsqlBatchUpdate) updateOfTable(updates interface{}) (prepareGroup []st
 			if first {
 				updateSql.WriteString(" AND")
 			}
-			updateSql.WriteString(fmt.Sprintf(" %s.%s = tmp.%s", s.table, v, v))
+			updateSql.WriteString(fmt.Sprintf(" %s.%s = tmp.%s", table, v, v))
 			if !first {
 				first = true
 			}
