@@ -64,15 +64,12 @@ func argsString(i interface{}) string {
 		return fmt.Sprintf("%t", i)
 	}
 	typeOf, valueOf := reflect.TypeOf(i), reflect.ValueOf(i)
-	if valueOf.IsNil() {
-		return "NULL"
-	}
 	kind := typeOf.Kind()
 	for kind == reflect.Ptr {
-		typeOf, valueOf = typeOf.Elem(), valueOf.Elem()
 		if valueOf.IsNil() {
 			return "NULL"
 		}
+		typeOf, valueOf = typeOf.Elem(), valueOf.Elem()
 		kind = typeOf.Kind()
 	}
 	switch kind {
@@ -82,7 +79,7 @@ func argsString(i interface{}) string {
 		return argsString(valueOf.Interface())
 	}
 	// not char, varchar, text, int, bigint, float, decimal, bool type
-	return fmt.Sprintf("‘%v’", valueOf.Interface())
+	return fmt.Sprintf("'%v'", valueOf.Interface())
 }
 
 // MergePrepareArgs merge prepared SQL statements and parameter lists
