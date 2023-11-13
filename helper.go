@@ -2147,18 +2147,9 @@ func (s *Get) Get(result interface{}) error {
 	return s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...)
 }
 
-// RowsNext execute the built SQL statement and scan query result, scan one or more rows
-func (s *Get) RowsNext(fc func() error) error {
-	return s.Query(func(rows *sql.Rows) error {
-		return s.schema.way.RowsNext(rows, fc)
-	})
-}
-
 // RowsNextRow execute the built SQL statement and scan query result, only scan one row
 func (s *Get) RowsNextRow(dest ...interface{}) error {
-	return s.Query(func(rows *sql.Rows) error {
-		return s.schema.way.RowsNextRow(rows, dest...)
-	})
+	return s.Query(func(rows *sql.Rows) error { return s.schema.way.RowsNextRow(rows, dest...) })
 }
 
 // CountQuery execute the built SQL statement and scan query result, count + query
@@ -2177,13 +2168,4 @@ func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error)
 		return count, err
 	}
 	return count, s.Get(result)
-}
-
-// CountRowsNext execute the built SQL statement and scan query result, count + rowsNext
-func (s *Get) CountRowsNext(fc func() error, countColumn ...string) (int64, error) {
-	count, err := s.Count(countColumn...)
-	if err != nil || count == 0 {
-		return count, err
-	}
-	return count, s.RowsNext(fc)
 }
