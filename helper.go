@@ -337,7 +337,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (f
 // structValues checkout values
 func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values []interface{}) {
 	reflectType := structReflectValue.Type()
-	if s.structReflectType != reflectType {
+	if s.structReflectType != nil && s.structReflectType != reflectType {
 		panic("hey: slice element types are inconsistent")
 	}
 	length := reflectType.NumField()
@@ -416,6 +416,10 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 // get fields and values based on struct tag.
 func StructInsert(object interface{}, tag string, except ...string) (fields []string, values [][]interface{}) {
 	b := getInsertByStruct()
+	b.tag = ""
+	b.except = nil
+	b.used = nil
+	b.structReflectType = nil
 	defer putInsertByStruct(b)
 	fields, values = b.Insert(object, tag, except...)
 	return
@@ -571,7 +575,7 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 			continue
 		}
 
-		add(column, ofValue.Field(i))
+		add(column, ofValue.Field(i).Interface())
 	}
 	return
 }
