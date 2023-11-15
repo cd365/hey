@@ -1399,6 +1399,9 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	prepare, args = s.SetSQL()
+	if prepare == "" {
+		return
+	}
 	buf := comment(s.schema)
 	defer putSqlBuilder(buf)
 	buf.WriteString("UPDATE ")
