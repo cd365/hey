@@ -53,6 +53,7 @@ func putInsertByStruct(b *insertByStruct) {
 	b.tag = ""
 	b.used = nil
 	b.except = nil
+	b.structReflectType = nil
 	insertByStructPool.Put(b)
 }
 
@@ -264,8 +265,8 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 
 type insertByStruct struct {
 	tag               string              // struct tag name value used as table.column name
-	except            map[string]struct{} // ignored field Hash table
 	used              map[string]struct{} // already existing field Hash table
+	except            map[string]struct{} // ignored field Hash table
 	structReflectType reflect.Type        // struct reflect type, make sure it is the same structure type
 }
 
@@ -416,10 +417,6 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 // get fields and values based on struct tag.
 func StructInsert(object interface{}, tag string, except ...string) (fields []string, values [][]interface{}) {
 	b := getInsertByStruct()
-	b.tag = ""
-	b.except = nil
-	b.used = nil
-	b.structReflectType = nil
 	defer putInsertByStruct(b)
 	fields, values = b.Insert(object, tag, except...)
 	return
