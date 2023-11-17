@@ -623,85 +623,6 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	return
 }
 
-// StructAssign struct assign, by field name or tag name, target field value = latest field value
-func StructAssign(target interface{}, latest interface{}, tags ...string) {
-	ofType1, ofValue1 := reflect.TypeOf(target), reflect.ValueOf(target)
-	ofType2, ofValue2 := reflect.TypeOf(latest), reflect.ValueOf(latest)
-	ofKind1, ofKind2 := ofType1.Kind(), ofType2.Kind()
-	if ofKind1 != reflect.Ptr {
-		return
-	}
-	for ; ofKind1 == reflect.Ptr; ofKind1 = ofType1.Kind() {
-		ofType1 = ofType1.Elem()
-		ofValue1 = ofValue1.Elem()
-	}
-	for ; ofKind2 == reflect.Ptr; ofKind2 = ofType2.Kind() {
-		ofType2 = ofType2.Elem()
-		ofValue2 = ofValue2.Elem()
-	}
-	if ofKind1 != reflect.Struct || ofKind2 != reflect.Struct {
-		return
-	}
-
-	count := len(tags)
-	tag := ""
-	for i := count - 1; i >= 0; i-- {
-		if tags[i] != "" {
-			tag = tags[i]
-			break
-		}
-	}
-
-	named := func(field reflect.StructField) string {
-		if tag == "" {
-			return field.Name
-		}
-		name := field.Tag.Get(tag)
-		if name == "-" {
-			name = ""
-		}
-		return name
-	}
-
-	index21 := make(map[string]int)
-	index22 := make(map[string]reflect.Value)
-	length := ofValue2.Type().NumField()
-	for i := 0; i < length; i++ {
-		name := named(ofType2.Field(i))
-		if name == "" {
-			continue
-		}
-		index21[name] = i
-		index22[name] = ofValue2.Field(i)
-	}
-
-	length = ofType1.NumField()
-	for i := 0; i < length; i++ {
-		value1 := ofValue1.Field(i)
-		if !value1.CanAddr() || !value1.CanSet() {
-			continue
-		}
-		field1 := ofType1.Field(i)
-		name := named(field1)
-		value2, ok := index22[name]
-		if !ok {
-			continue
-		}
-		field2 := ofType2.Field(index21[name])
-		if field1.Type != field2.Type {
-			continue
-		}
-		if reflect.DeepEqual(value1.Interface(), value2.Interface()) {
-			continue
-		}
-		field1type := field1.Type
-		if field1type.Kind() == reflect.Ptr && value1.IsNil() {
-			value1 = reflect.Indirect(reflect.New(field1type))
-		}
-		value1.Set(value2)
-	}
-}
-
 // RowsNext traversing and processing query results
 func RowsNext(rows *sql.Rows, fc func() error) (err error) {
 	for rows.Next() {
@@ -876,6 +797,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 		}
 	}
 	if s.schema.way.Config.DeleteMustUseWhere && !w {
+		prepare, args = "", nil
 		return
 	}
 	prepare = buf.String()
@@ -1420,7 +1342,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		}
 	}
 	if s.schema.way.Config.UpdateMustUseWhere && !w {
-		args = nil
+		prepare, args = "", nil
 		return
 	}
 	prepare = buf.String()
@@ -1431,6 +1353,36 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 func (s *Mod) Mod() (int64, error) {
 	prepare, args := s.SQL()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
+}
+
+type WithQuery struct {
+	alias   string
+	prepare string
+	args    []interface{}
+}
+
+func newWithQuery(
+	alias string,
+	prepare string,
+	args ...interface{},
+) *WithQuery {
+	return &WithQuery{
+		alias:   alias,
+		prepare: prepare,
+		args:    args,
+	}
+}
+
+func (s *WithQuery) SQL() (prepare string, args []interface{}) {
+	b := getSqlBuilder()
+	defer putSqlBuilder(b)
+	b.WriteString(s.alias)
+	b.WriteString(" AS ( ")
+	b.WriteString(s.prepare)
+	b.WriteString(" )")
+	prepare = b.String()
+	args = s.args
+	return
 }
 
 type SubQuery struct {
@@ -1659,6 +1611,7 @@ func newTableField(table ...string) *TableField {
 // Get for SELECT
 type Get struct {
 	schema   *schema           // query table
+	with     []*WithQuery      // with of query
 	column   []string          // query field list
 	subQuery *SubQuery         // the query table is a sub query
 	alias    *string           // set an alias for the queried table
@@ -1687,6 +1640,9 @@ func (s *Get) Clone() *Get {
 	get.schema.ctx = s.schema.ctx
 	get.schema.comment = s.schema.comment
 	get.schema.table = s.schema.table
+	if get.with != nil {
+		get.with = s.with[:]
+	}
 	get.Column(s.column...)
 	if s.subQuery != nil {
 		get.subQuery = NewSubQuery(s.subQuery.prepare, s.subQuery.args...)
@@ -1745,6 +1701,21 @@ func (s *Get) Comment(comment string) *Get {
 func (s *Get) Context(ctx context.Context) *Get {
 	s.schema.ctx = ctx
 	return s
+}
+
+// With for with query
+func (s *Get) With(alias string, prepare string, args ...interface{}) *Get {
+	if alias == "" || prepare == "" {
+		return s
+	}
+	s.with = append(s.with, newWithQuery(alias, prepare, args...))
+	return s
+}
+
+// WithGet for with query using *Get
+func (s *Get) WithGet(alias string, get *Get) *Get {
+	prepare, args := get.SQL()
+	return s.With(alias, prepare, args...)
 }
 
 // Table set table name
@@ -2012,13 +1983,31 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 	}
 	buf := comment(s.schema)
 	defer putSqlBuilder(buf)
+
+	withLength := len(s.with)
+	if withLength > 0 {
+		buf.WriteString("WITH ")
+		for i := 0; i < withLength; i++ {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			pre, arg := s.with[i].SQL()
+			buf.WriteString(pre)
+			args = append(args, arg...)
+		}
+		buf.WriteString(" ")
+	}
+
 	buf.WriteString("SELECT ")
+
 	if s.column == nil {
 		buf.WriteString("*")
 	} else {
 		buf.WriteString(strings.Join(s.column, ", "))
 	}
+
 	buf.WriteString(" FROM ")
+
 	if s.subQuery == nil {
 		buf.WriteString(s.schema.table)
 	} else {
@@ -2028,10 +2017,12 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 		buf.WriteString(" )")
 		args = append(args, subArgs...)
 	}
+
 	if s.alias != nil && *s.alias != "" {
 		buf.WriteString(" AS ")
 		buf.WriteString(*s.alias)
 	}
+
 	if s.join != nil {
 		length := len(s.join)
 		for i := 0; i < length; i++ {
@@ -2046,6 +2037,7 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 			}
 		}
 	}
+
 	if s.where != nil {
 		where, whereArgs := s.where.SQL()
 		if where != "" {
@@ -2054,6 +2046,7 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 			args = append(args, whereArgs...)
 		}
 	}
+
 	if s.group != nil {
 		if len(s.group) > 0 {
 			buf.WriteString(" GROUP BY ")
@@ -2068,6 +2061,7 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 			}
 		}
 	}
+
 	if s.union != nil {
 		for _, u := range s.union {
 			buf.WriteString(" ")
@@ -2078,6 +2072,7 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 			args = append(args, u.args...)
 		}
 	}
+
 	prepare = strings.TrimSpace(buf.String())
 	return
 }
@@ -2089,6 +2084,7 @@ func (s *Get) SQLCount(columns ...string) (prepare string, args []interface{}) {
 			SqlAlias("COUNT(*)", "count"),
 		}
 	}
+
 	if s.group != nil || s.union != nil {
 		prepare, args = s.sqlTable()
 		prepare, args = NewGet(s.schema.way).
@@ -2097,10 +2093,12 @@ func (s *Get) SQLCount(columns ...string) (prepare string, args []interface{}) {
 			SQLCount(columns...)
 		return
 	}
+
 	column := s.column // store selected columns
 	s.column = columns // set count column
 	prepare, args = s.sqlTable()
 	s.column = column // restore origin selected columns
+
 	return
 }
 
@@ -2110,19 +2108,23 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 	if prepare == "" {
 		return
 	}
+
 	buf := getSqlBuilder()
 	defer putSqlBuilder(buf)
 	buf.WriteString(prepare)
+
 	if len(s.order) > 0 {
 		buf.WriteString(" ORDER BY ")
 		buf.WriteString(strings.Join(s.order, ", "))
 	}
+
 	if s.limit != nil {
 		buf.WriteString(fmt.Sprintf(" LIMIT %d", *s.limit))
 		if s.offset != nil {
 			buf.WriteString(fmt.Sprintf(" OFFSET %d", *s.offset))
 		}
 	}
+
 	prepare = strings.TrimSpace(buf.String())
 	return
 }
