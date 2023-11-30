@@ -263,6 +263,33 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	return nil
 }
 
+func BasicTypeValue(value interface{}) interface{} {
+	t, v := reflect.TypeOf(value), reflect.ValueOf(value)
+	k := t.Kind()
+	for k == reflect.Ptr {
+		if v.IsNil() {
+			for k == reflect.Ptr {
+				t = t.Elem()
+				k = t.Kind()
+			}
+			switch k {
+			case reflect.String:
+				return ""
+			case reflect.Bool:
+				return false
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+				reflect.Float32, reflect.Float64:
+				return 0
+			}
+			return reflect.Indirect(reflect.New(t)).Interface()
+		}
+		t, v = t.Elem(), v.Elem()
+		k = t.Kind()
+	}
+	return v.Interface()
+}
+
 type insertByStruct struct {
 	tag               string              // struct tag name value used as table.column name
 	used              map[string]struct{} // already existing field Hash table
@@ -330,7 +357,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (f
 		s.used[valueIndexFieldTag] = struct{}{}
 
 		fields = append(fields, valueIndexFieldTag)
-		values = append(values, valueIndexField.Interface())
+		values = append(values, BasicTypeValue(valueIndexField.Interface()))
 	}
 	return
 }
@@ -370,7 +397,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values 
 			continue
 		}
 
-		values = append(values, valueIndexField.Interface())
+		values = append(values, BasicTypeValue(valueIndexField.Interface()))
 	}
 	return
 }
@@ -503,7 +530,6 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 		for index := pointerDepth; index > 1; index-- {
 			if index == 2 {
 				if fieldValue.IsNil() {
-					add(column, nil)
 					break
 				}
 				if fieldValue = fieldValue.Elem(); !fieldValue.IsNil() {
@@ -614,10 +640,14 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 		if _, ok := storage[v]; !ok {
 			continue
 		}
-		if reflect.DeepEqual(storage[v], latestValues[k]) {
+		if latestValues[k] == nil {
 			continue
 		}
-		add(v, latestValues[k])
+		bvo, bvl := BasicTypeValue(storage[v]), BasicTypeValue(latestValues[k])
+		if reflect.DeepEqual(bvo, bvl) {
+			continue
+		}
+		add(v, bvl)
 	}
 
 	return
