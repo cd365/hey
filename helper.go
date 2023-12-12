@@ -983,7 +983,7 @@ func (s *Add) ValuesSubQueryGet(get *Get) *Add {
 		return s
 	}
 	prepare, args := get.SQL()
-	return s.ValuesSubQuery(prepare, args)
+	return s.ValuesSubQuery(prepare, args...)
 }
 
 // SQL build SQL statement

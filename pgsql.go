@@ -123,6 +123,9 @@ type pgsqlBatchUpdate struct {
 
 	// cloneTableStruct, clone table structure, returns the DDL of the cloned table
 	cloneTableStruct func(originTableName, latestTableName string) []string
+
+	// where filter data for batch update
+	where Filter
 }
 
 func NewPgsqlBatchUpdater(way *Way) BatchUpdater {
@@ -139,6 +142,7 @@ func NewPgsqlBatchUpdater(way *Way) BatchUpdater {
 			}
 			return prepare
 		},
+		where: way.Filter(),
 	}
 }
 
@@ -345,19 +349,17 @@ func (s *pgsqlBatchUpdate) updateOfSql(
 		b.WriteString(fieldsString)
 
 		// set where
-		b.WriteString(" WHERE")
-		first := false
 		for _, v := range ffs {
 			if _, ok := fieldsMap[v]; !ok {
 				continue
 			}
-			if first {
-				b.WriteString(" AND")
-			}
-			b.WriteString(fmt.Sprintf(" %s.%s = tmp.%s", s.table, v, v))
-			if !first {
-				first = true
-			}
+			s.where.And(fmt.Sprintf("%s.%s = tmp.%s", s.table, v, v))
+		}
+		wherePrepare, whereArgs := s.where.SQL()
+		if wherePrepare != "" {
+			b.WriteString(" WHERE ")
+			b.WriteString(wherePrepare)
+			args = append(args, whereArgs...)
 		}
 
 		prepare = b.String()
@@ -432,6 +434,7 @@ func (s *pgsqlBatchUpdate) updateOfTable(updates interface{}) (prepareGroup []st
 		insertSql.WriteString(" VALUES ")
 
 		var addArgs []interface{}
+		var modArgs []interface{}
 		var valuesString string
 		var setFields []string
 		var setValues []string
@@ -475,26 +478,24 @@ func (s *pgsqlBatchUpdate) updateOfTable(updates interface{}) (prepareGroup []st
 		updateSql.WriteString(" AS tmp")
 
 		// set where
-		updateSql.WriteString(" WHERE")
-		first := false
 		for _, v := range ffs {
 			if _, ok := fieldsMap[v]; !ok {
 				continue
 			}
-			if first {
-				updateSql.WriteString(" AND")
-			}
-			updateSql.WriteString(fmt.Sprintf(" %s.%s = tmp.%s", table, v, v))
-			if !first {
-				first = true
-			}
+			s.where.And(fmt.Sprintf("%s.%s = tmp.%s", table, v, v))
+		}
+		wherePrepare, whereArgs := s.where.SQL()
+		if wherePrepare != "" {
+			updateSql.WriteString(" WHERE ")
+			updateSql.WriteString(wherePrepare)
+			modArgs = append(modArgs, whereArgs...)
 		}
 
 		prepareGroup = append(prepareGroup, insertSql.String())
 		argsGroup = append(argsGroup, addArgs)
 
 		prepareGroup = append(prepareGroup, updateSql.String())
-		argsGroup = append(argsGroup, nil)
+		argsGroup = append(argsGroup, modArgs)
 
 		return
 	}
