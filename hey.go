@@ -72,12 +72,6 @@ type Config struct {
 	// pgsql: COALESCE($field, $replace)
 	// call example: NullReplace("email", "''"), NullReplace("account.balance", "0")
 	SqlNullReplace func(fieldName string, replaceValue string) string
-
-	// SqlInsertUpdater insert on conflict do update
-	SqlInsertUpdater func() InsertUpdater
-
-	// SqlBatchUpdater batch update
-	SqlBatchUpdater func() BatchUpdater
 }
 
 var (
@@ -528,10 +522,17 @@ func (s *Way) Get(table ...string) *Get {
 	return get
 }
 
-// TableField new table helper
-func (s *Way) TableField(table ...string) *TableField {
-	return newTableField(table...)
+// Identifier sql identifier
+func (s *Way) Identifier(prefix string) *Identifier {
+	return &Identifier{
+		prefix: prefix,
+	}
 }
+
+// // TableField new table helper
+// func (s *Way) TableField(table ...string) *TableField {
+// 	return newTableField(table...)
+// }
 
 // WayWriterReader read and write separation
 type WayWriterReader interface {

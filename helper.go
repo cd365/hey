@@ -3,7 +3,6 @@ package hey
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -311,15 +310,18 @@ func (s *insertByStruct) setExcept(except []string) {
 	s.used = make(map[string]struct{})
 }
 
+func panicBatchInsertByStruct() {
+	panic("hey: slice element types are inconsistent")
+}
+
 // structFieldsValues checkout fields, values
 func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (fields []string, values []interface{}) {
 	reflectType := structReflectValue.Type()
 	if s.structReflectType == nil {
 		s.structReflectType = reflectType
-	} else {
-		if s.structReflectType != reflectType {
-			return
-		}
+	}
+	if s.structReflectType != reflectType {
+		panicBatchInsertByStruct()
 	}
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
@@ -366,7 +368,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (f
 func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values []interface{}) {
 	reflectType := structReflectValue.Type()
 	if s.structReflectType != nil && s.structReflectType != reflectType {
-		panic("hey: slice element types are inconsistent")
+		panicBatchInsertByStruct()
 	}
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
@@ -855,6 +857,10 @@ type Add struct {
 
 	// subQuery INSERT VALUES is query statement
 	subQuery *SubQuery
+
+	// onConflict, on conflict do something
+	onConflict     *string
+	onConflictArgs []interface{}
 }
 
 // NewAdd for INSERT
@@ -986,6 +992,13 @@ func (s *Add) ValuesSubQueryGet(get *Get) *Add {
 	return s.ValuesSubQuery(prepare, args...)
 }
 
+// OnConflict on conflict do something
+func (s *Add) OnConflict(prepare string, args []interface{}) *Add {
+	s.onConflict = &prepare
+	s.onConflictArgs = args
+	return s
+}
+
 // SQL build SQL statement
 func (s *Add) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == "" {
@@ -1035,6 +1048,11 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	buf.WriteString(strings.Join(s.fields, ", "))
 	buf.WriteString(" ) VALUES ")
 	buf.WriteString(strings.Join(values, ", "))
+	if s.onConflict != nil && *s.onConflict != "" {
+		buf.WriteString(" ")
+		buf.WriteString(*s.onConflict)
+		args = append(args, s.onConflictArgs...)
+	}
 	prepare = buf.String()
 	return
 }
@@ -1042,19 +1060,6 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 // Add execute the built SQL statement
 func (s *Add) Add() (int64, error) {
 	prepare, args := s.SQL()
-	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
-}
-
-// AddOrMod insert on conflict do update
-func (s *Add) AddOrMod(
-	fc func(iou InsertUpdater) (string, []interface{}),
-) (rowsAffected int64, err error) {
-	if s.schema.way.Config.SqlInsertUpdater == nil {
-		return 0, errors.New("hey: please set Config.SqlInsertUpdater")
-	}
-	iou := s.schema.way.Config.SqlInsertUpdater()
-	iou.Add(func(add *Add) { add.Table(s.schema.table) })
-	prepare, args := fc(iou)
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
@@ -1245,26 +1250,6 @@ func (s *Mod) DefaultIncr(field string, value interface{}) *Mod {
 // DefaultDecr SET field = field - value
 func (s *Mod) DefaultDecr(field string, value interface{}) *Mod {
 	return s.defaultExpression(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
-}
-
-// BatchUpdate batch update
-func (s *Mod) BatchUpdate(fc func(bu BatchUpdater) ([]string, [][]interface{})) (rowsAffected int64, err error) {
-	if s.schema.way.Config.SqlBatchUpdater == nil {
-		err = errors.New("hey: please set Config.SqlBatchUpdater")
-		return
-	}
-	batchUpdater := s.schema.way.Config.SqlBatchUpdater()
-	batchUpdater.Table(s.schema.table).Except(s.exceptSlice...)
-	prepareGroup, argsGroup := fc(batchUpdater)
-	length := len(prepareGroup)
-	var n int64
-	for i := 0; i < length; i++ {
-		if n, err = s.schema.way.ExecContext(s.schema.ctx, prepareGroup[i], argsGroup[i]...); err != nil {
-			return
-		}
-		rowsAffected += n
-	}
-	return
 }
 
 // Where set where
@@ -1484,7 +1469,7 @@ func (s *GetJoin) TableSubQueryGet(get *Get, alias ...string) *GetJoin {
 	return s
 }
 
-// TableAlias table alias name, don’t forget to call the current method when the table is a SQL statement
+// TableAlias table alias name, don't forget to call the current method when the table is a SQL statement
 func (s *GetJoin) TableAlias(alias string) *GetJoin {
 	s.alias = &alias
 	return s
@@ -1502,9 +1487,17 @@ func (s *GetJoin) Using(fields ...string) *GetJoin {
 	return s
 }
 
-// OnEqual join query condition
-func (s *GetJoin) OnEqual(left string, right string) *GetJoin {
-	return s.On(fmt.Sprintf("%s = %s", left, right))
+// OnEqual join query condition, support multiple fields
+func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
+	length := len(fields)
+	if length&1 != 0 {
+		return s
+	}
+	tmp := make([]string, 0, length)
+	for i := 0; i < length; i += 2 {
+		tmp = append(tmp, fmt.Sprintf("%s = %s", fields[i], fields[i+1]))
+	}
+	return s.On(strings.Join(tmp, " AND "))
 }
 
 // SQL build SQL statement
@@ -1564,78 +1557,32 @@ type Limiter interface {
 	GetOffset() int64
 }
 
-// TableField table helper
-type TableField struct {
-	table string // table name
-	alias string // table alias name
+type Identifier struct {
+	prefix string
 }
 
-// prefix get prefix value
-func (s *TableField) prefix() string {
-	if s.alias != "" {
-		return s.alias
+func (s *Identifier) V(sss ...string) string {
+	length := len(sss)
+	if length == 0 {
+		return s.prefix
 	}
-	return s.table
-}
-
-// Alias table or column set alias name
-func (s *TableField) Alias(name string, alias string) string {
-	return SqlAlias(name, alias)
-}
-
-// Field table's field
-func (s *TableField) Field(field string, alias ...string) string {
-	field = SqlPrefix(s.prefix(), field)
-	for i := len(alias) - 1; i >= 0; i-- {
+	name := sss[0]
+	if name == "" {
+		return name
+	}
+	if s.prefix != "" {
+		name = fmt.Sprintf("%s.%s", s.prefix, name)
+	}
+	if length == 1 {
+		return name
+	}
+	alias := sss[1:]
+	for i := len(alias); i >= 0; i-- {
 		if alias[i] != "" {
-			field = SqlAlias(field, alias[i])
-			break
+			return SqlAlias(name, alias[i])
 		}
 	}
-	return field
-}
-
-// Fields table's fields
-func (s *TableField) Fields(fields ...string) []string {
-	prefix := s.prefix()
-	for i := len(fields) - 1; i >= 0; i-- {
-		fields[i] = SqlPrefix(prefix, fields[i])
-	}
-	return fields
-}
-
-// SetTable set table name
-func (s *TableField) SetTable(table string) *TableField {
-	s.table = table
-	return s
-}
-
-// SetAlias set table alias name
-func (s *TableField) SetAlias(alias string) *TableField {
-	s.alias = alias
-	return s
-}
-
-// GetTable get table name
-func (s *TableField) GetTable() string {
-	return s.table
-}
-
-// GetAlias get table alias name
-func (s *TableField) GetAlias() string {
-	return s.alias
-}
-
-// newTableField new table helper
-func newTableField(table ...string) *TableField {
-	s := &TableField{}
-	for i := len(table) - 1; i >= 0; i-- {
-		if table[i] != "" {
-			s.table = table[i]
-			break
-		}
-	}
-	return s
+	return name
 }
 
 // Get for SELECT
@@ -1782,7 +1729,7 @@ func (s *Get) TableSubQueryGet(get *Get, alias ...string) *Get {
 	return s
 }
 
-// TableAlias table alias name, don’t forget to call the current method when the table is a SQL statement
+// TableAlias table alias name, don't forget to call the current method when the table is a SQL statement
 func (s *Get) TableAlias(alias string) *Get {
 	s.alias = &alias
 	return s
