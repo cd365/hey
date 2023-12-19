@@ -17,6 +17,10 @@ func (s *Pgsql) Prepare(str string) string {
 	return str
 }
 
+func (s *Pgsql) IfNull(field string, value interface{}) string {
+	return fmt.Sprintf("COALESCE(%s,%s)", field, args2string(value))
+}
+
 // InsertOnConflict rely on the unique index of the table
 func (s *Pgsql) InsertOnConflict(
 	onConflictColumns []string, // unique index of column or columns
@@ -83,8 +87,4 @@ func (s *Pgsql) CloneTableStruct(
 		)
 	}
 	return
-}
-
-func (s *Pgsql) Null(field string, value interface{}) string {
-	return fmt.Sprintf("COALESCE(%s,%s)", field, args2string(value))
 }
