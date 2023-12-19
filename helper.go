@@ -1577,7 +1577,7 @@ func (s *Identifier) V(sss ...string) string {
 		return name
 	}
 	alias := sss[1:]
-	for i := len(alias); i >= 0; i-- {
+	for i := len(alias) - 1; i >= 0; i-- {
 		if alias[i] != "" {
 			return SqlAlias(name, alias[i])
 		}
