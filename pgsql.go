@@ -2,19 +2,30 @@ package hey
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"unsafe"
 )
 
 type Pgsql struct{}
 
 // Prepare fix pgsql SQL statement, ?, ?, ?... => $1, $2, $3...
 func (s *Pgsql) Prepare(str string) string {
-	index := 0
-	for strings.Contains(str, Placeholder) {
-		index++
-		str = strings.Replace(str, Placeholder, fmt.Sprintf("$%d", index), 1)
+	p := *(*[]byte)(unsafe.Pointer(&str))
+	q := getSqlBuilder()
+	defer putSqlBuilder(q)
+	var index int64 = 1
+	length := len(p)
+	for i := 0; i < length; i++ {
+		if p[i] != '?' {
+			q.WriteByte(p[i])
+		} else {
+			q.WriteByte('$')
+			q.WriteString(strconv.FormatInt(index, 10))
+			index++
+		}
 	}
-	return str
+	return q.String()
 }
 
 func (s *Pgsql) IfNull(field string, value interface{}) string {
