@@ -7,25 +7,31 @@ import (
 	"unsafe"
 )
 
+const (
+	Dollar = "$"
+)
+
 type Pgsql struct{}
 
 // Prepare fix pgsql SQL statement, ?, ?, ?... => $1, $2, $3...
 func (s *Pgsql) Prepare(str string) string {
-	p := *(*[]byte)(unsafe.Pointer(&str))
-	q := getSqlBuilder()
-	defer putSqlBuilder(q)
-	var index int64 = 1
-	length := len(p)
+	var index int64
+	origin := *(*[]byte)(unsafe.Pointer(&str))
+	latest := getSqlBuilder()
+	defer putSqlBuilder(latest)
+	length := len(origin)
+	byte36 := Dollar[0]      // $
+	byte63 := Placeholder[0] // ?
 	for i := 0; i < length; i++ {
-		if p[i] != '?' {
-			q.WriteByte(p[i])
-		} else {
-			q.WriteByte('$')
-			q.WriteString(strconv.FormatInt(index, 10))
+		if origin[i] == byte63 {
 			index++
+			latest.WriteByte(byte36)
+			latest.WriteString(strconv.FormatInt(index, 10))
+		} else {
+			latest.WriteByte(origin[i])
 		}
 	}
-	return q.String()
+	return latest.String()
 }
 
 func (s *Pgsql) IfNull(field string, value interface{}) string {

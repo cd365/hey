@@ -3,7 +3,7 @@ package hey
 import (
 	"fmt"
 	"reflect"
-	"strings"
+	"unsafe"
 )
 
 const (
@@ -40,9 +40,23 @@ func args2string(i interface{}) string {
 }
 
 func PrepareArgs(prepare string, args []interface{}) string {
-	length := len(args)
-	for i := 0; i < length; i++ {
-		prepare = strings.Replace(prepare, Placeholder, args2string(args[i]), 1)
+	count := len(args)
+	if count == 0 {
+		return prepare
 	}
-	return prepare
+	index := 0
+	origin := *(*[]byte)(unsafe.Pointer(&prepare))
+	latest := getSqlBuilder()
+	defer putSqlBuilder(latest)
+	length := len(origin)
+	byte63 := Placeholder[0]
+	for i := 0; i < length; i++ {
+		if origin[i] == byte63 && index < count {
+			latest.WriteString(args2string(args[index]))
+			index++
+		} else {
+			latest.WriteByte(origin[i])
+		}
+	}
+	return latest.String()
 }

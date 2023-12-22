@@ -740,7 +740,7 @@ func comment(schema *schema) (b *strings.Builder) {
 	}
 	b.WriteString("/* ")
 	b.WriteString(schema.comment)
-	b.WriteString(" */")
+	b.WriteString(" */ ")
 	return
 }
 
