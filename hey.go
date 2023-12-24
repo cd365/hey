@@ -1,5 +1,5 @@
-// Package hey is a helper that quickly responds to the results of insert, delete, update, select SQL statements.
-// You can also use hey to quickly build SQL statements.
+// Package hey is a helper that quickly responds to the results of insert, delete, update, select sql statements.
+// You can also use hey to quickly build sql statements.
 package hey
 
 import (
@@ -126,7 +126,7 @@ type Way struct {
 	db     *sql.DB                           // the instance of the database connect pool
 	Fix    func(string) string               // fix prepare sql script before call prepare method
 	Tag    string                            // bind struct tag and table column
-	Log    func(lop *OfPrepare, loa *OfArgs) // logger executed SQL statement
+	Log    func(lop *OfPrepare, loa *OfArgs) // logger executed sql statement
 	tx     *sql.Tx                           // the transaction instance
 	txAt   *time.Time                        // the transaction start at
 	txId   string                            // the transaction unique id
@@ -144,12 +144,12 @@ func NewWay(db *sql.DB) *Way {
 	}
 }
 
-// DB get the database connection pool object in the current instance
+// DB -> get the database connection pool object in the current instance
 func (s *Way) DB() *sql.DB {
 	return s.db
 }
 
-// Clone make a copy the current object
+// Clone -> make a copy the current object
 func (s *Way) Clone(db ...*sql.DB) *Way {
 	way := NewWay(s.db)
 	length := len(db)
@@ -167,9 +167,13 @@ func (s *Way) Clone(db ...*sql.DB) *Way {
 	return way
 }
 
-// begin for open transaction
-func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
-	s.tx, err = s.db.BeginTx(ctx, opts)
+// begin -> open transaction
+func (s *Way) begin(ctx context.Context, opts *sql.TxOptions, conn *sql.Conn) (err error) {
+	if conn != nil {
+		s.tx, err = conn.BeginTx(ctx, opts)
+	} else {
+		s.tx, err = s.db.BeginTx(ctx, opts)
+	}
 	if err != nil {
 		return
 	}
@@ -179,26 +183,26 @@ func (s *Way) begin(ctx context.Context, opts *sql.TxOptions) (err error) {
 	return
 }
 
-// commit for commit transaction
+// commit -> commit transaction
 func (s *Way) commit() (err error) {
 	err = s.tx.Commit()
 	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, "", ""
 	return
 }
 
-// rollback for rollback transaction
+// rollback -> rollback transaction
 func (s *Way) rollback() (err error) {
 	err = s.tx.Rollback()
 	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, "", ""
 	return
 }
 
-// TxNil whether the current instance has not opened a transaction
+// TxNil -> whether the current instance has not opened a transaction
 func (s *Way) TxNil() bool {
 	return s.tx == nil
 }
 
-// TxMsg set the prompt for the current transaction, can only be set once
+// TxMsg -> set the prompt for the current transaction, can only be set once
 func (s *Way) TxMsg(msg string) *Way {
 	if s.tx == nil {
 		return s
@@ -209,9 +213,8 @@ func (s *Way) TxMsg(msg string) *Way {
 	return s
 }
 
-// transaction execute SQL statements in batches in a transaction
-// When a transaction is nested, the inner transaction automatically uses the outer transaction object
-func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error) (err error) {
+// transaction -> execute sql statements in batches in a transaction When a transaction is nested, the inner transaction automatically uses the outer transaction object
+func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error, conn *sql.Conn) (err error) {
 	if s.tx != nil {
 		return fn(s)
 	}
@@ -219,7 +222,7 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 	way := getWay(s)
 	defer putWay(way)
 
-	if err = way.begin(ctx, opts); err != nil {
+	if err = way.begin(ctx, opts, conn); err != nil {
 		return
 	}
 
@@ -252,13 +255,20 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 	return
 }
 
-// TxTryCtx call transaction multiple times
-func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error, times int) (err error) {
+// TxTryCtx -> call transaction multiple times
+func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error, times int, conn ...*sql.Conn) (err error) {
 	if times < 1 {
 		times = 1
 	}
+	var c *sql.Conn
+	length := len(conn)
+	for i := length - 1; i >= 0; i-- {
+		if conn[i] != nil {
+			c = conn[i]
+		}
+	}
 	for i := 0; i < times; i++ {
-		err = s.transaction(ctx, opts, fn)
+		err = s.transaction(ctx, opts, fn, c)
 		if err == nil {
 			return
 		}
@@ -266,12 +276,12 @@ func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way
 	return
 }
 
-// TxTry call transaction multiple times
-func (s *Way) TxTry(fn func(tx *Way) error, times int) error {
-	return s.TxTryCtx(context.Background(), nil, fn, times)
+// TxTry -> call transaction multiple times
+func (s *Way) TxTry(fn func(tx *Way) error, times int, conn ...*sql.Conn) error {
+	return s.TxTryCtx(context.Background(), nil, fn, times, conn...)
 }
 
-// Now get current time, the transaction open status will get the same time
+// Now -> get current time, the transaction open status will get the same time
 func (s *Way) Now() time.Time {
 	if s.TxNil() {
 		return time.Now()
@@ -279,125 +289,238 @@ func (s *Way) Now() time.Time {
 	return *(s.txAt)
 }
 
-// Stmt is a prepared statement
-type Stmt struct {
-	logSql *OfPrepare
-	stmt   *sql.Stmt
-	way    *Way
+// RowsNext -> traversing and processing query results
+func (s *Way) RowsNext(rows *sql.Rows, fc func() error) error {
+	return RowsNext(rows, fc)
 }
 
-// newStmt new stmt
-func newStmt(way *Way) *Stmt {
-	stmt := &Stmt{
-		logSql: &OfPrepare{
-			txId:  way.txId,
-			txMsg: way.txMsg,
-		},
-		way: way,
+// RowsNextRow -> scan one line of query results
+func (s *Way) RowsNextRow(rows *sql.Rows, dest ...interface{}) error {
+	return RowsNextRow(rows, dest...)
+}
+
+// Caller the implementation object is usually one of *sql.Conn, *sql.DB, *sql.Tx
+type Caller interface {
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
+// caller -> *sql.Conn(or other) first, *sql.Tx(s.tx) second, *sql.DB(s.db) last
+func (s *Way) caller(caller ...Caller) Caller {
+	length := len(caller)
+	for i := length - 1; i >= 0; i-- {
+		if caller[i] != nil {
+			return caller[i]
+		}
 	}
-	return stmt
+	if s.tx != nil {
+		return s.tx
+	}
+	return s.db
 }
 
-// QueryContext repeated calls with the current object
-func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
-	return s.way.queryStmtContext(ctx, query, s, args...)
+// withLogger -> call logger
+func (s *Way) withLogger(ofPrepare *OfPrepare, ofArgs *OfArgs) {
+	if s.Log == nil {
+		return
+	}
+	s.Log(ofPrepare, ofArgs)
 }
 
-// Query repeated calls with the current object
+// Stmt prepare handle
+type Stmt struct {
+	way     *Way
+	caller  Caller
+	prepare string
+	stmt    *sql.Stmt
+}
+
+// Close -> close prepare handle
+func (s *Stmt) Close() (err error) {
+	if s.stmt != nil {
+		err = s.stmt.Close()
+		s.stmt = nil
+	}
+	return
+}
+
+// QueryContext -> query prepared that can be called repeatedly
+func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) (err error) {
+	op := &OfPrepare{
+		txId:    s.way.txId,
+		txMsg:   s.way.txMsg,
+		prepare: s.prepare,
+	}
+	oa := &OfArgs{
+		Args:    args,
+		StartAt: time.Now(),
+	}
+	var endAt time.Time
+	defer func() {
+		if endAt.IsZero() {
+			oa.EndAt = time.Now()
+		} else {
+			oa.EndAt = endAt
+		}
+		oa.Error = err
+		s.way.withLogger(op, oa)
+	}()
+	var rows *sql.Rows
+	rows, err = s.stmt.QueryContext(ctx, args...)
+	if err != nil {
+		return
+	}
+	endAt = time.Now()
+	defer rows.Close()
+	err = query(rows)
+	return
+}
+
+// Query -> query prepared that can be called repeatedly
 func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) error {
 	return s.QueryContext(context.Background(), query, args...)
 }
 
-// ExecContext repeated calls with the current object
-func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (int64, error) {
-	return s.way.execStmtContext(ctx, s, args...)
+// ExecContext -> execute prepared that can be called repeatedly
+func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (rowsAffected int64, err error) {
+	op := &OfPrepare{
+		txId:    s.way.txId,
+		txMsg:   s.way.txMsg,
+		prepare: s.prepare,
+	}
+	oa := &OfArgs{
+		Args:    args,
+		StartAt: time.Now(),
+	}
+	var endAt time.Time
+	defer func() {
+		if endAt.IsZero() {
+			oa.EndAt = time.Now()
+		} else {
+			oa.EndAt = endAt
+		}
+		oa.Error = err
+		s.way.withLogger(op, oa)
+	}()
+	var result sql.Result
+	result, err = s.stmt.ExecContext(ctx, args...)
+	if err != nil {
+		return
+	}
+	endAt = time.Now()
+	rowsAffected, err = result.RowsAffected()
+	return
 }
 
-// Exec repeated calls with the current object
+// Exec -> execute prepared that can be called repeatedly
 func (s *Stmt) Exec(args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), args...)
 }
 
-// ScanAllContext repeated calls with the current object
+// ScanAllContext -> query prepared and scan results that can be called repeatedly
 func (s *Stmt) ScanAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
 	return s.QueryContext(ctx, func(rows *sql.Rows) error {
 		return ScanSliceStruct(rows, result, s.way.Tag)
 	}, args...)
 }
 
-// ScanAll repeated calls with the current object
+// ScanAll -> query prepared and scan results that can be called repeatedly
 func (s *Stmt) ScanAll(result interface{}, args ...interface{}) error {
 	return s.ScanAllContext(context.Background(), result, args...)
 }
 
-// Close closes the statement.
-func (s *Stmt) Close() error {
-	if s.stmt != nil {
-		return s.stmt.Close()
-	}
-	return nil
-}
-
-// PrepareContext SQL statement prepare.
-func (s *Way) PrepareContext(ctx context.Context, prepare string) (stmt *Stmt, err error) {
-	if prepare == "" {
-		return
-	}
+// PrepareContext -> prepare sql statement
+func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (*Stmt, error) {
+	stmt := &Stmt{}
+	stmt.way = s
+	stmt.caller = s.caller(caller...)
+	stmt.prepare = prepare
 	if s.Fix != nil {
-		prepare = s.Fix(prepare)
+		stmt.prepare = s.Fix(prepare)
 	}
-	stmt = newStmt(s)
-	stmt.logSql.prepare = prepare
-	if s.tx != nil {
-		stmt.stmt, err = s.tx.PrepareContext(ctx, prepare)
+	if tmp, err := stmt.caller.PrepareContext(ctx, stmt.prepare); err != nil {
+		return nil, err
+	} else {
+		stmt.stmt = tmp
+		return stmt, nil
+	}
+}
+
+// Prepare -> prepare sql statement
+func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
+	return s.PrepareContext(context.Background(), prepare, caller...)
+}
+
+// QueryContext -> execute the query sql statement
+func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+	stmt, err := s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	return stmt.QueryContext(ctx, query, args...)
+}
+
+// Query -> execute the query sql statement
+func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+	return s.QueryContext(context.Background(), query, prepare, args...)
+}
+
+// ScanAllContext -> query and scan results through the mapping of column names and struct tags
+func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
+	return s.QueryContext(ctx, func(rows *sql.Rows) error {
+		return ScanSliceStruct(rows, result, s.Tag)
+	}, prepare, args...)
+}
+
+// ScanAll -> query and scan results
+func (s *Way) ScanAll(result interface{}, prepare string, args ...interface{}) error {
+	return s.ScanAllContext(context.Background(), result, prepare, args...)
+}
+
+// ExecContext -> execute the execute sql statement
+func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (int64, error) {
+	stmt, err := s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+	return stmt.ExecContext(ctx, args...)
+}
+
+// Exec -> execute the execute sql statement
+func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
+	return s.ExecContext(context.Background(), prepare, args...)
+}
+
+// callGet -> query, execute the query sql statement without args, no prepared is used
+func (s *Way) callGet(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
+	if query == nil || prepare == "" {
 		return
 	}
-	stmt.stmt, err = s.db.PrepareContext(ctx, prepare)
-	return
-}
-
-// Prepare SQL statement prepare.
-func (s *Way) Prepare(prepare string) (*Stmt, error) {
-	return s.PrepareContext(context.Background(), prepare)
-}
-
-// StmtContext returns a transaction-specific prepared statement from an existing statement.
-func (s *Way) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
-	if stmt == nil {
-		return stmt
+	op := &OfPrepare{
+		txId:    s.txId,
+		txMsg:   s.txMsg,
+		prepare: prepare,
 	}
-	if s.tx == nil {
-		return stmt
-	}
-	tmpStmt := newStmt(s)
-	tmpStmt.logSql.prepare = stmt.logSql.prepare
-	tmpStmt.stmt = s.tx.StmtContext(ctx, stmt.stmt)
-	return tmpStmt
-}
-
-// Stmt returns a transaction-specific prepared statement from an existing statement.
-func (s *Way) Stmt(stmt *Stmt) *Stmt {
-	return s.StmtContext(context.Background(), stmt)
-}
-
-// queryStmtContext query with stmt
-func (s *Way) queryStmtContext(ctx context.Context, query func(rows *sql.Rows) error, stmt *Stmt, args ...interface{}) (err error) {
-	if query == nil || stmt == nil {
-		return
-	}
-	loa := &OfArgs{
-		Args:    args,
+	oa := &OfArgs{
+		Args:    nil,
 		StartAt: time.Now(),
 	}
-	if s.Log != nil {
-		defer func() {
-			loa.Error = err
-			s.Log(stmt.logSql, loa)
-		}()
-	}
+	var endAt time.Time
+	defer func() {
+		if endAt.IsZero() {
+			oa.EndAt = time.Now()
+		} else {
+			oa.EndAt = endAt
+		}
+		oa.Error = err
+		s.withLogger(op, oa)
+	}()
 	var rows *sql.Rows
-	rows, err = stmt.stmt.QueryContext(ctx, args...)
-	loa.EndAt = time.Now()
+	rows, err = s.caller(caller...).QueryContext(ctx, prepare)
+	endAt = time.Now()
 	if err != nil {
 		return
 	}
@@ -406,24 +529,33 @@ func (s *Way) queryStmtContext(ctx context.Context, query func(rows *sql.Rows) e
 	return
 }
 
-// execStmtContext exec with stmt
-func (s *Way) execStmtContext(ctx context.Context, stmt *Stmt, args ...interface{}) (rowsAffected int64, err error) {
-	if stmt == nil {
+// callSet -> execute, execute the execute sql statement without args, no prepared is used
+func (s *Way) callSet(ctx context.Context, prepare string, caller ...Caller) (rowsAffected int64, err error) {
+	if prepare == "" {
 		return
 	}
-	loa := &OfArgs{
-		Args:    args,
+	op := &OfPrepare{
+		txId:    s.txId,
+		txMsg:   s.txMsg,
+		prepare: prepare,
+	}
+	oa := &OfArgs{
+		Args:    nil,
 		StartAt: time.Now(),
 	}
-	if s.Log != nil {
-		defer func() {
-			loa.Error = err
-			s.Log(stmt.logSql, loa)
-		}()
-	}
+	var endAt time.Time
+	defer func() {
+		if endAt.IsZero() {
+			oa.EndAt = time.Now()
+		} else {
+			oa.EndAt = endAt
+		}
+		oa.Error = err
+		s.withLogger(op, oa)
+	}()
 	var result sql.Result
-	result, err = stmt.stmt.ExecContext(ctx, args...)
-	loa.EndAt = time.Now()
+	result, err = s.caller(caller...).ExecContext(ctx, prepare)
+	endAt = time.Now()
 	if err != nil {
 		return
 	}
@@ -431,86 +563,47 @@ func (s *Way) execStmtContext(ctx context.Context, stmt *Stmt, args ...interface
 	return
 }
 
-// RowsNext traversing and processing query results
-func (s *Way) RowsNext(rows *sql.Rows, fc func() error) error {
-	return RowsNext(rows, fc)
+// CallGetContext -> execute the query sql statement without args, no prepared is used
+func (s *Way) CallGetContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
+	return s.callGet(ctx, query, prepare, caller...)
 }
 
-// RowsNextRow scan one line of query results
-func (s *Way) RowsNextRow(rows *sql.Rows, dest ...interface{}) error {
-	return RowsNextRow(rows, dest...)
+// CallGet -> execute the query sql statement without args, no prepared is used
+func (s *Way) CallGet(query func(rows *sql.Rows) error, prepare string, caller ...Caller) error {
+	return s.CallGetContext(context.Background(), query, prepare, caller...)
 }
 
-// QueryContext execute the SQL statement of the query
-func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
-	if query == nil || prepare == "" {
-		return nil
-	}
-	stmt, err := s.PrepareContext(ctx, prepare)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	return s.queryStmtContext(ctx, query, stmt, args...)
+// CallSetContext -> execute the execute sql statement without args, no prepared is used
+func (s *Way) CallSetContext(ctx context.Context, prepare string, caller ...Caller) (int64, error) {
+	return s.callSet(ctx, prepare, caller...)
 }
 
-// Query execute the SQL statement of the query
-func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
-	return s.QueryContext(context.Background(), query, prepare, args...)
+// CallSet -> execute the execute sql statement without args, no prepared is used
+func (s *Way) CallSet(prepare string, caller ...Caller) (int64, error) {
+	return s.CallSetContext(context.Background(), prepare, caller...)
 }
 
-// ExecContext execute the SQL statement of the not-query
-func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (int64, error) {
-	if prepare == "" {
-		return 0, nil
-	}
-	stmt, err := s.PrepareContext(ctx, prepare)
-	if err != nil {
-		return 0, err
-	}
-	defer stmt.Close()
-	return s.execStmtContext(ctx, stmt, args...)
-}
-
-// Exec execute the SQL statement of the not-query
-func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
-	return s.ExecContext(context.Background(), prepare, args...)
-}
-
-// ScanAllContext scan the query results into the receiver
-// through the mapping of column names and struct tags
-func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
-	return s.QueryContext(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.Tag)
-	}, prepare, args...)
-}
-
-// ScanAll concisely call ScanAllContext
-func (s *Way) ScanAll(result interface{}, prepare string, args ...interface{}) error {
-	return s.ScanAllContext(context.Background(), result, prepare, args...)
-}
-
-// Filter quickly initialize a filter
+// Filter -> quickly initialize a filter
 func (s *Way) Filter(filter ...Filter) Filter {
 	return NewFilter().Filter(filter...)
 }
 
-// Add create an instance that executes the INSERT SQL statement
+// Add -> create an instance that executes the INSERT sql statement
 func (s *Way) Add(table string) *Add {
 	return NewAdd(s).Table(table)
 }
 
-// Del create an instance that executes the DELETE SQL statement
+// Del -> create an instance that executes the DELETE sql statement
 func (s *Way) Del(table string) *Del {
 	return NewDel(s).Table(table)
 }
 
-// Mod create an instance that executes the UPDATE SQL statement
+// Mod -> create an instance that executes the UPDATE sql statement
 func (s *Way) Mod(table string) *Mod {
 	return NewMod(s).Table(table)
 }
 
-// Get create an instance that executes the SELECT SQL statement
+// Get -> create an instance that executes the SELECT sql statement
 func (s *Way) Get(table ...string) *Get {
 	get := NewGet(s)
 	for i := len(table) - 1; i >= 0; i-- {
@@ -522,19 +615,14 @@ func (s *Way) Get(table ...string) *Get {
 	return get
 }
 
-// Identifier sql identifier
+// Identifier -> sql identifier
 func (s *Way) Identifier(prefix string) *Identifier {
 	return &Identifier{
 		prefix: prefix,
 	}
 }
 
-// // TableField new table helper
-// func (s *Way) TableField(table ...string) *TableField {
-// 	return newTableField(table...)
-// }
-
-// WayWriterReader read and write separation
+// WayWriterReader -> read and write separation
 type WayWriterReader interface {
 	// W get an object for write
 	W() *Way

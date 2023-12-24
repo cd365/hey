@@ -217,13 +217,14 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	setValues := valueOf.Elem()
 	elemTypeIsPtr := false
 	elem := typeOf.Elem().Elem()
-	switch elem.Kind() {
-	// *[]AnyStruct
-	case reflect.Struct:
+	elemKind := elem.Kind()
+	if elemKind == reflect.Struct {
+		// *[]AnyStruct
 		elemType = elem
-	case reflect.Ptr:
-		// *[]*AnyStruct
+	}
+	if elemKind == reflect.Ptr {
 		if elem.Elem().Kind() == reflect.Struct {
+			// *[]*AnyStruct
 			elemType = elem.Elem()
 			elemTypeIsPtr = true
 		}
@@ -280,8 +281,9 @@ func BasicTypeValue(value interface{}) interface{} {
 				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 				reflect.Float32, reflect.Float64:
 				return 0
+			default:
+				return reflect.Indirect(reflect.New(t)).Interface()
 			}
-			return reflect.Indirect(reflect.New(t)).Interface()
 		}
 		t, v = t.Elem(), v.Elem()
 		k = t.Kind()
@@ -416,12 +418,11 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 	}
 	s.tag = tag
 	s.setExcept(except)
-	switch kind {
-	case reflect.Struct:
+	if kind == reflect.Struct {
 		values = make([][]interface{}, 1)
 		fields, values[0] = s.structFieldsValues(reflectValue)
-		return
-	case reflect.Slice:
+	}
+	if kind == reflect.Slice {
 		sliceLength := reflectValue.Len()
 		values = make([][]interface{}, sliceLength)
 		for i := 0; i < sliceLength; i++ {
@@ -731,10 +732,12 @@ func newSchema(way *Way) *schema {
 	}
 }
 
-// comment make SQL statement builder, defer putSqlBuilder(builder) should be called immediately after calling the current method
+// comment make SQL statement builder, Placeholder "?" should not appear in comments
+// defer putSqlBuilder(builder) should be called immediately after calling the current method
 func comment(schema *schema) (b *strings.Builder) {
 	b = getSqlBuilder()
 	schema.comment = strings.TrimSpace(schema.comment)
+	schema.comment = strings.ReplaceAll(schema.comment, Placeholder, "")
 	if schema.comment == "" {
 		return
 	}
@@ -962,7 +965,7 @@ func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
 	return s
 }
 
-// Create value of create should be oneof struct{}, *struct{}, map[string]interface{},
+// Create value of create should be one of struct{}, *struct{}, map[string]interface{},
 // []struct, []*struct{}, *[]struct{}, *[]*struct{}
 func (s *Add) Create(create interface{}) *Add {
 	if fieldValue, ok := create.(map[string]interface{}); ok {
@@ -1190,7 +1193,7 @@ func (s *Mod) FieldsValues(fields []string, values []interface{}) *Mod {
 	return s
 }
 
-// Modify value of modify should be oneof struct{}, *struct{}, map[string]interface{}
+// Modify value of modify should be one of struct{}, *struct{}, map[string]interface{}
 func (s *Mod) Modify(modify interface{}) *Mod {
 	if fieldValue, ok := modify.(map[string]interface{}); ok {
 		for field, value := range fieldValue {
