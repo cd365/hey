@@ -19,6 +19,9 @@ const (
 var (
 	// poolWay *Way pool
 	poolWay *sync.Pool
+
+	// poolStmt *Stmt pool
+	poolStmt *sync.Pool
 )
 
 // init initialize
@@ -27,6 +30,12 @@ func init() {
 	poolWay = &sync.Pool{}
 	poolWay.New = func() interface{} {
 		return &Way{}
+	}
+
+	// initialize *Stmt
+	poolStmt = &sync.Pool{}
+	poolStmt.New = func() interface{} {
+		return &Stmt{}
 	}
 }
 
@@ -50,6 +59,20 @@ func putWay(s *Way) {
 	s.Log = nil
 	s.TxLog = nil
 	poolWay.Put(s)
+}
+
+// getStmt get *Stmt from pool
+func getStmt() *Stmt {
+	return poolStmt.Get().(*Stmt)
+}
+
+// putStmt put *Stmt in the pool
+func putStmt(s *Stmt) {
+	s.way = nil
+	s.caller = nil
+	s.prepare = ""
+	s.stmt = nil
+	poolStmt.Put(s)
 }
 
 // Choose returns the first instance of *Way that is not empty in items
@@ -340,7 +363,7 @@ type Stmt struct {
 func (s *Stmt) Close() (err error) {
 	if s.stmt != nil {
 		err = s.stmt.Close()
-		s.stmt = nil
+		putStmt(s) // successfully called
 	}
 	return
 }
@@ -430,24 +453,29 @@ func (s *Stmt) ScanAll(result interface{}, args ...interface{}) error {
 	return s.ScanAllContext(context.Background(), result, args...)
 }
 
-// PrepareContext -> prepare sql statement
+// PrepareContext -> prepare sql statement, don't forget to call *Stmt.Close()
 func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (*Stmt, error) {
-	stmt := &Stmt{}
+	stmt := getStmt()
+	defer func() {
+		if stmt.stmt == nil {
+			putStmt(stmt) // called when stmt.caller.PrepareContext() failed
+		}
+	}()
 	stmt.way = s
 	stmt.caller = s.caller(caller...)
 	stmt.prepare = prepare
 	if s.Fix != nil {
 		stmt.prepare = s.Fix(prepare)
 	}
-	if tmp, err := stmt.caller.PrepareContext(ctx, stmt.prepare); err != nil {
+	tmp, err := stmt.caller.PrepareContext(ctx, stmt.prepare)
+	if err != nil {
 		return nil, err
-	} else {
-		stmt.stmt = tmp
-		return stmt, nil
 	}
+	stmt.stmt = tmp
+	return stmt, nil
 }
 
-// Prepare -> prepare sql statement
+// Prepare -> prepare sql statement, don't forget to call *Stmt.Close()
 func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
 	return s.PrepareContext(context.Background(), prepare, caller...)
 }
