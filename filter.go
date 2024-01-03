@@ -11,8 +11,8 @@ const (
 const (
 	filterCompareEqual         = "="
 	filterCompareNotEqual      = "<>"
-	filterCompareMoreThan      = ">"
-	filterCompareMoreThanEqual = ">="
+	filterCompareGreater       = ">"
+	filterCompareGreaterEqual  = ">="
 	filterCompareLessThan      = "<"
 	filterCompareLessThanEqual = "<="
 )
@@ -43,12 +43,12 @@ func filterNotEqual(column string) string {
 	return filterCompareExpr(column, filterCompareNotEqual)
 }
 
-func filterMoreThan(column string) string {
-	return filterCompareExpr(column, filterCompareMoreThan)
+func filterGreater(column string) string {
+	return filterCompareExpr(column, filterCompareGreater)
 }
 
-func filterMoreThanEqual(column string) string {
-	return filterCompareExpr(column, filterCompareMoreThanEqual)
+func filterGreaterEqual(column string) string {
+	return filterCompareExpr(column, filterCompareGreaterEqual)
 }
 
 func filterLessThan(column string) string {
@@ -277,8 +277,8 @@ type Filter interface {
 	Filter(filters ...Filter) Filter
 	Group(group func(filter Filter)) Filter
 	Equal(column string, value interface{}) Filter
-	MoreThan(column string, value interface{}) Filter
-	MoreThanEqual(column string, value interface{}) Filter
+	Greater(column string, value interface{}) Filter
+	GreaterEqual(column string, value interface{}) Filter
 	LessThan(column string, value interface{}) Filter
 	LessThanEqual(column string, value interface{}) Filter
 	Between(column string, start interface{}, end interface{}) Filter
@@ -312,8 +312,8 @@ type Filter interface {
 	OrFilter(filters ...Filter) Filter
 	OrGroup(group func(filter Filter)) Filter
 	OrEqual(column string, value interface{}) Filter
-	OrMoreThan(column string, value interface{}) Filter
-	OrMoreThanEqual(column string, value interface{}) Filter
+	OrGreater(column string, value interface{}) Filter
+	OrGreaterEqual(column string, value interface{}) Filter
 	OrLessThan(column string, value interface{}) Filter
 	OrLessThanEqual(column string, value interface{}) Filter
 	OrBetween(column string, start interface{}, end interface{}) Filter
@@ -417,12 +417,12 @@ func (s *filter) Equal(column string, value interface{}) Filter {
 	return s.And(filterEqual(column), value)
 }
 
-func (s *filter) MoreThan(column string, value interface{}) Filter {
-	return s.And(filterMoreThan(column), value)
+func (s *filter) Greater(column string, value interface{}) Filter {
+	return s.And(filterGreater(column), value)
 }
 
-func (s *filter) MoreThanEqual(column string, value interface{}) Filter {
-	return s.And(filterMoreThanEqual(column), value)
+func (s *filter) GreaterEqual(column string, value interface{}) Filter {
+	return s.And(filterGreaterEqual(column), value)
 }
 
 func (s *filter) LessThan(column string, value interface{}) Filter {
@@ -567,12 +567,12 @@ func (s *filter) OrEqual(column string, value interface{}) Filter {
 	return s.Or(filterEqual(column), value)
 }
 
-func (s *filter) OrMoreThan(column string, value interface{}) Filter {
-	return s.Or(filterMoreThan(column), value)
+func (s *filter) OrGreater(column string, value interface{}) Filter {
+	return s.Or(filterGreater(column), value)
 }
 
-func (s *filter) OrMoreThanEqual(column string, value interface{}) Filter {
-	return s.Or(filterMoreThanEqual(column), value)
+func (s *filter) OrGreaterEqual(column string, value interface{}) Filter {
+	return s.Or(filterGreaterEqual(column), value)
 }
 
 func (s *filter) OrLessThan(column string, value interface{}) Filter {

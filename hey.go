@@ -58,6 +58,7 @@ func putWay(s *Way) {
 	s.Tag = ""
 	s.Log = nil
 	s.TxLog = nil
+	s.Config = nil
 	poolWay.Put(s)
 }
 
@@ -75,17 +76,6 @@ func putStmt(s *Stmt) {
 	poolStmt.Put(s)
 }
 
-// Choose returns the first instance of *Way that is not empty in items
-// returns way by default
-func Choose(way *Way, items ...*Way) *Way {
-	for i := len(items) - 1; i >= 0; i-- {
-		if items[i] != nil {
-			return items[i]
-		}
-	}
-	return way
-}
-
 // Config configure of Way
 type Config struct {
 	DeleteMustUseWhere bool
@@ -98,7 +88,7 @@ type Config struct {
 }
 
 var (
-	DefaultConfig = Config{
+	DefaultConfig = &Config{
 		DeleteMustUseWhere: true,
 		UpdateMustUseWhere: true,
 	}
@@ -155,7 +145,7 @@ type Way struct {
 	txId   string                            // the transaction unique id
 	txMsg  string                            // the transaction message
 	TxLog  func(lt *OfTransaction)           // logger executed transaction
-	Config Config                            // configure of Way
+	Config *Config                           // configure of Way
 }
 
 // NewWay instantiate a helper
@@ -170,24 +160,6 @@ func NewWay(db *sql.DB) *Way {
 // DB -> get the database connection pool object in the current instance
 func (s *Way) DB() *sql.DB {
 	return s.db
-}
-
-// Clone -> make a copy the current object
-func (s *Way) Clone(db ...*sql.DB) *Way {
-	way := NewWay(s.db)
-	length := len(db)
-	for i := length - 1; i >= 0; i-- {
-		if db[i] != nil {
-			way.db = db[i]
-			break
-		}
-	}
-	way.Fix = s.Fix
-	way.Tag = s.Tag
-	way.Log = s.Log
-	way.TxLog = s.TxLog
-	way.Config = s.Config
-	return way
 }
 
 // begin -> open transaction
@@ -260,6 +232,7 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 		lt.TxMsg = way.txMsg
 		if err == nil && ok {
 			err = way.commit()
+			lt.Error = err
 			lt.State = "COMMIT"
 		} else {
 			_ = way.rollback()
@@ -522,8 +495,8 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
-// callGet -> query, execute the query sql statement without args, no prepared is used
-func (s *Way) callGet(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
+// getter -> query, execute the query sql statement without args, no prepared is used
+func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
 	if query == nil || prepare == "" {
 		return
 	}
@@ -557,8 +530,8 @@ func (s *Way) callGet(ctx context.Context, query func(rows *sql.Rows) error, pre
 	return
 }
 
-// callSet -> execute, execute the execute sql statement without args, no prepared is used
-func (s *Way) callSet(ctx context.Context, prepare string, caller ...Caller) (rowsAffected int64, err error) {
+// setter -> execute, execute the execute sql statement without args, no prepared is used
+func (s *Way) setter(ctx context.Context, prepare string, caller ...Caller) (rowsAffected int64, err error) {
 	if prepare == "" {
 		return
 	}
@@ -591,28 +564,28 @@ func (s *Way) callSet(ctx context.Context, prepare string, caller ...Caller) (ro
 	return
 }
 
-// CallGetContext -> execute the query sql statement without args, no prepared is used
-func (s *Way) CallGetContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
-	return s.callGet(ctx, query, prepare, caller...)
+// GetterContext -> execute the query sql statement without args, no prepared is used
+func (s *Way) GetterContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
+	return s.getter(ctx, query, prepare, caller...)
 }
 
-// CallGet -> execute the query sql statement without args, no prepared is used
-func (s *Way) CallGet(query func(rows *sql.Rows) error, prepare string, caller ...Caller) error {
-	return s.CallGetContext(context.Background(), query, prepare, caller...)
+// Getter -> execute the query sql statement without args, no prepared is used
+func (s *Way) Getter(query func(rows *sql.Rows) error, prepare string, caller ...Caller) error {
+	return s.GetterContext(context.Background(), query, prepare, caller...)
 }
 
-// CallSetContext -> execute the execute sql statement without args, no prepared is used
-func (s *Way) CallSetContext(ctx context.Context, prepare string, caller ...Caller) (int64, error) {
-	return s.callSet(ctx, prepare, caller...)
+// SetterContext -> execute the execute sql statement without args, no prepared is used
+func (s *Way) SetterContext(ctx context.Context, prepare string, caller ...Caller) (int64, error) {
+	return s.setter(ctx, prepare, caller...)
 }
 
-// CallSet -> execute the execute sql statement without args, no prepared is used
-func (s *Way) CallSet(prepare string, caller ...Caller) (int64, error) {
-	return s.CallSetContext(context.Background(), prepare, caller...)
+// Setter -> execute the execute sql statement without args, no prepared is used
+func (s *Way) Setter(prepare string, caller ...Caller) (int64, error) {
+	return s.SetterContext(context.Background(), prepare, caller...)
 }
 
-// Filter -> quickly initialize a filter
-func (s *Way) Filter(filter ...Filter) Filter {
+// F -> quickly initialize a filter
+func (s *Way) F(filter ...Filter) Filter {
 	return NewFilter().Filter(filter...)
 }
 
@@ -633,20 +606,13 @@ func (s *Way) Mod(table string) *Mod {
 
 // Get -> create an instance that executes the SELECT sql statement
 func (s *Way) Get(table ...string) *Get {
-	get := NewGet(s)
-	for i := len(table) - 1; i >= 0; i-- {
-		if table[i] != "" {
-			get.Table(table[i])
-			break
-		}
-	}
-	return get
+	return NewGet(s).Table(LastNotEmptyString(table))
 }
 
 // Identifier -> sql identifier
-func (s *Way) Identifier(prefix string) *Identifier {
+func (s *Way) Identifier(prefix ...string) *Identifier {
 	return &Identifier{
-		prefix: prefix,
+		prefix: LastNotEmptyString(prefix),
 	}
 }
 

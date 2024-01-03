@@ -10,6 +10,10 @@ import (
 	"sync"
 )
 
+const (
+	Point = "."
+)
+
 var (
 	// sqlBuilder sql builder pool
 	sqlBuilder *sync.Pool
@@ -56,10 +60,36 @@ func putInsertByStruct(b *insertByStruct) {
 	insertByStructPool.Put(b)
 }
 
+// LastNotEmptyString get last not empty string, return empty string if it does not exist
+func LastNotEmptyString(sss []string) string {
+	for i := len(sss) - 1; i >= 0; i-- {
+		if sss[i] != "" {
+			return sss[i]
+		}
+	}
+	return ""
+}
+
 // RemoveDuplicate remove duplicate element
 func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 	mp, ok, length := make(map[interface{}]*struct{}), false, len(dynamic)
 	result = make([]interface{}, 0, length)
+	for i := 0; i < length; i++ {
+		if _, ok = mp[dynamic[i]]; ok {
+			continue
+		}
+		mp[dynamic[i]] = &struct{}{}
+		result = append(result, dynamic[i])
+	}
+	return
+}
+
+// RemoveDuplicates remove duplicate element
+func RemoveDuplicates[T int | int8 | int16 | int32 | int64 | uint | uint8 | uint16 | uint32 | uint64 | string](
+	dynamic ...T,
+) (result []T) {
+	mp, ok, length := make(map[T]*struct{}), false, len(dynamic)
+	result = make([]T, 0, length)
 	for i := 0; i < length; i++ {
 		if _, ok = mp[dynamic[i]]; ok {
 			continue
@@ -784,34 +814,6 @@ func (s *Del) Where(where Filter) *Del {
 	return s
 }
 
-// AndWhere and where
-func (s *Del) AndWhere(where ...Filter) *Del {
-	if s.where == nil {
-		s.where = s.schema.way.Filter()
-	}
-	s.where.Filter(where...)
-	return s
-}
-
-// OrWhere or where
-func (s *Del) OrWhere(where ...Filter) *Del {
-	if s.where == nil {
-		s.where = s.schema.way.Filter()
-	}
-	s.where.OrFilter(where...)
-	return s
-}
-
-// WhereIn set where IN
-func (s *Del) WhereIn(column string, values ...interface{}) *Del {
-	return s.Where(NewFilter().In(column, values...))
-}
-
-// WhereEqual set where EQUAL
-func (s *Del) WhereEqual(column string, values interface{}) *Del {
-	return s.Where(NewFilter().Equal(column, values))
-}
-
 // SQL build SQL statement
 func (s *Del) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == "" {
@@ -1068,8 +1070,8 @@ func (s *Add) Add() (int64, error) {
 
 // modify set the field to be updated
 type modify struct {
-	expression string
-	args       []interface{}
+	expr string
+	args []interface{}
 }
 
 // Mod for UPDATE
@@ -1139,15 +1141,15 @@ func (s *Mod) Except(except ...string) *Mod {
 	return s
 }
 
-// expression build update field expressions and field values
-func (s *Mod) expression(field string, expression string, args ...interface{}) *Mod {
+// expr build update field expressions and field values
+func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[field]; ok {
 		return s
 	}
 
 	tmp := &modify{
-		expression: expression,
-		args:       args,
+		expr: expr,
+		args: args,
 	}
 
 	if _, ok := s.update[field]; ok {
@@ -1160,25 +1162,25 @@ func (s *Mod) expression(field string, expression string, args ...interface{}) *
 	return s
 }
 
-// Expression update field using custom expression
-func (s *Mod) Expression(field string, expression string, args ...interface{}) *Mod {
-	field, expression = strings.TrimSpace(field), strings.TrimSpace(expression)
-	return s.expression(field, expression, args)
+// Expr update field using custom expr
+func (s *Mod) Expr(field string, expr string, args ...interface{}) *Mod {
+	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
+	return s.expr(field, expr, args)
 }
 
 // Set field = value
 func (s *Mod) Set(field string, value interface{}) *Mod {
-	return s.expression(field, fmt.Sprintf("%s = %s", field, Placeholder), value)
+	return s.expr(field, fmt.Sprintf("%s = %s", field, Placeholder), value)
 }
 
 // Incr SET field = field + value
 func (s *Mod) Incr(field string, value interface{}) *Mod {
-	return s.expression(field, fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
+	return s.expr(field, fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
 }
 
 // Decr SET field = field - value
 func (s *Mod) Decr(field string, value interface{}) *Mod {
-	return s.expression(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
+	return s.expr(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
 }
 
 // FieldsValues SET field = value by slice, require len(fields) == len(values)
@@ -1209,8 +1211,8 @@ func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
 	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.Tag, s.exceptSlice...))
 }
 
-// defaultExpression append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
-func (s *Mod) defaultExpression(field string, expression string, args ...interface{}) *Mod {
+// defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
+func (s *Mod) defaultExpr(field string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[field]; ok {
 		return s
 	}
@@ -1220,8 +1222,8 @@ func (s *Mod) defaultExpression(field string, expression string, args ...interfa
 	}
 
 	tmp := &modify{
-		expression: expression,
-		args:       args,
+		expr: expr,
+		args: args,
 	}
 
 	if _, ok := s.secondaryUpdate[field]; ok {
@@ -1234,59 +1236,31 @@ func (s *Mod) defaultExpression(field string, expression string, args ...interfa
 	return s
 }
 
-// DefaultExpression update field using custom expression
-func (s *Mod) DefaultExpression(field string, expression string, args ...interface{}) *Mod {
-	field, expression = strings.TrimSpace(field), strings.TrimSpace(expression)
-	return s.defaultExpression(field, expression, args)
+// DefaultExpr update field using custom expression
+func (s *Mod) DefaultExpr(field string, expr string, args ...interface{}) *Mod {
+	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
+	return s.defaultExpr(field, expr, args)
 }
 
 // DefaultSet SET field = value
 func (s *Mod) DefaultSet(field string, value interface{}) *Mod {
-	return s.defaultExpression(field, fmt.Sprintf("%s = %s", field, Placeholder), value)
+	return s.defaultExpr(field, fmt.Sprintf("%s = %s", field, Placeholder), value)
 }
 
 // DefaultIncr SET field = field + value
 func (s *Mod) DefaultIncr(field string, value interface{}) *Mod {
-	return s.defaultExpression(field, fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
+	return s.defaultExpr(field, fmt.Sprintf("%s = %s + %s", field, field, Placeholder), value)
 }
 
 // DefaultDecr SET field = field - value
 func (s *Mod) DefaultDecr(field string, value interface{}) *Mod {
-	return s.defaultExpression(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
+	return s.defaultExpr(field, fmt.Sprintf("%s = %s - %s", field, field, Placeholder), value)
 }
 
 // Where set where
 func (s *Mod) Where(where Filter) *Mod {
 	s.where = where
 	return s
-}
-
-// AndWhere and where
-func (s *Mod) AndWhere(where ...Filter) *Mod {
-	if s.where == nil {
-		s.where = s.schema.way.Filter()
-	}
-	s.where.Filter(where...)
-	return s
-}
-
-// OrWhere or where
-func (s *Mod) OrWhere(where ...Filter) *Mod {
-	if s.where == nil {
-		s.where = s.schema.way.Filter()
-	}
-	s.where.OrFilter(where...)
-	return s
-}
-
-// WhereIn set where IN
-func (s *Mod) WhereIn(field string, values ...interface{}) *Mod {
-	return s.Where(NewFilter().In(field, values...))
-}
-
-// WhereEqual set where EQUAL
-func (s *Mod) WhereEqual(field string, value interface{}) *Mod {
-	return s.Where(NewFilter().Equal(field, value))
 }
 
 // SetSQL prepare args of set
@@ -1319,11 +1293,11 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	ok := false
 	for k, v := range fields {
 		if _, ok = s.update[v]; ok {
-			field[k] = s.update[v].expression
+			field[k] = s.update[v].expr
 			value = append(value, s.update[v].args...)
 			continue
 		}
-		field[k] = s.secondaryUpdate[v].expression
+		field[k] = s.secondaryUpdate[v].expr
 		value = append(value, s.secondaryUpdate[v].args...)
 	}
 	buf := comment(s.schema)
@@ -1430,18 +1404,28 @@ type GetJoin struct {
 	using    []string  // conditions for join query; USING ( order_id, ... )
 }
 
-// NewGetJoin new join
-func NewGetJoin(joinType string, table ...string) *GetJoin {
-	getJoin := &GetJoin{
+func newJoin(joinType string, table ...string) *GetJoin {
+	join := &GetJoin{
 		joinType: joinType,
 	}
-	for i := len(table) - 1; i >= 0; i-- {
-		if table[i] != "" {
-			getJoin.Table(table[i])
-			break
-		}
-	}
-	return getJoin
+	join.Table(LastNotEmptyString(table))
+	return join
+}
+
+func InnerJoin(table ...string) *GetJoin {
+	return newJoin(SqlJoinInner, table...)
+}
+
+func LeftJoin(table ...string) *GetJoin {
+	return newJoin(SqlJoinLeft, table...)
+}
+
+func RightJoin(table ...string) *GetJoin {
+	return newJoin(SqlJoinRight, table...)
+}
+
+func FullJoin(table ...string) *GetJoin {
+	return newJoin(SqlJoinFull, table...)
 }
 
 // Table set table name
@@ -1450,30 +1434,27 @@ func (s *GetJoin) Table(table string) *GetJoin {
 	return s
 }
 
-// TableSubQuery table is a query SQL statement
-func (s *GetJoin) TableSubQuery(prepare string, args ...interface{}) *GetJoin {
+// SubQuery table is a query SQL statement
+func (s *GetJoin) SubQuery(prepare string, args ...interface{}) *GetJoin {
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
-// TableSubQueryGet table is a query SQL statement
-func (s *GetJoin) TableSubQueryGet(get *Get, alias ...string) *GetJoin {
+// SubQueryGet table is a query SQL statement
+func (s *GetJoin) SubQueryGet(get *Get, alias ...string) *GetJoin {
 	if get == nil {
 		return s
 	}
 	prepare, args := get.SQL()
 	s.subQuery = NewSubQuery(prepare, args...)
-	for i := len(alias) - 1; i >= 0; i-- {
-		if alias[i] != "" {
-			s.TableAlias(alias[i])
-			break
-		}
+	if str := LastNotEmptyString(alias); str != "" {
+		s.Alias(str)
 	}
 	return s
 }
 
-// TableAlias table alias name, don't forget to call the current method when the table is a SQL statement
-func (s *GetJoin) TableAlias(alias string) *GetJoin {
+// Alias for table alias name, don't forget to call the current method when the table is a SQL statement
+func (s *GetJoin) Alias(alias string) *GetJoin {
 	s.alias = &alias
 	return s
 }
@@ -1560,10 +1541,12 @@ type Limiter interface {
 	GetOffset() int64
 }
 
+// Identifier sql identifier
 type Identifier struct {
 	prefix string
 }
 
+// V identifier value
 func (s *Identifier) V(sss ...string) string {
 	length := len(sss)
 	if length == 0 {
@@ -1586,6 +1569,54 @@ func (s *Identifier) V(sss ...string) string {
 		}
 	}
 	return name
+}
+
+func (s *Identifier) groupFunc(nameFunc string, field string, alias ...string) string {
+	fieldAlias := LastNotEmptyString(alias)
+	if fieldAlias == "" {
+		return fmt.Sprintf("%s(%s)", nameFunc, field)
+	}
+	return fmt.Sprintf("%s(%s) AS %s", nameFunc, field, fieldAlias)
+}
+
+func (s *Identifier) Avg(field string, alias ...string) string {
+	return s.groupFunc("AVG", s.V(field), alias...)
+}
+
+func (s *Identifier) Max(field string, alias ...string) string {
+	return s.groupFunc("MAX", s.V(field), alias...)
+}
+
+func (s *Identifier) Min(field string, alias ...string) string {
+	return s.groupFunc("MIN", s.V(field), alias...)
+}
+
+func (s *Identifier) Sum(field string, alias ...string) string {
+	return s.groupFunc("SUM", s.V(field), alias...)
+}
+
+func (s *Identifier) Count(field string, alias ...string) string {
+	fieldAlias := LastNotEmptyString(alias)
+	if fieldAlias == "" {
+		fieldAlias = "count"
+	}
+	return s.groupFunc("COUNT", field, fieldAlias)
+}
+
+func (s *Identifier) Avg1(field string) string {
+	return s.Avg(field, field)
+}
+
+func (s *Identifier) Max1(field string) string {
+	return s.Max(field, field)
+}
+
+func (s *Identifier) Min1(field string) string {
+	return s.Min(field, field)
+}
+
+func (s *Identifier) Sum1(field string) string {
+	return s.Sum(field, field)
 }
 
 // Get for SELECT
@@ -1612,63 +1643,6 @@ func NewGet(way *Way) *Get {
 		schema:   newSchema(way),
 		orderMap: map[string]string{},
 	}
-}
-
-// Clone create a new object based on all properties of the current object
-func (s *Get) Clone() *Get {
-	get := NewGet(s.schema.way)
-	get.schema.ctx = s.schema.ctx
-	get.schema.comment = s.schema.comment
-	get.schema.table = s.schema.table
-	if get.with != nil {
-		get.with = s.with[:]
-	}
-	get.Column(s.column...)
-	if s.subQuery != nil {
-		get.subQuery = NewSubQuery(s.subQuery.prepare, s.subQuery.args...)
-	}
-	if s.alias != nil {
-		get.TableAlias(*s.alias)
-	}
-	for _, v := range s.join {
-		join := NewGetJoin(v.joinType)
-		join.table = v.table
-		if v.subQuery != nil {
-			join.subQuery = NewSubQuery(v.subQuery.prepare, v.subQuery.args...)
-		}
-		if v.alias != nil {
-			join.TableAlias(*v.alias)
-		}
-		join.on = v.on
-		get.join = append(get.join, join)
-	}
-	if s.where != nil {
-		get.where = s.where.Copy(s.where)
-	}
-	get.Group(s.group...)
-	if s.having != nil {
-		get.having = s.having.Copy(s.having)
-	}
-	for _, v := range s.union {
-		get.union = append(get.union, &union{
-			unionType: v.unionType,
-			prepare:   v.prepare,
-			args:      v.args,
-		})
-	}
-	if s.order != nil {
-		get.order = s.order[:]
-	}
-	for k, v := range s.orderMap {
-		get.orderMap[k] = v
-	}
-	if s.limit != nil {
-		get.Limit(*s.limit)
-	}
-	if s.offset != nil {
-		get.Offset(*s.offset)
-	}
-	return get
 }
 
 // Comment set comment
@@ -1701,45 +1675,39 @@ func (s *Get) WithGet(alias string, get *Get) *Get {
 // Table set table name
 func (s *Get) Table(table string, alias ...string) *Get {
 	s.schema.table = table
-	for i := len(alias) - 1; i >= 0; i-- {
-		if alias[i] != "" {
-			s.TableAlias(alias[i])
-			break
-		}
+	if str := LastNotEmptyString(alias); str != "" {
+		s.Alias(str)
 	}
 	return s
 }
 
-// TableSubQuery table is a query SQL statement
-func (s *Get) TableSubQuery(prepare string, args ...interface{}) *Get {
+// SubQuery table is a query SQL statement
+func (s *Get) SubQuery(prepare string, args ...interface{}) *Get {
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
-// TableSubQueryGet table is a query SQL statement
-func (s *Get) TableSubQueryGet(get *Get, alias ...string) *Get {
+// SubQueryGet table is a query SQL statement
+func (s *Get) SubQueryGet(get *Get, alias ...string) *Get {
 	if get == nil {
 		return s
 	}
 	prepare, args := get.SQL()
 	s.subQuery = NewSubQuery(prepare, args...)
-	for i := len(alias) - 1; i >= 0; i-- {
-		if alias[i] != "" {
-			s.TableAlias(alias[i])
-			break
-		}
+	if str := LastNotEmptyString(alias); str != "" {
+		s.Alias(str)
 	}
 	return s
 }
 
-// TableAlias table alias name, don't forget to call the current method when the table is a SQL statement
-func (s *Get) TableAlias(alias string) *Get {
+// Alias for table alias name, don't forget to call the current method when the table is a SQL statement
+func (s *Get) Alias(alias string) *Get {
 	s.alias = &alias
 	return s
 }
 
-// Join for join one or more tables
-func (s *Get) Join(joins ...*GetJoin) *Get {
+// Joins for join one or more tables
+func (s *Get) Joins(joins ...*GetJoin) *Get {
 	length := len(joins)
 	for i := 0; i < length; i++ {
 		if joins[i] == nil {
@@ -1750,58 +1718,47 @@ func (s *Get) Join(joins ...*GetJoin) *Get {
 	return s
 }
 
+// typeJoin join with join-type
+func (s *Get) typeJoin(joinType string, fs []func(j *GetJoin)) *Get {
+	length := len(fs)
+	joins := make([]*GetJoin, 0, length)
+	for i := 0; i < length; i++ {
+		if fs[i] == nil {
+			continue
+		}
+		tmp := &GetJoin{
+			joinType: joinType,
+		}
+		fs[i](tmp)
+		joins = append(joins, tmp)
+	}
+	return s.Joins(joins...)
+}
+
 // InnerJoin for inner join
-func (s *Get) InnerJoin(table ...string) *GetJoin {
-	return NewGetJoin(SqlJoinInner, table...)
+func (s *Get) InnerJoin(fs ...func(j *GetJoin)) *Get {
+	return s.typeJoin(SqlJoinInner, fs)
 }
 
 // LeftJoin for left join
-func (s *Get) LeftJoin(table ...string) *GetJoin {
-	return NewGetJoin(SqlJoinLeft, table...)
+func (s *Get) LeftJoin(fs ...func(j *GetJoin)) *Get {
+	return s.typeJoin(SqlJoinLeft, fs)
 }
 
 // RightJoin for right join
-func (s *Get) RightJoin(table ...string) *GetJoin {
-	return NewGetJoin(SqlJoinRight, table...)
+func (s *Get) RightJoin(fs ...func(j *GetJoin)) *Get {
+	return s.typeJoin(SqlJoinRight, fs)
 }
 
 // FullJoin for full join
-func (s *Get) FullJoin(table ...string) *GetJoin {
-	return NewGetJoin(SqlJoinFull, table...)
+func (s *Get) FullJoin(fs ...func(j *GetJoin)) *Get {
+	return s.typeJoin(SqlJoinFull, fs)
 }
 
 // Where set where
 func (s *Get) Where(where Filter) *Get {
 	s.where = where
 	return s
-}
-
-// AndWhere and where
-func (s *Get) AndWhere(where ...Filter) *Get {
-	if s.where == nil {
-		s.where = s.schema.way.Filter()
-	}
-	s.where.Filter(where...)
-	return s
-}
-
-// OrWhere or where
-func (s *Get) OrWhere(where ...Filter) *Get {
-	if s.where == nil {
-		s.where = s.schema.way.Filter()
-	}
-	s.where.OrFilter(where...)
-	return s
-}
-
-// WhereIn set where IN
-func (s *Get) WhereIn(column string, values ...interface{}) *Get {
-	return s.Where(NewFilter().In(column, values...))
-}
-
-// WhereEqual set where EQUAL
-func (s *Get) WhereEqual(column string, value interface{}) *Get {
-	return s.Where(NewFilter().Equal(column, value))
 }
 
 // Group set group columns
@@ -1866,15 +1823,15 @@ func (s *Get) UnionAllGet(get ...*Get) *Get {
 	return s
 }
 
-// AddCol append the columns list of query
-func (s *Get) AddCol(column ...string) *Get {
-	s.column = append(s.column, column...)
-	return s
-}
-
 // Column set the columns list of query
 func (s *Get) Column(column ...string) *Get {
 	s.column = column
+	return s
+}
+
+// AppendColumn append the columns list of query
+func (s *Get) AppendColumn(column ...string) *Get {
+	s.column = append(s.column, column...)
 	return s
 }
 
@@ -1902,17 +1859,17 @@ func (s *Get) Desc(column string) *Get {
 }
 
 var (
-	// orderParamRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`
-	orderParamRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
+	// orderRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`
+	orderRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
 )
 
-// OrderParam set the column sorting list in batches through regular expressions according to the request parameter value
-func (s *Get) OrderParam(param string) *Get {
-	for _, v := range strings.Split(param, ",") {
+// Order set the column sorting list in batches through regular expressions according to the request parameter value
+func (s *Get) Order(order string) *Get {
+	for _, v := range strings.Split(order, ",") {
 		if len(v) > 32 {
 			continue
 		}
-		match := orderParamRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
+		match := orderRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
 		length := len(match)
 		if length != 1 {
 			continue
@@ -2068,8 +2025,8 @@ func (s *Get) SQLCount(columns ...string) (prepare string, args []interface{}) {
 	if s.group != nil || s.union != nil {
 		prepare, args = s.sqlTable()
 		prepare, args = NewGet(s.schema.way).
-			TableSubQuery(prepare, args...).
-			TableAlias("count_table_rows").
+			SubQuery(prepare, args...).
+			Alias("count_table_rows").
 			SQLCount(columns...)
 		return
 	}

@@ -13,6 +13,10 @@ const (
 
 type Pgsql struct{}
 
+var (
+	DefaultPgsql = &Pgsql{}
+)
+
 // Prepare fix pgsql SQL statement, ?, ?, ?... => $1, $2, $3...
 func (s *Pgsql) Prepare(str string) string {
 	var index int64
@@ -34,8 +38,12 @@ func (s *Pgsql) Prepare(str string) string {
 	return latest.String()
 }
 
-func (s *Pgsql) IfNull(field string, value interface{}) string {
-	return fmt.Sprintf("COALESCE(%s,%s)", field, args2string(value))
+func (s *Pgsql) IsNull(field string, value interface{}, alias ...string) string {
+	fieldAlias := LastNotEmptyString(alias)
+	if fieldAlias == "" {
+		fieldAlias = field
+	}
+	return fmt.Sprintf("COALESCE(%s, %s) AS %s", field, args2string(value), fieldAlias)
 }
 
 // InsertOnConflict rely on the unique index of the table
