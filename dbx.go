@@ -10,7 +10,7 @@ const (
 	null = "NULL"
 )
 
-func args2string(i interface{}) string {
+func ArgString(i interface{}) string {
 	if i == nil {
 		return null
 	}
@@ -52,7 +52,7 @@ func PrepareArgs(prepare string, args []interface{}) string {
 	byte63 := Placeholder[0]
 	for i := 0; i < length; i++ {
 		if origin[i] == byte63 && index < count {
-			latest.WriteString(args2string(args[index]))
+			latest.WriteString(ArgString(args[index]))
 			index++
 		} else {
 			latest.WriteByte(origin[i])

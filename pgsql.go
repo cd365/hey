@@ -38,14 +38,6 @@ func (s *Pgsql) Prepare(str string) string {
 	return latest.String()
 }
 
-func (s *Pgsql) IsNull(field string, value interface{}, alias ...string) string {
-	fieldAlias := LastNotEmptyString(alias)
-	if fieldAlias == "" {
-		fieldAlias = field
-	}
-	return fmt.Sprintf("COALESCE(%s, %s) AS %s", field, args2string(value), fieldAlias)
-}
-
 // InsertOnConflict rely on the unique index of the table
 func (s *Pgsql) InsertOnConflict(
 	onConflictColumns []string, // unique index of column or columns
@@ -96,6 +88,7 @@ func (s *Pgsql) CloneTableStruct(
 		drop,
 		fmt.Sprintf("DROP TABLE IF EXISTS %s;", dst),
 	)
+
 	if seq != "" {
 		nameSeq := fmt.Sprintf("%s_%s_seq", dst, seq)
 		// SELECT setval('example_id_seq', 100000);
