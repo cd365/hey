@@ -80,11 +80,6 @@ func putStmt(s *Stmt) {
 type Config struct {
 	DeleteMustUseWhere bool
 	UpdateMustUseWhere bool
-
-	// SqlNullReplace replace field null value
-	// pgsql: COALESCE($field, $replace)
-	// call example: NullReplace("email", "''"), NullReplace("account.balance", "0")
-	SqlNullReplace func(fieldName string, replaceValue string) string
 }
 
 var (
@@ -94,58 +89,44 @@ var (
 	}
 )
 
-// OfPrepare record executed prepare
-type OfPrepare struct {
-	txId    string
-	txMsg   string
-	prepare string
-}
-
-// TxId get transaction id
-func (s *OfPrepare) TxId() string {
-	return s.txId
-}
-
-// TxMsg get transaction message
-func (s *OfPrepare) TxMsg() string {
-	return s.txMsg
-}
-
-// Prepare get execute prepare
-func (s *OfPrepare) Prepare() string {
-	return s.prepare
-}
-
-// OfArgs record executed args of prepare
-type OfArgs struct {
+// LogArgs record executed args of prepare
+type LogArgs struct {
 	Args    []interface{}
 	StartAt time.Time
 	EndAt   time.Time
 	Error   error
 }
 
-// OfTransaction record executed transaction
-type OfTransaction struct {
+// LogPrepareArgs record executed prepare args
+type LogPrepareArgs struct {
+	TxId    string
+	TxMsg   string
+	Prepare string
+	Args    *LogArgs
+}
+
+// LogTransaction record executed transaction
+type LogTransaction struct {
 	TxId    string    // transaction id
 	TxMsg   string    // transaction message
-	StartAt time.Time // time start at
-	EndAt   time.Time // time end at
-	State   string    // COMMIT || ROLLBACK
+	StartAt time.Time // transaction start at
+	EndAt   time.Time // transaction end at
+	State   string    // transaction result COMMIT || ROLLBACK
 	Error   error     // error
 }
 
 // Way quick insert, delete, update, select helper
 type Way struct {
-	db     *sql.DB                           // the instance of the database connect pool
-	Fix    func(string) string               // fix prepare sql script before call prepare method
-	Tag    string                            // bind struct tag and table column
-	Log    func(lop *OfPrepare, loa *OfArgs) // logger executed sql statement
-	tx     *sql.Tx                           // the transaction instance
-	txAt   *time.Time                        // the transaction start at
-	txId   string                            // the transaction unique id
-	txMsg  string                            // the transaction message
-	TxLog  func(lt *OfTransaction)           // logger executed transaction
-	Config *Config                           // configure of Way
+	db     *sql.DB                   // the instance of the database connect pool
+	Fix    func(string) string       // fix prepare sql script before call prepare method
+	Tag    string                    // bind struct tag and table column
+	Log    func(log *LogPrepareArgs) // logger executed sql statement
+	tx     *sql.Tx                   // the transaction instance
+	txAt   *time.Time                // the transaction start at
+	txId   string                    // the transaction unique id
+	txMsg  string                    // the transaction message
+	TxLog  func(log *LogTransaction) // logger executed transaction
+	Config *Config                   // configure of *Way
 }
 
 // NewWay instantiate a helper
@@ -221,26 +202,25 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 		return
 	}
 
-	lt := &OfTransaction{
+	log := &LogTransaction{
 		TxId:    way.txId,
 		StartAt: *(way.txAt),
 	}
 
 	ok := false
 	defer func() {
-		lt.Error = err
-		lt.TxMsg = way.txMsg
+		log.TxMsg = way.txMsg
 		if err == nil && ok {
 			err = way.commit()
-			lt.Error = err
-			lt.State = "COMMIT"
+			log.State = "COMMIT"
 		} else {
 			_ = way.rollback()
-			lt.State = "ROLLBACK"
+			log.State = "ROLLBACK"
 		}
+		log.Error = err
 		if s.TxLog != nil {
-			lt.EndAt = time.Now()
-			s.TxLog(lt)
+			log.EndAt = time.Now()
+			s.TxLog(log)
 		}
 	}()
 
@@ -317,11 +297,10 @@ func (s *Way) caller(caller ...Caller) Caller {
 }
 
 // withLogger -> call logger
-func (s *Way) withLogger(ofPrepare *OfPrepare, ofArgs *OfArgs) {
-	if s.Log == nil {
-		return
+func (s *Way) withLogger(log *LogPrepareArgs) {
+	if s.Log != nil {
+		s.Log(log)
 	}
-	s.Log(ofPrepare, ofArgs)
 }
 
 // Stmt prepare handle
@@ -343,31 +322,23 @@ func (s *Stmt) Close() (err error) {
 
 // QueryContext -> query prepared that can be called repeatedly
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) (err error) {
-	op := &OfPrepare{
-		txId:    s.way.txId,
-		txMsg:   s.way.txMsg,
-		prepare: s.prepare,
+	log := &LogPrepareArgs{
+		TxId:    s.way.txId,
+		TxMsg:   s.way.txMsg,
+		Prepare: s.prepare,
+		Args:    &LogArgs{Args: args},
 	}
-	oa := &OfArgs{
-		Args:    args,
-		StartAt: time.Now(),
-	}
-	var endAt time.Time
 	defer func() {
-		if endAt.IsZero() {
-			oa.EndAt = time.Now()
-		} else {
-			oa.EndAt = endAt
-		}
-		oa.Error = err
-		s.way.withLogger(op, oa)
+		log.Args.Error = err
+		s.way.withLogger(log)
 	}()
 	var rows *sql.Rows
+	log.Args.StartAt = time.Now()
 	rows, err = s.stmt.QueryContext(ctx, args...)
+	log.Args.EndAt = time.Now()
 	if err != nil {
 		return
 	}
-	endAt = time.Now()
 	defer rows.Close()
 	err = query(rows)
 	return
@@ -380,31 +351,23 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 
 // ExecContext -> execute prepared that can be called repeatedly
 func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (rowsAffected int64, err error) {
-	op := &OfPrepare{
-		txId:    s.way.txId,
-		txMsg:   s.way.txMsg,
-		prepare: s.prepare,
+	log := &LogPrepareArgs{
+		TxId:    s.way.txId,
+		TxMsg:   s.way.txMsg,
+		Prepare: s.prepare,
+		Args:    &LogArgs{Args: args},
 	}
-	oa := &OfArgs{
-		Args:    args,
-		StartAt: time.Now(),
-	}
-	var endAt time.Time
 	defer func() {
-		if endAt.IsZero() {
-			oa.EndAt = time.Now()
-		} else {
-			oa.EndAt = endAt
-		}
-		oa.Error = err
-		s.way.withLogger(op, oa)
+		log.Args.Error = err
+		s.way.withLogger(log)
 	}()
 	var result sql.Result
+	log.Args.StartAt = time.Now()
 	result, err = s.stmt.ExecContext(ctx, args...)
+	log.Args.EndAt = time.Now()
 	if err != nil {
 		return
 	}
-	endAt = time.Now()
 	rowsAffected, err = result.RowsAffected()
 	return
 }
@@ -500,28 +463,20 @@ func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prep
 	if query == nil || prepare == "" {
 		return
 	}
-	op := &OfPrepare{
-		txId:    s.txId,
-		txMsg:   s.txMsg,
-		prepare: prepare,
+	log := &LogPrepareArgs{
+		TxId:    s.txId,
+		TxMsg:   s.txMsg,
+		Prepare: prepare,
+		Args:    &LogArgs{Args: nil},
 	}
-	oa := &OfArgs{
-		Args:    nil,
-		StartAt: time.Now(),
-	}
-	var endAt time.Time
 	defer func() {
-		if endAt.IsZero() {
-			oa.EndAt = time.Now()
-		} else {
-			oa.EndAt = endAt
-		}
-		oa.Error = err
-		s.withLogger(op, oa)
+		log.Args.Error = err
+		s.withLogger(log)
 	}()
 	var rows *sql.Rows
+	log.Args.StartAt = time.Now()
 	rows, err = s.caller(caller...).QueryContext(ctx, prepare)
-	endAt = time.Now()
+	log.Args.EndAt = time.Now()
 	if err != nil {
 		return
 	}
@@ -535,28 +490,20 @@ func (s *Way) setter(ctx context.Context, prepare string, caller ...Caller) (row
 	if prepare == "" {
 		return
 	}
-	op := &OfPrepare{
-		txId:    s.txId,
-		txMsg:   s.txMsg,
-		prepare: prepare,
+	log := &LogPrepareArgs{
+		TxId:    s.txId,
+		TxMsg:   s.txMsg,
+		Prepare: prepare,
+		Args:    &LogArgs{Args: nil},
 	}
-	oa := &OfArgs{
-		Args:    nil,
-		StartAt: time.Now(),
-	}
-	var endAt time.Time
 	defer func() {
-		if endAt.IsZero() {
-			oa.EndAt = time.Now()
-		} else {
-			oa.EndAt = endAt
-		}
-		oa.Error = err
-		s.withLogger(op, oa)
+		log.Args.Error = err
+		s.withLogger(log)
 	}()
 	var result sql.Result
+	log.Args.StartAt = time.Now()
 	result, err = s.caller(caller...).ExecContext(ctx, prepare)
-	endAt = time.Now()
+	log.Args.EndAt = time.Now()
 	if err != nil {
 		return
 	}
