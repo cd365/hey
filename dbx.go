@@ -3,7 +3,6 @@ package hey
 import (
 	"fmt"
 	"reflect"
-	"unsafe"
 )
 
 const (
@@ -45,7 +44,7 @@ func PrepareArgs(prepare string, args []interface{}) string {
 		return prepare
 	}
 	index := 0
-	origin := *(*[]byte)(unsafe.Pointer(&prepare))
+	origin := []byte(prepare)
 	latest := getSqlBuilder()
 	defer putSqlBuilder(latest)
 	length := len(origin)

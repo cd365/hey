@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unsafe"
 )
 
 const (
@@ -20,9 +19,9 @@ var (
 // Prepare fix pgsql SQL statement, ?, ?, ?... => $1, $2, $3...
 func (s *Pgsql) Prepare(str string) string {
 	var index int64
-	origin := *(*[]byte)(unsafe.Pointer(&str))
 	latest := getSqlBuilder()
 	defer putSqlBuilder(latest)
+	origin := []byte(str)
 	length := len(origin)
 	byte36 := Dollar[0]      // $
 	byte63 := Placeholder[0] // ?
