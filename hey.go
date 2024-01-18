@@ -43,22 +43,24 @@ func init() {
 func getWay(origin *Way) *Way {
 	latest := poolWay.Get().(*Way)
 	latest.db = origin.db
-	latest.Fix = origin.Fix
-	latest.Tag = origin.Tag
-	latest.Log = origin.Log
-	latest.TxLog = origin.TxLog
-	latest.Config = origin.Config
+	latest.fix = origin.fix
+	latest.tag = origin.tag
+	latest.log = origin.log
+	latest.txLog = origin.txLog
+	latest.txOpts = origin.txOpts
+	latest.config = origin.config
 	return latest
 }
 
 // putWay put *Way in the pool
 func putWay(s *Way) {
 	s.db = nil
-	s.Fix = nil
-	s.Tag = ""
-	s.Log = nil
-	s.TxLog = nil
-	s.Config = nil
+	s.fix = nil
+	s.tag = ""
+	s.log = nil
+	s.txLog = nil
+	s.txOpts = nil
+	s.config = nil
 	poolWay.Put(s)
 }
 
@@ -117,25 +119,68 @@ type LogTransaction struct {
 
 // Way quick insert, delete, update, select helper
 type Way struct {
-	db     *sql.DB                   // the instance of the database connect pool
-	Fix    func(string) string       // fix prepare sql script before call prepare method
-	Tag    string                    // bind struct tag and table column
-	Log    func(log *LogPrepareArgs) // logger executed sql statement
+	db *sql.DB // the instance of the database connect pool
+
+	fix func(string) string // fix prepare sql script before call prepare method
+
+	tag string // bind struct tag and table column
+
+	log func(log *LogPrepareArgs) // logger executed sql statement
+
 	tx     *sql.Tx                   // the transaction instance
 	txAt   *time.Time                // the transaction start at
 	txId   string                    // the transaction unique id
 	txMsg  string                    // the transaction message
-	TxLog  func(log *LogTransaction) // logger executed transaction
-	Config *Config                   // configure of *Way
+	txLog  func(log *LogTransaction) // logger executed transaction
+	txOpts *sql.TxOptions            // the transaction isolation level
+
+	config *Config // configure of *Way
+}
+
+// Opts custom attribute value of *Way
+type Opts func(s *Way)
+
+// WithPrepare -> uses custom fix prepare
+func WithPrepare(fix func(prepare string) string) Opts {
+	return func(s *Way) { s.fix = fix }
+}
+
+// WithTag -> uses custom tag
+func WithTag(tag string) Opts {
+	return func(s *Way) { s.tag = tag }
+}
+
+// WithLogger -> uses custom logger
+func WithLogger(log func(log *LogPrepareArgs)) Opts {
+	return func(s *Way) { s.log = log }
+}
+
+// WithTxLogger -> uses custom transaction logger
+func WithTxLogger(txLog func(log *LogTransaction)) Opts {
+	return func(s *Way) { s.txLog = txLog }
+}
+
+// WithTxOpts -> uses custom global default transaction isolation level
+func WithTxOpts(txOpts *sql.TxOptions) Opts {
+	return func(s *Way) { s.txOpts = txOpts }
+}
+
+// WithConfig -> uses custom configure
+func WithConfig(config *Config) Opts {
+	return func(s *Way) { s.config = config }
 }
 
 // NewWay instantiate a helper
-func NewWay(db *sql.DB) *Way {
-	return &Way{
+func NewWay(db *sql.DB, opts ...Opts) *Way {
+	s := &Way{
 		db:     db,
-		Tag:    DefaultTag,
-		Config: DefaultConfig,
+		tag:    DefaultTag,
+		config: DefaultConfig,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // DB -> get the database connection pool object in the current instance
@@ -143,12 +188,17 @@ func (s *Way) DB() *sql.DB {
 	return s.db
 }
 
+// Tag -> get tag value
+func (s *Way) Tag() string {
+	return s.tag
+}
+
 // begin -> open transaction
-func (s *Way) begin(ctx context.Context, opts *sql.TxOptions, conn *sql.Conn) (err error) {
+func (s *Way) begin(ctx context.Context, conn *sql.Conn) (err error) {
 	if conn != nil {
-		s.tx, err = conn.BeginTx(ctx, opts)
+		s.tx, err = conn.BeginTx(ctx, s.txOpts)
 	} else {
-		s.tx, err = s.db.BeginTx(ctx, opts)
+		s.tx, err = s.db.BeginTx(ctx, s.txOpts)
 	}
 	if err != nil {
 		return
@@ -190,7 +240,7 @@ func (s *Way) TxMsg(msg string) *Way {
 }
 
 // transaction -> execute sql statements in batches in a transaction When a transaction is nested, the inner transaction automatically uses the outer transaction object
-func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error, conn *sql.Conn) (err error) {
+func (s *Way) transaction(ctx context.Context, fn func(tx *Way) error, conn *sql.Conn) (err error) {
 	if s.tx != nil {
 		return fn(s)
 	}
@@ -198,7 +248,7 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 	way := getWay(s)
 	defer putWay(way)
 
-	if err = way.begin(ctx, opts, conn); err != nil {
+	if err = way.begin(ctx, conn); err != nil {
 		return
 	}
 
@@ -218,9 +268,9 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 			log.State = "ROLLBACK"
 		}
 		log.Error = err
-		if s.TxLog != nil {
+		if s.txLog != nil {
 			log.EndAt = time.Now()
-			s.TxLog(log)
+			s.txLog(log)
 		}
 	}()
 
@@ -232,7 +282,7 @@ func (s *Way) transaction(ctx context.Context, opts *sql.TxOptions, fn func(tx *
 }
 
 // TxTryCtx -> call transaction multiple times
-func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way) error, times int, conn ...*sql.Conn) (err error) {
+func (s *Way) TxTryCtx(ctx context.Context, fn func(tx *Way) error, times int, conn ...*sql.Conn) (err error) {
 	if times < 1 {
 		times = 1
 	}
@@ -241,10 +291,11 @@ func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way
 	for i := length - 1; i >= 0; i-- {
 		if conn[i] != nil {
 			c = conn[i]
+			break
 		}
 	}
 	for i := 0; i < times; i++ {
-		err = s.transaction(ctx, opts, fn, c)
+		err = s.transaction(ctx, fn, c)
 		if err == nil {
 			return
 		}
@@ -254,7 +305,7 @@ func (s *Way) TxTryCtx(ctx context.Context, opts *sql.TxOptions, fn func(tx *Way
 
 // TxTry -> call transaction multiple times
 func (s *Way) TxTry(fn func(tx *Way) error, times int, conn ...*sql.Conn) error {
-	return s.TxTryCtx(context.Background(), nil, fn, times, conn...)
+	return s.TxTryCtx(context.Background(), fn, times, conn...)
 }
 
 // Now -> get current time, the transaction open status will get the same time
@@ -298,8 +349,8 @@ func (s *Way) caller(caller ...Caller) Caller {
 
 // withLogger -> call logger
 func (s *Way) withLogger(log *LogPrepareArgs) {
-	if s.Log != nil {
-		s.Log(log)
+	if s.log != nil {
+		s.log(log)
 	}
 }
 
@@ -380,7 +431,7 @@ func (s *Stmt) Exec(args ...interface{}) (int64, error) {
 // ScanAllContext -> query prepared and scan results that can be called repeatedly
 func (s *Stmt) ScanAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
 	return s.QueryContext(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.way.Tag)
+		return ScanSliceStruct(rows, result, s.way.tag)
 	}, args...)
 }
 
@@ -400,8 +451,8 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Call
 	stmt.way = s
 	stmt.caller = s.caller(caller...)
 	stmt.prepare = prepare
-	if s.Fix != nil {
-		stmt.prepare = s.Fix(prepare)
+	if s.fix != nil {
+		stmt.prepare = s.fix(prepare)
 	}
 	tmp, err := stmt.caller.PrepareContext(ctx, stmt.prepare)
 	if err != nil {
@@ -434,7 +485,7 @@ func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...in
 // ScanAllContext -> query and scan results through the mapping of column names and struct tags
 func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
 	return s.QueryContext(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.Tag)
+		return ScanSliceStruct(rows, result, s.tag)
 	}, prepare, args...)
 }
 
@@ -580,14 +631,17 @@ type wayWriterReader struct {
 	readerLen int
 }
 
+// W -> for write
 func (s *wayWriterReader) W() *Way {
 	return s.writer[s.choose(s.writerLen)]
 }
 
+// R -> for read
 func (s *wayWriterReader) R() *Way {
 	return s.reader[s.choose(s.readerLen)]
 }
 
+// NewWayWriterReader -> read and write separated calls
 func NewWayWriterReader(
 	choose func(n int) int,
 	writer []*Way,

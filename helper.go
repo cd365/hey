@@ -833,7 +833,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 			args = whereArgs
 		}
 	}
-	if s.schema.way.Config.DeleteMustUseWhere && !w {
+	if s.schema.way.config.DeleteMustUseWhere && !w {
 		prepare, args = "", nil
 		return
 	}
@@ -976,7 +976,7 @@ func (s *Add) Create(create interface{}) *Add {
 		}
 		return s
 	}
-	return s.FieldsValues(StructInsert(create, s.schema.way.Tag, s.except...))
+	return s.FieldsValues(StructInsert(create, s.schema.way.tag, s.except...))
 }
 
 // ValuesSubQuery values is a query SQL statement
@@ -1203,12 +1203,12 @@ func (s *Mod) Modify(modify interface{}) *Mod {
 		}
 		return s
 	}
-	return s.FieldsValues(StructModify(modify, s.schema.way.Tag, s.exceptSlice...))
+	return s.FieldsValues(StructModify(modify, s.schema.way.tag, s.exceptSlice...))
 }
 
 // Update for compare origin and latest to automatically calculate need to update fields
 func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
-	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.Tag, s.exceptSlice...))
+	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.tag, s.exceptSlice...))
 }
 
 // defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
@@ -1333,7 +1333,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 			args = append(args, val...)
 		}
 	}
-	if s.schema.way.Config.UpdateMustUseWhere && !w {
+	if s.schema.way.config.UpdateMustUseWhere && !w {
 		prepare, args = "", nil
 		return
 	}

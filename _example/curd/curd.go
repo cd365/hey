@@ -13,8 +13,10 @@ var (
 
 func main() {
 
-	way := hey.NewWay(db)
-	way.Fix = hey.DefaultPgsql.Prepare
+	way := hey.NewWay(
+		db,
+		hey.WithPrepare(hey.DefaultPgsql.Prepare),
+	)
 
 	table := "account"
 
