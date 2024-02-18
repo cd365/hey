@@ -686,6 +686,27 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	return
 }
 
+// RemoveSliceMemberByIndex delete slice member by index
+func RemoveSliceMemberByIndex[T bool | int8 | int16 | int32 | int64 | int | uint8 | uint16 | uint32 | uint64 | uint | float32 | float64 | string | interface{}](indexList []int, elementList []T) []T {
+	count := len(indexList)
+	if count == 0 {
+		return elementList
+	}
+	length := len(elementList)
+	mp := make(map[int]struct{}, count)
+	for i := 0; i < count; i++ {
+		mp[indexList[i]] = struct{}{}
+	}
+	ok := false
+	result := make([]T, 0, length)
+	for i := 0; i < length; i++ {
+		if _, ok = mp[i]; !ok {
+			result = append(result, elementList[i])
+		}
+	}
+	return result
+}
+
 // RowsNext traversing and processing query results
 func RowsNext(rows *sql.Rows, fc func() error) (err error) {
 	for rows.Next() {

@@ -700,3 +700,21 @@ func NewFilter() Filter {
 		prepare: &strings.Builder{},
 	}
 }
+
+func ValuesIn[T bool | int8 | int16 | int32 | int64 | int | uint8 | uint16 | uint32 | uint64 | uint | float32 | float64 | string | interface{}](values ...T) []interface{} {
+	length := len(values)
+	result := make([]interface{}, 0, length)
+	for i := 0; i < length; i++ {
+		result = append(result, values[i])
+	}
+	return result
+}
+
+func ValuesInGroup[T bool | int8 | int16 | int32 | int64 | int | uint8 | uint16 | uint32 | uint64 | uint | float32 | float64 | string | interface{}](values ...[]T) [][]interface{} {
+	length := len(values)
+	result := make([][]interface{}, 0, length)
+	for i := 0; i < length; i++ {
+		result = append(result, ValuesIn(values[i]...))
+	}
+	return result
+}
