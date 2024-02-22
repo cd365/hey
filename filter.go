@@ -1,6 +1,7 @@
 package hey
 
 import (
+	"reflect"
 	"strings"
 )
 
@@ -63,6 +64,7 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 	if column == "" || values == nil {
 		return
 	}
+	values = SliceAny121(values...)
 	length := len(values)
 	if length == 0 {
 		return
@@ -285,8 +287,11 @@ type Filter interface {
 	In(column string, values ...interface{}) Filter
 	InQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	InGet(column string, preparer Preparer) Filter
+	// Deprecated: please use Filter.In instead
 	InInt(column string, values []int) Filter
+	// Deprecated: please use Filter.In instead
 	InInt64(column string, values []int64) Filter
+	// Deprecated: please use Filter.In instead
 	InString(column string, values []string) Filter
 	InCols(columns []string, values ...[]interface{}) Filter
 	InColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
@@ -299,8 +304,11 @@ type Filter interface {
 	NotIn(column string, values ...interface{}) Filter
 	NotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	NotInGet(column string, preparer Preparer) Filter
+	// Deprecated: please use Filter.In instead
 	NotInInt(column string, values []int) Filter
+	// Deprecated: please use Filter.In instead
 	NotInInt64(column string, values []int64) Filter
+	// Deprecated: please use Filter.In instead
 	NotInString(column string, values []string) Filter
 	NotInCols(columns []string, values ...[]interface{}) Filter
 	NotInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
@@ -320,8 +328,11 @@ type Filter interface {
 	OrIn(column string, values ...interface{}) Filter
 	OrInQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	OrInGet(column string, preparer Preparer) Filter
+	// Deprecated: please use Filter.In instead
 	OrInInt(column string, values []int) Filter
+	// Deprecated: please use Filter.In instead
 	OrInInt64(column string, values []int64) Filter
+	// Deprecated: please use Filter.In instead
 	OrInString(column string, values []string) Filter
 	OrInCols(columns []string, values ...[]interface{}) Filter
 	OrInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
@@ -334,8 +345,11 @@ type Filter interface {
 	OrNotIn(column string, values ...interface{}) Filter
 	OrNotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	OrNotInGet(column string, preparer Preparer) Filter
+	// Deprecated: please use Filter.In instead
 	OrNotInInt(column string, values []int) Filter
+	// Deprecated: please use Filter.In instead
 	OrNotInInt64(column string, values []int64) Filter
+	// Deprecated: please use Filter.In instead
 	OrNotInString(column string, values []string) Filter
 	OrNotInCols(columns []string, values ...[]interface{}) Filter
 	OrNotInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
@@ -701,15 +715,47 @@ func NewFilter() Filter {
 	}
 }
 
+func SliceAny121(values ...interface{}) []interface{} {
+	length := len(values)
+	if length == 1 {
+		// expand slice members when there is only one slice type value
+		rt := reflect.TypeOf(values[0])
+		if rt.Kind() == reflect.Slice {
+			rv := reflect.ValueOf(values[0])
+			count := rv.Len()
+			result := make([]interface{}, 0, count)
+			for i := 0; i < count; i++ {
+				result = append(result, rv.Index(i).Interface())
+			}
+			return result
+		}
+	}
+	return values
+}
+
+// Deprecated: please use Filter.In instead
 func ValuesIn[T bool | int8 | int16 | int32 | int64 | int | uint8 | uint16 | uint32 | uint64 | uint | float32 | float64 | string | interface{}](values ...T) []interface{} {
 	length := len(values)
 	result := make([]interface{}, 0, length)
+	if length == 1 {
+		// expand slice members when there is only one slice type value
+		rt := reflect.TypeOf(values[0])
+		if rt.Kind() == reflect.Slice {
+			rv := reflect.ValueOf(values[0])
+			count := rv.Len()
+			for i := 0; i < count; i++ {
+				result = append(result, rv.Index(i).Interface())
+			}
+			return result
+		}
+	}
 	for i := 0; i < length; i++ {
 		result = append(result, values[i])
 	}
 	return result
 }
 
+// Deprecated: please use Filter.InCols instead
 func ValuesInGroup[T bool | int8 | int16 | int32 | int64 | int | uint8 | uint16 | uint32 | uint64 | uint | float32 | float64 | string | interface{}](values ...[]T) [][]interface{} {
 	length := len(values)
 	result := make([][]interface{}, 0, length)
