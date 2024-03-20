@@ -240,9 +240,9 @@ func (s *Way) TxMsg(msg string) *Way {
 }
 
 // transaction -> execute sql statements in batches in a transaction When a transaction is nested, the inner transaction automatically uses the outer transaction object
-func (s *Way) transaction(ctx context.Context, fn func(tx *Way) error, conn *sql.Conn) (err error) {
+func (s *Way) transaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn) (err error) {
 	if s.tx != nil {
-		return fn(s)
+		return fc(s)
 	}
 
 	way := getWay(s)
@@ -274,7 +274,7 @@ func (s *Way) transaction(ctx context.Context, fn func(tx *Way) error, conn *sql
 		}
 	}()
 
-	if err = fn(way); err != nil {
+	if err = fc(way); err != nil {
 		return
 	}
 	ok = true
@@ -282,7 +282,7 @@ func (s *Way) transaction(ctx context.Context, fn func(tx *Way) error, conn *sql
 }
 
 // TxTryCtx -> call transaction multiple times
-func (s *Way) TxTryCtx(ctx context.Context, fn func(tx *Way) error, times int, conn ...*sql.Conn) (err error) {
+func (s *Way) TxTryCtx(ctx context.Context, fc func(tx *Way) error, times int, conn ...*sql.Conn) (err error) {
 	if times < 1 {
 		times = 1
 	}
@@ -295,17 +295,26 @@ func (s *Way) TxTryCtx(ctx context.Context, fn func(tx *Way) error, times int, c
 		}
 	}
 	for i := 0; i < times; i++ {
-		err = s.transaction(ctx, fn, c)
-		if err == nil {
-			return
+		if err = s.transaction(ctx, fc, c); err == nil {
+			break
 		}
 	}
 	return
 }
 
 // TxTry -> call transaction multiple times
-func (s *Way) TxTry(fn func(tx *Way) error, times int, conn ...*sql.Conn) error {
-	return s.TxTryCtx(context.Background(), fn, times, conn...)
+func (s *Way) TxTry(fc func(tx *Way) error, times int, conn ...*sql.Conn) error {
+	return s.TxTryCtx(context.Background(), fc, times, conn...)
+}
+
+// TxCtx -> call transaction once
+func (s *Way) TxCtx(ctx context.Context, fc func(tx *Way) error, conn ...*sql.Conn) error {
+	return s.TxTryCtx(ctx, fc, 1, conn...)
+}
+
+// Tx -> call transaction once
+func (s *Way) Tx(fc func(tx *Way) error, conn ...*sql.Conn) error {
+	return s.TxTryCtx(context.Background(), fc, 1, conn...)
 }
 
 // Now -> get current time, the transaction open status will get the same time
