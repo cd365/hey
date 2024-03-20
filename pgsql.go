@@ -46,7 +46,6 @@ func (s *Pgsql) InsertOnConflict(
 	if length == 0 {
 		return
 	}
-	length = len(updateColumns)
 	buffer := getSqlBuilder()
 	defer putSqlBuilder(buffer)
 	buffer.WriteString("ON CONFLICT(")
