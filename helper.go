@@ -919,8 +919,17 @@ func (s *Add) Table(table string) *Add {
 	return s
 }
 
-// Fields set fields
+// Fields set fields, the current method resets the map field list and field index sequence
 func (s *Add) Fields(fields []string) *Add {
+	length := len(fields)
+	// reset value of fieldsIndex, fieldsMap
+	s.fieldsIndex, s.fieldsMap = 0, make(map[string]int, length*2)
+	for i := 0; i < length; i++ {
+		if _, ok := s.fieldsMap[fields[i]]; !ok {
+			s.fieldsMap[fields[i]] = s.fieldsIndex
+			s.fieldsIndex++
+		}
+	}
 	s.fields = fields
 	return s
 }
@@ -951,7 +960,7 @@ func (s *Add) Except(except ...string) *Add {
 	return s
 }
 
-// FieldValue add field-value for insert one or more rows
+// FieldValue append field-value for insert one or more rows
 func (s *Add) FieldValue(field string, value interface{}) *Add {
 	if _, ok := s.exceptMap[field]; ok {
 		return s
@@ -971,7 +980,7 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 	return s
 }
 
-// DefaultFieldValue customize default field-value for insert one or more rows
+// DefaultFieldValue append default field-value for insert one or more rows
 func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
 	if _, ok := s.exceptMap[field]; ok {
 		return s
