@@ -794,7 +794,7 @@ func comment(schema *schema) (b *strings.Builder) {
 	}
 	b.WriteString("/* ")
 	b.WriteString(schema.comment)
-	b.WriteString(" */ ")
+	b.WriteString(" */")
 	return
 }
 
@@ -1330,7 +1330,7 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 		field[k] = s.secondaryUpdate[v].expr
 		value = append(value, s.secondaryUpdate[v].args...)
 	}
-	buf := comment(s.schema)
+	buf := getSqlBuilder()
 	defer putSqlBuilder(buf)
 	buf.WriteString(strings.Join(field, ", "))
 	prepare = buf.String()
