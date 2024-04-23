@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-const (
-	Dollar = "$"
-)
-
 type Pgsql struct{}
 
 var (
@@ -23,8 +19,8 @@ func (s *Pgsql) Prepare(str string) string {
 	defer putSqlBuilder(latest)
 	origin := []byte(str)
 	length := len(origin)
-	byte36 := Dollar[0]      // $
-	byte63 := Placeholder[0] // ?
+	byte36 := SqlDollar[0]      // $
+	byte63 := SqlPlaceholder[0] // ?
 	for i := 0; i < length; i++ {
 		if origin[i] == byte63 {
 			index++
@@ -87,7 +83,7 @@ func (s *Pgsql) CloneTableStruct(
 		fmt.Sprintf("DROP TABLE IF EXISTS %s;", dst),
 	)
 
-	if seq != "" {
+	if seq != EmptyString {
 		nameSeq := fmt.Sprintf("%s_%s_seq", dst, seq)
 		// SELECT setval('example_id_seq', 100000);
 		// SELECT nextval('example_id_seq');

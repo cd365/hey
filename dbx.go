@@ -5,19 +5,15 @@ import (
 	"reflect"
 )
 
-const (
-	null = "NULL"
-)
-
 func ArgString(i interface{}) string {
 	if i == nil {
-		return null
+		return SqlNull
 	}
 	t, v := reflect.TypeOf(i), reflect.ValueOf(i)
 	k := t.Kind()
 	for k == reflect.Ptr {
 		if v.IsNil() {
-			return null
+			return SqlNull
 		}
 		t, v = t.Elem(), v.Elem()
 		k = t.Kind()
@@ -48,7 +44,7 @@ func PrepareArgs(prepare string, args []interface{}) string {
 	latest := getSqlBuilder()
 	defer putSqlBuilder(latest)
 	length := len(origin)
-	byte63 := Placeholder[0]
+	byte63 := SqlPlaceholder[0]
 	for i := 0; i < length; i++ {
 		if origin[i] == byte63 && index < count {
 			latest.WriteString(ArgString(args[index]))

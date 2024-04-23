@@ -16,6 +16,52 @@ const (
 	DefaultTag = "db"
 )
 
+const (
+	EmptyString = ""
+)
+
+const (
+	SqlDollar = "$"
+	SqlPoint  = "."
+	SqlSpace  = " "
+	SqlStar   = "*"
+
+	SqlAs       = "AS"
+	SqlAsc      = "ASC"
+	SqlDesc     = "DESC"
+	SqlUnion    = "UNION"
+	SqlUnionAll = "UNION ALL"
+
+	SqlJoinInner = "INNER JOIN"
+	SqlJoinLeft  = "LEFT JOIN"
+	SqlJoinRight = "RIGHT JOIN"
+	SqlJoinFull  = "FULL JOIN"
+
+	SqlAnd = "AND"
+	SqlOr  = "OR"
+
+	SqlAvg   = "AVG"
+	SqlMax   = "MAX"
+	SqlMin   = "MIN"
+	SqlSum   = "SUM"
+	SqlCount = "COUNT"
+
+	SqlNull = "NULL"
+
+	SqlPlaceholder   = "?"
+	SqlEqual         = "="
+	SqlNotEqual      = "<>"
+	SqlGreater       = ">"
+	SqlGreaterEqual  = ">="
+	SqlLessThan      = "<"
+	SqlLessThanEqual = "<="
+)
+
+type Preparer interface {
+	// SQL get the prepare sql statement and parameter list
+	SQL() (prepare string, args []interface{})
+}
+
 var (
 	// poolWay *Way pool
 	poolWay *sync.Pool
@@ -56,7 +102,7 @@ func getWay(origin *Way) *Way {
 func putWay(s *Way) {
 	s.db = nil
 	s.fix = nil
-	s.tag = ""
+	s.tag = EmptyString
 	s.log = nil
 	s.txLog = nil
 	s.txOpts = nil
@@ -73,7 +119,7 @@ func getStmt() *Stmt {
 func putStmt(s *Stmt) {
 	s.way = nil
 	s.caller = nil
-	s.prepare = ""
+	s.prepare = EmptyString
 	s.stmt = nil
 	poolStmt.Put(s)
 }
@@ -205,21 +251,21 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn) (err error) {
 	}
 	now := time.Now()
 	s.txAt = &now
-	s.txId = fmt.Sprintf("%d.%d.%p", now.UnixNano(), os.Getpid(), s.tx)
+	s.txId = fmt.Sprintf("%d%s%d%s%p", now.UnixNano(), SqlPoint, os.Getpid(), SqlPoint, s.tx)
 	return
 }
 
 // commit -> commit transaction
 func (s *Way) commit() (err error) {
 	err = s.tx.Commit()
-	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, "", ""
+	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, EmptyString, EmptyString
 	return
 }
 
 // rollback -> rollback transaction
 func (s *Way) rollback() (err error) {
 	err = s.tx.Rollback()
-	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, "", ""
+	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, EmptyString, EmptyString
 	return
 }
 
@@ -233,7 +279,7 @@ func (s *Way) TxMsg(msg string) *Way {
 	if s.tx == nil {
 		return s
 	}
-	if s.txMsg == "" {
+	if s.txMsg == EmptyString {
 		s.txMsg = msg
 	}
 	return s
@@ -399,7 +445,7 @@ func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) erro
 	if err != nil {
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	err = query(rows)
 	return
 }
@@ -482,7 +528,7 @@ func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 	return stmt.QueryContext(ctx, query, args...)
 }
 
@@ -509,7 +555,7 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 	if err != nil {
 		return 0, err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 	return stmt.ExecContext(ctx, args...)
 }
 
@@ -520,7 +566,7 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 
 // getter -> query, execute the query sql statement without args, no prepared is used
 func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
-	if query == nil || prepare == "" {
+	if query == nil || prepare == EmptyString {
 		return
 	}
 	log := &LogPrepareArgs{
@@ -540,7 +586,7 @@ func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prep
 	if err != nil {
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	err = query(rows)
 	return
 }
@@ -593,7 +639,7 @@ func (s *Way) Setter(prepare string, caller ...Caller) (int64, error) {
 
 // F -> quickly initialize a filter
 func (s *Way) F(filter ...Filter) Filter {
-	return NewFilter().Filter(filter...)
+	return F().Filter(filter...)
 }
 
 // Add -> create an instance that executes the INSERT sql statement
@@ -616,11 +662,46 @@ func (s *Way) Get(table ...string) *Get {
 	return NewGet(s).Table(LastNotEmptyString(table))
 }
 
-// Identifier -> sql identifier
-func (s *Way) Identifier(prefix ...string) *Identifier {
-	return &Identifier{
+// Ident -> sql identifier
+func (s *Way) Ident(prefix ...string) *Ident {
+	return &Ident{
 		prefix: LastNotEmptyString(prefix),
 	}
+}
+
+// AliasA sql identifier prefix a
+func (s *Way) AliasA() *Ident {
+	return s.Ident(AliasA)
+}
+
+// AliasB sql identifier prefix b
+func (s *Way) AliasB() *Ident {
+	return s.Ident(AliasB)
+}
+
+// AliasC sql identifier prefix c
+func (s *Way) AliasC() *Ident {
+	return s.Ident(AliasC)
+}
+
+// AliasD sql identifier prefix d
+func (s *Way) AliasD() *Ident {
+	return s.Ident(AliasD)
+}
+
+// AliasE sql identifier prefix e
+func (s *Way) AliasE() *Ident {
+	return s.Ident(AliasE)
+}
+
+// AliasF sql identifier prefix f
+func (s *Way) AliasF() *Ident {
+	return s.Ident(AliasF)
+}
+
+// AliasG sql identifier prefix g
+func (s *Way) AliasG() *Ident {
+	return s.Ident(AliasG)
 }
 
 // WayWriterReader -> read and write separation
@@ -657,12 +738,12 @@ func NewWayWriterReader(
 	reader []*Way,
 ) (WayWriterReader, error) {
 	if choose == nil {
-		return nil, fmt.Errorf("param choose is nil")
+		return nil, fmt.Errorf("hey: param choose is nil")
 	}
 
 	writerLen, readerLen := len(writer), len(reader)
 	if writerLen == 0 || readerLen == 0 {
-		return nil, fmt.Errorf("both writer and reader should hold at least one element")
+		return nil, fmt.Errorf("hey: both writer and reader should hold at least one element")
 	}
 
 	return &wayWriterReader{

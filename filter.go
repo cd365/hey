@@ -5,66 +5,61 @@ import (
 	"strings"
 )
 
-const (
-	Placeholder = "?"
-)
-
-const (
-	filterCompareEqual         = "="
-	filterCompareNotEqual      = "<>"
-	filterCompareGreater       = ">"
-	filterCompareGreaterEqual  = ">="
-	filterCompareLessThan      = "<"
-	filterCompareLessThanEqual = "<="
-)
-
-const (
-	filterLogicAnd = "AND"
-	filterLogicOr  = "OR"
-)
-
-type Preparer interface {
-	// SQL get the prepare sql statement and parameter list
-	SQL() (prepare string, args []interface{})
-}
-
-func filterCompareExpr(column string, compare string) (expr string) {
-	if column == "" {
-		return
+func filterSqlExpr(column string, compare string) string {
+	if column == EmptyString {
+		return EmptyString
 	}
-	expr = ConcatString(column, " ", compare, " ", Placeholder)
-	return
+	return ConcatString(column, SqlSpace, compare, SqlSpace, SqlPlaceholder)
 }
 
 func filterEqual(column string) string {
-	return filterCompareExpr(column, filterCompareEqual)
+	return filterSqlExpr(column, SqlEqual)
 }
 
 func filterNotEqual(column string) string {
-	return filterCompareExpr(column, filterCompareNotEqual)
+	return filterSqlExpr(column, SqlNotEqual)
 }
 
 func filterGreater(column string) string {
-	return filterCompareExpr(column, filterCompareGreater)
+	return filterSqlExpr(column, SqlGreater)
 }
 
 func filterGreaterEqual(column string) string {
-	return filterCompareExpr(column, filterCompareGreaterEqual)
+	return filterSqlExpr(column, SqlGreaterEqual)
 }
 
 func filterLessThan(column string) string {
-	return filterCompareExpr(column, filterCompareLessThan)
+	return filterSqlExpr(column, SqlLessThan)
 }
 
 func filterLessThanEqual(column string) string {
-	return filterCompareExpr(column, filterCompareLessThanEqual)
+	return filterSqlExpr(column, SqlLessThanEqual)
+}
+
+func filterInValues(values ...interface{}) []interface{} {
+	length := len(values)
+	if length != 1 {
+		return values
+	}
+	rt := reflect.TypeOf(values[0])
+	if rt.Kind() != reflect.Slice {
+		return values
+	}
+	// expand slice members when there is only one slice type value
+	rv := reflect.ValueOf(values[0])
+	count := rv.Len()
+	result := make([]interface{}, 0, count)
+	for i := 0; i < count; i++ {
+		result = append(result, rv.Index(i).Interface())
+	}
+	return result
 }
 
 func filterIn(column string, values []interface{}, not bool) (expr string, args []interface{}) {
-	if column == "" || values == nil {
+	if column == EmptyString || values == nil {
 		return
 	}
-	values = SliceAny121(values...)
+	values = filterInValues(values...)
 	length := len(values)
 	if length == 0 {
 		return
@@ -85,10 +80,10 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 	result := make([]string, 0, length2)
 	for i := 0; i < length; i++ {
 		if i == 0 {
-			result = append(result, Placeholder)
+			result = append(result, SqlPlaceholder)
 			continue
 		}
-		result = append(result, ", ", Placeholder)
+		result = append(result, ", ", SqlPlaceholder)
 	}
 	tmp := make([]string, 0, length2+3)
 	tmp = append(tmp, column)
@@ -103,60 +98,23 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 }
 
 func filterInGet(column string, fc func() (prepare string, args []interface{}), not bool) (expr string, args []interface{}) {
-	if column == "" || fc == nil {
+	if column == EmptyString || fc == nil {
 		return
 	}
-	prepare := ""
+	prepare := EmptyString
 	prepare, args = fc()
-	if prepare == "" {
+	if prepare == EmptyString {
 		return
 	}
 	expr = column
 	if not {
 		expr = ConcatString(expr, " NOT")
 	}
-	expr = ConcatString(expr, " IN")
-	expr = ConcatString(expr, " ( ", prepare, " )")
+	expr = ConcatString(expr, " IN ( ", prepare, " )")
 	return
 }
 
-func filterInInt(values []int) (args []interface{}) {
-	length := len(values)
-	if length == 0 {
-		return
-	}
-	args = make([]interface{}, length)
-	for i := 0; i < length; i++ {
-		args[i] = values[i]
-	}
-	return
-}
-
-func filterInInt64(values []int64) (args []interface{}) {
-	length := len(values)
-	if length == 0 {
-		return
-	}
-	args = make([]interface{}, length)
-	for i := 0; i < length; i++ {
-		args[i] = values[i]
-	}
-	return
-}
-
-func filterInString(values []string) (args []interface{}) {
-	length := len(values)
-	if length == 0 {
-		return
-	}
-	args = make([]interface{}, length)
-	for i := 0; i < length; i++ {
-		args[i] = values[i]
-	}
-	return
-}
-
-func inCols(columns ...string) string {
+func filterInColsFields(columns ...string) string {
 	return ConcatString("( ", strings.Join(columns, ", "), " )")
 }
 
@@ -178,7 +136,7 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (expr stri
 
 	oneGroup := make([]string, count)
 	for i := 0; i < count; i++ {
-		oneGroup[i] = "?"
+		oneGroup[i] = SqlPlaceholder
 	}
 	oneGroupString := ConcatString("( ", strings.Join(oneGroup, ", "), " )")
 	valueGroup := make([]string, length)
@@ -187,7 +145,7 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (expr stri
 	}
 
 	tmp := make([]string, 0, 5)
-	tmp = append(tmp, inCols(columns...))
+	tmp = append(tmp, filterInColsFields(columns...))
 	if not {
 		tmp = append(tmp, " NOT")
 	}
@@ -203,13 +161,13 @@ func filterInColsGet(columns []string, fc func() (prepare string, args []interfa
 	if count == 0 || fc == nil {
 		return
 	}
-	prepare := ""
+	prepare := EmptyString
 	prepare, args = fc()
-	if prepare == "" {
+	if prepare == EmptyString {
 		return
 	}
 	tmp := make([]string, 0, 5)
-	tmp = append(tmp, inCols(columns...))
+	tmp = append(tmp, filterInColsFields(columns...))
 	if not {
 		tmp = append(tmp, " NOT")
 	}
@@ -225,7 +183,7 @@ func filterExists(fc func() (prepare string, args []interface{}), not bool) (exp
 		return
 	}
 	prepare, param := fc()
-	if prepare == "" {
+	if prepare == EmptyString {
 		return
 	}
 	exists := "EXISTS"
@@ -238,31 +196,31 @@ func filterExists(fc func() (prepare string, args []interface{}), not bool) (exp
 }
 
 func filterBetween(column string, not bool) (expr string) {
-	if column == "" {
+	if column == EmptyString {
 		return
 	}
 	expr = column
 	if not {
 		expr = ConcatString(expr, " NOT")
 	}
-	expr = ConcatString(expr, " BETWEEN ", Placeholder, " AND ", Placeholder)
+	expr = ConcatString(expr, " BETWEEN ", SqlPlaceholder, " AND ", SqlPlaceholder)
 	return
 }
 
 func filterLike(column string, not bool) (expr string) {
-	if column == "" {
+	if column == EmptyString {
 		return
 	}
 	expr = column
 	if not {
 		expr = ConcatString(expr, " NOT")
 	}
-	expr = ConcatString(expr, " LIKE ", Placeholder)
+	expr = ConcatString(expr, " LIKE ", SqlPlaceholder)
 	return
 }
 
 func filterIsNull(column string, not bool) (expr string) {
-	if column == "" {
+	if column == EmptyString {
 		return
 	}
 	expr = ConcatString(column, " IS")
@@ -287,12 +245,6 @@ type Filter interface {
 	In(column string, values ...interface{}) Filter
 	InQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	InGet(column string, preparer Preparer) Filter
-	// Deprecated: please use Filter.In instead
-	InInt(column string, values []int) Filter
-	// Deprecated: please use Filter.In instead
-	InInt64(column string, values []int64) Filter
-	// Deprecated: please use Filter.In instead
-	InString(column string, values []string) Filter
 	InCols(columns []string, values ...[]interface{}) Filter
 	InColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
 	InColsGet(columns []string, preparer Preparer) Filter
@@ -304,12 +256,6 @@ type Filter interface {
 	NotIn(column string, values ...interface{}) Filter
 	NotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	NotInGet(column string, preparer Preparer) Filter
-	// Deprecated: please use Filter.In instead
-	NotInInt(column string, values []int) Filter
-	// Deprecated: please use Filter.In instead
-	NotInInt64(column string, values []int64) Filter
-	// Deprecated: please use Filter.In instead
-	NotInString(column string, values []string) Filter
 	NotInCols(columns []string, values ...[]interface{}) Filter
 	NotInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
 	NotInColsGet(columns []string, preparer Preparer) Filter
@@ -328,12 +274,6 @@ type Filter interface {
 	OrIn(column string, values ...interface{}) Filter
 	OrInQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	OrInGet(column string, preparer Preparer) Filter
-	// Deprecated: please use Filter.In instead
-	OrInInt(column string, values []int) Filter
-	// Deprecated: please use Filter.In instead
-	OrInInt64(column string, values []int64) Filter
-	// Deprecated: please use Filter.In instead
-	OrInString(column string, values []string) Filter
 	OrInCols(columns []string, values ...[]interface{}) Filter
 	OrInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
 	OrInColsGet(columns []string, preparer Preparer) Filter
@@ -345,12 +285,6 @@ type Filter interface {
 	OrNotIn(column string, values ...interface{}) Filter
 	OrNotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
 	OrNotInGet(column string, preparer Preparer) Filter
-	// Deprecated: please use Filter.In instead
-	OrNotInInt(column string, values []int) Filter
-	// Deprecated: please use Filter.In instead
-	OrNotInInt64(column string, values []int64) Filter
-	// Deprecated: please use Filter.In instead
-	OrNotInString(column string, values []string) Filter
 	OrNotInCols(columns []string, values ...[]interface{}) Filter
 	OrNotInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
 	OrNotInColsGet(columns []string, preparer Preparer) Filter
@@ -366,11 +300,11 @@ type filter struct {
 }
 
 func (s *filter) Copy(filter ...Filter) Filter {
-	return NewFilter().Filter(filter...)
+	return F().Filter(filter...)
 }
 
 func (s *filter) add(logic string, expr string, args []interface{}) Filter {
-	if expr == "" {
+	if expr == EmptyString {
 		return s
 	}
 	if s.prepare.Len() == 0 {
@@ -378,13 +312,13 @@ func (s *filter) add(logic string, expr string, args []interface{}) Filter {
 		s.args = args
 		return s
 	}
-	s.prepare.WriteString(ConcatString(" ", logic, " ", expr))
+	s.prepare.WriteString(ConcatString(SqlSpace, logic, SqlSpace, expr))
 	s.args = append(s.args, args...)
 	return s
 }
 
 func (s *filter) And(expr string, args ...interface{}) Filter {
-	return s.add(filterLogicAnd, expr, args)
+	return s.add(SqlAnd, expr, args)
 }
 
 func (s *filter) andSlice(expr string, args []interface{}) Filter {
@@ -401,7 +335,7 @@ func (s *filter) Filter(filters ...Filter) Filter {
 			continue
 		}
 		prepare, args := f.SQL()
-		if prepare == "" {
+		if prepare == EmptyString {
 			continue
 		}
 		s.And(prepare, args...)
@@ -413,10 +347,10 @@ func (s *filter) addGroup(logic string, group func(filter Filter)) Filter {
 	if group == nil {
 		return s
 	}
-	newFilter := NewFilter()
+	newFilter := F()
 	group(newFilter)
 	expr, args := newFilter.SQL()
-	if expr == "" {
+	if expr == EmptyString {
 		return s
 	}
 	expr = ConcatString("( ", expr, " )")
@@ -424,7 +358,7 @@ func (s *filter) addGroup(logic string, group func(filter Filter)) Filter {
 }
 
 func (s *filter) Group(group func(filter Filter)) Filter {
-	return s.addGroup(filterLogicAnd, group)
+	return s.addGroup(SqlAnd, group)
 }
 
 func (s *filter) Equal(column string, value interface{}) Filter {
@@ -461,18 +395,6 @@ func (s *filter) InQuery(column string, fc func() (prepare string, args []interf
 
 func (s *filter) InGet(column string, preparer Preparer) Filter {
 	return s.InQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
-}
-
-func (s *filter) InInt(column string, values []int) Filter {
-	return s.In(column, filterInInt(values)...)
-}
-
-func (s *filter) InInt64(column string, values []int64) Filter {
-	return s.In(column, filterInInt64(values)...)
-}
-
-func (s *filter) InString(column string, values []string) Filter {
-	return s.In(column, filterInString(values)...)
 }
 
 func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
@@ -519,18 +441,6 @@ func (s *filter) NotInGet(column string, preparer Preparer) Filter {
 	return s.NotInQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
 }
 
-func (s *filter) NotInInt(column string, values []int) Filter {
-	return s.NotIn(column, filterInInt(values)...)
-}
-
-func (s *filter) NotInInt64(column string, values []int64) Filter {
-	return s.NotIn(column, filterInInt64(values)...)
-}
-
-func (s *filter) NotInString(column string, values []string) Filter {
-	return s.NotIn(column, filterInString(values)...)
-}
-
 func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
 	return s.andSlice(filterInCols(columns, values, true))
 }
@@ -556,7 +466,7 @@ func (s *filter) IsNotNull(column string) Filter {
 }
 
 func (s *filter) Or(expr string, args ...interface{}) Filter {
-	return s.add(filterLogicOr, expr, args)
+	return s.add(SqlOr, expr, args)
 }
 
 func (s *filter) OrFilter(filters ...Filter) Filter {
@@ -565,7 +475,7 @@ func (s *filter) OrFilter(filters ...Filter) Filter {
 			continue
 		}
 		prepare, args := f.SQL()
-		if prepare == "" {
+		if prepare == EmptyString {
 			continue
 		}
 		s.Or(prepare, args...)
@@ -574,7 +484,7 @@ func (s *filter) OrFilter(filters ...Filter) Filter {
 }
 
 func (s *filter) OrGroup(group func(filter Filter)) Filter {
-	return s.addGroup(filterLogicOr, group)
+	return s.addGroup(SqlOr, group)
 }
 
 func (s *filter) OrEqual(column string, value interface{}) Filter {
@@ -611,18 +521,6 @@ func (s *filter) OrInQuery(column string, fc func() (prepare string, args []inte
 
 func (s *filter) OrInGet(column string, preparer Preparer) Filter {
 	return s.OrInQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
-}
-
-func (s *filter) OrInInt(column string, values []int) Filter {
-	return s.OrIn(column, filterInInt(values)...)
-}
-
-func (s *filter) OrInInt64(column string, values []int64) Filter {
-	return s.OrIn(column, filterInInt64(values)...)
-}
-
-func (s *filter) OrInString(column string, values []string) Filter {
-	return s.OrIn(column, filterInString(values)...)
 }
 
 func (s *filter) OrInCols(columns []string, values ...[]interface{}) Filter {
@@ -669,18 +567,6 @@ func (s *filter) OrNotInGet(column string, preparer Preparer) Filter {
 	return s.OrNotInQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
 }
 
-func (s *filter) OrNotInInt(column string, values []int) Filter {
-	return s.OrNotIn(column, filterInInt(values)...)
-}
-
-func (s *filter) OrNotInInt64(column string, values []int64) Filter {
-	return s.OrNotIn(column, filterInInt64(values)...)
-}
-
-func (s *filter) OrNotInString(column string, values []string) Filter {
-	return s.OrNotIn(column, filterInString(values)...)
-}
-
 func (s *filter) OrNotInCols(columns []string, values ...[]interface{}) Filter {
 	return s.orSlice(filterInCols(columns, values, true))
 }
@@ -709,58 +595,8 @@ func (s *filter) SQL() (prepare string, args []interface{}) {
 	return s.prepare.String(), s.args
 }
 
-func NewFilter() Filter {
+func F() Filter {
 	return &filter{
 		prepare: &strings.Builder{},
 	}
-}
-
-func SliceAny121(values ...interface{}) []interface{} {
-	length := len(values)
-	if length == 1 {
-		// expand slice members when there is only one slice type value
-		rt := reflect.TypeOf(values[0])
-		if rt.Kind() == reflect.Slice {
-			rv := reflect.ValueOf(values[0])
-			count := rv.Len()
-			result := make([]interface{}, 0, count)
-			for i := 0; i < count; i++ {
-				result = append(result, rv.Index(i).Interface())
-			}
-			return result
-		}
-	}
-	return values
-}
-
-// Deprecated: please use Filter.In instead
-func ValuesIn[T bool | int8 | int16 | int32 | int64 | int | uint8 | uint16 | uint32 | uint64 | uint | float32 | float64 | string | interface{}](values ...T) []interface{} {
-	length := len(values)
-	result := make([]interface{}, 0, length)
-	if length == 1 {
-		// expand slice members when there is only one slice type value
-		rt := reflect.TypeOf(values[0])
-		if rt.Kind() == reflect.Slice {
-			rv := reflect.ValueOf(values[0])
-			count := rv.Len()
-			for i := 0; i < count; i++ {
-				result = append(result, rv.Index(i).Interface())
-			}
-			return result
-		}
-	}
-	for i := 0; i < length; i++ {
-		result = append(result, values[i])
-	}
-	return result
-}
-
-// Deprecated: please use Filter.InCols instead
-func ValuesInGroup[T bool | int8 | int16 | int32 | int64 | int | uint8 | uint16 | uint32 | uint64 | uint | float32 | float64 | string | interface{}](values ...[]T) [][]interface{} {
-	length := len(values)
-	result := make([][]interface{}, 0, length)
-	for i := 0; i < length; i++ {
-		result = append(result, ValuesIn(values[i]...))
-	}
-	return result
 }
