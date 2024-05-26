@@ -873,6 +873,22 @@ func MergeSlice[V interface{}](elems ...[]V) []V {
 	return result
 }
 
+// sqlReturning build RETURNING statement, the contents of the RETURNING clause are the same as the output list of the SELECT command.
+func sqlReturning(preparer Preparer, returning ...string) (prepare string, args []interface{}) {
+	prepare, args = preparer.SQL()
+	b := getSqlBuilder()
+	defer putSqlBuilder(b)
+	b.WriteString(prepare)
+	b.WriteString(" RETURNING ")
+	tmp := strings.Join(returning, ", ")
+	if tmp == EmptyString {
+		tmp = "*"
+	}
+	b.WriteString(tmp)
+	prepare = b.String()
+	return
+}
+
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.
 type schema struct {
 	ctx     context.Context
@@ -1212,6 +1228,12 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 func (s *Add) Add() (int64, error) {
 	prepare, args := s.SQL()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
+}
+
+// Returning insert a row and return the data
+func (s *Add) Returning(fc func(row *sql.Row) error, returning ...string) error {
+	prepare, args := sqlReturning(s, returning...)
+	return s.schema.way.QueryRowContext(s.schema.ctx, fc, prepare, args...)
 }
 
 // Way get current *Way

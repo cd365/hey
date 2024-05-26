@@ -455,6 +455,30 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 	return s.QueryContext(context.Background(), query, args...)
 }
 
+// QueryRowContext -> query prepared that can be called repeatedly
+func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) (err error) {
+	log := &LogPrepareArgs{
+		TxId:    s.way.txId,
+		TxMsg:   s.way.txMsg,
+		Prepare: s.prepare,
+		Args:    &LogArgs{Args: args},
+	}
+	defer func() {
+		log.Args.Error = err
+		s.way.withLogger(log)
+	}()
+	log.Args.StartAt = time.Now()
+	row := s.stmt.QueryRowContext(ctx, args...)
+	log.Args.EndAt = time.Now()
+	err = query(row)
+	return
+}
+
+// QueryRow -> query prepared that can be called repeatedly
+func (s *Stmt) QueryRow(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) (err error) {
+	return s.QueryRowContext(context.Background(), query, args...)
+}
+
 // ExecContext -> execute prepared that can be called repeatedly
 func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (rowsAffected int64, err error) {
 	log := &LogPrepareArgs{
@@ -535,6 +559,21 @@ func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error
 // Query -> execute the query sql statement
 func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	return s.QueryContext(context.Background(), query, prepare, args...)
+}
+
+// QueryRowContext -> execute sql statement and return a row data, usually INSERT, UPDATE, DELETE
+func (s *Way) QueryRowContext(ctx context.Context, query func(row *sql.Row) error, prepare string, args ...interface{}) error {
+	stmt, err := s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+	return stmt.QueryRowContext(ctx, query, args...)
+}
+
+// QueryRow -> execute sql statement and return a row data, usually INSERT, UPDATE, DELETE
+func (s *Way) QueryRow(query func(row *sql.Row) error, prepare string, args ...interface{}) error {
+	return s.QueryRowContext(context.Background(), query, prepare, args...)
 }
 
 // ScanAllContext -> query and scan results through the mapping of column names and struct tags
