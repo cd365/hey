@@ -479,8 +479,8 @@ func (s *Stmt) QueryRow(ctx context.Context, query func(rows *sql.Row) error, ar
 	return s.QueryRowContext(context.Background(), query, args...)
 }
 
-// ExecContext -> execute prepared that can be called repeatedly
-func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (rowsAffected int64, err error) {
+// ExecuteContext -> execute prepared that can be called repeatedly
+func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (result sql.Result, err error) {
 	log := &LogPrepareArgs{
 		TxId:    s.way.txId,
 		TxMsg:   s.way.txMsg,
@@ -491,18 +491,27 @@ func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (rowsAffect
 		log.Args.Error = err
 		s.way.withLogger(log)
 	}()
-	var result sql.Result
 	log.Args.StartAt = time.Now()
 	result, err = s.stmt.ExecContext(ctx, args...)
 	log.Args.EndAt = time.Now()
-	if err != nil {
-		return
-	}
-	rowsAffected, err = result.RowsAffected()
 	return
 }
 
-// Exec -> execute prepared that can be called repeatedly
+// Execute -> execute prepared that can be called repeatedly
+func (s *Stmt) Execute(args ...interface{}) (sql.Result, error) {
+	return s.ExecuteContext(context.Background(), args...)
+}
+
+// ExecContext -> execute prepared that can be called repeatedly, return number of rows affected
+func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (int64, error) {
+	result, err := s.ExecuteContext(ctx, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// Exec -> execute prepared that can be called repeatedly, return number of rows affected
 func (s *Stmt) Exec(args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), args...)
 }
@@ -586,6 +595,21 @@ func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare st
 // ScanAll -> query and scan results
 func (s *Way) ScanAll(result interface{}, prepare string, args ...interface{}) error {
 	return s.ScanAllContext(context.Background(), result, prepare, args...)
+}
+
+// ExecuteContext -> execute the execute sql statement
+func (s *Way) ExecuteContext(ctx context.Context, prepare string, args ...interface{}) (sql.Result, error) {
+	stmt, err := s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = stmt.Close() }()
+	return stmt.ExecuteContext(ctx, args...)
+}
+
+// Execute -> execute the execute sql statement
+func (s *Way) Execute(prepare string, args ...interface{}) (sql.Result, error) {
+	return s.ExecuteContext(context.Background(), prepare, args...)
 }
 
 // ExecContext -> execute the execute sql statement

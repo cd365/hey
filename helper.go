@@ -1019,6 +1019,8 @@ type Add struct {
 	// onConflict, on conflict do something
 	onConflict     *string
 	onConflictArgs []interface{}
+
+	useResult func(result sql.Result) error
 }
 
 // NewAdd for INSERT
@@ -1166,6 +1168,14 @@ func (s *Add) OnConflict(prepare string, args []interface{}) *Add {
 	return s
 }
 
+// UseResult provide sql.Result object
+func (s *Add) UseResult(fc func(result sql.Result) error) *Add {
+	if fc != nil {
+		s.useResult = fc
+	}
+	return s
+}
+
 // SQL build SQL statement
 func (s *Add) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString {
@@ -1227,7 +1237,17 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 // Add execute the built SQL statement
 func (s *Add) Add() (int64, error) {
 	prepare, args := s.SQL()
-	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
+	if s.useResult == nil {
+		return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
+	}
+	result, err := s.schema.way.ExecuteContext(s.schema.ctx, prepare, args...)
+	if err != nil {
+		return 0, err
+	}
+	if err = s.useResult(result); err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 // Returning insert a row and return the data
