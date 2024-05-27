@@ -2056,15 +2056,15 @@ var (
 
 // Order set the column sorting list in batches through regular expressions according to the request parameter value
 func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
-	count := len(orderMap)
 	fieldMap := make(map[string]string)
-	for i := count - 1; i >= 0; i-- {
-		if orderMap[i] != nil {
-			fieldMap = orderMap[i]
-			break
+	for _, m := range orderMap {
+		for k, v := range m {
+			fieldMap[k] = v
 		}
 	}
-	for _, v := range strings.Split(order, ",") {
+
+	orders := strings.Split(order, ",")
+	for _, v := range orders {
 		if len(v) > 32 {
 			continue
 		}
