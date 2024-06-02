@@ -95,6 +95,7 @@ func getWay(origin *Way) *Way {
 	latest.txLog = origin.txLog
 	latest.txOpts = origin.txOpts
 	latest.config = origin.config
+	latest.cache = origin.cache
 	return latest
 }
 
@@ -107,6 +108,7 @@ func putWay(s *Way) {
 	s.txLog = nil
 	s.txOpts = nil
 	s.config = nil
+	s.cache = nil
 	poolWay.Put(s)
 }
 
@@ -181,6 +183,8 @@ type Way struct {
 	txOpts *sql.TxOptions            // the transaction isolation level
 
 	config *Config // configure of *Way
+
+	cache Cache // cache for query data
 }
 
 // Opts custom attribute value of *Way
@@ -216,6 +220,11 @@ func WithConfig(config *Config) Opts {
 	return func(s *Way) { s.config = config }
 }
 
+// WithCache -> uses cache for query data
+func WithCache(cache Cache) Opts {
+	return func(s *Way) { s.cache = cache }
+}
+
 // NewWay instantiate a helper
 func NewWay(db *sql.DB, opts ...Opts) *Way {
 	s := &Way{
@@ -237,6 +246,11 @@ func (s *Way) DB() *sql.DB {
 // Tag -> get tag value
 func (s *Way) Tag() string {
 	return s.tag
+}
+
+// Cache -> get cache object
+func (s *Way) Cache() Cache {
+	return s.cache
 }
 
 // begin -> open transaction
@@ -803,12 +817,10 @@ func NewWayWriterReader(
 	if choose == nil {
 		return nil, fmt.Errorf("hey: param choose is nil")
 	}
-
 	writerLen, readerLen := len(writer), len(reader)
 	if writerLen == 0 || readerLen == 0 {
 		return nil, fmt.Errorf("hey: both writer and reader should hold at least one element")
 	}
-
 	return &wayWriterReader{
 		choose:    choose,
 		writer:    writer,

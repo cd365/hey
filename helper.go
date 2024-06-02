@@ -2,13 +2,17 @@ package hey
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -889,6 +893,18 @@ func sqlReturning(preparer Preparer, returning ...string) (prepare string, args 
 	return
 }
 
+func Md5(text []byte) string {
+	hash := md5.Sum(text)
+	return hex.EncodeToString(hash[:])
+}
+
+func Sha256(text []byte) string {
+	hash := sha256.New()
+	hash.Write(text)
+	hashSum := hash.Sum(nil)
+	return hex.EncodeToString(hashSum)
+}
+
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.
 type schema struct {
 	ctx     context.Context
@@ -1666,7 +1682,7 @@ func (s *GetJoin) Using(fields ...string) *GetJoin {
 // OnEqual join query condition, support multiple fields
 func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
 	length := len(fields)
-	if length&1 != 0 {
+	if length&1 == 1 {
 		return s
 	}
 	tmp := make([]string, 0, length)
@@ -1810,22 +1826,61 @@ func (s *Ident) SUM(field string) string {
 	return s.Sum(field, field)
 }
 
+// cacheParam cache param
+type cacheParam struct {
+	// Key cache key
+	Key string
+
+	// Duration data storage validity period
+	Duration time.Duration
+}
+
 // Get for SELECT
 type Get struct {
-	schema   *schema           // query table
-	with     []*WithQuery      // with of query
-	column   []string          // query field list
-	subQuery *SubQuery         // the query table is a sub query
-	alias    *string           // set an alias for the queried table
-	join     []*GetJoin        // join query
-	where    Filter            // WHERE condition to filter data
-	group    []string          // group query result
-	having   Filter            // use HAVING to filter data after grouping
-	union    []*union          // union query
-	order    []string          // order query result
-	orderMap map[string]string // ordered columns map list
-	limit    *int64            // limit the number of query result
-	offset   *int64            // query result offset
+	// query table
+	schema *schema
+
+	// with of query
+	with []*WithQuery
+
+	// query field list
+	column []string
+
+	// the query table is a sub query
+	subQuery *SubQuery
+
+	// set an alias for the queried table
+	alias *string
+
+	// join query
+	join []*GetJoin
+
+	// WHERE condition to filter data
+	where Filter
+
+	// group query result
+	group []string
+
+	// use HAVING to filter data after grouping
+	having Filter
+
+	// union query
+	union []*union
+
+	// order query result
+	order []string
+
+	// ordered columns map list
+	orderMap map[string]string
+
+	// limit the number of query result
+	limit *int64
+
+	// query result offset
+	offset *int64
+
+	// cache query data, if and only if the data is retrieved using the Count and Get methods
+	cache *cacheParam
 }
 
 // NewGet for SELECT
@@ -2120,6 +2175,18 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
+// Cache please make sure to use the same structure as the one receiving the query data
+func (s *Get) Cache(key string, duration time.Duration) *Get {
+	if key == EmptyString {
+		return s
+	}
+	s.cache = &cacheParam{
+		Key:      key,
+		Duration: duration,
+	}
+	return s
+}
+
 // sqlTable build query base table SQL statement
 func (s *Get) sqlTable() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString && s.subQuery == nil {
@@ -2273,16 +2340,79 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 	return
 }
 
+// cacheValue cache data with validity deadline timestamp
+type cacheValue struct {
+	// ExpiredAt cache validity deadline timestamp
+	ExpiredAt int64
+
+	// Value cache any data
+	Value interface{}
+}
+
 // Count execute the built SQL statement and scan query result for count
-func (s *Get) Count(column ...string) (count int64, err error) {
+func (s *Get) Count(column ...string) (int64, error) {
+	var count int64
+
 	prepare, args := s.SQLCount(column...)
-	err = s.schema.way.QueryContext(s.schema.ctx, func(rows *sql.Rows) (err error) {
-		if rows.Next() {
-			err = rows.Scan(&count)
+
+	query := func() error {
+		return s.schema.way.QueryContext(s.schema.ctx, func(rows *sql.Rows) (err error) {
+			if rows.Next() {
+				err = rows.Scan(&count)
+			}
+			return
+		}, prepare, args...)
+	}
+
+	if s.cache == nil || s.schema.way.cache == nil || !s.schema.way.TxNil() {
+		return count, query()
+	}
+
+	value, ok, err := s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	if err != nil {
+		return count, err
+	}
+	if ok {
+		tmp := value.(*cacheValue)
+		if time.Now().Unix() <= tmp.ExpiredAt {
+			return tmp.Value.(int64), nil
 		}
-		return
-	}, prepare, args...)
-	return
+		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+			return count, err
+		}
+	}
+
+	locker := s.schema.way.cache.Locker(s.cache.Key)
+	locker.Lock()
+	defer locker.Unlock()
+
+	value, ok, err = s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	if err != nil {
+		return count, err
+	}
+	if ok {
+		tmp := value.(*cacheValue)
+		if time.Now().Unix() <= tmp.ExpiredAt {
+			return tmp.Value.(int64), nil
+		}
+		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+			return count, err
+		}
+	}
+
+	if err = query(); err != nil {
+		return count, err
+	}
+
+	return count, s.schema.way.cache.SetCtx(
+		s.schema.ctx,
+		s.cache.Key,
+		&cacheValue{
+			ExpiredAt: time.Now().Add(s.cache.Duration).Unix(),
+			Value:     count,
+		},
+		s.cache.Duration,
+	)
 }
 
 // Query execute the built SQL statement and scan query result
@@ -2294,7 +2424,60 @@ func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
 // Get execute the built SQL statement and scan query result
 func (s *Get) Get(result interface{}) error {
 	prepare, args := s.SQL()
-	return s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...)
+
+	if s.cache == nil || s.schema.way.cache == nil || !s.schema.way.TxNil() {
+		return s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...)
+	}
+
+	// when using query caching, make sure to use the same struct as you are receiving the query data
+	// otherwise, the reflective assignment will panic
+	value, ok, err := s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	if err != nil {
+		return err
+	}
+	if ok {
+		tmp := value.(*cacheValue)
+		if time.Now().Unix() <= tmp.ExpiredAt {
+			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
+			return nil
+		}
+		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+			return err
+		}
+	}
+
+	locker := s.schema.way.cache.Locker(s.cache.Key)
+	locker.Lock()
+	defer locker.Unlock()
+
+	value, ok, err = s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	if err != nil {
+		return err
+	}
+	if ok {
+		tmp := value.(*cacheValue)
+		if time.Now().Unix() <= tmp.ExpiredAt {
+			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
+			return nil
+		}
+		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+			return err
+		}
+	}
+
+	if err = s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...); err != nil {
+		return err
+	}
+
+	return s.schema.way.cache.SetCtx(
+		s.schema.ctx,
+		s.cache.Key,
+		&cacheValue{
+			ExpiredAt: time.Now().Add(s.cache.Duration).Unix(),
+			Value:     result,
+		},
+		s.cache.Duration,
+	)
 }
 
 // Way get current *Way
@@ -2309,14 +2492,19 @@ func (s *Get) F(filter ...Filter) Filter {
 
 // RowsNextRow execute the built SQL statement and scan query result, only scan one row
 func (s *Get) RowsNextRow(dest ...interface{}) error {
-	return s.Query(func(rows *sql.Rows) error { return s.schema.way.RowsNextRow(rows, dest...) })
+	return s.Query(func(rows *sql.Rows) error {
+		return s.schema.way.RowsNextRow(rows, dest...)
+	})
 }
 
 // CountQuery execute the built SQL statement and scan query result, count + query
 func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...string) (int64, error) {
 	count, err := s.Count(countColumn...)
-	if err != nil || count == 0 {
-		return count, err
+	if err != nil {
+		return 0, err
+	}
+	if count <= 0 {
+		return 0, nil
 	}
 	return count, s.Query(query)
 }
@@ -2324,8 +2512,11 @@ func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...
 // CountGet execute the built SQL statement and scan query result, count + get
 func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error) {
 	count, err := s.Count(countColumn...)
-	if err != nil || count == 0 {
-		return count, err
+	if err != nil {
+		return 0, err
+	}
+	if count <= 0 {
+		return 0, nil
 	}
 	return count, s.Get(result)
 }
