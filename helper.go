@@ -752,8 +752,8 @@ func RemoveSliceMemberByIndex[T MapKey | ~bool | ~float32 | ~float64 | interface
 	return result
 }
 
-// RowsNext traversing and processing query results
-func RowsNext(rows *sql.Rows, fc func() error) (err error) {
+// ScanAll Iteratively scan from query results.
+func ScanAll(rows *sql.Rows, fc func() error) (err error) {
 	for rows.Next() {
 		if err = fc(); err != nil {
 			return
@@ -762,8 +762,8 @@ func RowsNext(rows *sql.Rows, fc func() error) (err error) {
 	return
 }
 
-// RowsNextRow scan one line of query results
-func RowsNextRow(rows *sql.Rows, dest ...interface{}) error {
+// ScanOne Scan at most once from the query results.
+func ScanOne(rows *sql.Rows, dest ...interface{}) error {
 	if rows.Next() {
 		return rows.Scan(dest...)
 	}
@@ -2426,7 +2426,7 @@ func (s *Get) Get(result interface{}) error {
 	prepare, args := s.SQL()
 
 	if s.cache == nil || s.schema.way.cache == nil || !s.schema.way.TxNil() {
-		return s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...)
+		return s.schema.way.TakeAllContext(s.schema.ctx, result, prepare, args...)
 	}
 
 	// when using query caching, make sure to use the same struct as you are receiving the query data
@@ -2465,7 +2465,7 @@ func (s *Get) Get(result interface{}) error {
 		}
 	}
 
-	if err = s.schema.way.ScanAllContext(s.schema.ctx, result, prepare, args...); err != nil {
+	if err = s.schema.way.TakeAllContext(s.schema.ctx, result, prepare, args...); err != nil {
 		return err
 	}
 
@@ -2480,6 +2480,20 @@ func (s *Get) Get(result interface{}) error {
 	)
 }
 
+// ScanAll execute the built SQL statement and scan at most once from the query results.
+func (s *Get) ScanAll(fc func() error) error {
+	return s.Query(func(rows *sql.Rows) error {
+		return s.schema.way.ScanAll(rows, fc)
+	})
+}
+
+// ScanOne execute the built SQL statement and scan at most once from the query results.
+func (s *Get) ScanOne(dest ...interface{}) error {
+	return s.Query(func(rows *sql.Rows) error {
+		return s.schema.way.ScanOne(rows, dest...)
+	})
+}
+
 // Way get current *Way
 func (s *Get) Way() *Way {
 	return s.schema.way
@@ -2488,13 +2502,6 @@ func (s *Get) Way() *Way {
 // F make new Filter
 func (s *Get) F(filter ...Filter) Filter {
 	return F().Filter(filter...)
-}
-
-// RowsNextRow execute the built SQL statement and scan query result, only scan one row
-func (s *Get) RowsNextRow(dest ...interface{}) error {
-	return s.Query(func(rows *sql.Rows) error {
-		return s.schema.way.RowsNextRow(rows, dest...)
-	})
 }
 
 // CountQuery execute the built SQL statement and scan query result, count + query

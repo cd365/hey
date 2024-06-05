@@ -14,9 +14,7 @@ import (
 const (
 	// DefaultTag mapping of default database column name and struct tag
 	DefaultTag = "db"
-)
 
-const (
 	EmptyString = ""
 )
 
@@ -96,6 +94,7 @@ func getWay(origin *Way) *Way {
 	latest.txOpts = origin.txOpts
 	latest.config = origin.config
 	latest.cache = origin.cache
+	latest.scan = origin.scan
 	return latest
 }
 
@@ -109,6 +108,7 @@ func putWay(s *Way) {
 	s.txOpts = nil
 	s.config = nil
 	s.cache = nil
+	s.scan = nil
 	poolWay.Put(s)
 }
 
@@ -185,6 +185,8 @@ type Way struct {
 	config *Config // configure of *Way
 
 	cache Cache // cache for query data
+
+	scan func(rows *sql.Rows, result interface{}, tag string) error // scan query result
 }
 
 // Opts custom attribute value of *Way
@@ -225,12 +227,18 @@ func WithCache(cache Cache) Opts {
 	return func(s *Way) { s.cache = cache }
 }
 
+// WithScan -> uses scan for query data
+func WithScan(scan func(rows *sql.Rows, result interface{}, tag string) error) Opts {
+	return func(s *Way) { s.scan = scan }
+}
+
 // NewWay instantiate a helper
 func NewWay(db *sql.DB, opts ...Opts) *Way {
 	s := &Way{
 		db:     db,
 		tag:    DefaultTag,
 		config: DefaultConfig,
+		scan:   ScanSliceStruct,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -385,14 +393,14 @@ func (s *Way) Now() time.Time {
 	return *(s.txAt)
 }
 
-// RowsNext -> traversing and processing query results
-func (s *Way) RowsNext(rows *sql.Rows, fc func() error) error {
-	return RowsNext(rows, fc)
+// ScanAll -> Iteratively scan from query results.
+func (s *Way) ScanAll(rows *sql.Rows, fc func() error) error {
+	return ScanAll(rows, fc)
 }
 
-// RowsNextRow -> scan one line of query results
-func (s *Way) RowsNextRow(rows *sql.Rows, dest ...interface{}) error {
-	return RowsNextRow(rows, dest...)
+// ScanOne -> Scan at most once from the query results.
+func (s *Way) ScanOne(rows *sql.Rows, dest ...interface{}) error {
+	return ScanOne(rows, dest...)
 }
 
 // Caller the implementation object is usually one of *sql.Conn, *sql.DB, *sql.Tx
@@ -440,7 +448,7 @@ func (s *Stmt) Close() (err error) {
 	return
 }
 
-// QueryContext -> query prepared that can be called repeatedly
+// QueryContext -> query prepared, that can be called repeatedly
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) (err error) {
 	log := &LogPrepareArgs{
 		TxId:    s.way.txId,
@@ -464,12 +472,12 @@ func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) erro
 	return
 }
 
-// Query -> query prepared that can be called repeatedly
+// Query -> query prepared, that can be called repeatedly
 func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) error {
 	return s.QueryContext(context.Background(), query, args...)
 }
 
-// QueryRowContext -> query prepared that can be called repeatedly
+// QueryRowContext -> query prepared, that can be called repeatedly
 func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) (err error) {
 	log := &LogPrepareArgs{
 		TxId:    s.way.txId,
@@ -488,12 +496,12 @@ func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) er
 	return
 }
 
-// QueryRow -> query prepared that can be called repeatedly
-func (s *Stmt) QueryRow(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) (err error) {
+// QueryRow -> query prepared, that can be called repeatedly
+func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (err error) {
 	return s.QueryRowContext(context.Background(), query, args...)
 }
 
-// ExecuteContext -> execute prepared that can be called repeatedly
+// ExecuteContext -> execute prepared, that can be called repeatedly
 func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (result sql.Result, err error) {
 	log := &LogPrepareArgs{
 		TxId:    s.way.txId,
@@ -511,12 +519,12 @@ func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (result 
 	return
 }
 
-// Execute -> execute prepared that can be called repeatedly
+// Execute -> execute prepared, that can be called repeatedly
 func (s *Stmt) Execute(args ...interface{}) (sql.Result, error) {
 	return s.ExecuteContext(context.Background(), args...)
 }
 
-// ExecContext -> execute prepared that can be called repeatedly, return number of rows affected
+// ExecContext -> execute prepared, that can be called repeatedly, return number of rows affected
 func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (int64, error) {
 	result, err := s.ExecuteContext(ctx, args...)
 	if err != nil {
@@ -525,21 +533,19 @@ func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (int64, err
 	return result.RowsAffected()
 }
 
-// Exec -> execute prepared that can be called repeatedly, return number of rows affected
+// Exec -> execute prepared, that can be called repeatedly, return number of rows affected
 func (s *Stmt) Exec(args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), args...)
 }
 
-// ScanAllContext -> query prepared and scan results that can be called repeatedly
-func (s *Stmt) ScanAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
-	return s.QueryContext(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.way.tag)
-	}, args...)
+// TakeAllContext -> query prepared and get all query results, that can be called repeatedly
+func (s *Stmt) TakeAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
+	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.way.scan(rows, result, s.way.tag) }, args...)
 }
 
-// ScanAll -> query prepared and scan results that can be called repeatedly
-func (s *Stmt) ScanAll(result interface{}, args ...interface{}) error {
-	return s.ScanAllContext(context.Background(), result, args...)
+// TakeAll -> query prepared and get all query results, that can be called repeatedly
+func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
+	return s.TakeAllContext(context.Background(), result, args...)
 }
 
 // PrepareContext -> prepare sql statement, don't forget to call *Stmt.Close()
@@ -599,16 +605,14 @@ func (s *Way) QueryRow(query func(row *sql.Row) error, prepare string, args ...i
 	return s.QueryRowContext(context.Background(), query, prepare, args...)
 }
 
-// ScanAllContext -> query and scan results through the mapping of column names and struct tags
-func (s *Way) ScanAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
-	return s.QueryContext(ctx, func(rows *sql.Rows) error {
-		return ScanSliceStruct(rows, result, s.tag)
-	}, prepare, args...)
+// TakeAllContext -> query prepared and get all query results, through the mapping of column names and struct tags
+func (s *Way) TakeAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
+	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.scan(rows, result, s.tag) }, prepare, args...)
 }
 
-// ScanAll -> query and scan results
-func (s *Way) ScanAll(result interface{}, prepare string, args ...interface{}) error {
-	return s.ScanAllContext(context.Background(), result, prepare, args...)
+// TakeAll -> query prepared and get all query results
+func (s *Way) TakeAll(result interface{}, prepare string, args ...interface{}) error {
+	return s.TakeAllContext(context.Background(), result, prepare, args...)
 }
 
 // ExecuteContext -> execute the execute sql statement
