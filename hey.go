@@ -394,7 +394,7 @@ func (s *Way) Now() time.Time {
 }
 
 // ScanAll -> Iteratively scan from query results.
-func (s *Way) ScanAll(rows *sql.Rows, fc func() error) error {
+func (s *Way) ScanAll(rows *sql.Rows, fc func(rows *sql.Rows) error) error {
 	return ScanAll(rows, fc)
 }
 

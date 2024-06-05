@@ -753,9 +753,9 @@ func RemoveSliceMemberByIndex[T MapKey | ~bool | ~float32 | ~float64 | interface
 }
 
 // ScanAll Iteratively scan from query results.
-func ScanAll(rows *sql.Rows, fc func() error) (err error) {
+func ScanAll(rows *sql.Rows, fc func(rows *sql.Rows) error) (err error) {
 	for rows.Next() {
-		if err = fc(); err != nil {
+		if err = fc(rows); err != nil {
 			return
 		}
 	}
@@ -2481,7 +2481,7 @@ func (s *Get) Get(result interface{}) error {
 }
 
 // ScanAll execute the built SQL statement and scan at most once from the query results.
-func (s *Get) ScanAll(fc func() error) error {
+func (s *Get) ScanAll(fc func(rows *sql.Rows) error) error {
 	return s.Query(func(rows *sql.Rows) error {
 		return s.schema.way.ScanAll(rows, fc)
 	})
