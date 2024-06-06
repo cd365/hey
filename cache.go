@@ -1,15 +1,17 @@
-// querying data using cache
+// Querying data using cache.
 
 package hey
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"strconv"
 	"sync"
 	"time"
 )
 
-// Cache Querying data using cache
+// Cache Querying data using cache.
 type Cache interface {
 	// Locker Get a mutex lock based on the cache key
 	Locker(key string) sync.Locker
@@ -33,7 +35,8 @@ type cache struct {
 }
 
 func (s *cache) index(key string) int {
-	tmp, _ := strconv.ParseInt(Md5([]byte(key))[:8], 16, 64)
+	sum := md5.Sum([]byte(key))
+	tmp, _ := strconv.ParseInt(hex.EncodeToString(sum[:])[:8], 16, 64)
 	if index := int(tmp % int64(s.lockerCap)); index >= 0 {
 		return index
 	}

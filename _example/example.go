@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"github.com/cd365/hey/pgsql"
 
 	"github.com/cd365/hey"
 )
@@ -20,7 +21,7 @@ type User struct {
 
 var db *sql.DB
 
-var way = hey.NewWay(db, hey.WithPrepare(hey.DefaultPgsql.Prepare))
+var way = hey.NewWay(db, hey.WithPrepare(pgsql.Prepare))
 
 var table = "account"
 
@@ -66,7 +67,7 @@ func Insert() {
 
 	// scene 3, insert or update data
 	add.Except("id").Create(create).OnConflict(
-		hey.DefaultPgsql.InsertOnConflict(
+		pgsql.InsertOnConflict(
 			[]string{"username"},
 			[]string{"nickname", "age", "money"},
 		),
@@ -161,7 +162,7 @@ func Transaction() {
 		tx.Mod(table).Mod()
 		// todo...
 		return
-	}, 1)
+	})
 }
 
 func main() {

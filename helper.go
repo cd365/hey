@@ -1,29 +1,18 @@
+// Quickly build INSERT, DELETE, UPDATE, SELECT statements.
+// Also allows you to call them to get the corresponding results.
+
 package hey
 
 import (
 	"context"
-	"crypto/md5"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
-)
-
-const (
-	AliasA = "a"
-	AliasB = "b"
-	AliasC = "c"
-	AliasD = "d"
-	AliasE = "e"
-	AliasF = "f"
-	AliasG = "g"
 )
 
 const (
@@ -44,8 +33,8 @@ var (
 )
 
 var (
-	// sqlBuilder sql builder pool
-	sqlBuilder *sync.Pool
+	// builder sql builder pool
+	builder *sync.Pool
 
 	// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
 	insertByStructPool *sync.Pool
@@ -53,8 +42,8 @@ var (
 
 // init initialize
 func init() {
-	sqlBuilder = &sync.Pool{}
-	sqlBuilder.New = func() interface{} {
+	builder = &sync.Pool{}
+	builder.New = func() interface{} {
 		return &strings.Builder{}
 	}
 
@@ -64,15 +53,15 @@ func init() {
 	}
 }
 
-// getSqlBuilder get sql builder from pool
-func getSqlBuilder() *strings.Builder {
-	return sqlBuilder.Get().(*strings.Builder)
+// getBuilder get sql builder from pool
+func getBuilder() *strings.Builder {
+	return builder.Get().(*strings.Builder)
 }
 
-// putSqlBuilder put sql builder in the pool
-func putSqlBuilder(b *strings.Builder) {
+// putBuilder put sql builder in the pool
+func putBuilder(b *strings.Builder) {
 	b.Reset()
-	sqlBuilder.Put(b)
+	builder.Put(b)
 }
 
 // getInsertByStruct get *insertByStruct from pool
@@ -487,17 +476,21 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 	if object == nil || tag == EmptyString {
 		return
 	}
+
 	reflectValue := reflect.ValueOf(object)
 	kind := reflectValue.Kind()
 	for ; kind == reflect.Ptr; kind = reflectValue.Kind() {
 		reflectValue = reflectValue.Elem()
 	}
+
 	s.tag = tag
 	s.setExcept(except)
+
 	if kind == reflect.Struct {
 		values = make([][]interface{}, 1)
 		fields, values[0] = s.structFieldsValues(reflectValue)
 	}
+
 	if kind == reflect.Slice {
 		sliceLength := reflectValue.Len()
 		values = make([][]interface{}, sliceLength)
@@ -753,109 +746,10 @@ func RemoveSliceMemberByIndex[T MapKey | ~bool | ~float32 | ~float64 | interface
 	return result
 }
 
-// ScanAll Iteratively scan from query results.
-func ScanAll(rows *sql.Rows, fc func(rows *sql.Rows) error) (err error) {
-	for rows.Next() {
-		if err = fc(rows); err != nil {
-			return
-		}
-	}
-	return
-}
-
-// ScanOne Scan at most once from the query results.
-func ScanOne(rows *sql.Rows, dest ...interface{}) error {
-	if rows.Next() {
-		return rows.Scan(dest...)
-	}
-	return nil
-}
-
-func viewFloat64(value interface{}) interface{} {
-	if value == nil {
-		return nil
-	}
-	if val, ok := value.(string); ok {
-		if f64, err := strconv.ParseFloat(val, 64); err == nil {
-			return f64
-		}
-	}
-	return value
-}
-
-func viewDecimal(columnType *sql.ColumnType) func(value interface{}) interface{} {
-	scanType := columnType.ScanType()
-	if scanType != nil {
-		switch scanType.Kind() {
-		case reflect.Bool,
-			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-			reflect.Float32, reflect.Float64:
-			return nil
-		}
-	}
-	if _, _, ok := columnType.DecimalSize(); ok {
-		return viewFloat64
-	}
-	databaseTypeName := columnType.DatabaseTypeName()
-	switch strings.ToUpper(databaseTypeName) {
-	case "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "NUMBER":
-		return viewFloat64
-	}
-	return nil
-}
-
-// ScanViewMap scan query result to []map[string]interface{}, view query result.
-func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-	types, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, err
-	}
-	count := len(columns)
-	var slices []map[string]interface{}
-	for rows.Next() {
-		tmp := make(map[string]interface{})
-		scan := make([]interface{}, count)
-		for i := range scan {
-			scan[i] = new(interface{})
-		}
-		if err = rows.Scan(scan...); err != nil {
-			return nil, err
-		}
-		for i, column := range columns {
-			value := scan[i].(*interface{})
-			if value != nil {
-				if val, ok := (*value).([]byte); ok {
-					tmp[column] = string(val)
-					continue
-				}
-			}
-			tmp[column] = *value
-		}
-		slices = append(slices, tmp)
-	}
-	fixes := make(map[string]func(interface{}) interface{})
-	for _, v := range types {
-		if tmp := viewDecimal(v); tmp != nil {
-			fixes[v.Name()] = tmp
-		}
-	}
-	for column, call := range fixes {
-		for index, temp := range slices {
-			slices[index][column] = call(temp[column])
-		}
-	}
-	return slices, nil
-}
-
 // ConcatString concatenate string
 func ConcatString(sss ...string) string {
-	b := getSqlBuilder()
-	defer putSqlBuilder(b)
+	b := getBuilder()
+	defer putBuilder(b)
 	length := len(sss)
 	for i := 0; i < length; i++ {
 		b.WriteString(sss[i])
@@ -960,10 +854,10 @@ func MergeSlice[V interface{}](elems ...[]V) []V {
 }
 
 // sqlReturning build RETURNING statement, the contents of the RETURNING clause are the same as the output list of the SELECT command.
-func sqlReturning(preparer Preparer, returning ...string) (prepare string, args []interface{}) {
-	prepare, args = preparer.SQL()
-	b := getSqlBuilder()
-	defer putSqlBuilder(b)
+func sqlReturning(cmd Commander, returning ...string) (prepare string, args []interface{}) {
+	prepare, args = cmd.SQL()
+	b := getBuilder()
+	defer putBuilder(b)
 	b.WriteString(prepare)
 	b.WriteString(" RETURNING ")
 	tmp := strings.Join(returning, ", ")
@@ -973,18 +867,6 @@ func sqlReturning(preparer Preparer, returning ...string) (prepare string, args 
 	b.WriteString(tmp)
 	prepare = b.String()
 	return
-}
-
-func Md5(text []byte) string {
-	hash := md5.Sum(text)
-	return hex.EncodeToString(hash[:])
-}
-
-func Sha256(text []byte) string {
-	hash := sha256.New()
-	hash.Write(text)
-	hashSum := hash.Sum(nil)
-	return hex.EncodeToString(hashSum)
 }
 
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.
@@ -1004,9 +886,9 @@ func newSchema(way *Way) *schema {
 }
 
 // comment make SQL statement builder, SqlPlaceholder "?" should not appear in comments
-// defer putSqlBuilder(builder) should be called immediately after calling the current method
+// defer putBuilder(builder) should be called immediately after calling the current method
 func comment(schema *schema) (b *strings.Builder) {
-	b = getSqlBuilder()
+	b = getBuilder()
 	schema.comment = strings.TrimSpace(schema.comment)
 	schema.comment = strings.ReplaceAll(schema.comment, SqlPlaceholder, EmptyString)
 	if schema.comment == EmptyString {
@@ -1061,7 +943,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
-	defer putSqlBuilder(buf)
+	defer putBuilder(buf)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.schema.table)
 	w := false
@@ -1074,7 +956,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 			args = whereArgs
 		}
 	}
-	if s.schema.way.config.DeleteMustUseWhere && !w {
+	if s.schema.way.config != nil && s.schema.way.config.DeleteMustUseWhere && !w {
 		prepare, args = EmptyString, nil
 		return
 	}
@@ -1281,7 +1163,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	}
 
 	buf := comment(s.schema)
-	defer putSqlBuilder(buf)
+	defer putBuilder(buf)
 
 	if s.subQuery != nil {
 		buf.WriteString("INSERT INTO ")
@@ -1584,8 +1466,8 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 		field[k] = s.secondaryUpdate[v].expr
 		value = append(value, s.secondaryUpdate[v].args...)
 	}
-	buf := getSqlBuilder()
-	defer putSqlBuilder(buf)
+	buf := getBuilder()
+	defer putBuilder(buf)
 	buf.WriteString(strings.Join(field, ", "))
 	prepare = buf.String()
 	args = value
@@ -1602,7 +1484,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
-	defer putSqlBuilder(buf)
+	defer putBuilder(buf)
 	buf.WriteString("UPDATE ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
@@ -1617,7 +1499,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 			args = append(args, val...)
 		}
 	}
-	if s.schema.way.config.UpdateMustUseWhere && !w {
+	if s.schema.way.config != nil && s.schema.way.config.UpdateMustUseWhere && !w {
 		prepare, args = EmptyString, nil
 		return
 	}
@@ -1656,8 +1538,8 @@ func newWithQuery(alias string, prepare string, args ...interface{}) *WithQuery 
 }
 
 func (s *WithQuery) SQL() (prepare string, args []interface{}) {
-	b := getSqlBuilder()
-	defer putSqlBuilder(b)
+	b := getBuilder()
+	defer putBuilder(b)
 	b.WriteString(s.alias)
 	b.WriteString(" AS ( ")
 	b.WriteString(s.prepare)
@@ -1784,8 +1666,8 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 		return
 	}
 
-	buf := getSqlBuilder()
-	defer putSqlBuilder(buf)
+	buf := getBuilder()
+	defer putBuilder(buf)
 
 	buf.WriteString(s.joinType)
 
@@ -2275,7 +2157,7 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
-	defer putSqlBuilder(buf)
+	defer putBuilder(buf)
 
 	withLength := len(s.with)
 	if withLength > 0 {
@@ -2402,8 +2284,8 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 		return
 	}
 
-	buf := getSqlBuilder()
-	defer putSqlBuilder(buf)
+	buf := getBuilder()
+	defer putBuilder(buf)
 	buf.WriteString(prepare)
 
 	if len(s.order) > 0 {

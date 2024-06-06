@@ -244,10 +244,10 @@ type Filter interface {
 	Between(column string, start interface{}, end interface{}) Filter
 	In(column string, values ...interface{}) Filter
 	InQuery(column string, fc func() (prepare string, args []interface{})) Filter
-	InGet(column string, preparer Preparer) Filter
+	InGet(column string, cmd Commander) Filter
 	InCols(columns []string, values ...[]interface{}) Filter
 	InColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
-	InColsGet(columns []string, preparer Preparer) Filter
+	InColsGet(columns []string, cmd Commander) Filter
 	Exists(fc func() (prepare string, args []interface{})) Filter
 	Like(column string, value interface{}) Filter
 	IsNull(column string) Filter
@@ -255,10 +255,10 @@ type Filter interface {
 	NotBetween(column string, start interface{}, end interface{}) Filter
 	NotIn(column string, values ...interface{}) Filter
 	NotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
-	NotInGet(column string, preparer Preparer) Filter
+	NotInGet(column string, cmd Commander) Filter
 	NotInCols(columns []string, values ...[]interface{}) Filter
 	NotInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
-	NotInColsGet(columns []string, preparer Preparer) Filter
+	NotInColsGet(columns []string, cmd Commander) Filter
 	NotExists(fc func() (prepare string, args []interface{})) Filter
 	NotLike(column string, value interface{}) Filter
 	IsNotNull(column string) Filter
@@ -273,10 +273,10 @@ type Filter interface {
 	OrBetween(column string, start interface{}, end interface{}) Filter
 	OrIn(column string, values ...interface{}) Filter
 	OrInQuery(column string, fc func() (prepare string, args []interface{})) Filter
-	OrInGet(column string, preparer Preparer) Filter
+	OrInGet(column string, cmd Commander) Filter
 	OrInCols(columns []string, values ...[]interface{}) Filter
 	OrInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
-	OrInColsGet(columns []string, preparer Preparer) Filter
+	OrInColsGet(columns []string, cmd Commander) Filter
 	OrExists(fc func() (prepare string, args []interface{})) Filter
 	OrLike(column string, value interface{}) Filter
 	OrIsNull(column string) Filter
@@ -284,10 +284,10 @@ type Filter interface {
 	OrNotBetween(column string, start interface{}, end interface{}) Filter
 	OrNotIn(column string, values ...interface{}) Filter
 	OrNotInQuery(column string, fc func() (prepare string, args []interface{})) Filter
-	OrNotInGet(column string, preparer Preparer) Filter
+	OrNotInGet(column string, cmd Commander) Filter
 	OrNotInCols(columns []string, values ...[]interface{}) Filter
 	OrNotInColsQuery(columns []string, fc func() (prepare string, args []interface{})) Filter
-	OrNotInColsGet(columns []string, preparer Preparer) Filter
+	OrNotInColsGet(columns []string, cmd Commander) Filter
 	OrNotExists(fc func() (prepare string, args []interface{})) Filter
 	OrNotLike(column string, value interface{}) Filter
 	OrIsNotNull(column string) Filter
@@ -393,8 +393,8 @@ func (s *filter) InQuery(column string, fc func() (prepare string, args []interf
 	return s.andSlice(filterInGet(column, fc, false))
 }
 
-func (s *filter) InGet(column string, preparer Preparer) Filter {
-	return s.InQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) InGet(column string, cmd Commander) Filter {
+	return s.InQuery(column, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
@@ -405,8 +405,8 @@ func (s *filter) InColsQuery(columns []string, fc func() (prepare string, args [
 	return s.andSlice(filterInColsGet(columns, fc, false))
 }
 
-func (s *filter) InColsGet(columns []string, preparer Preparer) Filter {
-	return s.InColsQuery(columns, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) InColsGet(columns []string, cmd Commander) Filter {
+	return s.InColsQuery(columns, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) Exists(fc func() (prepare string, args []interface{})) Filter {
@@ -437,8 +437,8 @@ func (s *filter) NotInQuery(column string, fc func() (prepare string, args []int
 	return s.andSlice(filterInGet(column, fc, true))
 }
 
-func (s *filter) NotInGet(column string, preparer Preparer) Filter {
-	return s.NotInQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) NotInGet(column string, cmd Commander) Filter {
+	return s.NotInQuery(column, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
@@ -449,8 +449,8 @@ func (s *filter) NotInColsQuery(columns []string, fc func() (prepare string, arg
 	return s.andSlice(filterInColsGet(columns, fc, true))
 }
 
-func (s *filter) NotInColsGet(columns []string, preparer Preparer) Filter {
-	return s.NotInColsQuery(columns, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) NotInColsGet(columns []string, cmd Commander) Filter {
+	return s.NotInColsQuery(columns, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) NotExists(fc func() (prepare string, args []interface{})) Filter {
@@ -519,8 +519,8 @@ func (s *filter) OrInQuery(column string, fc func() (prepare string, args []inte
 	return s.orSlice(filterInGet(column, fc, false))
 }
 
-func (s *filter) OrInGet(column string, preparer Preparer) Filter {
-	return s.OrInQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) OrInGet(column string, cmd Commander) Filter {
+	return s.OrInQuery(column, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) OrInCols(columns []string, values ...[]interface{}) Filter {
@@ -531,8 +531,8 @@ func (s *filter) OrInColsQuery(columns []string, fc func() (prepare string, args
 	return s.orSlice(filterInColsGet(columns, fc, false))
 }
 
-func (s *filter) OrInColsGet(columns []string, preparer Preparer) Filter {
-	return s.OrInColsQuery(columns, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) OrInColsGet(columns []string, cmd Commander) Filter {
+	return s.OrInColsQuery(columns, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) OrExists(fc func() (prepare string, args []interface{})) Filter {
@@ -563,8 +563,8 @@ func (s *filter) OrNotInQuery(column string, fc func() (prepare string, args []i
 	return s.orSlice(filterInGet(column, fc, true))
 }
 
-func (s *filter) OrNotInGet(column string, preparer Preparer) Filter {
-	return s.OrNotInQuery(column, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) OrNotInGet(column string, cmd Commander) Filter {
+	return s.OrNotInQuery(column, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) OrNotInCols(columns []string, values ...[]interface{}) Filter {
@@ -575,8 +575,8 @@ func (s *filter) OrNotInColsQuery(columns []string, fc func() (prepare string, a
 	return s.orSlice(filterInColsGet(columns, fc, true))
 }
 
-func (s *filter) OrNotInColsGet(columns []string, preparer Preparer) Filter {
-	return s.OrNotInColsQuery(columns, func() (prepare string, args []interface{}) { return preparer.SQL() })
+func (s *filter) OrNotInColsGet(columns []string, cmd Commander) Filter {
+	return s.OrNotInColsQuery(columns, func() (prepare string, args []interface{}) { return cmd.SQL() })
 }
 
 func (s *filter) OrNotExists(fc func() (prepare string, args []interface{})) Filter {
