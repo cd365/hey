@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -768,6 +769,87 @@ func ScanOne(rows *sql.Rows, dest ...interface{}) error {
 		return rows.Scan(dest...)
 	}
 	return nil
+}
+
+func viewFloat64(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+	if val, ok := value.(string); ok {
+		if f64, err := strconv.ParseFloat(val, 64); err == nil {
+			return f64
+		}
+	}
+	return value
+}
+
+func viewDecimal(columnType *sql.ColumnType) func(value interface{}) interface{} {
+	scanType := columnType.ScanType()
+	if scanType != nil {
+		switch scanType.Kind() {
+		case reflect.Bool,
+			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64:
+			return nil
+		}
+	}
+	if _, _, ok := columnType.DecimalSize(); ok {
+		return viewFloat64
+	}
+	databaseTypeName := columnType.DatabaseTypeName()
+	switch strings.ToUpper(databaseTypeName) {
+	case "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "NUMBER":
+		return viewFloat64
+	}
+	return nil
+}
+
+// ScanViewMap scan query result to []map[string]interface{}, view query result.
+func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	types, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+	count := len(columns)
+	var slices []map[string]interface{}
+	for rows.Next() {
+		tmp := make(map[string]interface{})
+		scan := make([]interface{}, count)
+		for i := range scan {
+			scan[i] = new(interface{})
+		}
+		if err = rows.Scan(scan...); err != nil {
+			return nil, err
+		}
+		for i, column := range columns {
+			value := scan[i].(*interface{})
+			if value != nil {
+				if val, ok := (*value).([]byte); ok {
+					tmp[column] = string(val)
+					continue
+				}
+			}
+			tmp[column] = *value
+		}
+		slices = append(slices, tmp)
+	}
+	fixes := make(map[string]func(interface{}) interface{})
+	for _, v := range types {
+		if tmp := viewDecimal(v); tmp != nil {
+			fixes[v.Name()] = tmp
+		}
+	}
+	for column, call := range fixes {
+		for index, temp := range slices {
+			slices[index][column] = call(temp[column])
+		}
+	}
+	return slices, nil
 }
 
 // ConcatString concatenate string
@@ -2480,7 +2562,7 @@ func (s *Get) Get(result interface{}) error {
 	)
 }
 
-// ScanAll execute the built SQL statement and scan at most once from the query results.
+// ScanAll execute the built SQL statement and scan all from the query results.
 func (s *Get) ScanAll(fc func(rows *sql.Rows) error) error {
 	return s.Query(func(rows *sql.Rows) error {
 		return s.schema.way.ScanAll(rows, fc)
@@ -2492,6 +2574,15 @@ func (s *Get) ScanOne(dest ...interface{}) error {
 	return s.Query(func(rows *sql.Rows) error {
 		return s.schema.way.ScanOne(rows, dest...)
 	})
+}
+
+// ViewMap execute the built SQL statement and scan all from the query results.
+func (s *Get) ViewMap() (result []map[string]interface{}, err error) {
+	err = s.Query(func(rows *sql.Rows) (err error) {
+		result, err = ScanViewMap(rows)
+		return
+	})
+	return
 }
 
 // Way get current *Way
