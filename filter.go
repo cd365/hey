@@ -297,6 +297,7 @@ type Filter interface {
 type filter struct {
 	prepare *strings.Builder
 	args    []interface{}
+	num     int
 }
 
 func (s *filter) Copy(filter ...Filter) Filter {
@@ -310,10 +311,12 @@ func (s *filter) add(logic string, expr string, args []interface{}) Filter {
 	if s.prepare.Len() == 0 {
 		s.prepare.WriteString(expr)
 		s.args = args
+		s.num = 1
 		return s
 	}
 	s.prepare.WriteString(ConcatString(SqlSpace, logic, SqlSpace, expr))
 	s.args = append(s.args, args...)
+	s.num++
 	return s
 }
 
@@ -353,7 +356,6 @@ func (s *filter) addGroup(logic string, group func(filter Filter)) Filter {
 	if expr == EmptyString {
 		return s
 	}
-	expr = ConcatString("( ", expr, " )")
 	return s.add(logic, expr, args)
 }
 
@@ -592,6 +594,9 @@ func (s *filter) OrIsNotNull(column string) Filter {
 }
 
 func (s *filter) SQL() (prepare string, args []interface{}) {
+	if s.num > 1 {
+		return ConcatString("( ", s.prepare.String(), " )"), s.args
+	}
 	return s.prepare.String(), s.args
 }
 

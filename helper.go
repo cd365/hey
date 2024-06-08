@@ -66,14 +66,19 @@ func putBuilder(b *strings.Builder) {
 
 // getInsertByStruct get *insertByStruct from pool
 func getInsertByStruct() *insertByStruct {
-	return insertByStructPool.Get().(*insertByStruct)
+	tmp := insertByStructPool.Get().(*insertByStruct)
+	tmp.allow = make(map[string]*struct{})
+	tmp.except = make(map[string]*struct{})
+	tmp.used = make(map[string]*struct{})
+	return tmp
 }
 
 // putInsertByStruct put *insertByStruct in the pool
 func putInsertByStruct(b *insertByStruct) {
 	b.tag = EmptyString
-	b.used = nil
+	b.allow = nil
 	b.except = nil
+	b.used = nil
 	b.structReflectType = nil
 	insertByStructPool.Put(b)
 }
@@ -357,24 +362,34 @@ func BasicTypeValue(value interface{}) interface{} {
 }
 
 type insertByStruct struct {
-	tag               string              // struct tag name value used as table.column name
-	used              map[string]struct{} // already existing field Hash table
-	except            map[string]struct{} // ignored field Hash table
-	structReflectType reflect.Type        // struct reflect type, make sure it is the same structure type
+	// struct tag name value used as table.column name
+	tag string
+
+	// only allowed fields Hash table
+	allow map[string]*struct{}
+
+	// ignored fields Hash table
+	except map[string]*struct{}
+
+	// already existing fields Hash table
+	used map[string]*struct{}
+
+	// struct reflect type, make sure it is the same structure type
+	structReflectType reflect.Type
 }
 
 // setExcept filter the list of unwanted fields, prioritize method calls structFieldsValues() and structValues()
 func (s *insertByStruct) setExcept(except []string) {
-	length := len(except)
-	s.except = make(map[string]struct{}, length)
-	for i := 0; i < length; i++ {
-		if _, ok := s.except[except[i]]; ok {
-			continue
-		}
-		s.except[except[i]] = struct{}{}
+	for _, field := range except {
+		s.except[field] = &struct{}{}
 	}
-	// prevent the same field name from appearing twice in the field list
-	s.used = make(map[string]struct{})
+}
+
+// setAllow only allowed fields, prioritize method calls structFieldsValues() and structValues()
+func (s *insertByStruct) setAllow(allow []string) {
+	for _, field := range allow {
+		s.allow[field] = &struct{}{}
+	}
 }
 
 func panicBatchInsertByStruct() {
@@ -382,7 +397,7 @@ func panicBatchInsertByStruct() {
 }
 
 // structFieldsValues checkout fields, values
-func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (fields []string, values []interface{}) {
+func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, allowed bool) (fields []string, values []interface{}) {
 	reflectType := structReflectValue.Type()
 	if s.structReflectType == nil {
 		s.structReflectType = reflectType
@@ -407,7 +422,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (f
 			valueIndexFieldKind = valueIndexField.Kind()
 		}
 		if valueIndexFieldKind == reflect.Struct {
-			tmpFields, tmpValues := s.structFieldsValues(valueIndexField)
+			tmpFields, tmpValues := s.structFieldsValues(valueIndexField, allowed)
 			fields = append(fields, tmpFields...)
 			values = append(values, tmpValues...)
 			continue
@@ -423,7 +438,12 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (f
 		if _, ok := s.used[valueIndexFieldTag]; ok {
 			continue
 		}
-		s.used[valueIndexFieldTag] = struct{}{}
+		if allowed {
+			if _, ok := s.allow[valueIndexFieldTag]; !ok {
+				continue
+			}
+		}
+		s.used[valueIndexFieldTag] = &struct{}{}
 
 		fields = append(fields, valueIndexFieldTag)
 		values = append(values, BasicTypeValue(valueIndexField.Interface()))
@@ -432,7 +452,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value) (f
 }
 
 // structValues checkout values
-func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values []interface{}) {
+func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed bool) (values []interface{}) {
 	reflectType := structReflectValue.Type()
 	if s.structReflectType != nil && s.structReflectType != reflectType {
 		panicBatchInsertByStruct()
@@ -454,7 +474,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values 
 			valueIndexFieldKind = valueIndexField.Kind()
 		}
 		if valueIndexFieldKind == reflect.Struct {
-			values = append(values, s.structValues(valueIndexField)...)
+			values = append(values, s.structValues(valueIndexField, allowed)...)
 			continue
 		}
 
@@ -465,6 +485,11 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values 
 		if _, ok := s.except[valueIndexFieldTag]; ok {
 			continue
 		}
+		if allowed {
+			if _, ok := s.allow[valueIndexFieldTag]; !ok {
+				continue
+			}
+		}
 
 		values = append(values, BasicTypeValue(valueIndexField.Interface()))
 	}
@@ -472,9 +497,17 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value) (values 
 }
 
 // Insert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
-func (s *insertByStruct) Insert(object interface{}, tag string, except ...string) (fields []string, values [][]interface{}) {
+func (s *insertByStruct) Insert(object interface{}, tag string, except []string, allow []string) (fields []string, values [][]interface{}) {
 	if object == nil || tag == EmptyString {
 		return
+	}
+
+	s.tag = tag
+	s.setExcept(except)
+
+	allowed := len(allow) > 0
+	if allowed {
+		s.setAllow(allow)
 	}
 
 	reflectValue := reflect.ValueOf(object)
@@ -483,12 +516,9 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 		reflectValue = reflectValue.Elem()
 	}
 
-	s.tag = tag
-	s.setExcept(except)
-
 	if kind == reflect.Struct {
 		values = make([][]interface{}, 1)
-		fields, values[0] = s.structFieldsValues(reflectValue)
+		fields, values[0] = s.structFieldsValues(reflectValue, allowed)
 	}
 
 	if kind == reflect.Slice {
@@ -503,9 +533,9 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 				continue
 			}
 			if i == 0 {
-				fields, values[i] = s.structFieldsValues(indexValue)
+				fields, values[i] = s.structFieldsValues(indexValue, allowed)
 			} else {
-				values[i] = s.structValues(indexValue)
+				values[i] = s.structValues(indexValue, allowed)
 			}
 		}
 	}
@@ -514,10 +544,10 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except ...string
 
 // StructInsert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
 // get fields and values based on struct tag.
-func StructInsert(object interface{}, tag string, except ...string) (fields []string, values [][]interface{}) {
+func StructInsert(object interface{}, tag string, except []string, allow []string) (fields []string, values [][]interface{}) {
 	b := getInsertByStruct()
 	defer putInsertByStruct(b)
-	fields, values = b.Insert(object, tag, except...)
+	fields, values = b.Insert(object, tag, except, allow)
 	return
 }
 
@@ -1115,12 +1145,23 @@ func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
 // []struct, []*struct{}, *[]struct{}, *[]*struct{}
 func (s *Add) Create(create interface{}) *Add {
 	if fieldValue, ok := create.(map[string]interface{}); ok {
+		allow := make(map[string]*struct{})
+		for _, field := range s.fields {
+			allow[field] = &struct{}{}
+		}
+		allowed := len(allow) > 0
 		for field, value := range fieldValue {
+			if allowed {
+				if _, ok := allow[field]; !ok {
+					continue
+				}
+			}
 			s.FieldValue(field, value)
 		}
 		return s
 	}
-	return s.FieldsValues(StructInsert(create, s.schema.way.tag, s.except...))
+
+	return s.FieldsValues(StructInsert(create, s.schema.way.tag, s.except, s.fields))
 }
 
 // ValuesSubQuery values is a query SQL statement
@@ -2116,6 +2157,8 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 // Limit set limit
 func (s *Get) Limit(limit int64) *Get {
 	if limit <= 0 {
+		// cancel the set value
+		s.limit = nil
 		return s
 	}
 	s.limit = &limit
@@ -2124,7 +2167,9 @@ func (s *Get) Limit(limit int64) *Get {
 
 // Offset set offset
 func (s *Get) Offset(offset int64) *Get {
-	if offset < 0 {
+	if offset <= 0 {
+		// cancel the set value
+		s.offset = nil
 		return s
 	}
 	s.offset = &offset
@@ -2442,6 +2487,15 @@ func (s *Get) Get(result interface{}) error {
 		},
 		s.cache.Duration,
 	)
+}
+
+// Exists Determine whether the query result exists.
+func (s *Get) Exists() (exists bool, err error) {
+	err = s.Limit(1).Query(func(rows *sql.Rows) error {
+		exists = rows.Next()
+		return nil
+	})
+	return
 }
 
 // ScanAll execute the built SQL statement and scan all from the query results.
