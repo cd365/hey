@@ -2349,10 +2349,10 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// cacheValue cache data with validity deadline timestamp
-type cacheValue struct {
-	// ExpiredAt cache validity deadline timestamp
-	ExpiredAt int64
+// CacheValue cache data with validity deadline timestamp
+type CacheValue struct {
+	// UnixMilli cache validity deadline timestamp millisecond
+	UnixMilli int64
 
 	// Value cache any data
 	Value interface{}
@@ -2382,8 +2382,8 @@ func (s *Get) Count(column ...string) (int64, error) {
 		return count, err
 	}
 	if ok {
-		tmp := value.(*cacheValue)
-		if time.Now().Unix() <= tmp.ExpiredAt {
+		tmp := value.(*CacheValue)
+		if time.Now().UnixMilli() <= tmp.UnixMilli {
 			return tmp.Value.(int64), nil
 		}
 		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
@@ -2400,8 +2400,8 @@ func (s *Get) Count(column ...string) (int64, error) {
 		return count, err
 	}
 	if ok {
-		tmp := value.(*cacheValue)
-		if time.Now().Unix() <= tmp.ExpiredAt {
+		tmp := value.(*CacheValue)
+		if time.Now().UnixMilli() <= tmp.UnixMilli {
 			return tmp.Value.(int64), nil
 		}
 		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
@@ -2416,8 +2416,8 @@ func (s *Get) Count(column ...string) (int64, error) {
 	return count, s.schema.way.cache.SetCtx(
 		s.schema.ctx,
 		s.cache.Key,
-		&cacheValue{
-			ExpiredAt: time.Now().Add(s.cache.Duration).Unix(),
+		&CacheValue{
+			UnixMilli: time.Now().Add(s.cache.Duration).UnixMilli(),
 			Value:     count,
 		},
 		s.cache.Duration,
@@ -2445,8 +2445,8 @@ func (s *Get) Get(result interface{}) error {
 		return err
 	}
 	if ok {
-		tmp := value.(*cacheValue)
-		if time.Now().Unix() <= tmp.ExpiredAt {
+		tmp := value.(*CacheValue)
+		if time.Now().UnixMilli() <= tmp.UnixMilli {
 			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
 			return nil
 		}
@@ -2464,8 +2464,8 @@ func (s *Get) Get(result interface{}) error {
 		return err
 	}
 	if ok {
-		tmp := value.(*cacheValue)
-		if time.Now().Unix() <= tmp.ExpiredAt {
+		tmp := value.(*CacheValue)
+		if time.Now().UnixMilli() <= tmp.UnixMilli {
 			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
 			return nil
 		}
@@ -2481,8 +2481,8 @@ func (s *Get) Get(result interface{}) error {
 	return s.schema.way.cache.SetCtx(
 		s.schema.ctx,
 		s.cache.Key,
-		&cacheValue{
-			ExpiredAt: time.Now().Add(s.cache.Duration).Unix(),
+		&CacheValue{
+			UnixMilli: time.Now().Add(s.cache.Duration).UnixMilli(),
 			Value:     result,
 		},
 		s.cache.Duration,
