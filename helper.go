@@ -2349,15 +2349,6 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// CacheValue cache data with validity deadline timestamp
-type CacheValue struct {
-	// UnixMilli cache validity deadline timestamp millisecond
-	UnixMilli int64
-
-	// Value cache any data
-	Value interface{}
-}
-
 // Count execute the built SQL statement and scan query result for count
 func (s *Get) Count(column ...string) (int64, error) {
 	var count int64
@@ -2413,13 +2404,17 @@ func (s *Get) Count(column ...string) (int64, error) {
 		return count, err
 	}
 
+	cacheValue := &CacheValue{
+		Value: count,
+	}
+	if s.cache.Duration > 0 {
+		cacheValue.UnixMilli = time.Now().Add(s.cache.Duration).UnixMilli()
+	}
+
 	return count, s.schema.way.cache.SetCtx(
 		s.schema.ctx,
 		s.cache.Key,
-		&CacheValue{
-			UnixMilli: time.Now().Add(s.cache.Duration).UnixMilli(),
-			Value:     count,
-		},
+		cacheValue,
 		s.cache.Duration,
 	)
 }
@@ -2478,13 +2473,17 @@ func (s *Get) Get(result interface{}) error {
 		return err
 	}
 
+	cacheValue := &CacheValue{
+		Value: result,
+	}
+	if s.cache.Duration > 0 {
+		cacheValue.UnixMilli = time.Now().Add(s.cache.Duration).UnixMilli()
+	}
+
 	return s.schema.way.cache.SetCtx(
 		s.schema.ctx,
 		s.cache.Key,
-		&CacheValue{
-			UnixMilli: time.Now().Add(s.cache.Duration).UnixMilli(),
-			Value:     result,
-		},
+		cacheValue,
 		s.cache.Duration,
 	)
 }

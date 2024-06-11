@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+// CacheValue Cache data with validity deadline millisecond timestamp.
+type CacheValue struct {
+	// UnixMilli Cache validity deadline millisecond timestamp.
+	UnixMilli int64
+
+	// Value Cache any data.
+	Value interface{}
+}
+
 // Cache Querying data using cache.
 type Cache interface {
 	// Locker Get a mutex lock based on the cache key
