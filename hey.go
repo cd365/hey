@@ -369,16 +369,8 @@ func (s *Way) transaction(ctx context.Context, fc func(tx *Way) error, args *TxA
 	if s.tx != nil {
 		return fc(s)
 	}
-	way := &Way{
-		db:     s.db,
-		fix:    s.fix,
-		tag:    s.tag,
-		log:    s.log,
-		txLog:  s.txLog,
-		txOpts: s.txOpts,
-		config: s.config,
-		scan:   s.scan,
-	}
+	tmp := *s
+	way := &tmp
 	if err = way.begin(ctx, args.Conn, args.Opts); err != nil {
 		return
 	}
