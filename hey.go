@@ -890,12 +890,17 @@ func ScanOne(rows *sql.Rows, dest ...interface{}) error {
 	return nil
 }
 
-// tryFloat64 Try converting the string type to float64 type.
+// tryFloat64 string or []byte to float64.
 func tryFloat64(value interface{}) interface{} {
 	if value == nil {
 		return nil
 	}
-	if val, ok := value.(string); ok {
+	switch val := value.(type) {
+	case []byte:
+		if f64, err := strconv.ParseFloat(string(val), 64); err == nil {
+			return f64
+		}
+	case string:
 		if f64, err := strconv.ParseFloat(val, 64); err == nil {
 			return f64
 		}
@@ -903,26 +908,35 @@ func tryFloat64(value interface{}) interface{} {
 	return value
 }
 
-// tryDecimal Checks whether the field type is consistent with the decimal type.
-// If it is consistent, obtains the function that attempts to convert.
-func tryDecimal(columnType *sql.ColumnType) func(value interface{}) interface{} {
-	scanType := columnType.ScanType()
-	if scanType != nil {
-		switch scanType.Kind() {
-		case reflect.Bool,
-			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-			reflect.Float32, reflect.Float64:
-			return nil
-		}
+// tryString []byte to string.
+func tryString(value interface{}) interface{} {
+	if value == nil {
+		return nil
 	}
-	if _, _, ok := columnType.DecimalSize(); ok {
-		return tryFloat64
+	switch val := value.(type) {
+	case []byte:
+		return string(val)
 	}
+	return value
+}
+
+// adjustViewData Try to convert the text data type to a specific type that matches it.
+func adjustViewData(columnType *sql.ColumnType) func(value interface{}) interface{} {
 	databaseTypeName := columnType.DatabaseTypeName()
-	switch strings.ToUpper(databaseTypeName) {
+	databaseTypeNameUpper := strings.ToUpper(databaseTypeName)
+	switch databaseTypeNameUpper {
 	case "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "NUMBER":
 		return tryFloat64
+	case "CHAR", "VARCHAR", "TEXT",
+		"CHARACTER", "CHARACTER VARYING", "BPCHAR",
+		"NCHAR", "NVARCHAR",
+		"TINYTEXT", "MEDIUMTEXT", "LARGETEXT", "LONGTEXT",
+		"TIMESTAMP", "DATE", "TIME", "DATETIME",
+		"JSON":
+		return tryString
+	case "BYTEA",
+		"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB":
+		return nil
 	}
 	return nil
 }
@@ -950,23 +964,17 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 		}
 		for i, column := range columns {
 			value := scan[i].(*interface{})
-			if value != nil {
-				if val, ok := (*value).([]byte); ok {
-					tmp[column] = string(val)
-					continue
-				}
-			}
 			tmp[column] = *value
 		}
 		slices = append(slices, tmp)
 	}
-	fixes := make(map[string]func(interface{}) interface{})
+	fcs := make(map[string]func(interface{}) interface{})
 	for _, v := range types {
-		if tmp := tryDecimal(v); tmp != nil {
-			fixes[v.Name()] = tmp
+		if tmp := adjustViewData(v); tmp != nil {
+			fcs[v.Name()] = tmp
 		}
 	}
-	for column, call := range fixes {
+	for column, call := range fcs {
 		for index, temp := range slices {
 			slices[index][column] = call(temp[column])
 		}
