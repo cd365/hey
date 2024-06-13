@@ -990,18 +990,22 @@ func ArgString(i interface{}) string {
 	}
 	// any base type to string
 	tmp := v.Interface()
-	switch tmp.(type) {
-	case bool:
+	switch k {
+	case reflect.Bool:
 		return fmt.Sprintf("%t", tmp)
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return fmt.Sprintf("%d", tmp)
-	case float32, float64:
+	case reflect.Float32, reflect.Float64:
 		return fmt.Sprintf("%f", tmp)
-	case string:
+	case reflect.String:
 		return fmt.Sprintf("'%s'", tmp)
-	default:
-		return fmt.Sprintf("'%v'", tmp)
+	case reflect.Slice:
+		if t.Elem().Kind() == reflect.Uint8 {
+			return fmt.Sprintf("'%s'", tmp)
+		}
 	}
+	return fmt.Sprintf("'%v'", tmp)
 }
 
 // PrepareString Merge executed SQL statements and parameters.
