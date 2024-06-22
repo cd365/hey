@@ -1551,6 +1551,9 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 // Mod execute the built SQL statement
 func (s *Mod) Mod() (int64, error) {
 	prepare, args := s.SQL()
+	if prepare == EmptyString {
+		return 0, nil
+	}
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
