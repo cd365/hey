@@ -1618,6 +1618,7 @@ type GetJoin struct {
 	alias    *string   // query table alias name
 	on       string    // conditions for join query; ON a.order_id = b.order_id  <=> USING ( order_id )
 	using    []string  // conditions for join query; USING ( order_id, ... )
+	column   []string  // the list of fields to be queried in the current table
 }
 
 func newJoin(joinType string, table ...string) *GetJoin {
@@ -1698,6 +1699,17 @@ func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
 		tmp = append(tmp, fmt.Sprintf("%s = %s", fields[i], fields[i+1]))
 	}
 	return s.On(strings.Join(tmp, " AND "))
+}
+
+// Column Set the list of fields to be queried in the current table
+func (s *GetJoin) Column(column ...string) *GetJoin {
+	s.column = column
+	return s
+}
+
+// GetColumn Get the list of fields to be queried in the current table
+func (s *GetJoin) GetColumn() []string {
+	return s.column
 }
 
 // SQL build SQL statement
@@ -1832,6 +1844,24 @@ func (s *Ident) MIN(field string) string {
 // SUM SUM([prefix.]xxx) AS xxx
 func (s *Ident) SUM(field string) string {
 	return s.Sum(field, field)
+}
+
+// Field Batch set field prefix
+func (s *Ident) Field(field ...string) []string {
+	prefix := s.prefix
+	if prefix == EmptyString {
+		return field[:]
+	}
+	length := len(field)
+	result := make([]string, 0, length)
+	for i := 0; i < length; i++ {
+		if field[i] == EmptyString || strings.Contains(field[i], SqlPoint) {
+			result = append(result, field[i])
+			continue
+		}
+		result = append(result, fmt.Sprintf("%s%s%s", s.prefix, SqlPoint, field[i]))
+	}
+	return result
 }
 
 // cacheParam cache param
@@ -2222,6 +2252,26 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 	}
 
 	buf.WriteString("SELECT ")
+
+	if s.join != nil {
+		length := len(s.join)
+		if length > 0 {
+			prefix := s.schema.table
+			if s.alias != nil {
+				prefix = *s.alias
+			}
+			s.column = s.schema.way.Ident(prefix).Field(s.column...)
+		}
+		for i := 0; i < length; i++ {
+			if s.join[i].column != nil {
+				prefix := s.join[i].table
+				if s.join[i].alias != nil {
+					prefix = *s.join[i].alias
+				}
+				s.AppendColumn(s.schema.way.Ident(prefix).Field(s.join[i].column...)...)
+			}
+		}
+	}
 
 	if s.column == nil {
 		buf.WriteString(SqlStar)
