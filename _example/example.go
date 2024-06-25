@@ -2,9 +2,8 @@ package main
 
 import (
 	"database/sql"
-	"github.com/cd365/hey/pgsql"
-
 	"github.com/cd365/hey"
+	"github.com/cd365/hey/pgsql"
 )
 
 type User struct {
@@ -134,7 +133,21 @@ func Query() {
 		Limit(10).
 		Offset(0)
 
-	// query rows 1, by reflect
+	// using cache
+	// query.Cache("cache-key", time.Second*time.Duration(20+rand.Intn(10)))
+
+	// join query
+	// a := way.AliasA()
+	// b := way.AliasB()
+	// query.Alias(a.V())
+	// query.LeftJoin(func(j *hey.GetJoin) {
+	// 	j.Table("left_table_name").
+	// 		Alias(b.V()).
+	// 		OnEqual(a.V("table_a_field"), b.V("table_b_field")).
+	// 		Column(b.Field("field1", "field2", "field3")...)
+	// })
+
+	// query rows 1, by reflect (support cache query result)
 	_ = query.Get(&result)
 
 	// query rows 2, by custom
@@ -150,6 +163,24 @@ func Query() {
 		}
 		return nil
 	})
+
+	// query rows 3, by []map[string]interface{}
+	_, _ = query.ViewMap()
+
+	// query 4, scan one row
+	_ = query.ScanOne()
+
+	// query 5, scan rows
+	_ = query.ScanAll(func(rows *sql.Rows) error {
+		return rows.Scan()
+	})
+
+	// query 6, count (support cache query result)
+	_, _ = query.Count()
+
+	// query 7, exists
+	_, _ = query.Exists()
+
 }
 
 func Transaction() {
