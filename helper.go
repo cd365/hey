@@ -976,20 +976,20 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 	defer putBuilder(buf)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.schema.table)
-	w := false
-	if s.where != nil {
-		where, whereArgs := s.where.SQL()
-		if where != EmptyString {
-			w = true
-			buf.WriteString(" WHERE ")
-			buf.WriteString(where)
-			args = whereArgs
-		}
-	}
-	if s.schema.way.config != nil && s.schema.way.config.DeleteMustUseWhere && !w {
+
+	config := s.schema.way.config
+	if config != nil && config.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
 		prepare, args = EmptyString, nil
 		return
 	}
+
+	if s.where != nil && !s.where.IsEmpty() {
+		where, whereArgs := s.where.SQL()
+		buf.WriteString(" WHERE ")
+		buf.WriteString(where)
+		args = whereArgs
+	}
+
 	prepare = buf.String()
 	return
 }
@@ -1530,20 +1530,20 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
 	buf.WriteString(prepare)
-	w := false
-	if s.where != nil {
-		key, val := s.where.SQL()
-		if key != EmptyString {
-			w = true
-			buf.WriteString(" WHERE ")
-			buf.WriteString(key)
-			args = append(args, val...)
-		}
-	}
-	if s.schema.way.config != nil && s.schema.way.config.UpdateMustUseWhere && !w {
+
+	config := s.schema.way.config
+	if config != nil && config.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
 		prepare, args = EmptyString, nil
 		return
 	}
+
+	if s.where != nil && !s.where.IsEmpty() {
+		where, whereArgs := s.where.SQL()
+		buf.WriteString(" WHERE ")
+		buf.WriteString(where)
+		args = append(args, whereArgs...)
+	}
+
 	prepare = buf.String()
 	return
 }
@@ -2311,13 +2311,11 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 		}
 	}
 
-	if s.where != nil {
+	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := s.where.SQL()
-		if where != EmptyString {
-			buf.WriteString(" WHERE ")
-			buf.WriteString(where)
-			args = append(args, whereArgs...)
-		}
+		buf.WriteString(" WHERE ")
+		buf.WriteString(where)
+		args = append(args, whereArgs...)
 	}
 
 	if s.group != nil {

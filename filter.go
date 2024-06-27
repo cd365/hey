@@ -233,6 +233,7 @@ func filterIsNull(column string, not bool) (expr string) {
 
 type Filter interface {
 	Copy(filter ...Filter) Filter
+	IsEmpty() bool
 	And(prepare string, args ...interface{}) Filter
 	Filter(filters ...Filter) Filter
 	Group(group func(filter Filter)) Filter
@@ -304,11 +305,15 @@ func (s *filter) Copy(filter ...Filter) Filter {
 	return F().Filter(filter...)
 }
 
+func (s *filter) IsEmpty() bool {
+	return s.num == 0
+}
+
 func (s *filter) add(logic string, expr string, args []interface{}) Filter {
 	if expr == EmptyString {
 		return s
 	}
-	if s.prepare.Len() == 0 {
+	if s.IsEmpty() {
 		s.prepare.WriteString(expr)
 		s.args = args
 		s.num = 1
