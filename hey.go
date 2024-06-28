@@ -98,12 +98,16 @@ func putStmt(s *Stmt) {
 	s.caller = nil
 	s.prepare = EmptyString
 	s.stmt = nil
+	s.log = nil
 	poolStmt.Put(s)
 }
 
 // Config Configure of Way.
 type Config struct {
+	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
 	DeleteMustUseWhere bool
+
+	// UpdateMustUseWhere Updated data must be filtered using conditions.
 	UpdateMustUseWhere bool
 }
 
@@ -114,24 +118,38 @@ var (
 	}
 )
 
-// LogArgs Record executed args of prepare.
-type LogArgs struct {
-	Args    []interface{}
+// Args Record executed args of prepare.
+type Args struct {
+	// Args SQL parameter list.
+	Args []interface{}
+
+	// StartAt The start time of the SQL statement.
 	StartAt time.Time
-	EndAt   time.Time
-	Error   error
+
+	// EndAt The end time of the SQL statement.
+	EndAt time.Time
 }
 
-// LogPrepareArgs Record executed prepare args.
-type LogPrepareArgs struct {
-	TxId    string
-	TxMsg   string
+// SQL Record executed prepare args.
+type SQL struct {
+	// TxId Transaction ID.
+	TxId string
+
+	// TxMsg Transaction descriptors.
+	TxMsg string
+
+	// Prepare Preprocess the SQL statements that are executed.
 	Prepare string
-	Args    *LogArgs
+
+	// Error An error encountered when executing SQL.
+	Error error
+
+	// Args SQL parameter list.
+	Args *Args
 }
 
-// LogTransaction Record executed transaction.
-type LogTransaction struct {
+// Trans Record executed transaction.
+type Trans struct {
 	// Transaction id.
 	TxId string
 
@@ -169,7 +187,7 @@ type Way struct {
 	tag string
 
 	// Custom properties: logger executed sql statement.
-	log func(log *LogPrepareArgs)
+	log func(log *SQL)
 
 	// The transaction instance.
 	tx *sql.Tx
@@ -184,7 +202,7 @@ type Way struct {
 	txMsg string
 
 	// Custom properties: logger executed transaction.
-	txLog func(log *LogTransaction)
+	txLog func(log *Trans)
 
 	// Custom properties: the transaction isolation level.
 	txOpts *sql.TxOptions
@@ -219,12 +237,12 @@ func WithTag(tag string) Opts {
 }
 
 // WithLogger -> Uses custom logger.
-func WithLogger(log func(log *LogPrepareArgs)) Opts {
+func WithLogger(log func(log *SQL)) Opts {
 	return func(s *Way) { s.log = log }
 }
 
 // WithTxLogger -> Uses custom transaction logger.
-func WithTxLogger(txLog func(log *LogTransaction)) Opts {
+func WithTxLogger(txLog func(log *Trans)) Opts {
 	return func(s *Way) { s.txLog = txLog }
 }
 
@@ -357,7 +375,7 @@ type TxArgs struct {
 	// Use the specified database connection, default nil.
 	Conn *sql.Conn
 
-	// Use the specified transaction isolation level, default *Way.txOpts
+	// Use the specified transaction isolation level, default *Way.txOpts.
 	Opts *sql.TxOptions
 
 	// Try calling transaction multiple times, default 1.
@@ -374,7 +392,7 @@ func (s *Way) transaction(ctx context.Context, fc func(tx *Way) error, args *TxA
 	if err = way.begin(ctx, args.Conn, args.Opts); err != nil {
 		return
 	}
-	log := &LogTransaction{
+	log := &Trans{
 		TxId:    way.txId,
 		StartAt: *(way.txAt),
 	}
@@ -457,7 +475,9 @@ func (s *Way) ScanOne(rows *sql.Rows, dest ...interface{}) error {
 // Caller The implementation object is usually one of *sql.Conn, *sql.DB, *sql.Tx.
 type Caller interface {
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+
 	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+
 	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 }
 
@@ -475,8 +495,8 @@ func (s *Way) caller(caller ...Caller) Caller {
 	return s.db
 }
 
-// withLogger -> Call logger.
-func (s *Way) withLogger(log *LogPrepareArgs) {
+// logger -> Call logger.
+func (s *Way) logger(log *SQL) {
 	if s.log != nil {
 		s.log(log)
 	}
@@ -488,6 +508,7 @@ type Stmt struct {
 	caller  Caller
 	prepare string
 	stmt    *sql.Stmt
+	log     *SQL
 }
 
 // Close -> Close prepare handle.
@@ -500,27 +521,19 @@ func (s *Stmt) Close() (err error) {
 }
 
 // QueryContext -> Query prepared, that can be called repeatedly.
-func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) (err error) {
-	log := &LogPrepareArgs{
-		TxId:    s.way.txId,
-		TxMsg:   s.way.txMsg,
-		Prepare: s.prepare,
-		Args:    &LogArgs{Args: args},
-	}
-	defer func() {
-		log.Args.Error = err
-		s.way.withLogger(log)
-	}()
-	var rows *sql.Rows
-	log.Args.StartAt = time.Now()
-	rows, err = s.stmt.QueryContext(ctx, args...)
-	log.Args.EndAt = time.Now()
+func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
+	s.log.Args = &Args{Args: args}
+	defer s.way.logger(s.log)
+	s.log.Args.StartAt = time.Now()
+	rows, err := s.stmt.QueryContext(ctx, args...)
+	s.log.Args.EndAt = time.Now()
 	if err != nil {
-		return
+		s.log.Error = err
+		return err
 	}
 	defer func() { _ = rows.Close() }()
-	err = query(rows)
-	return
+	s.log.Error = query(rows)
+	return s.log.Error
 }
 
 // Query -> Query prepared, that can be called repeatedly.
@@ -529,22 +542,14 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 }
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
-func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) (err error) {
-	log := &LogPrepareArgs{
-		TxId:    s.way.txId,
-		TxMsg:   s.way.txMsg,
-		Prepare: s.prepare,
-		Args:    &LogArgs{Args: args},
-	}
-	defer func() {
-		log.Args.Error = err
-		s.way.withLogger(log)
-	}()
-	log.Args.StartAt = time.Now()
+func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) error {
+	s.log.Args = &Args{Args: args}
+	defer s.way.logger(s.log)
+	s.log.Args.StartAt = time.Now()
 	row := s.stmt.QueryRowContext(ctx, args...)
-	log.Args.EndAt = time.Now()
-	err = query(row)
-	return
+	s.log.Args.EndAt = time.Now()
+	s.log.Error = query(row)
+	return s.log.Error
 }
 
 // QueryRow -> Query prepared, that can be called repeatedly.
@@ -553,21 +558,14 @@ func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (e
 }
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
-func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (result sql.Result, err error) {
-	log := &LogPrepareArgs{
-		TxId:    s.way.txId,
-		TxMsg:   s.way.txMsg,
-		Prepare: s.prepare,
-		Args:    &LogArgs{Args: args},
-	}
-	defer func() {
-		log.Args.Error = err
-		s.way.withLogger(log)
-	}()
-	log.Args.StartAt = time.Now()
-	result, err = s.stmt.ExecContext(ctx, args...)
-	log.Args.EndAt = time.Now()
-	return
+func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
+	s.log.Args = &Args{Args: args}
+	defer s.way.logger(s.log)
+	s.log.Args.StartAt = time.Now()
+	result, err := s.stmt.ExecContext(ctx, args...)
+	s.log.Args.EndAt = time.Now()
+	s.log.Error = err
+	return result, err
 }
 
 // Execute -> Execute prepared, that can be called repeatedly.
@@ -602,6 +600,8 @@ func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
 // PrepareContext -> Prepare sql statement, don't forget to call *Stmt.Close().
 func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (*Stmt, error) {
 	stmt := getStmt()
+	stmt.log = &SQL{}
+	stmt.log.TxId, stmt.log.TxMsg = s.txId, s.txMsg
 	defer func() {
 		if stmt.stmt == nil {
 			putStmt(stmt) // called when stmt.caller.PrepareContext() failed.
@@ -613,8 +613,11 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Call
 	if s.fix != nil {
 		stmt.prepare = s.fix(prepare)
 	}
+	stmt.log.Prepare = stmt.prepare
 	tmp, err := stmt.caller.PrepareContext(ctx, stmt.prepare)
 	if err != nil {
+		stmt.log.Error = err
+		s.logger(stmt.log)
 		return nil, err
 	}
 	stmt.stmt = tmp
@@ -697,30 +700,27 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 }
 
 // getter -> Query, execute the query sql statement without args, no prepared is used.
-func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
+func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) error {
 	if query == nil || prepare == EmptyString {
-		return
+		return nil
 	}
-	log := &LogPrepareArgs{
+	log := &SQL{
 		TxId:    s.txId,
 		TxMsg:   s.txMsg,
 		Prepare: prepare,
-		Args:    &LogArgs{Args: nil},
+		Args:    &Args{},
 	}
-	defer func() {
-		log.Args.Error = err
-		s.withLogger(log)
-	}()
-	var rows *sql.Rows
+	defer s.logger(log)
 	log.Args.StartAt = time.Now()
-	rows, err = s.caller(caller...).QueryContext(ctx, prepare)
+	rows, err := s.caller(caller...).QueryContext(ctx, prepare)
 	log.Args.EndAt = time.Now()
 	if err != nil {
-		return
+		log.Error = err
+		return log.Error
 	}
 	defer func() { _ = rows.Close() }()
-	err = query(rows)
-	return
+	log.Error = query(rows)
+	return log.Error
 }
 
 // setter -> Execute, execute the execute sql statement without args, no prepared is used.
@@ -728,24 +728,22 @@ func (s *Way) setter(ctx context.Context, prepare string, caller ...Caller) (row
 	if prepare == "" {
 		return
 	}
-	log := &LogPrepareArgs{
+	log := &SQL{
 		TxId:    s.txId,
 		TxMsg:   s.txMsg,
 		Prepare: prepare,
-		Args:    &LogArgs{Args: nil},
+		Args:    &Args{},
 	}
-	defer func() {
-		log.Args.Error = err
-		s.withLogger(log)
-	}()
-	var result sql.Result
+	defer s.logger(log)
 	log.Args.StartAt = time.Now()
-	result, err = s.caller(caller...).ExecContext(ctx, prepare)
+	result, rer := s.caller(caller...).ExecContext(ctx, prepare)
 	log.Args.EndAt = time.Now()
-	if err != nil {
+	if rer != nil {
+		log.Error, err = rer, rer
 		return
 	}
 	rowsAffected, err = result.RowsAffected()
+	log.Error = err
 	return
 }
 
@@ -838,8 +836,13 @@ func (s *Way) AliasG() *Ident {
 
 // read Implement Reader.
 type read struct {
-	reads  []*Way
-	total  int
+	// reads Read list.
+	reads []*Way
+
+	// total Length of read list.
+	total int
+
+	// choose Gets a read-only object from the read list.
 	choose func(n int) int
 }
 
@@ -1004,6 +1007,7 @@ func ArgString(i interface{}) string {
 		if t.Elem().Kind() == reflect.Uint8 {
 			return fmt.Sprintf("'%s'", tmp)
 		}
+	default:
 	}
 	return fmt.Sprintf("'%v'", tmp)
 }
