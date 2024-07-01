@@ -2604,3 +2604,154 @@ func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error)
 	}
 	return count, s.Get(result)
 }
+
+// WindowFunc SQL window function.
+type WindowFunc struct {
+	// withFunc The window function used.
+	withFunc string
+
+	// partition Setting up window partitions.
+	partition []string
+
+	// order Sorting data within a group.
+	order []string
+
+	// windowFrame Window frame clause. `ROWS` or `RANGE`
+	windowFrame string
+
+	// alias Serial number column alias.
+	alias string
+}
+
+// WithFunc Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...
+func (s *WindowFunc) WithFunc(withFunc string) *WindowFunc {
+	s.withFunc = withFunc
+	return s
+}
+
+// RowNumber ROW_NUMBER() Assign a unique serial number to each row, in the order specified, starting with 1.
+func (s *WindowFunc) RowNumber() *WindowFunc {
+	return s.WithFunc("ROW_NUMBER()")
+}
+
+// Rank RANK() Assign a rank to each row, if there are duplicate values, the rank is skipped.
+func (s *WindowFunc) Rank() *WindowFunc {
+	return s.WithFunc("RANK()")
+}
+
+// DenseRank DENSE_RANK() Similar to RANK(), but does not skip rankings.
+func (s *WindowFunc) DenseRank() *WindowFunc {
+	return s.WithFunc("DENSE_RANK()")
+}
+
+// Ntile NTILE() Divide the rows in the window into n buckets and assign a bucket number to each row.
+func (s *WindowFunc) Ntile(buckets int64) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("NTILE(%d)", buckets))
+}
+
+// Sum SUM() Returns the sum of all rows in the window.
+func (s *WindowFunc) Sum(column string) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("SUM(%s)", column))
+}
+
+// Max MAX() Returns the maximum value within the window.
+func (s *WindowFunc) Max(column string) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("MAX(%s)", column))
+}
+
+// Min MIN() Returns the minimum value within the window.
+func (s *WindowFunc) Min(column string) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("MIN(%s)", column))
+}
+
+// Avg AVG() Returns the average of all rows in the window.
+func (s *WindowFunc) Avg(column string) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("AVG(%s)", column))
+}
+
+// Count COUNT() Returns the number of rows in the window.
+func (s *WindowFunc) Count(column string) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("COUNT(%s)", column))
+}
+
+// Lag LAG() Returns the value of the row before the current row.
+func (s *WindowFunc) Lag(column string, offset int64, defaultValue any) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", column, offset, ArgString(defaultValue)))
+}
+
+// Lead LEAD() Returns the value of a row after the current row.
+func (s *WindowFunc) Lead(column string, offset int64, defaultValue any) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", column, offset, ArgString(defaultValue)))
+}
+
+// NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
+func (s *WindowFunc) NthValue(column string, LineNumber int64) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("NTH_VALUE(%s, %d)", column, LineNumber))
+}
+
+// FirstValue FIRST_VALUE() Returns the value of the first row in the window.
+func (s *WindowFunc) FirstValue(column string) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("FIRST_VALUE(%s)", column))
+}
+
+// LastValue LAST_VALUE() Returns the value of the last row in the window.
+func (s *WindowFunc) LastValue(column string) *WindowFunc {
+	return s.WithFunc(fmt.Sprintf("LAST_VALUE(%s)", column))
+}
+
+// Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
+func (s *WindowFunc) Partition(column ...string) *WindowFunc {
+	s.partition = append(s.partition, column...)
+	return s
+}
+
+// Asc Define the sorting within the partition so that the window function is calculated in order.
+func (s *WindowFunc) Asc(column string) *WindowFunc {
+	s.order = append(s.order, fmt.Sprintf("%s %s", column, SqlAsc))
+	return s
+}
+
+// Desc Define the sorting within the partition so that the window function is calculated in descending order.
+func (s *WindowFunc) Desc(column string) *WindowFunc {
+	s.order = append(s.order, fmt.Sprintf("%s %s", column, SqlDesc))
+	return s
+}
+
+// WindowFrame Set custom window frame clause.
+func (s *WindowFunc) WindowFrame(windowFrame string) *WindowFunc {
+	s.windowFrame = windowFrame
+	return s
+}
+
+// Alias Set the alias of the field that uses the window function.
+func (s *WindowFunc) Alias(alias string) *WindowFunc {
+	s.alias = alias
+	return s
+}
+
+// Result Query column expressions.
+func (s *WindowFunc) Result() string {
+	if s.withFunc == EmptyString || s.partition == nil || s.order == nil || s.alias == EmptyString {
+		panic("hey: the SQL window function parameters are incomplete.")
+	}
+	b := getBuilder()
+	defer putBuilder(b)
+	b.WriteString(s.withFunc)
+	b.WriteString(" OVER ( PARTITION BY ")
+	b.WriteString(strings.Join(s.partition, ", "))
+	b.WriteString(" ORDER BY ")
+	b.WriteString(strings.Join(s.order, ", "))
+	if s.windowFrame != "" {
+		b.WriteString(" ")
+		b.WriteString(s.windowFrame)
+	}
+	b.WriteString(" ) AS ")
+	b.WriteString(s.alias)
+	return b.String()
+}
+
+func NewWindowFunc(alias ...string) *WindowFunc {
+	return &WindowFunc{
+		alias: LastNotEmptyString(alias),
+	}
+}
