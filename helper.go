@@ -118,14 +118,8 @@ func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 	return
 }
 
-type MapKey interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 |
-		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
-		~uintptr | ~string
-}
-
 // RemoveDuplicates remove duplicate element
-func RemoveDuplicates[T MapKey](
+func RemoveDuplicates[T comparable](
 	dynamic ...T,
 ) (result []T) {
 	mp, ok, length := make(map[T]*struct{}), false, len(dynamic)
@@ -756,15 +750,15 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 }
 
 // RemoveSliceMemberByIndex delete slice member by index
-func RemoveSliceMemberByIndex[T MapKey | ~bool | ~float32 | ~float64 | interface{}](indexList []int, elementList []T) []T {
+func RemoveSliceMemberByIndex[T interface{}](indexList []int, elementList []T) []T {
 	count := len(indexList)
 	if count == 0 {
 		return elementList
 	}
 	length := len(elementList)
-	mp := make(map[int]struct{}, count)
+	mp := make(map[int]*struct{}, count)
 	for i := 0; i < count; i++ {
-		mp[indexList[i]] = struct{}{}
+		mp[indexList[i]] = &struct{}{}
 	}
 	ok := false
 	result := make([]T, 0, length)
@@ -804,7 +798,7 @@ func SqlPrefix(prefix string, name string) string {
 }
 
 // EvenSlice2Map even slice to map
-func EvenSlice2Map[K MapKey](elems ...K) map[K]K {
+func EvenSlice2Map[K comparable](elems ...K) map[K]K {
 	length := len(elems)
 	if length&1 == 1 {
 		return make(map[K]K)
@@ -817,7 +811,7 @@ func EvenSlice2Map[K MapKey](elems ...K) map[K]K {
 }
 
 // Slice2MapNewKey make map by slice, create key
-func Slice2MapNewKey[K MapKey](elems []K, createKey func(v K) K) map[K]K {
+func Slice2MapNewKey[K comparable](elems []K, createKey func(v K) K) map[K]K {
 	length := len(elems)
 	result := make(map[K]K, length)
 	for i := 0; i < length; i++ {
@@ -827,7 +821,7 @@ func Slice2MapNewKey[K MapKey](elems []K, createKey func(v K) K) map[K]K {
 }
 
 // Slice2MapNewVal make map by slice, create value
-func Slice2MapNewVal[K MapKey, V interface{}](elems []K, createValue func(v K) V) map[K]V {
+func Slice2MapNewVal[K comparable, V interface{}](elems []K, createValue func(v K) V) map[K]V {
 	length := len(elems)
 	result := make(map[K]V, length)
 	for i := 0; i < length; i++ {
@@ -837,7 +831,7 @@ func Slice2MapNewVal[K MapKey, V interface{}](elems []K, createValue func(v K) V
 }
 
 // SliceMatchMap use the `key` value of each element in `elems` to match in the map, and call `handle` if the match is successful
-func SliceMatchMap[K MapKey, X interface{}, Y interface{}](kx map[K]X, handle func(x X, y Y), key func(y Y) K, elems []Y) {
+func SliceMatchMap[K comparable, X interface{}, Y interface{}](kx map[K]X, handle func(x X, y Y), key func(y Y) K, elems []Y) {
 	for i := len(elems) - 1; i >= 0; i-- {
 		if tmp, ok := kx[key(elems[i])]; ok {
 			handle(tmp, elems[i])
@@ -854,7 +848,7 @@ func SliceIter[V interface{}](iter func(v V) V, elems []V) []V {
 }
 
 // MergeMap merge multiple maps
-func MergeMap[K MapKey, V interface{}](elems ...map[K]V) map[K]V {
+func MergeMap[K comparable, V interface{}](elems ...map[K]V) map[K]V {
 	length := len(elems)
 	result := make(map[K]V)
 	for i := 0; i < length; i++ {
