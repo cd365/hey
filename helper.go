@@ -2413,7 +2413,7 @@ func (s *Get) Count(column ...string) (int64, error) {
 		return count, query()
 	}
 
-	value, ok, err := s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	value, ok, err := s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
 	if err != nil {
 		return count, err
 	}
@@ -2422,16 +2422,16 @@ func (s *Get) Count(column ...string) (int64, error) {
 		if time.Now().UnixMilli() <= tmp.UnixMilli {
 			return tmp.Value.(int64), nil
 		}
-		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
 			return count, err
 		}
 	}
 
-	locker := s.schema.way.cache.Locker(s.cache.Key)
+	locker := s.schema.way.cache.Mutex(s.cache.Key)
 	locker.Lock()
 	defer locker.Unlock()
 
-	value, ok, err = s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	value, ok, err = s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
 	if err != nil {
 		return count, err
 	}
@@ -2440,7 +2440,7 @@ func (s *Get) Count(column ...string) (int64, error) {
 		if time.Now().UnixMilli() <= tmp.UnixMilli {
 			return tmp.Value.(int64), nil
 		}
-		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
 			return count, err
 		}
 	}
@@ -2456,7 +2456,7 @@ func (s *Get) Count(column ...string) (int64, error) {
 		cacheValue.UnixMilli = time.Now().Add(s.cache.Duration).UnixMilli()
 	}
 
-	return count, s.schema.way.cache.SetCtx(
+	return count, s.schema.way.cache.SetTtl(
 		s.schema.ctx,
 		s.cache.Key,
 		cacheValue,
@@ -2480,7 +2480,7 @@ func (s *Get) Get(result interface{}) error {
 
 	// when using query caching, make sure to use the same struct as you are receiving the query data
 	// otherwise, the reflective assignment will panic
-	value, ok, err := s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	value, ok, err := s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
 	if err != nil {
 		return err
 	}
@@ -2490,16 +2490,16 @@ func (s *Get) Get(result interface{}) error {
 			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
 			return nil
 		}
-		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
 			return err
 		}
 	}
 
-	locker := s.schema.way.cache.Locker(s.cache.Key)
+	locker := s.schema.way.cache.Mutex(s.cache.Key)
 	locker.Lock()
 	defer locker.Unlock()
 
-	value, ok, err = s.schema.way.cache.GetCtx(s.schema.ctx, s.cache.Key)
+	value, ok, err = s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
 	if err != nil {
 		return err
 	}
@@ -2509,7 +2509,7 @@ func (s *Get) Get(result interface{}) error {
 			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
 			return nil
 		}
-		if err = s.schema.way.cache.DelCtx(s.schema.ctx, s.cache.Key); err != nil {
+		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
 			return err
 		}
 	}
@@ -2525,7 +2525,7 @@ func (s *Get) Get(result interface{}) error {
 		cacheValue.UnixMilli = time.Now().Add(s.cache.Duration).UnixMilli()
 	}
 
-	return s.schema.way.cache.SetCtx(
+	return s.schema.way.cache.SetTtl(
 		s.schema.ctx,
 		s.cache.Key,
 		cacheValue,
