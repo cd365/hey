@@ -18,6 +18,7 @@ const (
 	// DefaultTag Mapping of default database column name and struct tag.
 	DefaultTag = "db"
 
+	// EmptyString Empty string value.
 	EmptyString = ""
 )
 
@@ -118,8 +119,8 @@ var (
 	}
 )
 
-// Args Record executed args of prepare.
-type Args struct {
+// LogArgs Record executed args of prepare.
+type LogArgs struct {
 	// Args SQL parameter list.
 	Args []interface{}
 
@@ -130,8 +131,8 @@ type Args struct {
 	EndAt time.Time
 }
 
-// SQL Record executed prepare args.
-type SQL struct {
+// LogSQL Record executed prepare args.
+type LogSQL struct {
 	// TxId Transaction ID.
 	TxId string
 
@@ -145,11 +146,11 @@ type SQL struct {
 	Error error
 
 	// Args SQL parameter list.
-	Args *Args
+	Args *LogArgs
 }
 
-// Trans Record executed transaction.
-type Trans struct {
+// LogTrans Record executed transaction.
+type LogTrans struct {
 	// Transaction id.
 	TxId string
 
@@ -167,6 +168,13 @@ type Trans struct {
 
 	// Error.
 	Error error
+}
+
+// PrepareArgs Statements to be executed and corresponding parameter list.
+type PrepareArgs struct {
+	Prepare string
+
+	Args []interface{}
 }
 
 // Reader Separate read and write, when you distinguish between reading and writing, please do not use the same object for both reading and writing.
@@ -187,7 +195,7 @@ type Way struct {
 	tag string
 
 	// Custom properties: logger executed sql statement.
-	log func(log *SQL)
+	log func(log *LogSQL)
 
 	// The transaction instance.
 	tx *sql.Tx
@@ -202,7 +210,7 @@ type Way struct {
 	txMsg string
 
 	// Custom properties: logger executed transaction.
-	txLog func(log *Trans)
+	txLog func(log *LogTrans)
 
 	// Custom properties: the transaction isolation level.
 	txOpts *sql.TxOptions
@@ -237,12 +245,12 @@ func WithTag(tag string) Opts {
 }
 
 // WithLogger -> Uses custom logger.
-func WithLogger(log func(log *SQL)) Opts {
+func WithLogger(log func(log *LogSQL)) Opts {
 	return func(s *Way) { s.log = log }
 }
 
 // WithTxLogger -> Uses custom transaction logger.
-func WithTxLogger(txLog func(log *Trans)) Opts {
+func WithTxLogger(txLog func(log *LogTrans)) Opts {
 	return func(s *Way) { s.txLog = txLog }
 }
 
@@ -256,14 +264,14 @@ func WithConfig(config *Config) Opts {
 	return func(s *Way) { s.config = config }
 }
 
-// WithCache -> Uses cache for query data.
-func WithCache(cache CacheQuery) Opts {
-	return func(s *Way) { s.cache = cache }
-}
-
 // WithScan -> Uses scan for query data.
 func WithScan(scan func(rows *sql.Rows, result interface{}, tag string) error) Opts {
 	return func(s *Way) { s.scan = scan }
+}
+
+// WithCache -> Uses cache for query data.
+func WithCache(cache CacheQuery) Opts {
+	return func(s *Way) { s.cache = cache }
 }
 
 // WithReader -> uses reader for query.
@@ -392,7 +400,7 @@ func (s *Way) transaction(ctx context.Context, fc func(tx *Way) error, args *TxA
 	if err = way.begin(ctx, args.Conn, args.Opts); err != nil {
 		return
 	}
-	log := &Trans{
+	log := &LogTrans{
 		TxId:    way.txId,
 		StartAt: *(way.txAt),
 	}
@@ -496,7 +504,7 @@ func (s *Way) caller(caller ...Caller) Caller {
 }
 
 // logger -> Call logger.
-func (s *Way) logger(log *SQL) {
+func (s *Way) logger(log *LogSQL) {
 	if s.log != nil {
 		s.log(log)
 	}
@@ -508,7 +516,7 @@ type Stmt struct {
 	caller  Caller
 	prepare string
 	stmt    *sql.Stmt
-	log     *SQL
+	log     *LogSQL
 }
 
 // Close -> Close prepare handle.
@@ -522,7 +530,9 @@ func (s *Stmt) Close() (err error) {
 
 // QueryContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
-	s.log.Args = &Args{Args: args}
+	s.log.Args = &LogArgs{
+		Args: args,
+	}
 	defer s.way.logger(s.log)
 	s.log.Args.StartAt = time.Now()
 	rows, err := s.stmt.QueryContext(ctx, args...)
@@ -543,7 +553,9 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) error {
-	s.log.Args = &Args{Args: args}
+	s.log.Args = &LogArgs{
+		Args: args,
+	}
 	defer s.way.logger(s.log)
 	s.log.Args.StartAt = time.Now()
 	row := s.stmt.QueryRowContext(ctx, args...)
@@ -559,7 +571,9 @@ func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (e
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
-	s.log.Args = &Args{Args: args}
+	s.log.Args = &LogArgs{
+		Args: args,
+	}
 	defer s.way.logger(s.log)
 	s.log.Args.StartAt = time.Now()
 	result, err := s.stmt.ExecContext(ctx, args...)
@@ -600,7 +614,7 @@ func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
 // PrepareContext -> Prepare sql statement, don't forget to call *Stmt.Close().
 func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (*Stmt, error) {
 	stmt := getStmt()
-	stmt.log = &SQL{}
+	stmt.log = &LogSQL{}
 	stmt.log.TxId, stmt.log.TxMsg = s.txId, s.txMsg
 	defer func() {
 		if stmt.stmt == nil {
@@ -704,11 +718,11 @@ func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prep
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
-	log := &SQL{
+	log := &LogSQL{
 		TxId:    s.txId,
 		TxMsg:   s.txMsg,
 		Prepare: prepare,
-		Args:    &Args{},
+		Args:    &LogArgs{},
 	}
 	defer s.logger(log)
 	log.Args.StartAt = time.Now()
@@ -728,11 +742,11 @@ func (s *Way) setter(ctx context.Context, prepare string, caller ...Caller) (row
 	if prepare == "" {
 		return
 	}
-	log := &SQL{
+	log := &LogSQL{
 		TxId:    s.txId,
 		TxMsg:   s.txMsg,
 		Prepare: prepare,
-		Args:    &Args{},
+		Args:    &LogArgs{},
 	}
 	defer s.logger(log)
 	log.Args.StartAt = time.Now()
