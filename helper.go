@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"time"
 )
 
 const (
@@ -1858,15 +1857,6 @@ func (s *Ident) Field(field ...string) []string {
 	return result
 }
 
-// cacheParam cache param
-type cacheParam struct {
-	// Key cache key
-	Key string
-
-	// Duration data storage validity period
-	Duration time.Duration
-}
-
 // Get for SELECT
 type Get struct {
 	// query table
@@ -1910,9 +1900,6 @@ type Get struct {
 
 	// query result offset
 	offset *int64
-
-	// cache query data, if and only if the data is retrieved using the Count and Get methods
-	cache *cacheParam
 }
 
 // NewGet for SELECT
@@ -2211,18 +2198,6 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
-// Cache please make sure to use the same structure as the one receiving the query data
-func (s *Get) Cache(key string, duration time.Duration) *Get {
-	if key == EmptyString {
-		return s
-	}
-	s.cache = &cacheParam{
-		Key:      key,
-		Duration: duration,
-	}
-	return s
-}
-
 // sqlTable build query base table SQL statement
 func (s *Get) sqlTable() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString && s.subQuery == nil {
@@ -2395,73 +2370,15 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 }
 
 // Count execute the built SQL statement and scan query result for count
-func (s *Get) Count(column ...string) (int64, error) {
-	var count int64
-
+func (s *Get) Count(column ...string) (count int64, err error) {
 	prepare, args := s.SQLCount(column...)
-
-	query := func() error {
-		return s.schema.way.QueryContext(s.schema.ctx, func(rows *sql.Rows) (err error) {
-			if rows.Next() {
-				err = rows.Scan(&count)
-			}
-			return
-		}, prepare, args...)
-	}
-
-	if s.cache == nil || s.schema.way.cache == nil || !s.schema.way.TxNil() {
-		return count, query()
-	}
-
-	value, ok, err := s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
-	if err != nil {
-		return count, err
-	}
-	if ok {
-		tmp := value.(*CacheValue)
-		if time.Now().UnixMilli() <= tmp.UnixMilli {
-			return tmp.Value.(int64), nil
+	err = s.schema.way.QueryContext(s.schema.ctx, func(rows *sql.Rows) (err error) {
+		if rows.Next() {
+			err = rows.Scan(&count)
 		}
-		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
-			return count, err
-		}
-	}
-
-	locker := s.schema.way.cache.Mutex(s.cache.Key)
-	locker.Lock()
-	defer locker.Unlock()
-
-	value, ok, err = s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
-	if err != nil {
-		return count, err
-	}
-	if ok {
-		tmp := value.(*CacheValue)
-		if time.Now().UnixMilli() <= tmp.UnixMilli {
-			return tmp.Value.(int64), nil
-		}
-		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
-			return count, err
-		}
-	}
-
-	if err = query(); err != nil {
-		return count, err
-	}
-
-	cacheValue := &CacheValue{
-		Value: count,
-	}
-	if s.cache.Duration > 0 {
-		cacheValue.UnixMilli = time.Now().Add(s.cache.Duration).UnixMilli()
-	}
-
-	return count, s.schema.way.cache.SetTtl(
-		s.schema.ctx,
-		s.cache.Key,
-		cacheValue,
-		s.cache.Duration,
-	)
+		return
+	}, prepare, args...)
+	return
 }
 
 // Query execute the built SQL statement and scan query result
@@ -2473,64 +2390,7 @@ func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
 // Get execute the built SQL statement and scan query result
 func (s *Get) Get(result interface{}) error {
 	prepare, args := s.SQL()
-
-	if s.cache == nil || s.schema.way.cache == nil || !s.schema.way.TxNil() {
-		return s.schema.way.TakeAllContext(s.schema.ctx, result, prepare, args...)
-	}
-
-	// when using query caching, make sure to use the same struct as you are receiving the query data
-	// otherwise, the reflective assignment will panic
-	value, ok, err := s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
-	if err != nil {
-		return err
-	}
-	if ok {
-		tmp := value.(*CacheValue)
-		if time.Now().UnixMilli() <= tmp.UnixMilli {
-			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
-			return nil
-		}
-		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
-			return err
-		}
-	}
-
-	locker := s.schema.way.cache.Mutex(s.cache.Key)
-	locker.Lock()
-	defer locker.Unlock()
-
-	value, ok, err = s.schema.way.cache.Get(s.schema.ctx, s.cache.Key)
-	if err != nil {
-		return err
-	}
-	if ok {
-		tmp := value.(*CacheValue)
-		if time.Now().UnixMilli() <= tmp.UnixMilli {
-			reflect.ValueOf(result).Elem().Set(reflect.Indirect(reflect.ValueOf(tmp.Value)))
-			return nil
-		}
-		if err = s.schema.way.cache.Remove(s.schema.ctx, s.cache.Key); err != nil {
-			return err
-		}
-	}
-
-	if err = s.schema.way.TakeAllContext(s.schema.ctx, result, prepare, args...); err != nil {
-		return err
-	}
-
-	cacheValue := &CacheValue{
-		Value: result,
-	}
-	if s.cache.Duration > 0 {
-		cacheValue.UnixMilli = time.Now().Add(s.cache.Duration).UnixMilli()
-	}
-
-	return s.schema.way.cache.SetTtl(
-		s.schema.ctx,
-		s.cache.Key,
-		cacheValue,
-		s.cache.Duration,
-	)
+	return s.schema.way.TakeAllContext(s.schema.ctx, result, prepare, args...)
 }
 
 // Exists Determine whether the query result exists.

@@ -221,9 +221,6 @@ type Way struct {
 	// Custom properties: scan query result.
 	scan func(rows *sql.Rows, result interface{}, tag string) error
 
-	// Custom properties: cache for query data.
-	cache CacheQuery
-
 	// Custom properties: get a query-only object.
 	reader Reader
 
@@ -269,11 +266,6 @@ func WithScan(scan func(rows *sql.Rows, result interface{}, tag string) error) O
 	return func(s *Way) { s.scan = scan }
 }
 
-// WithCache -> Uses cache for query data.
-func WithCache(cache CacheQuery) Opts {
-	return func(s *Way) { s.cache = cache }
-}
-
 // WithReader -> uses reader for query.
 func WithReader(reader Reader) Opts {
 	return func(s *Way) { s.reader = reader }
@@ -301,11 +293,6 @@ func (s *Way) DB() *sql.DB {
 // Tag -> Get tag value.
 func (s *Way) Tag() string {
 	return s.tag
-}
-
-// Cache -> Get cache object.
-func (s *Way) Cache() CacheQuery {
-	return s.cache
 }
 
 // Read -> Get an object for read.
