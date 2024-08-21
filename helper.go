@@ -32,14 +32,14 @@ var (
 )
 
 var (
-	// builder sql builder pool
+	// builder sql builder pool.
 	builder *sync.Pool
 
-	// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
+	// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 	insertByStructPool *sync.Pool
 )
 
-// init initialize
+// init initialize.
 func init() {
 	builder = &sync.Pool{}
 	builder.New = func() interface{} {
@@ -52,18 +52,18 @@ func init() {
 	}
 }
 
-// getBuilder get sql builder from pool
+// getBuilder get sql builder from pool.
 func getBuilder() *strings.Builder {
 	return builder.Get().(*strings.Builder)
 }
 
-// putBuilder put sql builder in the pool
+// putBuilder put sql builder in the pool.
 func putBuilder(b *strings.Builder) {
 	b.Reset()
 	builder.Put(b)
 }
 
-// getInsertByStruct get *insertByStruct from pool
+// getInsertByStruct get *insertByStruct from pool.
 func getInsertByStruct() *insertByStruct {
 	tmp := insertByStructPool.Get().(*insertByStruct)
 	tmp.allow = make(map[string]*struct{})
@@ -72,7 +72,7 @@ func getInsertByStruct() *insertByStruct {
 	return tmp
 }
 
-// putInsertByStruct put *insertByStruct in the pool
+// putInsertByStruct put *insertByStruct in the pool.
 func putInsertByStruct(b *insertByStruct) {
 	b.tag = EmptyString
 	b.allow = nil
@@ -82,7 +82,7 @@ func putInsertByStruct(b *insertByStruct) {
 	insertByStructPool.Put(b)
 }
 
-// MustAffectedRows at least one row is affected
+// MustAffectedRows at least one row is affected.
 func MustAffectedRows(affectedRows int64, err error) error {
 	if err != nil {
 		return err
@@ -93,7 +93,7 @@ func MustAffectedRows(affectedRows int64, err error) error {
 	return nil
 }
 
-// LastNotEmptyString get last not empty string, return empty string if it does not exist
+// LastNotEmptyString get last not empty string, return empty string if it does not exist.
 func LastNotEmptyString(sss []string) string {
 	for i := len(sss) - 1; i >= 0; i-- {
 		if sss[i] != EmptyString {
@@ -103,7 +103,7 @@ func LastNotEmptyString(sss []string) string {
 	return EmptyString
 }
 
-// RemoveDuplicate remove duplicate element
+// RemoveDuplicate remove duplicate element.
 func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 	mp, ok, length := make(map[interface{}]*struct{}), false, len(dynamic)
 	result = make([]interface{}, 0, length)
@@ -117,7 +117,7 @@ func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 	return
 }
 
-// RemoveDuplicates remove duplicate element
+// RemoveDuplicates remove duplicate element.
 func RemoveDuplicates[T comparable](
 	dynamic ...T,
 ) (result []T) {
@@ -135,13 +135,13 @@ func RemoveDuplicates[T comparable](
 
 // bindStruct bind the receiving object with the query result.
 type bindStruct struct {
-	// store root struct properties
+	// store root struct properties.
 	direct map[string]int
 
-	// store non-root struct properties, such as: anonymous attribute structure and named attribute structure
+	// store non-root struct properties, such as: anonymous attribute structure and named attribute structure.
 	indirect map[string][]int
 
-	// all used struct types, including the root struct
+	// all used struct types, including the root struct.
 	structType map[reflect.Type]struct{}
 }
 
@@ -157,7 +157,7 @@ func bindStructInit() *bindStruct {
 // Please ensure that the type of refStructType must be `reflect.Struct`.
 func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string) {
 	if _, ok := s.structType[refStructType]; ok {
-		// prevent structure loop nesting
+		// prevent structure loop nesting.
 		return
 	}
 	s.structType[refStructType] = struct{}{}
@@ -167,7 +167,7 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 		if !attribute.IsExported() {
 			continue
 		}
-		// anonymous structure, or named structure
+		// anonymous structure, or named structure.
 		if attribute.Type.Kind() == reflect.Struct ||
 			(attribute.Type.Kind() == reflect.Ptr && attribute.Type.Elem().Kind() == reflect.Struct) {
 			at := attribute.Type
@@ -179,7 +179,7 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 			if kind == reflect.Struct {
 				dst := depth[:]
 				dst = append(dst, i)
-				// recursive call
+				// recursive call.
 				s.binding(at, dst, tag)
 			}
 			continue
@@ -188,12 +188,12 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 		if field == EmptyString || field == "-" {
 			continue
 		}
-		// root structure attribute
+		// root structure attribute.
 		if depth == nil {
 			s.direct[field] = i
 			continue
 		}
-		// others structure attribute, nested anonymous structure or named structure
+		// others structure attribute, nested anonymous structure or named structure.
 		if _, ok := s.indirect[field]; !ok {
 			dst := depth[:]
 			dst = append(dst, i)
@@ -202,15 +202,14 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 	}
 }
 
-// prepare The preparatory work before executing rows.Scan
+// prepare The preparatory work before executing rows.Scan.
 // find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
-// When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear
-// when the root structure accesses the properties of substructures, resulting in panic.
+// When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear when the root structure accesses the properties of substructures, resulting in panic.
 func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect reflect.Value, length int) error {
 	for i := 0; i < length; i++ {
 		index, ok := s.direct[columns[i]]
 		if ok {
-			// top structure
+			// top structure.
 			field := indirect.Field(index)
 			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("hey: column `%s` cann't set value", columns[i])
@@ -223,10 +222,10 @@ func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect 
 			rowsScan[i] = field.Addr().Interface()
 			continue
 		}
-		// parsing multi-layer structures
+		// parsing multi-layer structures.
 		line, ok := s.indirect[columns[i]]
 		if !ok {
-			// unable to find mapping property for current field Use *[]byte instead to receive
+			// unable to find mapping property for current field Use *[]byte instead to receive.
 			rowsScan[i] = new([]byte)
 			continue
 		}
@@ -239,7 +238,7 @@ func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect 
 		for j := 0; j < count; j++ {
 			parent := cursor[j]
 			if j+1 < count {
-				// middle layer structures
+				// middle layer structures.
 				latest := parent.Field(line[j])
 				if latest.Type().Kind() == reflect.Ptr {
 					if latest.IsNil() {
@@ -252,7 +251,7 @@ func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect 
 				continue
 			}
 			// j + 1 == count
-			// innermost structure
+			// innermost structure.
 			field := parent.Field(line[j])
 			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("hey: column `%s` cann't set value, multi-level", columns[i])
@@ -268,8 +267,7 @@ func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect 
 	return nil
 }
 
-// ScanSliceStruct Scan the query result set into the receiving object
-// the receiving object type is *[]AnyStruct or *[]*AnyStruct.
+// ScanSliceStruct Scan the query result set into the receiving object the receiving object type is *[]AnyStruct or *[]*AnyStruct.
 func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	typeOf, valueOf := reflect.TypeOf(result), reflect.ValueOf(result)
 	typeOfKind := typeOf.Kind()
@@ -355,30 +353,30 @@ func BasicTypeValue(value interface{}) interface{} {
 }
 
 type insertByStruct struct {
-	// struct tag name value used as table.column name
+	// struct tag name value used as table.column name.
 	tag string
 
-	// only allowed fields Hash table
+	// only allowed fields Hash table.
 	allow map[string]*struct{}
 
-	// ignored fields Hash table
+	// ignored fields Hash table.
 	except map[string]*struct{}
 
-	// already existing fields Hash table
+	// already existing fields Hash table.
 	used map[string]*struct{}
 
-	// struct reflect type, make sure it is the same structure type
+	// struct reflect type, make sure it is the same structure type.
 	structReflectType reflect.Type
 }
 
-// setExcept filter the list of unwanted fields, prioritize method calls structFieldsValues() and structValues()
+// setExcept filter the list of unwanted fields, prioritize method calls structFieldsValues() and structValues().
 func (s *insertByStruct) setExcept(except []string) {
 	for _, field := range except {
 		s.except[field] = &struct{}{}
 	}
 }
 
-// setAllow only allowed fields, prioritize method calls structFieldsValues() and structValues()
+// setAllow only allowed fields, prioritize method calls structFieldsValues() and structValues().
 func (s *insertByStruct) setAllow(allow []string) {
 	for _, field := range allow {
 		s.allow[field] = &struct{}{}
@@ -389,7 +387,7 @@ func panicBatchInsertByStruct() {
 	panic("hey: slice element types are inconsistent")
 }
 
-// structFieldsValues checkout fields, values
+// structFieldsValues checkout fields, values.
 func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, allowed bool) (fields []string, values []interface{}) {
 	reflectType := structReflectValue.Type()
 	if s.structReflectType == nil {
@@ -444,7 +442,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 	return
 }
 
-// structValues checkout values
+// structValues checkout values.
 func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed bool) (values []interface{}) {
 	reflectType := structReflectValue.Type()
 	if s.structReflectType != nil && s.structReflectType != reflectType {
@@ -489,7 +487,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 	return
 }
 
-// Insert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
+// Insert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *insertByStruct) Insert(object interface{}, tag string, except []string, allow []string) (fields []string, values [][]interface{}) {
 	if object == nil || tag == EmptyString {
 		return
@@ -535,7 +533,7 @@ func (s *insertByStruct) Insert(object interface{}, tag string, except []string,
 	return
 }
 
-// StructInsert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}
+// StructInsert object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 // get fields and values based on struct tag.
 func StructInsert(object interface{}, tag string, except []string, allow []string) (fields []string, values [][]interface{}) {
 	b := getInsertByStruct()
@@ -544,7 +542,7 @@ func StructInsert(object interface{}, tag string, except []string, allow []strin
 	return
 }
 
-// StructModify object should be one of struct{}, *struct{} get the fields and values that need to be modified
+// StructModify object should be one of struct{}, *struct{} get the fields and values that need to be modified.
 func StructModify(object interface{}, tag string, except ...string) (fields []string, values []interface{}) {
 	if object == nil || tag == EmptyString {
 		return
@@ -641,7 +639,7 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 	return
 }
 
-// StructObtain object should be one of struct{}, *struct{} for get all fields and values
+// StructObtain object should be one of struct{}, *struct{} for get all fields and values.
 func StructObtain(object interface{}, tag string, except ...string) (fields []string, values []interface{}) {
 	if object == nil || tag == EmptyString {
 		return
@@ -698,7 +696,7 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 	return
 }
 
-// StructUpdate compare origin and latest for update
+// StructUpdate compare origin and latest for update.
 func StructUpdate(origin interface{}, latest interface{}, tag string, except ...string) (fields []string, values []interface{}) {
 	if origin == nil || latest == nil || tag == EmptyString {
 		return
@@ -748,7 +746,7 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	return
 }
 
-// RemoveSliceMemberByIndex delete slice member by index
+// RemoveSliceMemberByIndex delete slice member by index.
 func RemoveSliceMemberByIndex[T interface{}](indexList []int, elementList []T) []T {
 	count := len(indexList)
 	if count == 0 {
@@ -769,7 +767,7 @@ func RemoveSliceMemberByIndex[T interface{}](indexList []int, elementList []T) [
 	return result
 }
 
-// ConcatString concatenate string
+// ConcatString concatenate string.
 func ConcatString(sss ...string) string {
 	b := getBuilder()
 	defer putBuilder(b)
@@ -780,7 +778,7 @@ func ConcatString(sss ...string) string {
 	return b.String()
 }
 
-// SqlAlias sql alias name
+// SqlAlias sql alias name.
 func SqlAlias(name string, alias string) string {
 	if alias == EmptyString {
 		return name
@@ -788,7 +786,7 @@ func SqlAlias(name string, alias string) string {
 	return fmt.Sprintf("%s %s %s", name, SqlAs, alias)
 }
 
-// SqlPrefix sql prefix name
+// SqlPrefix sql prefix name.
 func SqlPrefix(prefix string, name string) string {
 	if prefix == EmptyString {
 		return name
@@ -796,7 +794,7 @@ func SqlPrefix(prefix string, name string) string {
 	return fmt.Sprintf("%s%s%s", prefix, SqlPoint, name)
 }
 
-// EvenSlice2Map even slice to map
+// EvenSlice2Map even slice to map.
 func EvenSlice2Map[K comparable](elems ...K) map[K]K {
 	length := len(elems)
 	if length&1 == 1 {
@@ -809,7 +807,7 @@ func EvenSlice2Map[K comparable](elems ...K) map[K]K {
 	return result
 }
 
-// Slice2MapNewKey make map by slice, create key
+// Slice2MapNewKey make map by slice, create key.
 func Slice2MapNewKey[K comparable](elems []K, createKey func(v K) K) map[K]K {
 	length := len(elems)
 	result := make(map[K]K, length)
@@ -819,7 +817,7 @@ func Slice2MapNewKey[K comparable](elems []K, createKey func(v K) K) map[K]K {
 	return result
 }
 
-// Slice2MapNewVal make map by slice, create value
+// Slice2MapNewVal make map by slice, create value.
 func Slice2MapNewVal[K comparable, V interface{}](elems []K, createValue func(v K) V) map[K]V {
 	length := len(elems)
 	result := make(map[K]V, length)
@@ -829,7 +827,7 @@ func Slice2MapNewVal[K comparable, V interface{}](elems []K, createValue func(v 
 	return result
 }
 
-// SliceMatchMap use the `key` value of each element in `elems` to match in the map, and call `handle` if the match is successful
+// SliceMatchMap use the `key` value of each element in `elems` to match in the map, and call `handle` if the match is successful.
 func SliceMatchMap[K comparable, X interface{}, Y interface{}](kx map[K]X, handle func(x X, y Y), key func(y Y) K, elems []Y) {
 	for i := len(elems) - 1; i >= 0; i-- {
 		if tmp, ok := kx[key(elems[i])]; ok {
@@ -838,7 +836,7 @@ func SliceMatchMap[K comparable, X interface{}, Y interface{}](kx map[K]X, handl
 	}
 }
 
-// SliceIter slice iteration
+// SliceIter slice iteration.
 func SliceIter[V interface{}](iter func(v V) V, elems []V) []V {
 	for i := len(elems) - 1; i >= 0; i-- {
 		elems[i] = iter(elems[i])
@@ -846,7 +844,7 @@ func SliceIter[V interface{}](iter func(v V) V, elems []V) []V {
 	return elems
 }
 
-// MergeMap merge multiple maps
+// MergeMap merge multiple maps.
 func MergeMap[K comparable, V interface{}](elems ...map[K]V) map[K]V {
 	length := len(elems)
 	result := make(map[K]V)
@@ -862,7 +860,7 @@ func MergeMap[K comparable, V interface{}](elems ...map[K]V) map[K]V {
 	return result
 }
 
-// MergeSlice merge multiple slices
+// MergeSlice merge multiple slices.
 func MergeSlice[V interface{}](elems ...[]V) []V {
 	length := len(elems)
 	result := make([]V, 0)
@@ -900,7 +898,7 @@ type schema struct {
 	table   string
 }
 
-// newSchema new schema with *Way
+// newSchema new schema with *Way.
 func newSchema(way *Way) *schema {
 	return &schema{
 		ctx: context.Background(),
@@ -908,8 +906,8 @@ func newSchema(way *Way) *schema {
 	}
 }
 
-// comment make SQL statement builder, SqlPlaceholder "?" should not appear in comments
-// defer putBuilder(builder) should be called immediately after calling the current method
+// comment make SQL statement builder, SqlPlaceholder "?" should not appear in comments.
+// defer putBuilder(builder) should be called immediately after calling the current method.
 func comment(schema *schema) (b *strings.Builder) {
 	b = getBuilder()
 	schema.comment = strings.TrimSpace(schema.comment)
@@ -917,50 +915,50 @@ func comment(schema *schema) (b *strings.Builder) {
 	if schema.comment == EmptyString {
 		return
 	}
-	b.WriteString("/* ")
+	b.WriteString("/*")
 	b.WriteString(schema.comment)
-	b.WriteString(" */")
+	b.WriteString("*/")
 	return
 }
 
-// Del for DELETE
+// Del for DELETE.
 type Del struct {
 	schema *schema
 	where  Filter
 }
 
-// NewDel for DELETE
+// NewDel for DELETE.
 func NewDel(way *Way) *Del {
 	return &Del{
 		schema: newSchema(way),
 	}
 }
 
-// Comment set comment
+// Comment set comment.
 func (s *Del) Comment(comment string) *Del {
 	s.schema.comment = comment
 	return s
 }
 
-// Context set context
+// Context set context.
 func (s *Del) Context(ctx context.Context) *Del {
 	s.schema.ctx = ctx
 	return s
 }
 
-// Table set table name
+// Table set table name.
 func (s *Del) Table(table string) *Del {
 	s.schema.table = table
 	return s
 }
 
-// Where set where
+// Where set where.
 func (s *Del) Where(where Filter) *Del {
 	s.where = where
 	return s
 }
 
-// SQL build SQL statement
+// SQL build SQL statement.
 func (s *Del) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString {
 		return
@@ -987,23 +985,23 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// Del execute the built SQL statement
+// Del execute the built SQL statement.
 func (s *Del) Del() (int64, error) {
 	prepare, args := s.SQL()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// Way get current *Way
+// Way get current *Way.
 func (s *Del) Way() *Way {
 	return s.schema.way
 }
 
-// F make new Filter
+// F make new Filter.
 func (s *Del) F(filter ...Filter) Filter {
 	return F().Filter(filter...)
 }
 
-// Add for INSERT
+// Add for INSERT.
 type Add struct {
 	schema *schema
 
@@ -1016,17 +1014,17 @@ type Add struct {
 	fields      []string
 	values      [][]interface{}
 
-	// subQuery INSERT VALUES is query statement
+	// subQuery INSERT VALUES is query statement.
 	subQuery *SubQuery
 
-	// onConflict, on conflict do something
+	// onConflict, on conflict do something.
 	onConflict     *string
 	onConflictArgs []interface{}
 
 	useResult func(result sql.Result) error
 }
 
-// NewAdd for INSERT
+// NewAdd for INSERT.
 func NewAdd(way *Way) *Add {
 	add := &Add{
 		schema:    newSchema(way),
@@ -1038,28 +1036,28 @@ func NewAdd(way *Way) *Add {
 	return add
 }
 
-// Comment set comment
+// Comment set comment.
 func (s *Add) Comment(comment string) *Add {
 	s.schema.comment = comment
 	return s
 }
 
-// Context set context
+// Context set context.
 func (s *Add) Context(ctx context.Context) *Add {
 	s.schema.ctx = ctx
 	return s
 }
 
-// Table set table name
+// Table set table name.
 func (s *Add) Table(table string) *Add {
 	s.schema.table = table
 	return s
 }
 
-// Fields set fields, the current method resets the map field list and field index sequence
+// Fields set fields, the current method resets the map field list and field index sequence.
 func (s *Add) Fields(fields []string) *Add {
 	length := len(fields)
-	// reset value of fieldsIndex, fieldsMap
+	// reset value of fieldsIndex, fieldsMap.
 	s.fieldsIndex, s.fieldsMap = 0, make(map[string]int, length*2)
 	for i := 0; i < length; i++ {
 		if _, ok := s.fieldsMap[fields[i]]; !ok {
@@ -1071,18 +1069,18 @@ func (s *Add) Fields(fields []string) *Add {
 	return s
 }
 
-// Values set values
+// Values set values.
 func (s *Add) Values(values [][]interface{}) *Add {
 	s.values = values
 	return s
 }
 
-// FieldsValues set fields and values
+// FieldsValues set fields and values.
 func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 	return s.Fields(fields).Values(values)
 }
 
-// Except exclude some columns from insert one or more rows
+// Except exclude some columns from insert one or more rows.
 func (s *Add) Except(except ...string) *Add {
 	for _, field := range except {
 		if field == EmptyString {
@@ -1097,7 +1095,7 @@ func (s *Add) Except(except ...string) *Add {
 	return s
 }
 
-// FieldValue append field-value for insert one or more rows
+// FieldValue append field-value for insert one or more rows.
 func (s *Add) FieldValue(field string, value interface{}) *Add {
 	if _, ok := s.exceptMap[field]; ok {
 		return s
@@ -1117,7 +1115,7 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 	return s
 }
 
-// DefaultFieldValue append default field-value for insert one or more rows
+// DefaultFieldValue append default field-value for insert one or more rows.
 func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
 	if _, ok := s.exceptMap[field]; ok {
 		return s
@@ -1134,8 +1132,7 @@ func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
 	return s
 }
 
-// Create value of create should be one of struct{}, *struct{}, map[string]interface{},
-// []struct, []*struct{}, *[]struct{}, *[]*struct{}
+// Create value of create should be one of struct{}, *struct{}, map[string]interface{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *Add) Create(create interface{}) *Add {
 	if fieldValue, ok := create.(map[string]interface{}); ok {
 		allow := make(map[string]*struct{})
@@ -1157,16 +1154,13 @@ func (s *Add) Create(create interface{}) *Add {
 	return s.FieldsValues(StructInsert(create, s.schema.way.tag, s.except, s.fields))
 }
 
-// ValuesSubQuery values is a query SQL statement
+// ValuesSubQuery values is a query SQL statement.
 func (s *Add) ValuesSubQuery(prepare string, args ...interface{}) *Add {
-	if prepare == EmptyString {
-		return s
-	}
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
-// ValuesSubQueryGet values is a query SQL statement
+// ValuesSubQueryGet values is a query SQL statement.
 func (s *Add) ValuesSubQueryGet(get *Get) *Add {
 	if get == nil {
 		return s
@@ -1175,14 +1169,14 @@ func (s *Add) ValuesSubQueryGet(get *Get) *Add {
 	return s.ValuesSubQuery(prepare, args...)
 }
 
-// OnConflict on conflict do something
+// OnConflict on conflict do something.
 func (s *Add) OnConflict(prepare string, args []interface{}) *Add {
 	s.onConflict = &prepare
 	s.onConflictArgs = args
 	return s
 }
 
-// UseResult provide sql.Result object
+// UseResult provide sql.Result object.
 func (s *Add) UseResult(fc func(result sql.Result) error) *Add {
 	if fc != nil {
 		s.useResult = fc
@@ -1190,7 +1184,7 @@ func (s *Add) UseResult(fc func(result sql.Result) error) *Add {
 	return s
 }
 
-// SQL build SQL statement
+// SQL build SQL statement.
 func (s *Add) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString {
 		return
@@ -1248,7 +1242,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// Add execute the built SQL statement
+// Add execute the built SQL statement.
 func (s *Add) Add() (int64, error) {
 	prepare, args := s.SQL()
 	if s.useResult == nil {
@@ -1264,47 +1258,47 @@ func (s *Add) Add() (int64, error) {
 	return result.RowsAffected()
 }
 
-// Returning insert a row and return the data
+// Returning insert a row and return the data.
 func (s *Add) Returning(fc func(row *sql.Row) error, returning ...string) error {
 	prepare, args := sqlReturning(s, returning...)
 	return s.schema.way.QueryRowContext(s.schema.ctx, fc, prepare, args...)
 }
 
-// Way get current *Way
+// Way get current *Way.
 func (s *Add) Way() *Way {
 	return s.schema.way
 }
 
-// modify set the field to be updated
+// modify set the field to be updated.
 type modify struct {
 	expr string
 	args []interface{}
 }
 
-// Mod for UPDATE
+// Mod for UPDATE.
 type Mod struct {
 	schema *schema
 
-	// update main updated fields
+	// update main updated fields.
 	update map[string]*modify
 
-	// updateSlice, the fields to be updated are updated sequentially
+	// updateSlice, the fields to be updated are updated sequentially.
 	updateSlice []string
 
-	// modify secondary updated fields, the effective condition is len(update) > 0
+	// modify secondary updated fields, the effective condition is len(update) > 0.
 	secondaryUpdate map[string]*modify
 
-	// secondaryUpdateSlice, the fields to be updated are updated sequentially
+	// secondaryUpdateSlice, the fields to be updated are updated sequentially.
 	secondaryUpdateSlice []string
 
-	// except excepted fields
+	// except excepted fields.
 	except      map[string]struct{}
 	exceptSlice []string
 
 	where Filter
 }
 
-// NewMod for UPDATE
+// NewMod for UPDATE.
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema:          newSchema(way),
@@ -1314,25 +1308,25 @@ func NewMod(way *Way) *Mod {
 	}
 }
 
-// Comment set comment
+// Comment set comment.
 func (s *Mod) Comment(comment string) *Mod {
 	s.schema.comment = comment
 	return s
 }
 
-// Context set context
+// Context set context.
 func (s *Mod) Context(ctx context.Context) *Mod {
 	s.schema.ctx = ctx
 	return s
 }
 
-// Table set table name
+// Table set table name.
 func (s *Mod) Table(table string) *Mod {
 	s.schema.table = table
 	return s
 }
 
-// Except exclude some fields from update
+// Except exclude some fields from update.
 func (s *Mod) Except(except ...string) *Mod {
 	length := len(except)
 	for i := 0; i < length; i++ {
@@ -1348,7 +1342,7 @@ func (s *Mod) Except(except ...string) *Mod {
 	return s
 }
 
-// expr build update field expressions and field values
+// expr build update field expressions and field values.
 func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[field]; ok {
 		return s
@@ -1366,28 +1360,28 @@ func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
 	return s
 }
 
-// Expr update field using custom expr
+// Expr update field using custom expr.
 func (s *Mod) Expr(field string, expr string, args ...interface{}) *Mod {
 	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
 	return s.expr(field, expr, args)
 }
 
-// Set field = value
+// Set field = value.
 func (s *Mod) Set(field string, value interface{}) *Mod {
 	return s.expr(field, fmt.Sprintf("%s = %s", field, SqlPlaceholder), value)
 }
 
-// Incr SET field = field + value
+// Incr SET field = field + value.
 func (s *Mod) Incr(field string, value interface{}) *Mod {
 	return s.expr(field, fmt.Sprintf("%s = %s + %s", field, field, SqlPlaceholder), value)
 }
 
-// Decr SET field = field - value
+// Decr SET field = field - value.
 func (s *Mod) Decr(field string, value interface{}) *Mod {
 	return s.expr(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
 }
 
-// FieldsValues SET field = value by slice, require len(fields) == len(values)
+// FieldsValues SET field = value by slice, require len(fields) == len(values).
 func (s *Mod) FieldsValues(fields []string, values []interface{}) *Mod {
 	len1, len2 := len(fields), len(values)
 	if len1 != len2 {
@@ -1399,7 +1393,7 @@ func (s *Mod) FieldsValues(fields []string, values []interface{}) *Mod {
 	return s
 }
 
-// Modify value of modify should be one of struct{}, *struct{}, map[string]interface{}
+// Modify value of modify should be one of struct{}, *struct{}, map[string]interface{}.
 func (s *Mod) Modify(modify interface{}) *Mod {
 	if fieldValue, ok := modify.(map[string]interface{}); ok {
 		for field, value := range fieldValue {
@@ -1410,12 +1404,12 @@ func (s *Mod) Modify(modify interface{}) *Mod {
 	return s.FieldsValues(StructModify(modify, s.schema.way.tag, s.exceptSlice...))
 }
 
-// Update for compare origin and latest to automatically calculate need to update fields
+// Update for compare origin and latest to automatically calculate need to update fields.
 func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
 	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.tag, s.exceptSlice...))
 }
 
-// defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp
+// defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp.
 func (s *Mod) defaultExpr(field string, expr string, args ...interface{}) *Mod {
 	if _, ok := s.except[field]; ok {
 		return s
@@ -1436,34 +1430,34 @@ func (s *Mod) defaultExpr(field string, expr string, args ...interface{}) *Mod {
 	return s
 }
 
-// DefaultExpr update field using custom expression
+// DefaultExpr update field using custom expression.
 func (s *Mod) DefaultExpr(field string, expr string, args ...interface{}) *Mod {
 	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
 	return s.defaultExpr(field, expr, args)
 }
 
-// DefaultSet SET field = value
+// DefaultSet SET field = value.
 func (s *Mod) DefaultSet(field string, value interface{}) *Mod {
 	return s.defaultExpr(field, fmt.Sprintf("%s = %s", field, SqlPlaceholder), value)
 }
 
-// DefaultIncr SET field = field + value
+// DefaultIncr SET field = field + value.
 func (s *Mod) DefaultIncr(field string, value interface{}) *Mod {
 	return s.defaultExpr(field, fmt.Sprintf("%s = %s + %s", field, field, SqlPlaceholder), value)
 }
 
-// DefaultDecr SET field = field - value
+// DefaultDecr SET field = field - value.
 func (s *Mod) DefaultDecr(field string, value interface{}) *Mod {
 	return s.defaultExpr(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
 }
 
-// Where set where
+// Where set where.
 func (s *Mod) Where(where Filter) *Mod {
 	s.where = where
 	return s
 }
 
-// SetSQL prepare args of set
+// SetSQL prepare args of set.
 func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	length := len(s.update)
 	if length == 0 {
@@ -1508,7 +1502,7 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	return
 }
 
-// SQL build SQL statement
+// SQL build SQL statement.
 func (s *Mod) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString {
 		return
@@ -1541,7 +1535,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// Mod execute the built SQL statement
+// Mod execute the built SQL statement.
 func (s *Mod) Mod() (int64, error) {
 	prepare, args := s.SQL()
 	if prepare == EmptyString {
@@ -1550,33 +1544,59 @@ func (s *Mod) Mod() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// Way get current *Way
+// Way get current *Way.
 func (s *Mod) Way() *Way {
 	return s.schema.way
 }
 
-// F make new Filter
+// F make new Filter.
 func (s *Mod) F(filter ...Filter) Filter {
 	return F().Filter(filter...)
 }
 
-type WithQuery struct {
-	alias   string
-	prepare string
-	args    []interface{}
+// GetWith CTE: Common Table Expression.
+type GetWith struct {
+	recursive bool
+	alias     string
+	prepare   string
+	args      []interface{}
 }
 
-func newWithQuery(alias string, prepare string, args ...interface{}) *WithQuery {
-	return &WithQuery{
-		alias:   alias,
-		prepare: prepare,
-		args:    args,
+func NewWith() *GetWith {
+	return &GetWith{}
+}
+
+func (s *GetWith) Recursive(recursive bool) *GetWith {
+	s.recursive = recursive
+	return s
+}
+
+func (s *GetWith) With(alias string, prepare string, args []interface{}) *GetWith {
+	if alias == EmptyString || prepare == EmptyString {
+		return s
 	}
+	s.alias, s.prepare, s.args = alias, prepare, args
+	return s
 }
 
-func (s *WithQuery) SQL() (prepare string, args []interface{}) {
+func (s *GetWith) WithGet(alias string, get *Get) *GetWith {
+	if alias == EmptyString || get == nil {
+		return s
+	}
+	prepare, args := get.SQL()
+	if prepare == EmptyString {
+		return s
+	}
+	return s.With(alias, prepare, args)
+}
+
+func (s *GetWith) SQL() (prepare string, args []interface{}) {
 	b := getBuilder()
 	defer putBuilder(b)
+	if s.recursive {
+		b.WriteString("RECURSIVE")
+		b.WriteString(SqlSpace)
+	}
 	b.WriteString(s.alias)
 	b.WriteString(" AS ( ")
 	b.WriteString(s.prepare)
@@ -1603,15 +1623,15 @@ func (s *SubQuery) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// GetJoin join SQL statement
+// GetJoin join SQL statement.
 type GetJoin struct {
-	joinType string    // join type
-	table    string    // table name
-	subQuery *SubQuery // table is sub query
-	alias    *string   // query table alias name
-	on       string    // conditions for join query; ON a.order_id = b.order_id  <=> USING ( order_id )
-	using    []string  // conditions for join query; USING ( order_id, ... )
-	column   []string  // the list of fields to be queried in the current table
+	joinType string    // join type.
+	table    string    // table name.
+	subQuery *SubQuery // table is sub query.
+	alias    *string   // query table alias name.
+	on       string    // conditions for join query; ON a.order_id = b.order_id  <=> USING ( order_id ).
+	using    []string  // conditions for join query; USING ( order_id, ... ).
+	column   []string  // the list of fields to be queried in the current table.
 }
 
 func newJoin(joinType string, table ...string) *GetJoin {
@@ -1638,19 +1658,19 @@ func FullJoin(table ...string) *GetJoin {
 	return newJoin(SqlJoinFull, table...)
 }
 
-// Table set table name
+// Table set table name.
 func (s *GetJoin) Table(table string) *GetJoin {
 	s.table = table
 	return s
 }
 
-// SubQuery table is a query SQL statement
+// SubQuery table is a query SQL statement.
 func (s *GetJoin) SubQuery(prepare string, args ...interface{}) *GetJoin {
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
-// SubQueryGet table is a query SQL statement
+// SubQueryGet table is a query SQL statement.
 func (s *GetJoin) SubQueryGet(get *Get, alias ...string) *GetJoin {
 	if get == nil {
 		return s
@@ -1663,25 +1683,25 @@ func (s *GetJoin) SubQueryGet(get *Get, alias ...string) *GetJoin {
 	return s
 }
 
-// Alias for table alias name, don't forget to call the current method when the table is a SQL statement
+// Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
 func (s *GetJoin) Alias(alias string) *GetJoin {
 	s.alias = &alias
 	return s
 }
 
-// On join query condition
+// On join query condition.
 func (s *GetJoin) On(on string) *GetJoin {
 	s.on = on
 	return s
 }
 
-// Using join query condition
+// Using join query condition.
 func (s *GetJoin) Using(fields ...string) *GetJoin {
 	s.using = fields
 	return s
 }
 
-// OnEqual join query condition, support multiple fields
+// OnEqual join query condition, support multiple fields.
 func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
 	length := len(fields)
 	if length&1 == 1 {
@@ -1694,18 +1714,18 @@ func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
 	return s.On(strings.Join(tmp, " AND "))
 }
 
-// Column Set the list of fields to be queried in the current table
+// Column Set the list of fields to be queried in the current table.
 func (s *GetJoin) Column(column ...string) *GetJoin {
 	s.column = column
 	return s
 }
 
-// GetColumn Get the list of fields to be queried in the current table
+// GetColumn Get the list of fields to be queried in the current table.
 func (s *GetJoin) GetColumn() []string {
 	return s.column
 }
 
-// SQL build SQL statement
+// SQL build SQL statement.
 func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	if s.table == EmptyString && (s.subQuery == nil || s.alias == nil || *s.alias == EmptyString) {
 		return
@@ -1749,25 +1769,18 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	return
 }
 
-// union SQL statement union
-type union struct {
-	unionType string
-	prepare   string
-	args      []interface{}
-}
-
-// Limiter limit and offset
+// Limiter limit and offset.
 type Limiter interface {
 	GetLimit() int64
 	GetOffset() int64
 }
 
-// Ident sql identifier
+// Ident sql identifier.
 type Ident struct {
 	prefix string
 }
 
-// V returns expressions in different formats based on the length of the parameter
+// V returns expressions in different formats based on the length of the parameter.
 // length=0: prefix value
 // length=1: prefix.name
 // length>1: prefix.name AS alias_name (the alias value must not be empty, otherwise it will not be used)
@@ -1790,27 +1803,27 @@ func (s *Ident) groupFunc(nameFunc string, field string, alias ...string) string
 	return SqlAlias(fmt.Sprintf("%s(%s)", nameFunc, field), LastNotEmptyString(alias))
 }
 
-// Avg AVG([prefix.]xxx)[ AS xxx|custom]
+// Avg AVG([prefix.]xxx)[ AS xxx|custom].
 func (s *Ident) Avg(field string, alias ...string) string {
 	return s.groupFunc(SqlAvg, s.V(field), alias...)
 }
 
-// Max MAX([prefix.]xxx)[ AS xxx|custom]
+// Max MAX([prefix.]xxx)[ AS xxx|custom].
 func (s *Ident) Max(field string, alias ...string) string {
 	return s.groupFunc(SqlMax, s.V(field), alias...)
 }
 
-// Min MIN([prefix.]xxx)[ AS xxx|custom]
+// Min MIN([prefix.]xxx)[ AS xxx|custom].
 func (s *Ident) Min(field string, alias ...string) string {
 	return s.groupFunc(SqlMin, s.V(field), alias...)
 }
 
-// Sum SUM([prefix.]xxx)[ AS xxx|custom]
+// Sum SUM([prefix.]xxx)[ AS xxx|custom].
 func (s *Ident) Sum(field string, alias ...string) string {
 	return s.groupFunc(SqlSum, s.V(field), alias...)
 }
 
-// COUNT COUNT([prefix.]xxx) AS count|custom
+// COUNT COUNT([prefix.]xxx) AS count|custom.
 func (s *Ident) COUNT(field string, alias ...string) string {
 	fieldAlias := LastNotEmptyString(alias)
 	if fieldAlias == EmptyString {
@@ -1819,27 +1832,27 @@ func (s *Ident) COUNT(field string, alias ...string) string {
 	return s.groupFunc(SqlCount, field, fieldAlias)
 }
 
-// AVG AVG([prefix.]xxx) AS xxx
+// AVG AVG([prefix.]xxx) AS xxx.
 func (s *Ident) AVG(field string) string {
 	return s.Avg(field, field)
 }
 
-// MAX MAX([prefix.]xxx) AS xxx
+// MAX MAX([prefix.]xxx) AS xxx.
 func (s *Ident) MAX(field string) string {
 	return s.Max(field, field)
 }
 
-// MIN MIN([prefix.]xxx) AS xxx
+// MIN MIN([prefix.]xxx) AS xxx.
 func (s *Ident) MIN(field string) string {
 	return s.Min(field, field)
 }
 
-// SUM SUM([prefix.]xxx) AS xxx
+// SUM SUM([prefix.]xxx) AS xxx.
 func (s *Ident) SUM(field string) string {
 	return s.Sum(field, field)
 }
 
-// Field Batch set field prefix
+// Field Batch set field prefix.
 func (s *Ident) Field(field ...string) []string {
 	prefix := s.prefix
 	if prefix == EmptyString {
@@ -1857,52 +1870,58 @@ func (s *Ident) Field(field ...string) []string {
 	return result
 }
 
-// Get for SELECT
+// Get for SELECT.
 type Get struct {
-	// query table
+	// query table.
 	schema *schema
 
-	// with of query
-	with []*WithQuery
+	// with of query.
+	with []*GetWith
 
-	// query field list
+	// distinct remove duplicate records: one field value or a combination of multiple fields.
+	distinct bool
+
+	// query field list.
 	column []string
 
-	// the query table is a sub query
+	// the query table is a sub query.
 	subQuery *SubQuery
 
-	// set an alias for the queried table
+	// set an alias for the queried table.
 	alias *string
 
-	// join query
+	// join query.
 	join []*GetJoin
 
-	// WHERE condition to filter data
+	// WHERE condition to filter data.
 	where Filter
 
-	// group query result
+	// group query result.
 	group []string
 
-	// use HAVING to filter data after grouping
+	// use HAVING to filter data after grouping.
 	having Filter
 
-	// union query
-	union []*union
+	// unions query with union.
+	unions []*Get
 
-	// order query result
+	// unionsType query with union type.
+	unionsType string
+
+	// order query result.
 	order []string
 
-	// ordered columns map list
+	// ordered columns map list.
 	orderMap map[string]string
 
-	// limit the number of query result
+	// limit the number of query result.
 	limit *int64
 
-	// query result offset
+	// query result offset.
 	offset *int64
 }
 
-// NewGet for SELECT
+// NewGet for SELECT.
 func NewGet(way *Way) *Get {
 	return &Get{
 		schema:   newSchema(way),
@@ -1910,34 +1929,25 @@ func NewGet(way *Way) *Get {
 	}
 }
 
-// Comment set comment
+// Comment set comment.
 func (s *Get) Comment(comment string) *Get {
 	s.schema.comment = comment
 	return s
 }
 
-// Context set context
+// Context set context.
 func (s *Get) Context(ctx context.Context) *Get {
 	s.schema.ctx = ctx
 	return s
 }
 
-// With for with query
-func (s *Get) With(alias string, prepare string, args ...interface{}) *Get {
-	if alias == EmptyString || prepare == EmptyString {
-		return s
-	}
-	s.with = append(s.with, newWithQuery(alias, prepare, args...))
+// With for with query.
+func (s *Get) With(with ...*GetWith) *Get {
+	s.with = append(s.with, with...)
 	return s
 }
 
-// WithGet for with query using *Get
-func (s *Get) WithGet(alias string, get *Get) *Get {
-	prepare, args := get.SQL()
-	return s.With(alias, prepare, args...)
-}
-
-// Table set table name
+// Table set table name.
 func (s *Get) Table(table string, alias ...string) *Get {
 	s.schema.table = table
 	if str := LastNotEmptyString(alias); str != EmptyString {
@@ -1946,32 +1956,32 @@ func (s *Get) Table(table string, alias ...string) *Get {
 	return s
 }
 
-// SubQuery table is a query SQL statement
-func (s *Get) SubQuery(prepare string, args ...interface{}) *Get {
+// SubQuery table is a query SQL statement.
+func (s *Get) SubQuery(prepare string, args []interface{}) *Get {
 	s.subQuery = NewSubQuery(prepare, args...)
 	return s
 }
 
-// SubQueryGet table is a query SQL statement
+// SubQueryGet table is a query SQL statement.
 func (s *Get) SubQueryGet(get *Get, alias ...string) *Get {
 	if get == nil {
 		return s
 	}
 	prepare, args := get.SQL()
 	s.subQuery = NewSubQuery(prepare, args...)
-	if str := LastNotEmptyString(alias); str != EmptyString {
-		s.Alias(str)
+	if name := LastNotEmptyString(alias); name != EmptyString {
+		s.Alias(name)
 	}
 	return s
 }
 
-// Alias for table alias name, don't forget to call the current method when the table is a SQL statement
+// Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
 func (s *Get) Alias(alias string) *Get {
 	s.alias = &alias
 	return s
 }
 
-// Joins for join one or more tables
+// Joins for join one or more tables.
 func (s *Get) Joins(joins ...*GetJoin) *Get {
 	length := len(joins)
 	for i := 0; i < length; i++ {
@@ -1983,7 +1993,7 @@ func (s *Get) Joins(joins ...*GetJoin) *Get {
 	return s
 }
 
-// typeJoin join with join-type
+// typeJoin join with join-type.
 func (s *Get) typeJoin(joinType string, fs []func(j *GetJoin)) *Get {
 	length := len(fs)
 	joins := make([]*GetJoin, 0, length)
@@ -2000,107 +2010,77 @@ func (s *Get) typeJoin(joinType string, fs []func(j *GetJoin)) *Get {
 	return s.Joins(joins...)
 }
 
-// InnerJoin for inner join
+// InnerJoin for inner join.
 func (s *Get) InnerJoin(fs ...func(j *GetJoin)) *Get {
 	return s.typeJoin(SqlJoinInner, fs)
 }
 
-// LeftJoin for left join
+// LeftJoin for left join.
 func (s *Get) LeftJoin(fs ...func(j *GetJoin)) *Get {
 	return s.typeJoin(SqlJoinLeft, fs)
 }
 
-// RightJoin for right join
+// RightJoin for right join.
 func (s *Get) RightJoin(fs ...func(j *GetJoin)) *Get {
 	return s.typeJoin(SqlJoinRight, fs)
 }
 
-// FullJoin for full join
+// FullJoin for full join.
 func (s *Get) FullJoin(fs ...func(j *GetJoin)) *Get {
 	return s.typeJoin(SqlJoinFull, fs)
 }
 
-// Where set where
+// Where set where.
 func (s *Get) Where(where Filter) *Get {
 	s.where = where
 	return s
 }
 
-// Group set group columns
+// Group set group columns.
 func (s *Get) Group(group ...string) *Get {
 	s.group = append(s.group, group...)
 	return s
 }
 
-// Having set filter of group result
+// Having set filter of group result.
 func (s *Get) Having(having Filter) *Get {
 	s.having = having
 	return s
 }
 
-// Union union query
-func (s *Get) Union(prepare string, args ...interface{}) *Get {
-	if prepare == EmptyString {
-		return s
-	}
-	s.union = append(s.union, &union{
-		unionType: SqlUnion,
-		prepare:   prepare,
-		args:      args,
-	})
+// Union for union(After calling the current method, only WITH, ORDER BY, LIMIT, and OFFSET are valid for the current query attributes.).
+func (s *Get) Union(unions ...*Get) *Get {
+	s.unions = unions
+	s.unionsType = SqlUnion
 	return s
 }
 
-// UnionGet union query
-func (s *Get) UnionGet(get ...*Get) *Get {
-	for _, g := range get {
-		if g == nil {
-			continue
-		}
-		prepare, args := g.SQL()
-		s.Union(prepare, args...)
-	}
+// UnionAll for union all(After calling the current method, only WITH, ORDER BY, LIMIT, and OFFSET are valid for the current query attributes.).
+func (s *Get) UnionAll(unions ...*Get) *Get {
+	s.unions = unions
+	s.unionsType = SqlUnionAll
 	return s
 }
 
-// UnionAll union all query
-func (s *Get) UnionAll(prepare string, args ...interface{}) *Get {
-	if prepare == EmptyString {
-		return s
-	}
-	s.union = append(s.union, &union{
-		unionType: SqlUnionAll,
-		prepare:   prepare,
-		args:      args,
-	})
-	return s
-}
-
-// UnionAllGet union all query
-func (s *Get) UnionAllGet(get ...*Get) *Get {
-	for _, g := range get {
-		if g == nil {
-			continue
-		}
-		prepare, args := g.SQL()
-		s.UnionAll(prepare, args...)
-	}
-	return s
-}
-
-// Column set the columns list of query
+// Column set the columns list of query.
 func (s *Get) Column(column ...string) *Get {
 	s.column = column
 	return s
 }
 
-// AppendColumn append the columns list of query
-func (s *Get) AppendColumn(column ...string) *Get {
+// AddCol append the columns list of query.
+func (s *Get) AddCol(column ...string) *Get {
 	s.column = append(s.column, column...)
 	return s
 }
 
-// orderBy set order by column
+// Distinct Remove duplicate records: one field value or a combination of multiple fields.
+func (s *Get) Distinct(distinct bool) *Get {
+	s.distinct = distinct
+	return s
+}
+
+// orderBy set order by column.
 func (s *Get) orderBy(column string, order string) *Get {
 	if column == EmptyString || (order != SqlAsc && order != SqlDesc) {
 		return s
@@ -2113,22 +2093,22 @@ func (s *Get) orderBy(column string, order string) *Get {
 	return s
 }
 
-// Asc set order by column ASC
+// Asc set order by column ASC.
 func (s *Get) Asc(column string) *Get {
 	return s.orderBy(column, SqlAsc)
 }
 
-// Desc set order by column Desc
+// Desc set order by column Desc.
 func (s *Get) Desc(column string) *Get {
 	return s.orderBy(column, SqlDesc)
 }
 
 var (
-	// orderRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`
+	// orderRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`.
 	orderRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
 )
 
-// Order set the column sorting list in batches through regular expressions according to the request parameter value
+// Order set the column sorting list in batches through regular expressions according to the request parameter value.
 func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 	fieldMap := make(map[string]string)
 	for _, m := range orderMap {
@@ -2148,7 +2128,7 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 			continue
 		}
 		matched := match[0]
-		length = len(matched) // the length should be 4
+		length = len(matched) // the length should be 4.
 		if length < 4 || matched[3] == "" {
 			continue
 		}
@@ -2168,10 +2148,10 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 	return s
 }
 
-// Limit set limit
+// Limit set limit.
 func (s *Get) Limit(limit int64) *Get {
 	if limit <= 0 {
-		// cancel the set value
+		// cancel the set value.
 		s.limit = nil
 		return s
 	}
@@ -2179,10 +2159,10 @@ func (s *Get) Limit(limit int64) *Get {
 	return s
 }
 
-// Offset set offset
+// Offset set offset.
 func (s *Get) Offset(offset int64) *Get {
 	if offset <= 0 {
-		// cancel the set value
+		// cancel the set value.
 		s.offset = nil
 		return s
 	}
@@ -2190,7 +2170,7 @@ func (s *Get) Offset(offset int64) *Get {
 	return s
 }
 
-// Limiter set limit and offset at the same time
+// Limiter set limit and offset at the same time.
 func (s *Get) Limiter(limiter Limiter) *Get {
 	if limiter == nil {
 		return s
@@ -2198,29 +2178,122 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
-// sqlTable build query base table SQL statement
-func (s *Get) sqlTable() (prepare string, args []interface{}) {
+// BuildWith Build SQL WITH.
+// [WITH a AS ( xxx )[, b AS ( xxx ) ]].
+func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
+	b := getBuilder()
+	defer putBuilder(b)
+
+	b.WriteString("WITH ")
+
+	num := 0
+
+	for _, with := range withs {
+		prepareThis, argsThis := with.SQL()
+		if prepareThis == EmptyString {
+			continue
+		}
+		if num > 0 {
+			b.WriteString(", ")
+		}
+		num++
+		b.WriteString(prepareThis)
+		args = append(args, argsThis...)
+	}
+
+	if num == 0 {
+		args = nil
+		return
+	}
+
+	b.WriteString(SqlSpace)
+	prepare = b.String()
+
+	return
+}
+
+// BuildUnion Combines the results of two or more SELECT queries into a single result set.
+// [WITH xxx]
+// /*query1*/( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]])
+// UNION [ALL]
+// /*query2*/( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]])
+// [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
+func BuildUnion(withs []*GetWith, unionType string, gets []*Get) (prepare string, args []interface{}) {
+	b := getBuilder()
+	defer putBuilder(b)
+
+	if unionType == EmptyString {
+		unionType = SqlUnionAll
+	}
+
+	num := 0
+
+	for _, get := range gets {
+		if get == nil {
+			continue
+		}
+
+		prepareThis, argsThis := get.SQL()
+		if prepareThis == EmptyString {
+			continue
+		}
+
+		if num == 0 {
+			if withs != nil {
+				prepareWith, argsWith := BuildWith(withs)
+				b.WriteString(prepareWith)
+				args = append(args, argsWith...)
+			}
+		} else {
+			b.WriteString(SqlSpace)
+			b.WriteString(unionType)
+			b.WriteString(SqlSpace)
+		}
+
+		num++
+
+		b.WriteString("( ")
+		b.WriteString(prepareThis)
+		b.WriteString(" )")
+
+		args = append(args, argsThis...)
+	}
+
+	if num > 1 {
+		prepare = strings.TrimSpace(b.String())
+	} else {
+		args = nil
+	}
+
+	return
+}
+
+// BuildTable Build query table (without ORDER BY, LIMIT, OFFSET).
+// [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
+func BuildTable(s *Get) (prepare string, args []interface{}) {
+	if s.unions != nil {
+		return BuildUnion(s.with, s.unionsType, s.unions)
+	}
+
 	if s.schema.table == EmptyString && s.subQuery == nil {
 		return
 	}
+
 	buf := comment(s.schema)
 	defer putBuilder(buf)
 
-	withLength := len(s.with)
-	if withLength > 0 {
-		buf.WriteString("WITH ")
-		for i := 0; i < withLength; i++ {
-			if i > 0 {
-				buf.WriteString(", ")
-			}
-			pre, arg := s.with[i].SQL()
-			buf.WriteString(pre)
-			args = append(args, arg...)
-		}
-		buf.WriteString(SqlSpace)
+	if s.with != nil {
+		prepareWith, argsWith := BuildWith(s.with)
+		buf.WriteString(prepareWith)
+		args = append(args, argsWith...)
 	}
 
 	buf.WriteString("SELECT ")
+
+	if s.distinct {
+		buf.WriteString(SqlDistinct)
+		buf.WriteString(SqlSpace)
+	}
 
 	if s.join != nil {
 		length := len(s.join)
@@ -2237,7 +2310,7 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 				if s.join[i].alias != nil {
 					prefix = *s.join[i].alias
 				}
-				s.AppendColumn(s.schema.way.Ident(prefix).Field(s.join[i].column...)...)
+				s.AddCol(s.schema.way.Ident(prefix).Field(s.join[i].column...)...)
 			}
 		}
 	}
@@ -2302,56 +2375,16 @@ func (s *Get) sqlTable() (prepare string, args []interface{}) {
 		}
 	}
 
-	if s.union != nil {
-		for _, u := range s.union {
-			buf.WriteString(SqlSpace)
-			buf.WriteString(u.unionType)
-			buf.WriteString(" ( ")
-			buf.WriteString(u.prepare)
-			buf.WriteString(" )")
-			args = append(args, u.args...)
-		}
-	}
-
 	prepare = strings.TrimSpace(buf.String())
-	return
-}
-
-// SQLCount build SQL statement for count
-func (s *Get) SQLCount(columns ...string) (prepare string, args []interface{}) {
-	if columns == nil {
-		columns = []string{
-			SqlAlias("COUNT(*)", "count"),
-		}
-	}
-
-	if s.group != nil || s.union != nil {
-		prepare, args = s.sqlTable()
-		prepare, args = NewGet(s.schema.way).
-			SubQuery(prepare, args...).
-			Alias("count_table_rows").
-			SQLCount(columns...)
-		return
-	}
-
-	column := s.column // store selected columns
-	s.column = columns // set count column
-	prepare, args = s.sqlTable()
-	s.column = column // restore origin selected columns
 
 	return
 }
 
-// SQL build SQL statement
-func (s *Get) SQL() (prepare string, args []interface{}) {
-	prepare, args = s.sqlTable()
-	if prepare == EmptyString {
-		return
-	}
-
+// BuildOrderByLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
+// [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
+func BuildOrderByLimitOffset(s *Get) (prepare string) {
 	buf := getBuilder()
 	defer putBuilder(buf)
-	buf.WriteString(prepare)
 
 	if len(s.order) > 0 {
 		buf.WriteString(" ORDER BY ")
@@ -2365,14 +2398,68 @@ func (s *Get) SQL() (prepare string, args []interface{}) {
 		}
 	}
 
+	return buf.String()
+}
+
+// BuildGet Build a complete query.
+// [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
+func BuildGet(s *Get) (prepare string, args []interface{}) {
+	prepare, args = BuildTable(s)
+	if prepare == EmptyString {
+		return
+	}
+
+	buf := getBuilder()
+	defer putBuilder(buf)
+
+	buf.WriteString(prepare)
+
+	orderByLimitOffset := BuildOrderByLimitOffset(s)
+	if orderByLimitOffset != EmptyString {
+		buf.WriteString(orderByLimitOffset)
+	}
+
 	prepare = strings.TrimSpace(buf.String())
+
 	return
 }
 
-// Count execute the built SQL statement and scan query result for count
-func (s *Get) Count(column ...string) (count int64, err error) {
-	prepare, args := s.SQLCount(column...)
-	err = s.schema.way.QueryContext(s.schema.ctx, func(rows *sql.Rows) (err error) {
+// BuildCount Build count query.
+// SELECT COUNT(*) AS count FROM ( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] ) AS a
+// SELECT COUNT(*) AS count FROM ( query1 UNION [ALL] query2 [UNION [ALL] ...] ) AS a
+func BuildCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
+	if countColumns == nil {
+		countColumns = []string{
+			SqlAlias("COUNT(*)", "count"),
+		}
+	}
+
+	prepare, args = BuildTable(s)
+	if prepare == EmptyString {
+		return EmptyString, nil
+	}
+
+	return NewGet(s.schema.way).
+		Column(countColumns...).
+		SubQuery(prepare, args).
+		Alias(AliasA).
+		SQL()
+}
+
+// SQL build SQL statement.
+func (s *Get) SQL() (prepare string, args []interface{}) {
+	return BuildGet(s)
+}
+
+// SQLCount build SQL statement for count.
+func (s *Get) SQLCount(columns ...string) (string, []interface{}) {
+	return BuildCount(s, columns...)
+}
+
+// GetCount execute the built SQL statement and scan query result for count.
+func GetCount(get *Get, countColumns ...string) (count int64, err error) {
+	prepare, args := BuildCount(get, countColumns...)
+	err = get.schema.way.QueryContext(get.schema.ctx, func(rows *sql.Rows) (err error) {
 		if rows.Next() {
 			err = rows.Scan(&count)
 		}
@@ -2381,82 +2468,172 @@ func (s *Get) Count(column ...string) (count int64, err error) {
 	return
 }
 
-// Query execute the built SQL statement and scan query result
-func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
-	prepare, args := s.SQL()
-	return s.schema.way.QueryContext(s.schema.ctx, query, prepare, args...)
+// GetQuery execute the built SQL statement and scan query result.
+func GetQuery(get *Get, query func(rows *sql.Rows) (err error)) error {
+	prepare, args := BuildGet(get)
+	return get.schema.way.QueryContext(get.schema.ctx, query, prepare, args...)
 }
 
-// Get execute the built SQL statement and scan query result
-func (s *Get) Get(result interface{}) error {
-	prepare, args := s.SQL()
-	return s.schema.way.TakeAllContext(s.schema.ctx, result, prepare, args...)
+// GetGet execute the built SQL statement and scan query result.
+func GetGet(get *Get, result interface{}) error {
+	prepare, args := BuildGet(get)
+	return get.schema.way.TakeAllContext(get.schema.ctx, result, prepare, args...)
 }
 
-// Exists Determine whether the query result exists.
-func (s *Get) Exists() (exists bool, err error) {
-	err = s.Limit(1).Query(func(rows *sql.Rows) error {
+// GetExists Determine whether the query result exists.
+func GetExists(get *Get) (exists bool, err error) {
+	get.Limit(1)
+	err = GetQuery(get, func(rows *sql.Rows) error {
 		exists = rows.Next()
 		return nil
 	})
 	return
 }
 
-// ScanAll execute the built SQL statement and scan all from the query results.
-func (s *Get) ScanAll(fc func(rows *sql.Rows) error) error {
-	return s.Query(func(rows *sql.Rows) error {
-		return s.schema.way.ScanAll(rows, fc)
+// GetScanAll execute the built SQL statement and scan all from the query results.
+func GetScanAll(get *Get, fc func(rows *sql.Rows) error) error {
+	return GetQuery(get, func(rows *sql.Rows) error {
+		return get.schema.way.ScanAll(rows, fc)
 	})
 }
 
-// ScanOne execute the built SQL statement and scan at most once from the query results.
-func (s *Get) ScanOne(dest ...interface{}) error {
-	return s.Query(func(rows *sql.Rows) error {
-		return s.schema.way.ScanOne(rows, dest...)
+// GetScanOne execute the built SQL statement and scan at most once from the query results.
+func GetScanOne(get *Get, dest ...interface{}) error {
+	return GetQuery(get, func(rows *sql.Rows) error {
+		return get.schema.way.ScanOne(rows, dest...)
 	})
 }
 
-// ViewMap execute the built SQL statement and scan all from the query results.
-func (s *Get) ViewMap() (result []map[string]interface{}, err error) {
-	err = s.Query(func(rows *sql.Rows) (err error) {
+// GetViewMap execute the built SQL statement and scan all from the query results.
+func GetViewMap(get *Get) (result []map[string]interface{}, err error) {
+	err = GetQuery(get, func(rows *sql.Rows) (err error) {
 		result, err = ScanViewMap(rows)
 		return
 	})
 	return
 }
 
-// Way get current *Way
-func (s *Get) Way() *Way {
-	return s.schema.way
+// GetCountQuery execute the built SQL statement and scan query result, count + query.
+func GetCountQuery(get *Get, query func(rows *sql.Rows) (err error), countColumn ...string) (int64, error) {
+	count, err := GetCount(get, countColumn...)
+	if err != nil {
+		return 0, err
+	}
+	if count <= 0 {
+		return 0, nil
+	}
+	return count, GetQuery(get, query)
 }
 
-// F make new Filter
+// GetCountGet execute the built SQL statement and scan query result, count + get.
+func GetCountGet(get *Get, result interface{}, countColumn ...string) (int64, error) {
+	count, err := GetCount(get, countColumn...)
+	if err != nil {
+		return 0, err
+	}
+	if count <= 0 {
+		return 0, nil
+	}
+	return count, GetGet(get, result)
+}
+
+// Count execute the built SQL statement and scan query result for count.
+func (s *Get) Count(column ...string) (int64, error) {
+	return GetCount(s, column...)
+}
+
+// Query execute the built SQL statement and scan query result.
+func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
+	return GetQuery(s, query)
+}
+
+// Get execute the built SQL statement and scan query result.
+func (s *Get) Get(result interface{}) error {
+	return GetGet(s, result)
+}
+
+// Exists Determine whether the query result exists.
+func (s *Get) Exists() (bool, error) {
+	return GetExists(s)
+}
+
+// ScanAll execute the built SQL statement and scan all from the query results.
+func (s *Get) ScanAll(fc func(rows *sql.Rows) error) error {
+	return GetScanAll(s, fc)
+}
+
+// ScanOne execute the built SQL statement and scan at most once from the query results.
+func (s *Get) ScanOne(dest ...interface{}) error {
+	return GetScanOne(s, dest...)
+}
+
+// ViewMap execute the built SQL statement and scan all from the query results.
+func (s *Get) ViewMap() ([]map[string]interface{}, error) {
+	return GetViewMap(s)
+}
+
+// CountQuery execute the built SQL statement and scan query result, count + query.
+func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...string) (int64, error) {
+	return GetCountQuery(s, query, countColumn...)
+}
+
+// CountGet execute the built SQL statement and scan query result, count + get.
+func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error) {
+	return GetCountGet(s, result, countColumn...)
+}
+
+// F make new Filter.
 func (s *Get) F(filter ...Filter) Filter {
 	return F().Filter(filter...)
 }
 
-// CountQuery execute the built SQL statement and scan query result, count + query
-func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...string) (int64, error) {
-	count, err := s.Count(countColumn...)
-	if err != nil {
-		return 0, err
-	}
-	if count <= 0 {
-		return 0, nil
-	}
-	return count, s.Query(query)
+// Way get current *Way.
+func (s *Get) Way() *Way {
+	return s.schema.way
 }
 
-// CountGet execute the built SQL statement and scan query result, count + get
-func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error) {
-	count, err := s.Count(countColumn...)
-	if err != nil {
-		return 0, err
+// getLink Use keywords to connect multiple queries.
+func getLink(keyword string, gets ...*Get) (prepare string, args []interface{}) {
+	if keyword == EmptyString {
+		return
 	}
-	if count <= 0 {
-		return 0, nil
+	b := getBuilder()
+	defer putBuilder(b)
+	added := false
+	for _, v := range gets {
+		if v == nil {
+			continue
+		}
+		prepareThis, argsThis := BuildGet(v)
+		if prepareThis == EmptyString {
+			continue
+		}
+		if added {
+			b.WriteString(EmptyString)
+			b.WriteString(keyword)
+			b.WriteString(EmptyString)
+		} else {
+			added = true
+		}
+		b.WriteString(SqlLeftSmallBracket)
+		b.WriteString(SqlSpace)
+		b.WriteString(prepareThis)
+		b.WriteString(SqlSpace)
+		b.WriteString(SqlRightSmallBracket)
+		args = append(args, argsThis...)
 	}
-	return count, s.Get(result)
+	prepare = b.String()
+	return
+}
+
+// ExpectGet (query1) EXCEPT (query2) EXCEPT (query3)...
+func ExpectGet(gets ...*Get) (prepare string, args []interface{}) {
+	return getLink(SqlExpect, gets...)
+}
+
+// IntersectGet (query1) INTERSECT (query2) INTERSECT (query3)...
+func IntersectGet(gets ...*Get) (prepare string, args []interface{}) {
+	return getLink(SqlIntersect, gets...)
 }
 
 // WindowFunc SQL window function.
@@ -2470,7 +2647,7 @@ type WindowFunc struct {
 	// order Sorting data within a group.
 	order []string
 
-	// windowFrame Window frame clause. `ROWS` or `RANGE`
+	// windowFrame Window frame clause. `ROWS` or `RANGE`.
 	windowFrame string
 
 	// alias Serial number column alias.

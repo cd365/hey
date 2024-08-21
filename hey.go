@@ -57,6 +57,17 @@ const (
 	SqlGreaterEqual  = ">="
 	SqlLessThan      = "<"
 	SqlLessThanEqual = "<="
+
+	SqlAll = "ALL"
+	SqlAny = "ANY"
+
+	SqlLeftSmallBracket  = "("
+	SqlRightSmallBracket = ")"
+
+	SqlExpect    = "EXCEPT"
+	SqlIntersect = "INTERSECT"
+
+	SqlDistinct = "DISTINCT"
 )
 
 const (
@@ -81,7 +92,7 @@ var (
 
 // init Initialize.
 func init() {
-	// initialize *Stmt
+	// initialize *Stmt.
 	poolStmt = &sync.Pool{}
 	poolStmt.New = func() interface{} {
 		return &Stmt{}
@@ -510,7 +521,7 @@ type Stmt struct {
 func (s *Stmt) Close() (err error) {
 	if s.stmt != nil {
 		err = s.stmt.Close()
-		putStmt(s) // successfully called
+		putStmt(s) // successfully called.
 	}
 	return
 }
@@ -992,7 +1003,7 @@ func ArgString(i interface{}) string {
 		t, v = t.Elem(), v.Elem()
 		k = t.Kind()
 	}
-	// any base type to string
+	// any base type to string.
 	tmp := v.Interface()
 	switch k {
 	case reflect.Bool:

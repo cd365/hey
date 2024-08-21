@@ -1,4 +1,4 @@
-// Postgres
+// Postgres.
 
 package pgsql
 
@@ -84,8 +84,8 @@ func PrepareString(prepare string, args []interface{}) string {
 
 // InsertOnConflict Rely on the unique index of the table.
 func InsertOnConflict(
-	onConflictColumns []string, // unique index of column or columns
-	updateColumns []string, // need update columns
+	onConflictColumns []string, // unique index of column or columns.
+	updateColumns []string, // need update columns.
 ) (prepare string, args []interface{}) {
 	length := len(onConflictColumns)
 	if length == 0 {
@@ -114,17 +114,17 @@ func InsertOnConflict(
 
 // CloneTableStruct Clone table structure.
 func CloneTableStruct(
-	dst string, // new table name
-	src string, // refer table name
-	seq string, // table sequence column name
+	dst string, // new table name.
+	src string, // refer table name.
+	seq string, // table sequence column name.
 ) (
-	create []string, // create ddl
-	drop []string, // drop ddl
+	create []string, // create ddl.
+	drop []string, // drop ddl.
 ) {
 	create = append(
 		create,
 		fmt.Sprintf("DROP TABLE IF EXISTS %s;", dst),
-		// INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING COMMENTS
+		// INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING COMMENTS.
 		fmt.Sprintf("CREATE TABLE %s ( LIKE %s INCLUDING ALL );", dst, src),
 	)
 	drop = append(
