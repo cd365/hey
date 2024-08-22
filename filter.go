@@ -225,11 +225,8 @@ type Filter interface {
 	IsEmpty() bool
 
 	And(expr string, args ...interface{}) Filter
-	And1(expr string, args []interface{}) Filter
-	And2(fcs ...func() (expr string, args []interface{})) Filter
 	Filter(filters ...Filter) Filter
 	Group(group func(filter Filter)) Filter
-
 	Equal(column string, value interface{}) Filter
 	Greater(column string, value interface{}) Filter
 	GreaterEqual(column string, value interface{}) Filter
@@ -243,7 +240,6 @@ type Filter interface {
 	Exists(prepare string, args []interface{}) Filter
 	Like(column string, value interface{}) Filter
 	IsNull(column string) Filter
-
 	NotEqual(column string, value interface{}) Filter
 	NotBetween(column string, start interface{}, end interface{}) Filter
 	NotIn(column string, values ...interface{}) Filter
@@ -255,11 +251,8 @@ type Filter interface {
 	IsNotNull(column string) Filter
 
 	Or(expr string, args ...interface{}) Filter
-	Or1(expr string, args []interface{}) Filter
-	Or2(fcs ...func() (expr string, args []interface{})) Filter
 	OrFilter(filters ...Filter) Filter
 	OrGroup(group func(filter Filter)) Filter
-
 	OrEqual(column string, value interface{}) Filter
 	OrGreater(column string, value interface{}) Filter
 	OrGreaterEqual(column string, value interface{}) Filter
@@ -273,7 +266,6 @@ type Filter interface {
 	OrExists(prepare string, args []interface{}) Filter
 	OrLike(column string, value interface{}) Filter
 	OrIsNull(column string) Filter
-
 	OrNotEqual(column string, value interface{}) Filter
 	OrNotBetween(column string, start interface{}, end interface{}) Filter
 	OrNotIn(column string, values ...interface{}) Filter
@@ -291,6 +283,7 @@ type filter struct {
 	prepare *strings.Builder
 	args    []interface{}
 	num     int
+	numOr   int
 }
 
 func (s *filter) Copy(filter ...Filter) Filter {
@@ -301,49 +294,36 @@ func (s *filter) IsEmpty() bool {
 	return s.num == 0
 }
 
-func (s *filter) add(logic string, expr string, args []interface{}) Filter {
+func (s *filter) add(logic string, expr string, args ...interface{}) Filter {
 	if expr == EmptyString {
 		return s
 	}
-	if s.IsEmpty() {
+	if s.num == 0 {
 		s.prepare.WriteString(expr)
 		s.args = args
-		s.num = 1
+		s.num++
 		return s
 	}
 	s.prepare.WriteString(ConcatString(SqlSpace, logic, SqlSpace, expr))
 	s.args = append(s.args, args...)
 	s.num++
-	return s
-}
-
-func (s *filter) And(expr string, args ...interface{}) Filter {
-	return s.add(SqlAnd, expr, args)
-}
-
-func (s *filter) And1(expr string, args []interface{}) Filter {
-	return s.And(expr, args...)
-}
-
-func (s *filter) And2(fcs ...func() (expr string, args []interface{})) Filter {
-	for _, fc := range fcs {
-		if fc != nil {
-			s.And1(fc())
-		}
+	if logic == SqlOr {
+		s.numOr++
 	}
 	return s
 }
 
+func (s *filter) And(expr string, args ...interface{}) Filter {
+	return s.add(SqlAnd, expr, filterInValues(args...)...)
+}
+
 func (s *filter) Filter(filters ...Filter) Filter {
 	for _, f := range filters {
-		if f == nil {
+		if f == nil || f.IsEmpty() {
 			continue
 		}
-		prepare, args := f.SQL()
-		if prepare == EmptyString {
-			continue
-		}
-		s.And(prepare, args...)
+		expr, args := f.SQL()
+		s.add(SqlAnd, expr, args...)
 	}
 	return s
 }
@@ -352,13 +332,13 @@ func (s *filter) addGroup(logic string, group func(filter Filter)) Filter {
 	if group == nil {
 		return s
 	}
-	newFilter := F()
-	group(newFilter)
-	expr, args := newFilter.SQL()
-	if expr == EmptyString {
+	tmp := F()
+	group(tmp)
+	if tmp.IsEmpty() {
 		return s
 	}
-	return s.add(logic, expr, args)
+	expr, args := tmp.SQL()
+	return s.add(logic, expr, args...)
 }
 
 func (s *filter) Group(group func(filter Filter)) Filter {
@@ -366,120 +346,114 @@ func (s *filter) Group(group func(filter Filter)) Filter {
 }
 
 func (s *filter) Equal(column string, value interface{}) Filter {
-	return s.And(filterEqual(column), value)
+	return s.add(SqlAnd, filterEqual(column), value)
 }
 
 func (s *filter) Greater(column string, value interface{}) Filter {
-	return s.And(filterGreater(column), value)
+	return s.add(SqlAnd, filterGreater(column), value)
 }
 
 func (s *filter) GreaterEqual(column string, value interface{}) Filter {
-	return s.And(filterGreaterEqual(column), value)
+	return s.add(SqlAnd, filterGreaterEqual(column), value)
 }
 
 func (s *filter) LessThan(column string, value interface{}) Filter {
-	return s.And(filterLessThan(column), value)
+	return s.add(SqlAnd, filterLessThan(column), value)
 }
 
 func (s *filter) LessThanEqual(column string, value interface{}) Filter {
-	return s.And(filterLessThanEqual(column), value)
+	return s.add(SqlAnd, filterLessThanEqual(column), value)
 }
 
 func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
-	return s.And(filterBetween(column, false), start, end)
+	return s.add(SqlAnd, filterBetween(column, false), start, end)
 }
 
 func (s *filter) In(column string, values ...interface{}) Filter {
-	return s.And1(filterIn(column, values, false))
+	expr, args := filterIn(column, values, false)
+	return s.add(SqlAnd, expr, args...)
 }
 
 func (s *filter) InSql(column string, prepare string, args []interface{}) Filter {
-	return s.And1(filterInSql(column, prepare, args, false))
+	expr, list := filterInSql(column, prepare, args, false)
+	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
-	return s.And1(filterInCols(columns, values, false))
+	expr, list := filterInCols(columns, values, false)
+	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) InColsSql(columns []string, prepare string, args []interface{}) Filter {
-	return s.And1(filterInColsSql(columns, prepare, args, false))
+	expr, list := filterInColsSql(columns, prepare, args, false)
+	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) Exists(prepare string, args []interface{}) Filter {
-	return s.And1(filterExists(prepare, args, false))
+	expr, list := filterExists(prepare, args, false)
+	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) Like(column string, value interface{}) Filter {
-	return s.And(filterLike(column, false), value)
+	return s.add(SqlAnd, filterLike(column, false), value)
 }
 
 func (s *filter) IsNull(column string) Filter {
-	return s.And(filterIsNull(column, false))
+	return s.add(SqlAnd, filterIsNull(column, false))
 }
 
 func (s *filter) NotEqual(column string, value interface{}) Filter {
-	return s.And(filterNotEqual(column), value)
+	return s.add(SqlAnd, filterNotEqual(column), value)
 }
 
 func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.And(filterBetween(column, true), start, end)
+	return s.add(SqlAnd, filterBetween(column, true), start, end)
 }
 
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
-	return s.And1(filterIn(column, values, true))
+	expr, args := filterIn(column, values, true)
+	return s.add(SqlAnd, expr, args...)
 }
 
 func (s *filter) NotInSql(column string, prepare string, args []interface{}) Filter {
-	return s.And1(filterInSql(column, prepare, args, true))
+	expr, list := filterInSql(column, prepare, args, true)
+	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
-	return s.And1(filterInCols(columns, values, true))
+	expr, args := filterInCols(columns, values, true)
+	return s.add(SqlAnd, expr, args...)
 }
 
 func (s *filter) NotInColsSql(columns []string, prepare string, args []interface{}) Filter {
-	return s.And1(filterInColsSql(columns, prepare, args, true))
+	expr, list := filterInColsSql(columns, prepare, args, true)
+	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) NotExists(prepare string, args []interface{}) Filter {
-	return s.And1(filterExists(prepare, args, true))
+	expr, list := filterExists(prepare, args, true)
+	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) NotLike(column string, value interface{}) Filter {
-	return s.And(filterLike(column, true), value)
+	return s.add(SqlAnd, filterLike(column, true), value)
 }
 
 func (s *filter) IsNotNull(column string) Filter {
-	return s.And(filterIsNull(column, true))
+	return s.add(SqlAnd, filterIsNull(column, true))
 }
 
 func (s *filter) Or(expr string, args ...interface{}) Filter {
-	return s.add(SqlOr, expr, args)
-}
-
-func (s *filter) Or1(expr string, args []interface{}) Filter {
-	return s.Or(expr, args...)
-}
-
-func (s *filter) Or2(fcs ...func() (expr string, args []interface{})) Filter {
-	for _, fc := range fcs {
-		if fc != nil {
-			s.Or1(fc())
-		}
-	}
-	return s
+	return s.add(SqlOr, expr, filterInValues(args...)...)
 }
 
 func (s *filter) OrFilter(filters ...Filter) Filter {
 	for _, f := range filters {
-		if f == nil {
+		if f == nil || f.IsEmpty() {
 			continue
 		}
-		prepare, args := f.SQL()
-		if prepare == EmptyString {
-			continue
-		}
-		s.Or(prepare, args...)
+		expr, args := f.SQL()
+		s.add(SqlOr, expr, args...)
 	}
 	return s
 }
@@ -489,95 +463,105 @@ func (s *filter) OrGroup(group func(filter Filter)) Filter {
 }
 
 func (s *filter) OrEqual(column string, value interface{}) Filter {
-	return s.Or(filterEqual(column), value)
+	return s.add(SqlOr, filterEqual(column), value)
 }
 
 func (s *filter) OrGreater(column string, value interface{}) Filter {
-	return s.Or(filterGreater(column), value)
+	return s.add(SqlOr, filterGreater(column), value)
 }
 
 func (s *filter) OrGreaterEqual(column string, value interface{}) Filter {
-	return s.Or(filterGreaterEqual(column), value)
+	return s.add(SqlOr, filterGreaterEqual(column), value)
 }
 
 func (s *filter) OrLessThan(column string, value interface{}) Filter {
-	return s.Or(filterLessThan(column), value)
+	return s.add(SqlOr, filterLessThan(column), value)
 }
 
 func (s *filter) OrLessThanEqual(column string, value interface{}) Filter {
-	return s.Or(filterLessThanEqual(column), value)
+	return s.add(SqlOr, filterLessThanEqual(column), value)
 }
 
 func (s *filter) OrBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(filterBetween(column, false), start, end)
+	return s.add(SqlOr, filterBetween(column, false), start, end)
 }
 
 func (s *filter) OrIn(column string, values ...interface{}) Filter {
-	return s.Or1(filterIn(column, values, false))
+	expr, args := filterIn(column, values, false)
+	return s.add(SqlOr, expr, args...)
 }
 
 func (s *filter) OrInSql(column string, prepare string, args []interface{}) Filter {
-	return s.Or1(filterInSql(column, prepare, args, false))
+	expr, list := filterInSql(column, prepare, args, false)
+	return s.add(SqlOr, expr, list...)
 }
 
 func (s *filter) OrInCols(columns []string, values ...[]interface{}) Filter {
-	return s.Or1(filterInCols(columns, values, false))
+	expr, args := filterInCols(columns, values, false)
+	return s.add(SqlOr, expr, args...)
 }
 
 func (s *filter) OrInColsSql(columns []string, prepare string, args []interface{}) Filter {
-	return s.Or1(filterInColsSql(columns, prepare, args, false))
+	expr, list := filterInColsSql(columns, prepare, args, false)
+	return s.add(SqlOr, expr, list...)
 }
 
 func (s *filter) OrExists(prepare string, args []interface{}) Filter {
-	return s.Or1(filterExists(prepare, args, false))
+	expr, list := filterExists(prepare, args, false)
+	return s.add(SqlOr, expr, list...)
 }
 
 func (s *filter) OrLike(column string, value interface{}) Filter {
-	return s.Or(filterLike(column, false), value)
+	return s.add(SqlOr, filterLike(column, false), value)
 }
 
 func (s *filter) OrIsNull(column string) Filter {
-	return s.Or(filterIsNull(column, false))
+	return s.add(SqlOr, filterIsNull(column, false))
 }
 
 func (s *filter) OrNotEqual(column string, value interface{}) Filter {
-	return s.Or(filterNotEqual(column), value)
+	return s.add(SqlOr, filterNotEqual(column), value)
 }
 
 func (s *filter) OrNotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.Or(filterBetween(column, true), start, end)
+	return s.add(SqlOr, filterBetween(column, true), start, end)
 }
 
 func (s *filter) OrNotIn(column string, values ...interface{}) Filter {
-	return s.Or1(filterIn(column, values, true))
+	expr, args := filterIn(column, values, true)
+	return s.add(SqlOr, expr, args...)
 }
 
 func (s *filter) OrNotInSql(column string, prepare string, args []interface{}) Filter {
-	return s.Or1(filterInSql(column, prepare, args, true))
+	expr, list := filterInSql(column, prepare, args, true)
+	return s.add(SqlOr, expr, list...)
 }
 
 func (s *filter) OrNotInCols(columns []string, values ...[]interface{}) Filter {
-	return s.Or1(filterInCols(columns, values, true))
+	expr, args := filterInCols(columns, values, true)
+	return s.add(SqlOr, expr, args...)
 }
 
 func (s *filter) OrNotInColsSql(columns []string, prepare string, args []interface{}) Filter {
-	return s.Or1(filterInColsSql(columns, prepare, args, true))
+	expr, list := filterInColsSql(columns, prepare, args, true)
+	return s.add(SqlOr, expr, list...)
 }
 
 func (s *filter) OrNotExists(prepare string, args []interface{}) Filter {
-	return s.Or1(filterExists(prepare, args, true))
+	expr, list := filterExists(prepare, args, true)
+	return s.add(SqlOr, expr, list...)
 }
 
 func (s *filter) OrNotLike(column string, value interface{}) Filter {
-	return s.Or(filterLike(column, true), value)
+	return s.add(SqlOr, filterLike(column, true), value)
 }
 
 func (s *filter) OrIsNotNull(column string) Filter {
-	return s.Or(filterIsNull(column, true))
+	return s.add(SqlOr, filterIsNull(column, true))
 }
 
 func (s *filter) SQL() (prepare string, args []interface{}) {
-	if s.num > 1 {
+	if s.num > 1 && s.numOr > 0 {
 		return ConcatString(SqlLeftSmallBracket, SqlSpace, s.prepare.String(), SqlSpace, SqlRightSmallBracket), s.args
 	}
 	return s.prepare.String(), s.args
