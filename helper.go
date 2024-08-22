@@ -1919,6 +1919,12 @@ type Get struct {
 
 	// query result offset.
 	offset *int64
+
+	// native SQL statement.
+	rawPrepare *string
+
+	// args of rawPrepare.
+	rawArgs []interface{}
 }
 
 // NewGet for SELECT.
@@ -1938,6 +1944,14 @@ func (s *Get) Comment(comment string) *Get {
 // Context set context.
 func (s *Get) Context(ctx context.Context) *Get {
 	s.schema.ctx = ctx
+	return s
+}
+
+// Raw Directly set the native SQL statement and the corresponding parameter list.
+func (s *Get) Raw(prepare string, args []interface{}) *Get {
+	if prepare != EmptyString {
+		s.rawPrepare, s.rawArgs = &prepare, args
+	}
 	return s
 }
 
@@ -2275,8 +2289,14 @@ func BuildUnion(withs []*GetWith, unionType string, gets []*Get) (prepare string
 // BuildTable Build query table (without ORDER BY, LIMIT, OFFSET).
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
 func BuildTable(s *Get) (prepare string, args []interface{}) {
+	if s.rawPrepare != nil {
+		prepare, args = *s.rawPrepare, s.rawArgs
+		return
+	}
+
 	if s.unions != nil {
-		return BuildUnion(s.with, s.unionsType, s.unions)
+		prepare, args = BuildUnion(s.with, s.unionsType, s.unions)
+		return
 	}
 
 	if s.schema.table == EmptyString && s.subQuery == nil {
