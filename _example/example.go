@@ -98,8 +98,8 @@ func Insert() {
 
 	// scene 2, through structure
 	_, _ = add.Except("id").Create([]*User{
-		&User{Username: "Alice"},
-		&User{Username: "Jerry"},
+		{Username: "Alice"},
+		{Username: "Jerry"},
 	}).Add()
 
 	// scene 3, by querying the result set
@@ -124,7 +124,7 @@ func Update() {
 func Query() {
 	// select count
 	get := way.Get(table)
-	get.Where(way.F().IsNotNull("id")).Count()
+	_, _ = get.Where(way.F().IsNotNull("id")).Count()
 
 	result := make([]*User, 0)
 	query := get.Column("username", "company").
@@ -184,13 +184,13 @@ func Query() {
 }
 
 func Transaction() {
-	way.TxTry(func(tx *hey.Way) (err error) {
+	_ = way.TxTry(func(tx *hey.Way) (err error) {
 		// todo...
 		tx.Get(table)
 		// todo...
-		tx.Add(table).Add()
-		tx.Del(table).Del()
-		tx.Mod(table).Mod()
+		_, _ = tx.Add(table).Add()
+		_, _ = tx.Del(table).Del()
+		_, _ = tx.Mod(table).Mod()
 		// todo...
 		return
 	})

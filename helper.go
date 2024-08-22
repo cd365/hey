@@ -1155,8 +1155,8 @@ func (s *Add) Create(create interface{}) *Add {
 }
 
 // ValuesSubQuery values is a query SQL statement.
-func (s *Add) ValuesSubQuery(prepare string, args ...interface{}) *Add {
-	s.subQuery = NewSubQuery(prepare, args...)
+func (s *Add) ValuesSubQuery(prepare string, args []interface{}) *Add {
+	s.subQuery = NewSubQuery(prepare, args)
 	return s
 }
 
@@ -1165,8 +1165,7 @@ func (s *Add) ValuesSubQueryGet(get *Get) *Add {
 	if get == nil {
 		return s
 	}
-	prepare, args := get.SQL()
-	return s.ValuesSubQuery(prepare, args...)
+	return s.ValuesSubQuery(get.SQL())
 }
 
 // OnConflict on conflict do something.
@@ -1363,7 +1362,7 @@ func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
 // Expr update field using custom expr.
 func (s *Mod) Expr(field string, expr string, args ...interface{}) *Mod {
 	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
-	return s.expr(field, expr, args)
+	return s.expr(field, expr, args...)
 }
 
 // Set field = value.
@@ -1433,7 +1432,7 @@ func (s *Mod) defaultExpr(field string, expr string, args ...interface{}) *Mod {
 // DefaultExpr update field using custom expression.
 func (s *Mod) DefaultExpr(field string, expr string, args ...interface{}) *Mod {
 	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
-	return s.defaultExpr(field, expr, args)
+	return s.defaultExpr(field, expr, args...)
 }
 
 // DefaultSet SET field = value.
@@ -1611,7 +1610,7 @@ type SubQuery struct {
 	args    []interface{}
 }
 
-func NewSubQuery(prepare string, args ...interface{}) *SubQuery {
+func NewSubQuery(prepare string, args []interface{}) *SubQuery {
 	return &SubQuery{
 		prepare: prepare,
 		args:    args,
@@ -1665,8 +1664,8 @@ func (s *GetJoin) Table(table string) *GetJoin {
 }
 
 // SubQuery table is a query SQL statement.
-func (s *GetJoin) SubQuery(prepare string, args ...interface{}) *GetJoin {
-	s.subQuery = NewSubQuery(prepare, args...)
+func (s *GetJoin) SubQuery(prepare string, args []interface{}) *GetJoin {
+	s.subQuery = NewSubQuery(prepare, args)
 	return s
 }
 
@@ -1675,8 +1674,7 @@ func (s *GetJoin) SubQueryGet(get *Get, alias ...string) *GetJoin {
 	if get == nil {
 		return s
 	}
-	prepare, args := get.SQL()
-	s.subQuery = NewSubQuery(prepare, args...)
+	s.subQuery = NewSubQuery(get.SQL())
 	if str := LastNotEmptyString(alias); str != EmptyString {
 		s.Alias(str)
 	}
@@ -1958,7 +1956,7 @@ func (s *Get) Table(table string, alias ...string) *Get {
 
 // SubQuery table is a query SQL statement.
 func (s *Get) SubQuery(prepare string, args []interface{}) *Get {
-	s.subQuery = NewSubQuery(prepare, args...)
+	s.subQuery = NewSubQuery(prepare, args)
 	return s
 }
 
@@ -1967,8 +1965,7 @@ func (s *Get) SubQueryGet(get *Get, alias ...string) *Get {
 	if get == nil {
 		return s
 	}
-	prepare, args := get.SQL()
-	s.subQuery = NewSubQuery(prepare, args...)
+	s.subQuery = NewSubQuery(get.SQL())
 	if name := LastNotEmptyString(alias); name != EmptyString {
 		s.Alias(name)
 	}
