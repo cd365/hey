@@ -1657,6 +1657,10 @@ func FullJoin(table ...string) *GetJoin {
 	return newJoin(SqlJoinFull, table...)
 }
 
+func CrossJoin(table ...string) *GetJoin {
+	return newJoin(SqlJoinCross, table...)
+}
+
 // Table set table name.
 func (s *GetJoin) Table(table string) *GetJoin {
 	s.table = table
@@ -1728,10 +1732,6 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	if s.table == EmptyString && (s.subQuery == nil || s.alias == nil || *s.alias == EmptyString) {
 		return
 	}
-	usingLength := len(s.using)
-	if s.on == EmptyString && usingLength == 0 {
-		return
-	}
 
 	buf := getBuilder()
 	defer putBuilder(buf)
@@ -1754,13 +1754,15 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 		}
 	}
 
-	if usingLength > 0 {
+	if len(s.using) > 0 {
 		buf.WriteString(" USING ( ")
 		buf.WriteString(strings.Join(s.using, ", "))
 		buf.WriteString(" )")
 	} else {
-		buf.WriteString(" ON ")
-		buf.WriteString(s.on)
+		if s.on != EmptyString {
+			buf.WriteString(" ON ")
+			buf.WriteString(s.on)
+		}
 	}
 
 	prepare = buf.String()
@@ -2025,6 +2027,11 @@ func (s *Get) RightJoin(fs ...func(j *GetJoin)) *Get {
 // FullJoin for full join.
 func (s *Get) FullJoin(fs ...func(j *GetJoin)) *Get {
 	return s.typeJoin(SqlJoinFull, fs)
+}
+
+// CrossJoin for cross join.
+func (s *Get) CrossJoin(fs ...func(j *GetJoin)) *Get {
+	return s.typeJoin(SqlJoinCross, fs)
 }
 
 // Where set where.

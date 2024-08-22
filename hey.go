@@ -38,6 +38,7 @@ const (
 	SqlJoinLeft  = "LEFT JOIN"
 	SqlJoinRight = "RIGHT JOIN"
 	SqlJoinFull  = "FULL JOIN"
+	SqlJoinCross = "CROSS JOIN"
 
 	SqlAnd = "AND"
 	SqlOr  = "OR"
