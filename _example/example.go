@@ -128,13 +128,10 @@ func Query() {
 
 	result := make([]*User, 0)
 	query := get.Column("username", "company").
-		Where(way.F().Greater("id", 0)).
+		Where(way.F().GreaterThan("id", 0)).
 		Desc("id").
 		Limit(10).
 		Offset(0)
-
-	// using cache
-	// query.Cache("cache-key", time.Second*time.Duration(20+rand.Intn(10)))
 
 	// join query
 	// a := way.AliasA()

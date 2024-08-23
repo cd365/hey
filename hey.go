@@ -49,15 +49,16 @@ const (
 	SqlSum   = "SUM"
 	SqlCount = "COUNT"
 
+	SqlNot  = "NOT"
 	SqlNull = "NULL"
 
-	SqlPlaceholder   = "?"
-	SqlEqual         = "="
-	SqlNotEqual      = "<>"
-	SqlGreater       = ">"
-	SqlGreaterEqual  = ">="
-	SqlLessThan      = "<"
-	SqlLessThanEqual = "<="
+	SqlPlaceholder      = "?"
+	SqlEqual            = "="
+	SqlNotEqual         = "<>"
+	SqlGreaterThan      = ">"
+	SqlGreaterThanEqual = ">="
+	SqlLessThan         = "<"
+	SqlLessThanEqual    = "<="
 
 	SqlAll = "ALL"
 	SqlAny = "ANY"
@@ -80,11 +81,6 @@ const (
 	AliasF = "f"
 	AliasG = "g"
 )
-
-type Commander interface {
-	// SQL Get the SQL statement that can be executed and its corresponding parameter list.
-	SQL() (prepare string, args []interface{})
-}
 
 var (
 	// poolStmt *Stmt pool.
@@ -359,6 +355,26 @@ func (s *Way) rollback() (err error) {
 	err = s.tx.Rollback()
 	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, EmptyString, EmptyString
 	return
+}
+
+// Begin -> Open transaction(no transaction logging).
+func (s *Way) Begin(ctx context.Context, opts ...*sql.TxOptions) error {
+	return s.begin(ctx, nil, opts...)
+}
+
+// BeginWithConn -> Open transaction(no transaction logging).
+func (s *Way) BeginWithConn(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) error {
+	return s.begin(ctx, conn, opts...)
+}
+
+// Commit -> Transaction commit.
+func (s *Way) Commit() error {
+	return s.commit()
+}
+
+// Rollback -> Transaction rollback.
+func (s *Way) Rollback() error {
+	return s.rollback()
 }
 
 // TxNil -> Whether the current instance has not opened a transaction.
@@ -781,8 +797,8 @@ func (s *Way) Setter(prepare string, caller ...Caller) (int64, error) {
 }
 
 // F -> Quickly initialize a filter.
-func (s *Way) F(filter ...Filter) Filter {
-	return F().Filter(filter...)
+func (s *Way) F(fs ...Filter) Filter {
+	return F().New(fs...)
 }
 
 // Add -> Create an instance that executes the INSERT sql statement.

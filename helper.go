@@ -383,7 +383,7 @@ func (s *insertByStruct) setAllow(allow []string) {
 	}
 }
 
-func panicBatchInsertByStruct() {
+func panicSliceElementTypesAreInconsistent() {
 	panic("hey: slice element types are inconsistent")
 }
 
@@ -394,7 +394,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 		s.structReflectType = reflectType
 	}
 	if s.structReflectType != reflectType {
-		panicBatchInsertByStruct()
+		panicSliceElementTypesAreInconsistent()
 	}
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
@@ -446,7 +446,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed bool) (values []interface{}) {
 	reflectType := structReflectValue.Type()
 	if s.structReflectType != nil && s.structReflectType != reflectType {
-		panicBatchInsertByStruct()
+		panicSliceElementTypesAreInconsistent()
 	}
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
@@ -875,8 +875,8 @@ func MergeSlice[V interface{}](elems ...[]V) []V {
 }
 
 // sqlReturning build RETURNING statement, the contents of the RETURNING clause are the same as the output list of the SELECT command.
-func sqlReturning(cmd Commander, returning ...string) (prepare string, args []interface{}) {
-	prepare, args = cmd.SQL()
+func sqlReturning(add *Add, returning ...string) (prepare string, args []interface{}) {
+	prepare, args = add.SQL()
 	b := getBuilder()
 	defer putBuilder(b)
 	b.WriteString(prepare)
@@ -886,6 +886,124 @@ func sqlReturning(cmd Commander, returning ...string) (prepare string, args []in
 		tmp = "*"
 	}
 	b.WriteString(tmp)
+	prepare = b.String()
+	return
+}
+
+// Case Implementing SQL CASE.
+type Case struct {
+	alias  string
+	when   []Filter
+	then   []*PrepareArgs
+	others *PrepareArgs
+}
+
+func NewCase() *Case {
+	return &Case{}
+}
+
+// whenThen CASE WHEN condition THEN result .
+func (s *Case) whenThen(when Filter, thenResultString string, thenResultArgs []interface{}) *Case {
+	if when == nil || when.IsEmpty() || (thenResultString == EmptyString && len(thenResultArgs) == 0) {
+		return s
+	}
+	s.when = append(s.when, when)
+	s.then = append(s.then, &PrepareArgs{
+		Prepare: thenResultString,
+		Args:    thenResultArgs,
+	})
+	return s
+}
+
+// IfResult CASE WHEN condition THEN thenResultString .
+func (s *Case) IfResult(when Filter, thenResultString string) *Case {
+	return s.whenThen(when, thenResultString, nil)
+}
+
+// IfArgs CASE WHEN condition THEN thenResultArgs .
+func (s *Case) IfArgs(when Filter, thenResultArgs ...interface{}) *Case {
+	return s.whenThen(when, EmptyString, thenResultArgs)
+}
+
+// elseResult ELSE result .
+func (s *Case) elseResult(elseString string, elseArgs []interface{}) *Case {
+	s.others = &PrepareArgs{
+		Prepare: elseString,
+		Args:    elseArgs,
+	}
+	return s
+}
+
+// ElseString ELSE elseResultString .
+func (s *Case) ElseResult(elseResultString string) *Case {
+	return s.elseResult(elseResultString, nil)
+}
+
+// ElseArgs ELSE elseResultArgs .
+func (s *Case) ElseArgs(elseResultArgs ...interface{}) *Case {
+	return s.elseResult(EmptyString, elseResultArgs)
+}
+
+// Alias AS alias .
+func (s *Case) Alias(alias string) *Case {
+	s.alias = alias
+	return s
+}
+
+func makeResult(prepare string, args []interface{}) (string, []interface{}) {
+	b := getBuilder()
+	defer putBuilder(b)
+	if prepare == EmptyString {
+		length := len(args)
+		if length == 0 {
+			return EmptyString, nil
+		}
+		placeholders := make([]string, length)
+		for j := 0; j < length; j++ {
+			placeholders[j] = SqlPlaceholder
+		}
+		b.WriteString(strings.Join(placeholders, ", "))
+	} else {
+		b.WriteString(prepare)
+	}
+	result := b.String()
+	return result, args
+}
+
+// SQL Make SQL expr: CASE WHEN condition1 THEN result1 WHEN condition2 THEN result2 ... ELSE else_result END [AS alias_name] .
+func (s *Case) SQL() (prepare string, args []interface{}) {
+	lenWhen, lenThen := len(s.when), len(s.then)
+	if lenWhen == 0 || lenWhen != lenThen || s.others == nil {
+		return
+	}
+	b := getBuilder()
+	defer putBuilder(b)
+
+	b.WriteString("CASE")
+	for i := 0; i < lenWhen; i++ {
+		b.WriteString(" WHEN ")
+		k, v := s.when[i].SQL()
+		b.WriteString(k)
+		args = append(args, v...)
+
+		b.WriteString(" THEN ")
+		p, q := makeResult(s.then[i].Prepare, s.then[i].Args)
+		b.WriteString(p)
+		args = append(args, q...)
+	}
+
+	b.WriteString(SqlSpace)
+	b.WriteString("ELSE ")
+	p, q := makeResult(s.others.Prepare, s.others.Args)
+	b.WriteString(p)
+	args = append(args, q...)
+	b.WriteString(" END")
+	if s.alias != EmptyString {
+		b.WriteString(SqlSpace)
+		b.WriteString("AS ")
+		b.WriteString(s.alias)
+	}
+
 	prepare = b.String()
 	return
 }
@@ -997,8 +1115,8 @@ func (s *Del) Way() *Way {
 }
 
 // F make new Filter.
-func (s *Del) F(filter ...Filter) Filter {
-	return F().Filter(filter...)
+func (s *Del) F(fs ...Filter) Filter {
+	return F().New(fs...)
 }
 
 // Add for INSERT.
@@ -1549,8 +1667,8 @@ func (s *Mod) Way() *Way {
 }
 
 // F make new Filter.
-func (s *Mod) F(filter ...Filter) Filter {
-	return F().Filter(filter...)
+func (s *Mod) F(fs ...Filter) Filter {
+	return F().New(fs...)
 }
 
 // GetWith CTE: Common Table Expression.
@@ -1884,6 +2002,9 @@ type Get struct {
 	// query field list.
 	column []string
 
+	// query field list args.
+	columnArgs []interface{}
+
 	// the query table is a sub query.
 	subQuery *SubQuery
 
@@ -2089,6 +2210,25 @@ func (s *Get) Column(column ...string) *Get {
 // AddCol append the columns list of query.
 func (s *Get) AddCol(column ...string) *Get {
 	s.column = append(s.column, column...)
+	return s
+}
+
+// AddCaseCol append the columns list of query.
+func (s *Get) AddCaseCol(cases ...*Case) *Get {
+	for _, c := range cases {
+		if c == nil {
+			continue
+		}
+		k, v := c.SQL()
+		if k == EmptyString {
+			continue
+		}
+
+		s.column = append(s.column, k)
+		if v != nil {
+			s.columnArgs = append(s.columnArgs, v...)
+		}
+	}
 	return s
 }
 
@@ -2343,6 +2483,9 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 		buf.WriteString(SqlStar)
 	} else {
 		buf.WriteString(strings.Join(s.column, ", "))
+		if s.columnArgs != nil {
+			args = append(args, s.columnArgs...)
+		}
 	}
 
 	buf.WriteString(" FROM ")
@@ -2607,8 +2750,8 @@ func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error)
 }
 
 // F make new Filter.
-func (s *Get) F(filter ...Filter) Filter {
-	return F().Filter(filter...)
+func (s *Get) F(fs ...Filter) Filter {
+	return F().New(fs...)
 }
 
 // Way get current *Way.
