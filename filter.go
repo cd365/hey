@@ -5,6 +5,98 @@ import (
 	"strings"
 )
 
+// toInterfaceSlice Convert any type of slice to []interface{}.
+func toInterfaceSlice[T interface{}](slice []T) []interface{} {
+	result := make([]interface{}, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
+}
+
+// argsCompatible Compatibility parameter.
+// var args []T
+// Calling Method A: argsCompatible(args...) (T type must be interface{}).
+// Calling Method B: argsCompatible(args) (T type can be interface{}, int, int64, string ...).
+func argsCompatible(args ...interface{}) []interface{} {
+	if len(args) != 1 {
+		return args
+	}
+	switch v := args[0].(type) {
+	case []interface{}:
+		return argsCompatible(v...)
+	case []string:
+		return toInterfaceSlice(v)
+	case []int:
+		return toInterfaceSlice(v)
+	case []int8:
+		return toInterfaceSlice(v)
+	case []int16:
+		return toInterfaceSlice(v)
+	case []int32:
+		return toInterfaceSlice(v)
+	case []int64:
+		return toInterfaceSlice(v)
+	case []uint:
+		return toInterfaceSlice(v)
+	case []uint8: // []byte
+		return args
+	case []uint16:
+		return toInterfaceSlice(v)
+	case []uint32:
+		return toInterfaceSlice(v)
+	case []uint64:
+		return toInterfaceSlice(v)
+	case []bool:
+		return toInterfaceSlice(v)
+	case []float32:
+		return toInterfaceSlice(v)
+	case []float64:
+		return toInterfaceSlice(v)
+	case []*string:
+		return toInterfaceSlice(v)
+	case []*int:
+		return toInterfaceSlice(v)
+	case []*int8:
+		return toInterfaceSlice(v)
+	case []*int16:
+		return toInterfaceSlice(v)
+	case []*int32:
+		return toInterfaceSlice(v)
+	case []*int64:
+		return toInterfaceSlice(v)
+	case []*uint:
+		return toInterfaceSlice(v)
+	case []*uint8:
+		return toInterfaceSlice(v)
+	case []*uint16:
+		return toInterfaceSlice(v)
+	case []*uint32:
+		return toInterfaceSlice(v)
+	case []*uint64:
+		return toInterfaceSlice(v)
+	case []*bool:
+		return toInterfaceSlice(v)
+	case []*float32:
+		return toInterfaceSlice(v)
+	case []*float64:
+		return toInterfaceSlice(v)
+	default:
+		rt := reflect.TypeOf(args[0])
+		if rt.Kind() != reflect.Slice {
+			return args
+		}
+		// expand slice members when there is only one slice type value.
+		rv := reflect.ValueOf(args[0])
+		count := rv.Len()
+		result := make([]interface{}, 0, count)
+		for i := 0; i < count; i++ {
+			result = append(result, rv.Index(i).Interface())
+		}
+		return result
+	}
+}
+
 func filterSqlExpr(column string, compare string) string {
 	if column == EmptyString {
 		return EmptyString
@@ -36,30 +128,11 @@ func filterLessThanEqual(column string) string {
 	return filterSqlExpr(column, SqlLessThanEqual)
 }
 
-func filterInValues(values ...interface{}) []interface{} {
-	length := len(values)
-	if length != 1 {
-		return values
-	}
-	rt := reflect.TypeOf(values[0])
-	if rt.Kind() != reflect.Slice {
-		return values
-	}
-	// expand slice members when there is only one slice type value.
-	rv := reflect.ValueOf(values[0])
-	count := rv.Len()
-	result := make([]interface{}, 0, count)
-	for i := 0; i < count; i++ {
-		result = append(result, rv.Index(i).Interface())
-	}
-	return result
-}
-
 func filterIn(column string, values []interface{}, not bool) (expr string, args []interface{}) {
 	if column == EmptyString || values == nil {
 		return
 	}
-	values = filterInValues(values...)
+	values = argsCompatible(values...)
 	length := len(values)
 	if length == 0 {
 		return
@@ -313,8 +386,9 @@ func (s *filter) add(logic string, expr string, args ...interface{}) Filter {
 	return s
 }
 
+// And Parameter 'args' is the compatibility parameter.
 func (s *filter) And(expr string, args ...interface{}) Filter {
-	return s.add(SqlAnd, expr, filterInValues(args...)...)
+	return s.add(SqlAnd, expr, argsCompatible(args...)...)
 }
 
 func (s *filter) Filter(filters ...Filter) Filter {
@@ -369,6 +443,7 @@ func (s *filter) Between(column string, start interface{}, end interface{}) Filt
 	return s.add(SqlAnd, filterBetween(column, false), start, end)
 }
 
+// In Parameter 'values' is the compatibility parameter.
 func (s *filter) In(column string, values ...interface{}) Filter {
 	expr, args := filterIn(column, values, false)
 	return s.add(SqlAnd, expr, args...)
@@ -410,6 +485,7 @@ func (s *filter) NotBetween(column string, start interface{}, end interface{}) F
 	return s.add(SqlAnd, filterBetween(column, true), start, end)
 }
 
+// NotIn Parameter 'values' is the compatibility parameter.
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
 	expr, args := filterIn(column, values, true)
 	return s.add(SqlAnd, expr, args...)
@@ -443,8 +519,9 @@ func (s *filter) IsNotNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(column, true))
 }
 
+// Or Parameter 'args' is the compatibility parameter.
 func (s *filter) Or(expr string, args ...interface{}) Filter {
-	return s.add(SqlOr, expr, filterInValues(args...)...)
+	return s.add(SqlOr, expr, argsCompatible(args...)...)
 }
 
 func (s *filter) OrFilter(filters ...Filter) Filter {
@@ -486,6 +563,7 @@ func (s *filter) OrBetween(column string, start interface{}, end interface{}) Fi
 	return s.add(SqlOr, filterBetween(column, false), start, end)
 }
 
+// OrIn Parameter 'values' is the compatibility parameter.
 func (s *filter) OrIn(column string, values ...interface{}) Filter {
 	expr, args := filterIn(column, values, false)
 	return s.add(SqlOr, expr, args...)
@@ -527,6 +605,7 @@ func (s *filter) OrNotBetween(column string, start interface{}, end interface{})
 	return s.add(SqlOr, filterBetween(column, true), start, end)
 }
 
+// OrNotIn Parameter 'values' is the compatibility parameter.
 func (s *filter) OrNotIn(column string, values ...interface{}) Filter {
 	expr, args := filterIn(column, values, true)
 	return s.add(SqlOr, expr, args...)
@@ -571,6 +650,26 @@ func F() Filter {
 	return &filter{
 		prepare: &strings.Builder{},
 	}
+}
+
+// InGet Convenient for Filter.InSql.
+func InGet(column string, get *Get) (field string, prepare string, args []interface{}) {
+	field = column
+	prepare, args = get.SQL()
+	return
+}
+
+// InColsGet Convenient for Filter.InColsSql.
+func InColsGet(columns []string, get *Get) (fields []string, prepare string, args []interface{}) {
+	fields = columns
+	prepare, args = get.SQL()
+	return
+}
+
+// ExistsGet Convenient for Filter.Exists.
+func ExistsGet(get *Get) (prepare string, args []interface{}) {
+	prepare, args = get.SQL()
+	return
 }
 
 // buildFilterAll Implement the filter condition: column $logic ALL ( subquery ). $logic: =, <>, >, >=, <, <=.
