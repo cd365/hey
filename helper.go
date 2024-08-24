@@ -37,6 +37,9 @@ var (
 
 	// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 	insertByStructPool *sync.Pool
+
+	// identPool prefix pool.
+	identPool *sync.Pool
 )
 
 // init initialize.
@@ -49,6 +52,11 @@ func init() {
 	insertByStructPool = &sync.Pool{}
 	insertByStructPool.New = func() interface{} {
 		return &insertByStruct{}
+	}
+
+	identPool = &sync.Pool{}
+	identPool.New = func() any {
+		return newIdent()
 	}
 }
 
@@ -80,6 +88,19 @@ func putInsertByStruct(b *insertByStruct) {
 	b.used = nil
 	b.structReflectType = nil
 	insertByStructPool.Put(b)
+}
+
+// GetIdent get *Ident from pool.
+func GetIdent(alias ...string) *Ident {
+	ident := identPool.Get().(*Ident)
+	ident.prefix = LastNotEmptyString(alias)
+	return ident
+}
+
+// PutIdent put *Ident in the pool.
+func PutIdent(i *Ident) {
+	i.prefix = EmptyString
+	identPool.Put(i)
 }
 
 // MustAffectedRows at least one row is affected.
@@ -1748,7 +1769,6 @@ type GetJoin struct {
 	alias    *string   // query table alias name.
 	on       string    // conditions for join query; ON a.order_id = b.order_id  <=> USING ( order_id ).
 	using    []string  // conditions for join query; USING ( order_id, ... ).
-	column   []string  // the list of fields to be queried in the current table.
 }
 
 func newJoin(joinType string, table ...string) *GetJoin {
@@ -1834,17 +1854,6 @@ func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
 	return s.On(strings.Join(tmp, " AND "))
 }
 
-// Column Set the list of fields to be queried in the current table.
-func (s *GetJoin) Column(column ...string) *GetJoin {
-	s.column = column
-	return s
-}
-
-// GetColumn Get the list of fields to be queried in the current table.
-func (s *GetJoin) GetColumn() []string {
-	return s.column
-}
-
 // SQL build SQL statement.
 func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 	if s.table == EmptyString && (s.subQuery == nil || s.alias == nil || *s.alias == EmptyString) {
@@ -1898,6 +1907,12 @@ type Ident struct {
 	prefix string
 }
 
+func newIdent(prefix ...string) *Ident {
+	return &Ident{
+		prefix: LastNotEmptyString(prefix),
+	}
+}
+
 // V returns expressions in different formats based on the length of the parameter.
 // length=0: prefix value
 // length=1: prefix.name
@@ -1909,7 +1924,7 @@ func (s *Ident) V(sss ...string) string {
 	}
 	name := sss[0]
 	if s.prefix != EmptyString {
-		name = fmt.Sprintf("%s%s%s", s.prefix, SqlPoint, name)
+		name = ConcatString(s.prefix, SqlPoint, name)
 	}
 	if length == 1 {
 		return name
@@ -1918,7 +1933,7 @@ func (s *Ident) V(sss ...string) string {
 }
 
 func (s *Ident) groupFunc(nameFunc string, field string, alias ...string) string {
-	return SqlAlias(fmt.Sprintf("%s(%s)", nameFunc, field), LastNotEmptyString(alias))
+	return SqlAlias(ConcatString(nameFunc, SqlLeftSmallBracket, field, SqlRightSmallBracket), LastNotEmptyString(alias))
 }
 
 // Avg AVG([prefix.]xxx)[ AS xxx|custom].
@@ -1972,18 +1987,21 @@ func (s *Ident) SUM(field string) string {
 
 // Field Batch set field prefix.
 func (s *Ident) Field(field ...string) []string {
-	prefix := s.prefix
-	if prefix == EmptyString {
+	if s.prefix == EmptyString {
 		return field[:]
 	}
+	prefix := fmt.Sprintf("%s%s", s.prefix, SqlPoint)
 	length := len(field)
 	result := make([]string, 0, length)
 	for i := 0; i < length; i++ {
-		if field[i] == EmptyString || strings.Contains(field[i], SqlPoint) {
+		if field[i] == EmptyString ||
+			strings.HasPrefix(field[i], prefix) ||
+			strings.Contains(field[i], SqlSpace) ||
+			strings.Contains(field[i], SqlLeftSmallBracket) {
 			result = append(result, field[i])
 			continue
 		}
-		result = append(result, fmt.Sprintf("%s%s%s", s.prefix, SqlPoint, field[i]))
+		result = append(result, ConcatString(prefix, field[i]))
 	}
 	return result
 }
@@ -2002,8 +2020,11 @@ type Get struct {
 	// query field list.
 	column []string
 
+	// query field list.
+	columnCase []string
+
 	// query field list args.
-	columnArgs []interface{}
+	columnCaseArgs []interface{}
 
 	// the query table is a sub query.
 	subQuery *SubQuery
@@ -2213,8 +2234,8 @@ func (s *Get) AddCol(column ...string) *Get {
 	return s
 }
 
-// AddCaseCol append the columns list of query.
-func (s *Get) AddCaseCol(cases ...*Case) *Get {
+// AddColCase append the columns list of query.
+func (s *Get) AddColCase(cases ...*Case) *Get {
 	for _, c := range cases {
 		if c == nil {
 			continue
@@ -2224,12 +2245,22 @@ func (s *Get) AddCaseCol(cases ...*Case) *Get {
 			continue
 		}
 
-		s.column = append(s.column, k)
+		s.columnCase = append(s.columnCase, k)
 		if v != nil {
-			s.columnArgs = append(s.columnArgs, v...)
+			s.columnCaseArgs = append(s.columnCaseArgs, v...)
 		}
 	}
 	return s
+}
+
+// PrefixColumn Prefix the field list with the table name or table alias.
+func PrefixColumn(table string, column ...string) []string {
+	if table == EmptyString {
+		return column
+	}
+	ident := GetIdent(table)
+	defer PutIdent(ident)
+	return ident.Field(column...)
 }
 
 // Distinct Remove duplicate records: one field value or a combination of multiple fields.
@@ -2459,33 +2490,17 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 		buf.WriteString(SqlSpace)
 	}
 
-	if s.join != nil {
-		length := len(s.join)
-		if length > 0 {
-			prefix := s.schema.table
-			if s.alias != nil {
-				prefix = *s.alias
-			}
-			s.column = s.schema.way.Ident(prefix).Field(s.column...)
-		}
-		for i := 0; i < length; i++ {
-			if s.join[i].column != nil {
-				prefix := s.join[i].table
-				if s.join[i].alias != nil {
-					prefix = *s.join[i].alias
-				}
-				s.AddCol(s.schema.way.Ident(prefix).Field(s.join[i].column...)...)
-			}
-		}
-	}
-
-	if s.column == nil {
+	if s.column == nil && s.columnCase == nil {
 		buf.WriteString(SqlStar)
 	} else {
-		buf.WriteString(strings.Join(s.column, ", "))
-		if s.columnArgs != nil {
-			args = append(args, s.columnArgs...)
+		column := s.column
+		if s.columnCase != nil {
+			column = append(column, s.columnCase...)
+			if s.columnCaseArgs != nil {
+				args = append(args, s.columnCaseArgs...)
+			}
 		}
+		buf.WriteString(strings.Join(column, ", "))
 	}
 
 	buf.WriteString(" FROM ")

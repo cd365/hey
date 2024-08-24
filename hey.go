@@ -823,9 +823,7 @@ func (s *Way) Get(table ...string) *Get {
 
 // Ident -> SQL identifier.
 func (s *Way) Ident(prefix ...string) *Ident {
-	return &Ident{
-		prefix: LastNotEmptyString(prefix),
-	}
+	return newIdent(prefix...)
 }
 
 // AliasA SQL identifier prefix a.
