@@ -1159,6 +1159,10 @@ type Add struct {
 	fields      []string
 	values      [][]interface{}
 
+	// Key-value default pairs have been set.
+	defaultFields       []string
+	defaultFieldsValues map[string]interface{}
+
 	// subQuery INSERT VALUES is query statement.
 	subQuery *SubQuery
 
@@ -1173,12 +1177,13 @@ type Add struct {
 // NewAdd for INSERT.
 func NewAdd(way *Way) *Add {
 	add := &Add{
-		schema:    newSchema(way),
-		exceptMap: make(map[string]*struct{}),
-		permitMap: make(map[string]*struct{}),
-		fieldsMap: make(map[string]int),
-		fields:    make([]string, 0),
-		values:    make([][]interface{}, 1),
+		schema:              newSchema(way),
+		exceptMap:           make(map[string]*struct{}),
+		permitMap:           make(map[string]*struct{}),
+		fieldsMap:           make(map[string]int),
+		fields:              make([]string, 0),
+		values:              make([][]interface{}, 1),
+		defaultFieldsValues: make(map[string]interface{}),
 	}
 	return add
 }
@@ -1387,6 +1392,26 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 	return s
 }
 
+// DefaultFieldValue append default field-value for insert one or more rows.
+func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
+	if s.except != nil {
+		if _, ok := s.exceptMap[field]; ok {
+			return s
+		}
+	}
+	if s.permit != nil {
+		if _, ok := s.permitMap[field]; !ok {
+			return s
+		}
+	}
+
+	if _, ok := s.defaultFieldsValues[field]; !ok {
+		s.defaultFields = append(s.defaultFields, field)
+	}
+	s.defaultFieldsValues[field] = value
+	return s
+}
+
 // Create value of create should be one of struct{}, *struct{}, map[string]interface{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *Add) Create(create interface{}) *Add {
 	if fieldValue, ok := create.(map[string]interface{}); ok {
@@ -1486,6 +1511,24 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	count := len(s.fields)
 	if count == 0 {
 		return
+	}
+
+	addDefault := false
+	for _, field := range s.defaultFields {
+		if _, ok := s.fieldsMap[field]; ok {
+			continue
+		}
+		value, ok := s.defaultFieldsValues[field]
+		if !ok {
+			continue
+		}
+		s.FieldValue(field, value)
+		if !addDefault {
+			addDefault = !addDefault
+		}
+	}
+	if addDefault {
+		count = len(s.fields)
 	}
 
 	tmpList := make([]string, count)
