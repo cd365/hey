@@ -163,14 +163,14 @@ type bindStruct struct {
 	indirect map[string][]int
 
 	// all used struct types, including the root struct.
-	structType map[reflect.Type]struct{}
+	structType map[reflect.Type]*struct{}
 }
 
 func bindStructInit() *bindStruct {
 	return &bindStruct{
 		direct:     make(map[string]int),
 		indirect:   make(map[string][]int),
-		structType: make(map[reflect.Type]struct{}),
+		structType: make(map[reflect.Type]*struct{}),
 	}
 }
 
@@ -181,7 +181,7 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 		// prevent structure loop nesting.
 		return
 	}
-	s.structType[refStructType] = struct{}{}
+	s.structType[refStructType] = &struct{}{}
 	length := refStructType.NumField()
 	for i := 0; i < length; i++ {
 		attribute := refStructType.Field(i)
@@ -578,14 +578,14 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 	if ofKind != reflect.Struct {
 		return
 	}
-	excepted := make(map[string]struct{})
+	excepted := make(map[string]*struct{})
 	for _, field := range except {
-		excepted[field] = struct{}{}
+		excepted[field] = &struct{}{}
 	}
 
 	length := ofType.NumField()
 
-	exists := make(map[string]struct{}, length)
+	exists := make(map[string]*struct{}, length)
 	fields = make([]string, 0, length)
 	values = make([]interface{}, 0, length)
 
@@ -597,7 +597,7 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 			values[fieldsIndex[field]] = value
 			return
 		}
-		exists[field] = struct{}{}
+		exists[field] = &struct{}{}
 		fields = append(fields, field)
 		values = append(values, value)
 		fieldsIndex[field] = last
@@ -675,14 +675,14 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 	if ofKind != reflect.Struct {
 		return
 	}
-	excepted := make(map[string]struct{})
+	excepted := make(map[string]*struct{})
 	for _, field := range except {
-		excepted[field] = struct{}{}
+		excepted[field] = &struct{}{}
 	}
 
 	length := ofType.NumField()
 
-	exists := make(map[string]struct{}, length)
+	exists := make(map[string]*struct{}, length)
 	fields = make([]string, 0, length)
 	values = make([]interface{}, 0, length)
 
@@ -694,7 +694,7 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 			values[fieldsIndex[field]] = value
 			return
 		}
-		exists[field] = struct{}{}
+		exists[field] = &struct{}{}
 		fields = append(fields, field)
 		values = append(values, value)
 		fieldsIndex[field] = last
@@ -731,7 +731,7 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 		storage[v] = originValues[k]
 	}
 
-	exists := make(map[string]struct{})
+	exists := make(map[string]*struct{})
 	fields = make([]string, 0)
 	values = make([]interface{}, 0)
 
@@ -743,7 +743,7 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 			values[fieldsIndex[field]] = value
 			return
 		}
-		exists[field] = struct{}{}
+		exists[field] = &struct{}{}
 		fields = append(fields, field)
 		values = append(values, value)
 		fieldsIndex[field] = last
@@ -1145,9 +1145,15 @@ type Add struct {
 	schema *schema
 
 	/* insert one or more rows */
-	exceptMap map[string]struct{}
+	// Fields that are not allowed to be inserted.
+	exceptMap map[string]*struct{}
 	except    []string
 
+	// Permit the following fields can be inserted.
+	permitMap map[string]*struct{}
+	permit    []string
+
+	// Key-value pairs have been set.
 	fieldsIndex int
 	fieldsMap   map[string]int
 	fields      []string
@@ -1156,10 +1162,11 @@ type Add struct {
 	// subQuery INSERT VALUES is query statement.
 	subQuery *SubQuery
 
-	// onConflict, on conflict do something.
+	// onConflict On conflict do something.
 	onConflict     *string
 	onConflictArgs []interface{}
 
+	// useResult Custom use of sql.Result.
 	useResult func(result sql.Result) error
 }
 
@@ -1167,7 +1174,8 @@ type Add struct {
 func NewAdd(way *Way) *Add {
 	add := &Add{
 		schema:    newSchema(way),
-		exceptMap: make(map[string]struct{}),
+		exceptMap: make(map[string]*struct{}),
+		permitMap: make(map[string]*struct{}),
 		fieldsMap: make(map[string]int),
 		fields:    make([]string, 0),
 		values:    make([][]interface{}, 1),
@@ -1193,34 +1201,9 @@ func (s *Add) Table(table string) *Add {
 	return s
 }
 
-// Fields set fields, the current method resets the map field list and field index sequence.
-func (s *Add) Fields(fields []string) *Add {
-	length := len(fields)
-	// reset value of fieldsIndex, fieldsMap.
-	s.fieldsIndex, s.fieldsMap = 0, make(map[string]int, length*2)
-	for i := 0; i < length; i++ {
-		if _, ok := s.fieldsMap[fields[i]]; !ok {
-			s.fieldsMap[fields[i]] = s.fieldsIndex
-			s.fieldsIndex++
-		}
-	}
-	s.fields = fields
-	return s
-}
-
-// Values set values.
-func (s *Add) Values(values [][]interface{}) *Add {
-	s.values = values
-	return s
-}
-
-// FieldsValues set fields and values.
-func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
-	return s.Fields(fields).Values(values)
-}
-
 // Except exclude some columns from insert one or more rows.
 func (s *Add) Except(except ...string) *Add {
+	remove := make(map[string]*struct{}, len(except))
 	for _, field := range except {
 		if field == EmptyString {
 			continue
@@ -1228,69 +1211,192 @@ func (s *Add) Except(except ...string) *Add {
 		if _, ok := s.exceptMap[field]; ok {
 			continue
 		}
-		s.exceptMap[field] = struct{}{}
+		s.exceptMap[field] = &struct{}{}
 		s.except = append(s.except, field)
+
+		if _, ok := s.permitMap[field]; ok {
+			remove[field] = &struct{}{}
+		}
 	}
+
+	if length := len(remove); length > 0 {
+		latest := make([]string, 0, len(s.permit))
+		for _, field := range s.permit {
+			if _, ok := remove[field]; ok {
+				delete(s.permitMap, field)
+				continue
+			}
+			latest = append(latest, field)
+		}
+		s.permit = latest
+	}
+
+	return s
+}
+
+// Permit Set a list of fields that can only be inserted.
+func (s *Add) Permit(permit ...string) *Add {
+	remove := make(map[string]*struct{}, len(permit))
+	for _, field := range permit {
+		if field == EmptyString {
+			continue
+		}
+		if _, ok := s.permitMap[field]; ok {
+			continue
+		}
+		s.permitMap[field] = &struct{}{}
+		s.permit = append(s.permit, field)
+
+		if _, ok := s.exceptMap[field]; ok {
+			remove[field] = &struct{}{}
+		}
+	}
+
+	if length := len(remove); length > 0 {
+		latest := make([]string, 0, len(s.except))
+		for _, field := range s.except {
+			if _, ok := remove[field]; ok {
+				delete(s.exceptMap, field)
+				continue
+			}
+			latest = append(latest, field)
+		}
+		s.except = latest
+	}
+	return s
+}
+
+// FieldsValues set fields and values.
+func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
+	length1, length2 := len(fields), len(values)
+	if length1 == 0 || length2 == 0 {
+		return s
+	}
+	for _, v := range values {
+		if length1 != len(v) {
+			return s
+		}
+	}
+
+	if s.except != nil {
+		// Delete fields and values ​​that are not allowed to be inserted.
+		indexes := make(map[int]*struct{}, length1)
+		for i := 0; i < length1; i++ {
+			if _, ok := s.exceptMap[fields[i]]; ok {
+				indexes[i] = &struct{}{}
+			}
+		}
+		if length3 := len(indexes); length3 > 0 {
+			length4 := length1 - length3
+			fields1 := make([]string, 0, length4)
+			values1 := make([][]interface{}, length2)
+			for k := range values {
+				values1[k] = make([]interface{}, 0, length4)
+			}
+			for i := range fields {
+				if _, ok := indexes[i]; ok {
+					continue
+				}
+				fields1 = append(fields1, fields[i])
+				for k := range values {
+					values1[k] = append(values1[k], values[k][i])
+				}
+			}
+			fields, values = fields1, values1
+			length1, length2 = len(fields), len(values)
+			if length1 == 0 || length2 == 0 {
+				return s
+			}
+		}
+	}
+
+	if s.permit != nil {
+		// Delete fields and values ​​that are not allowed to be inserted.
+		indexes := make(map[int]*struct{}, length1)
+		for i := 0; i < length1; i++ {
+			if _, ok := s.permitMap[fields[i]]; ok {
+				indexes[i] = &struct{}{}
+			}
+		}
+		if length3 := len(indexes); length3 > 0 {
+			length4 := length1 - length3
+			fields1 := make([]string, 0, length4)
+			values1 := make([][]interface{}, length2)
+			for k := range values {
+				values1[k] = make([]interface{}, 0, length4)
+			}
+			for i := range fields {
+				if _, ok := indexes[i]; !ok {
+					continue
+				}
+				fields1 = append(fields1, fields[i])
+				for k := range values {
+					values1[k] = append(values1[k], values[k][i])
+				}
+			}
+			fields, values = fields1, values1
+			length1, length2 = len(fields), len(values)
+			if length1 == 0 || length2 == 0 {
+				return s
+			}
+		}
+	}
+
+	s.fieldsIndex = 0
+	s.fieldsMap = make(map[string]int, length1*2)
+	for i := 0; i < length1; i++ {
+		if _, ok := s.fieldsMap[fields[i]]; !ok {
+			s.fieldsMap[fields[i]] = s.fieldsIndex
+			s.fieldsIndex++
+		}
+	}
+
+	s.fields, s.values = fields, values
 	return s
 }
 
 // FieldValue append field-value for insert one or more rows.
 func (s *Add) FieldValue(field string, value interface{}) *Add {
-	if _, ok := s.exceptMap[field]; ok {
-		return s
+	if s.except != nil {
+		if _, ok := s.exceptMap[field]; ok {
+			return s
+		}
 	}
+	if s.permit != nil {
+		if _, ok := s.permitMap[field]; !ok {
+			return s
+		}
+	}
+
+	// Replacement value already exists.
 	if index, ok := s.fieldsMap[field]; ok {
 		for i := range s.values {
 			s.values[i][index] = value
 		}
 		return s
 	}
-	s.fieldsMap[field] = s.fieldsIndex
-	s.fieldsIndex++
-	s.fields = append(s.fields, field)
-	for i := range s.values {
-		s.values[i] = append(s.values[i], value)
-	}
-	return s
-}
 
-// DefaultFieldValue append default field-value for insert one or more rows.
-func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
-	if _, ok := s.exceptMap[field]; ok {
-		return s
-	}
-	if _, ok := s.fieldsMap[field]; ok {
-		return s
-	}
+	// It does not exist, add a key-value pair.
 	s.fieldsMap[field] = s.fieldsIndex
 	s.fieldsIndex++
 	s.fields = append(s.fields, field)
 	for i := range s.values {
 		s.values[i] = append(s.values[i], value)
 	}
+
 	return s
 }
 
 // Create value of create should be one of struct{}, *struct{}, map[string]interface{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *Add) Create(create interface{}) *Add {
 	if fieldValue, ok := create.(map[string]interface{}); ok {
-		allow := make(map[string]*struct{})
-		for _, field := range s.fields {
-			allow[field] = &struct{}{}
-		}
-		allowed := len(allow) > 0
 		for field, value := range fieldValue {
-			if allowed {
-				if _, ok := allow[field]; !ok {
-					continue
-				}
-			}
 			s.FieldValue(field, value)
 		}
 		return s
 	}
 
-	return s.FieldsValues(StructInsert(create, s.schema.way.tag, s.except, s.fields))
+	return s.FieldsValues(StructInsert(create, s.schema.way.tag, s.except, s.permit))
 }
 
 // ValuesSubQuery values is a query SQL statement.
@@ -1300,9 +1406,26 @@ func (s *Add) ValuesSubQuery(prepare string, args []interface{}) *Add {
 }
 
 // ValuesSubQueryGet values is a query SQL statement.
-func (s *Add) ValuesSubQueryGet(get *Get) *Add {
+func (s *Add) ValuesSubQueryGet(get *Get, fields ...string) *Add {
 	if get == nil {
 		return s
+	}
+	if length := len(fields); length > 0 {
+		if s.except != nil {
+			for _, c := range fields {
+				if _, ok := s.exceptMap[c]; ok {
+					return s
+				}
+			}
+		}
+		if s.permit != nil {
+			for _, c := range fields {
+				if _, ok := s.permitMap[c]; !ok {
+					return s
+				}
+			}
+		}
+		s.fields = fields
 	}
 	return s.ValuesSubQuery(get.SQL())
 }
@@ -1441,8 +1564,12 @@ type Mod struct {
 	secondaryUpdateSlice []string
 
 	// except excepted fields.
-	except      map[string]struct{}
+	except      map[string]*struct{}
 	exceptSlice []string
+
+	// permit permitted fields.
+	permit      map[string]*struct{}
+	permitSlice []string
 
 	where Filter
 }
@@ -1453,7 +1580,8 @@ func NewMod(way *Way) *Mod {
 		schema:          newSchema(way),
 		update:          make(map[string]*modify),
 		secondaryUpdate: make(map[string]*modify),
-		except:          make(map[string]struct{}),
+		except:          make(map[string]*struct{}),
+		permit:          make(map[string]*struct{}),
 	}
 }
 
@@ -1478,6 +1606,7 @@ func (s *Mod) Table(table string) *Mod {
 // Except exclude some fields from update.
 func (s *Mod) Except(except ...string) *Mod {
 	length := len(except)
+	remove := make(map[string]*struct{}, length)
 	for i := 0; i < length; i++ {
 		if except[i] == EmptyString {
 			continue
@@ -1485,17 +1614,75 @@ func (s *Mod) Except(except ...string) *Mod {
 		if _, ok := s.except[except[i]]; ok {
 			continue
 		}
-		s.except[except[i]] = struct{}{}
+		s.except[except[i]] = &struct{}{}
 		s.exceptSlice = append(s.exceptSlice, except[i])
+
+		if _, ok := s.permit[except[i]]; ok {
+			remove[except[i]] = &struct{}{}
+		}
+	}
+
+	if length := len(remove); length > 0 {
+		latest := make([]string, 0, len(s.permitSlice))
+		for _, field := range s.permitSlice {
+			if _, ok := remove[field]; ok {
+				delete(s.permit, field)
+				continue
+			}
+			latest = append(latest, field)
+		}
+		s.permitSlice = latest
+	}
+	return s
+}
+
+// Permit Sets a list of fields that can only be updated.
+func (s *Mod) Permit(permit ...string) *Mod {
+	length := len(permit)
+	remove := make(map[string]*struct{}, length)
+	for i := 0; i < length; i++ {
+		if permit[i] == EmptyString {
+			continue
+		}
+		if _, ok := s.permit[permit[i]]; ok {
+			continue
+		}
+		s.permit[permit[i]] = &struct{}{}
+		s.permitSlice = append(s.permitSlice, permit[i])
+
+		if _, ok := s.except[permit[i]]; ok {
+			remove[permit[i]] = &struct{}{}
+		}
+	}
+
+	if length := len(remove); length > 0 {
+		latest := make([]string, 0, len(s.exceptSlice))
+		for _, field := range s.exceptSlice {
+			if _, ok := remove[field]; ok {
+				delete(s.except, field)
+				continue
+			}
+			latest = append(latest, field)
+		}
+		s.exceptSlice = latest
 	}
 	return s
 }
 
 // expr build update field expressions and field values.
 func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
-	if _, ok := s.except[field]; ok {
-		return s
+	if s.exceptSlice != nil {
+		if _, ok := s.except[field]; ok {
+			return s
+		}
 	}
+
+	if s.permitSlice != nil {
+		if _, ok := s.permit[field]; !ok {
+			return s
+		}
+	}
+
 	tmp := &modify{
 		expr: expr,
 		args: args,
@@ -1560,12 +1747,18 @@ func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
 
 // defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp.
 func (s *Mod) defaultExpr(field string, expr string, args ...interface{}) *Mod {
-	if _, ok := s.except[field]; ok {
-		return s
+	if s.exceptSlice != nil {
+		if _, ok := s.except[field]; ok {
+			return s
+		}
 	}
-	if _, ok := s.update[field]; ok {
-		return s
+
+	if s.permitSlice != nil {
+		if _, ok := s.permit[field]; !ok {
+			return s
+		}
 	}
+
 	tmp := &modify{
 		expr: expr,
 		args: args,
@@ -1612,21 +1805,35 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	if length == 0 {
 		return
 	}
-	mod := make(map[string]struct{})
+	mod := make(map[string]*struct{})
 	fields := make([]string, 0, length)
 	for _, field := range s.updateSlice {
-		if _, ok := s.except[field]; ok {
-			continue
+		if s.exceptSlice != nil {
+			if _, ok := s.except[field]; ok {
+				continue
+			}
 		}
-		mod[field] = struct{}{}
+		if s.permitSlice != nil {
+			if _, ok := s.permit[field]; !ok {
+				continue
+			}
+		}
+		mod[field] = &struct{}{}
 		fields = append(fields, field)
 	}
 	for _, field := range s.secondaryUpdateSlice {
-		if _, ok := s.except[field]; ok {
-			continue
-		}
 		if _, ok := mod[field]; ok {
 			continue
+		}
+		if s.exceptSlice != nil {
+			if _, ok := s.except[field]; ok {
+				continue
+			}
+		}
+		if s.permitSlice != nil {
+			if _, ok := s.permit[field]; !ok {
+				continue
+			}
 		}
 		fields = append(fields, field)
 	}
