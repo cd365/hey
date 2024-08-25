@@ -923,8 +923,8 @@ func NewCase() *Case {
 	return &Case{}
 }
 
-// whenThen CASE WHEN condition THEN result .
-func (s *Case) whenThen(when Filter, thenResultString string, thenResultArgs []interface{}) *Case {
+// WhenThen CASE WHEN condition THEN result . (not often used)
+func (s *Case) WhenThen(when Filter, thenResultString string, thenResultArgs []interface{}) *Case {
 	if when == nil || when.IsEmpty() || (thenResultString == EmptyString && len(thenResultArgs) == 0) {
 		return s
 	}
@@ -938,16 +938,16 @@ func (s *Case) whenThen(when Filter, thenResultString string, thenResultArgs []i
 
 // IfResult CASE WHEN condition THEN thenResultString .
 func (s *Case) IfResult(when Filter, thenResultString string) *Case {
-	return s.whenThen(when, thenResultString, nil)
+	return s.WhenThen(when, thenResultString, nil)
 }
 
 // IfArgs CASE WHEN condition THEN thenResultArgs .
 func (s *Case) IfArgs(when Filter, thenResultArgs ...interface{}) *Case {
-	return s.whenThen(when, EmptyString, thenResultArgs)
+	return s.WhenThen(when, EmptyString, thenResultArgs)
 }
 
-// elseResult ELSE result .
-func (s *Case) elseResult(elseString string, elseArgs []interface{}) *Case {
+// Else ELSE result . (not often used)
+func (s *Case) Else(elseString string, elseArgs []interface{}) *Case {
 	s.others = &PrepareArgs{
 		Prepare: elseString,
 		Args:    elseArgs,
@@ -957,12 +957,12 @@ func (s *Case) elseResult(elseString string, elseArgs []interface{}) *Case {
 
 // ElseString ELSE elseResultString .
 func (s *Case) ElseResult(elseResultString string) *Case {
-	return s.elseResult(elseResultString, nil)
+	return s.Else(elseResultString, nil)
 }
 
 // ElseArgs ELSE elseResultArgs .
 func (s *Case) ElseArgs(elseResultArgs ...interface{}) *Case {
-	return s.elseResult(EmptyString, elseResultArgs)
+	return s.Else(EmptyString, elseResultArgs)
 }
 
 // Alias AS alias .
@@ -1154,10 +1154,10 @@ type Add struct {
 	permit    []string
 
 	// Key-value pairs have been set.
-	fieldsIndex int
-	fieldsMap   map[string]int
-	fields      []string
-	values      [][]interface{}
+	fieldsLastIndex  int
+	fieldsFieldIndex map[string]int
+	fields           []string
+	values           [][]interface{}
 
 	// Key-value default pairs have been set.
 	defaultFields       []string
@@ -1180,8 +1180,7 @@ func NewAdd(way *Way) *Add {
 		schema:              newSchema(way),
 		exceptMap:           make(map[string]*struct{}),
 		permitMap:           make(map[string]*struct{}),
-		fieldsMap:           make(map[string]int),
-		fields:              make([]string, 0),
+		fieldsFieldIndex:    make(map[string]int),
 		values:              make([][]interface{}, 1),
 		defaultFieldsValues: make(map[string]interface{}),
 	}
@@ -1347,12 +1346,12 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 		}
 	}
 
-	s.fieldsIndex = 0
-	s.fieldsMap = make(map[string]int, length1*2)
+	s.fieldsLastIndex = 0
+	s.fieldsFieldIndex = make(map[string]int, length1*2)
 	for i := 0; i < length1; i++ {
-		if _, ok := s.fieldsMap[fields[i]]; !ok {
-			s.fieldsMap[fields[i]] = s.fieldsIndex
-			s.fieldsIndex++
+		if _, ok := s.fieldsFieldIndex[fields[i]]; !ok {
+			s.fieldsFieldIndex[fields[i]] = s.fieldsLastIndex
+			s.fieldsLastIndex++
 		}
 	}
 
@@ -1374,7 +1373,7 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 	}
 
 	// Replacement value already exists.
-	if index, ok := s.fieldsMap[field]; ok {
+	if index, ok := s.fieldsFieldIndex[field]; ok {
 		for i := range s.values {
 			s.values[i][index] = value
 		}
@@ -1382,8 +1381,8 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 	}
 
 	// It does not exist, add a key-value pair.
-	s.fieldsMap[field] = s.fieldsIndex
-	s.fieldsIndex++
+	s.fieldsFieldIndex[field] = s.fieldsLastIndex
+	s.fieldsLastIndex++
 	s.fields = append(s.fields, field)
 	for i := range s.values {
 		s.values[i] = append(s.values[i], value)
@@ -1392,23 +1391,35 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 	return s
 }
 
-// DefaultFieldValue append default field-value for insert one or more rows.
-func (s *Add) DefaultFieldValue(field string, value interface{}) *Add {
-	if s.except != nil {
-		if _, ok := s.exceptMap[field]; ok {
-			return s
-		}
+// Default Add field = value .
+func (s *Add) Default(fc func(o *Add)) *Add {
+	if fc == nil {
+		return s
 	}
-	if s.permit != nil {
-		if _, ok := s.permitMap[field]; !ok {
-			return s
+
+	// copy current object.
+	v := *s
+	add := &v
+
+	// reset value for .fieldsLastIndex .fieldsFieldIndex .fields .values .
+	add.fieldsLastIndex = 0
+	add.fieldsFieldIndex = make(map[string]int)
+	add.fields = nil
+	add.values = make([][]interface{}, 1)
+
+	fc(add)
+
+	num := len(add.fields)
+	if num > 0 && len(add.values) == 1 {
+		if num == len(add.values[0]) {
+			// Batch add default key-value.
+			s.defaultFields = append(s.defaultFields, add.fields...)
+			for index, field := range add.fields {
+				s.defaultFieldsValues[field] = add.values[0][index]
+			}
 		}
 	}
 
-	if _, ok := s.defaultFieldsValues[field]; !ok {
-		s.defaultFields = append(s.defaultFields, field)
-	}
-	s.defaultFieldsValues[field] = value
 	return s
 }
 
@@ -1515,7 +1526,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 
 	addDefault := false
 	for _, field := range s.defaultFields {
-		if _, ok := s.fieldsMap[field]; ok {
+		if _, ok := s.fieldsFieldIndex[field]; ok {
 			continue
 		}
 		value, ok := s.defaultFieldsValues[field]
@@ -1594,17 +1605,17 @@ type modify struct {
 type Mod struct {
 	schema *schema
 
-	// update main updated fields.
+	// update updated fields.
 	update map[string]*modify
 
-	// updateSlice, the fields to be updated are updated sequentially.
+	// updateSlice the fields to be updated are updated sequentially.
 	updateSlice []string
 
-	// modify secondary updated fields, the effective condition is len(update) > 0.
-	secondaryUpdate map[string]*modify
+	// update2 [default] updated fields, the effective condition is len(update) > 0.
+	update2 map[string]*modify
 
-	// secondaryUpdateSlice, the fields to be updated are updated sequentially.
-	secondaryUpdateSlice []string
+	// update2Slice [default] the fields to be updated are updated sequentially.
+	update2Slice []string
 
 	// except excepted fields.
 	except      map[string]*struct{}
@@ -1620,11 +1631,11 @@ type Mod struct {
 // NewMod for UPDATE.
 func NewMod(way *Way) *Mod {
 	return &Mod{
-		schema:          newSchema(way),
-		update:          make(map[string]*modify),
-		secondaryUpdate: make(map[string]*modify),
-		except:          make(map[string]*struct{}),
-		permit:          make(map[string]*struct{}),
+		schema:  newSchema(way),
+		update:  make(map[string]*modify),
+		update2: make(map[string]*modify),
+		except:  make(map[string]*struct{}),
+		permit:  make(map[string]*struct{}),
 	}
 }
 
@@ -1712,8 +1723,12 @@ func (s *Mod) Permit(permit ...string) *Mod {
 	return s
 }
 
-// expr build update field expressions and field values.
-func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
+// fieldExprArgs SET field = expr .
+func (s *Mod) fieldExprArgs(field string, expr string, args ...interface{}) *Mod {
+	if field == EmptyString || expr == EmptyString {
+		return s
+	}
+
 	if s.exceptSlice != nil {
 		if _, ok := s.except[field]; ok {
 			return s
@@ -1730,6 +1745,7 @@ func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
 		expr: expr,
 		args: args,
 	}
+
 	if _, ok := s.update[field]; ok {
 		s.update[field] = tmp
 		return s
@@ -1739,25 +1755,63 @@ func (s *Mod) expr(field string, expr string, args ...interface{}) *Mod {
 	return s
 }
 
+// Default SET field = expr .
+func (s *Mod) Default(fc func(o *Mod)) *Mod {
+	if fc == nil {
+		return s
+	}
+
+	// copy current object.
+	v := *s
+	mod := &v
+
+	// reset value for .update .updateSlice .
+	mod.update = make(map[string]*modify)
+	mod.updateSlice = nil
+	fc(mod)
+
+	if mod.updateSlice != nil {
+		// Batch add default key-value.
+		s.update2Slice = append(s.update2Slice, mod.updateSlice...)
+		for field, modify := range mod.update {
+			s.update2[field] = modify
+		}
+	}
+
+	return s
+}
+
 // Expr update field using custom expr.
 func (s *Mod) Expr(field string, expr string, args ...interface{}) *Mod {
 	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
-	return s.expr(field, expr, args...)
+	return s.fieldExprArgs(field, expr, args...)
 }
 
 // Set field = value.
 func (s *Mod) Set(field string, value interface{}) *Mod {
-	return s.expr(field, fmt.Sprintf("%s = %s", field, SqlPlaceholder), value)
+	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s", field, SqlPlaceholder), value)
 }
 
 // Incr SET field = field + value.
 func (s *Mod) Incr(field string, value interface{}) *Mod {
-	return s.expr(field, fmt.Sprintf("%s = %s + %s", field, field, SqlPlaceholder), value)
+	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s + %s", field, field, SqlPlaceholder), value)
 }
 
 // Decr SET field = field - value.
 func (s *Mod) Decr(field string, value interface{}) *Mod {
-	return s.expr(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
+	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
+}
+
+// SetCase SET salary = CASE WHEN department_id = 1 THEN salary * 1.1 WHEN department_id = 2 THEN salary * 1.05 ELSE salary
+func (s *Mod) SetCase(field string, value *Case) *Mod {
+	if field == EmptyString || value == nil {
+		return s
+	}
+	expr, args := value.SQL()
+	if expr == EmptyString {
+		return s
+	}
+	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s", field, expr), args...)
 }
 
 // FieldsValues SET field = value by slice, require len(fields) == len(values).
@@ -1788,54 +1842,6 @@ func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
 	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.tag, s.exceptSlice...))
 }
 
-// defaultExpr append the update field collection when there is at least one item in the update field collection, for example, set the update timestamp.
-func (s *Mod) defaultExpr(field string, expr string, args ...interface{}) *Mod {
-	if s.exceptSlice != nil {
-		if _, ok := s.except[field]; ok {
-			return s
-		}
-	}
-
-	if s.permitSlice != nil {
-		if _, ok := s.permit[field]; !ok {
-			return s
-		}
-	}
-
-	tmp := &modify{
-		expr: expr,
-		args: args,
-	}
-	if _, ok := s.secondaryUpdate[field]; ok {
-		s.secondaryUpdate[field] = tmp
-		return s
-	}
-	s.secondaryUpdateSlice = append(s.secondaryUpdateSlice, field)
-	s.secondaryUpdate[field] = tmp
-	return s
-}
-
-// DefaultExpr update field using custom expression.
-func (s *Mod) DefaultExpr(field string, expr string, args ...interface{}) *Mod {
-	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
-	return s.defaultExpr(field, expr, args...)
-}
-
-// DefaultSet SET field = value.
-func (s *Mod) DefaultSet(field string, value interface{}) *Mod {
-	return s.defaultExpr(field, fmt.Sprintf("%s = %s", field, SqlPlaceholder), value)
-}
-
-// DefaultIncr SET field = field + value.
-func (s *Mod) DefaultIncr(field string, value interface{}) *Mod {
-	return s.defaultExpr(field, fmt.Sprintf("%s = %s + %s", field, field, SqlPlaceholder), value)
-}
-
-// DefaultDecr SET field = field - value.
-func (s *Mod) DefaultDecr(field string, value interface{}) *Mod {
-	return s.defaultExpr(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
-}
-
 // Where set where.
 func (s *Mod) Where(where Filter) *Mod {
 	s.where = where
@@ -1848,37 +1854,16 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	if length == 0 {
 		return
 	}
-	mod := make(map[string]*struct{})
+	exists := make(map[string]*struct{})
 	fields := make([]string, 0, length)
 	for _, field := range s.updateSlice {
-		if s.exceptSlice != nil {
-			if _, ok := s.except[field]; ok {
-				continue
-			}
-		}
-		if s.permitSlice != nil {
-			if _, ok := s.permit[field]; !ok {
-				continue
-			}
-		}
-		mod[field] = &struct{}{}
+		exists[field] = &struct{}{}
 		fields = append(fields, field)
 	}
-	for _, field := range s.secondaryUpdateSlice {
-		if _, ok := mod[field]; ok {
-			continue
+	for _, field := range s.update2Slice {
+		if _, ok := exists[field]; !ok {
+			fields = append(fields, field)
 		}
-		if s.exceptSlice != nil {
-			if _, ok := s.except[field]; ok {
-				continue
-			}
-		}
-		if s.permitSlice != nil {
-			if _, ok := s.permit[field]; !ok {
-				continue
-			}
-		}
-		fields = append(fields, field)
 	}
 	length = len(fields)
 	field := make([]string, length)
@@ -1890,8 +1875,8 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 			value = append(value, s.update[v].args...)
 			continue
 		}
-		field[k] = s.secondaryUpdate[v].expr
-		value = append(value, s.secondaryUpdate[v].args...)
+		field[k] = s.update2[v].expr
+		value = append(value, s.update2[v].args...)
 	}
 	buf := getBuilder()
 	defer putBuilder(buf)
