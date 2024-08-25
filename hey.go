@@ -91,9 +91,7 @@ var (
 func init() {
 	// initialize *Stmt.
 	poolStmt = &sync.Pool{}
-	poolStmt.New = func() interface{} {
-		return &Stmt{}
-	}
+	poolStmt.New = func() interface{} { return &Stmt{} }
 }
 
 // getStmt Get *Stmt from pool.

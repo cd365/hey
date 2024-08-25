@@ -1322,6 +1322,16 @@ func (s *Add) UseResult(fc func(result sql.Result) error) *Add {
 	return s
 }
 
+// withOnConflict with ON CONFLICT object.
+func (s *Add) withOnConflict(buf *strings.Builder) (onConflictArgs []interface{}) {
+	if s.onConflict != nil && *s.onConflict != EmptyString {
+		buf.WriteString(SqlSpace)
+		buf.WriteString(*s.onConflict)
+		onConflictArgs = s.onConflictArgs
+	}
+	return
+}
+
 // SQL build SQL statement.
 func (s *Add) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString {
@@ -1342,8 +1352,11 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		buf.WriteString(SqlSpace)
 		subPrepare, subArgs := s.subQuery.SQL()
 		buf.WriteString(subPrepare)
-		prepare = buf.String()
 		args = subArgs
+		if onConflictArgs := s.withOnConflict(buf); onConflictArgs != nil {
+			args = append(args, onConflictArgs...)
+		}
+		prepare = buf.String()
 		return
 	}
 
@@ -1371,10 +1384,8 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	buf.WriteString(strings.Join(s.fields, ", "))
 	buf.WriteString(" ) VALUES ")
 	buf.WriteString(strings.Join(values, ", "))
-	if s.onConflict != nil && *s.onConflict != EmptyString {
-		buf.WriteString(SqlSpace)
-		buf.WriteString(*s.onConflict)
-		args = append(args, s.onConflictArgs...)
+	if onConflictArgs := s.withOnConflict(buf); onConflictArgs != nil {
+		args = append(args, onConflictArgs...)
 	}
 	prepare = buf.String()
 	return
