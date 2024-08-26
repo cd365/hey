@@ -40,6 +40,9 @@ var (
 
 	// identPool prefix pool.
 	identPool *sync.Pool
+
+	// casePool case pool.
+	casePool *sync.Pool
 )
 
 // init initialize.
@@ -57,6 +60,11 @@ func init() {
 	identPool = &sync.Pool{}
 	identPool.New = func() any {
 		return newIdent()
+	}
+
+	casePool = &sync.Pool{}
+	casePool.New = func() any {
+		return newCase()
 	}
 }
 
@@ -101,6 +109,20 @@ func GetIdent(alias ...string) *Ident {
 func PutIdent(i *Ident) {
 	i.prefix = EmptyString
 	identPool.Put(i)
+}
+
+// GetCase get *Case from pool.
+func GetCase() *Case {
+	return casePool.Get().(*Case)
+}
+
+// PutCase put *Case in the pool.
+func PutCase(i *Case) {
+	i.alias = EmptyString
+	i.when = nil
+	i.then = nil
+	i.others = nil
+	casePool.Put(i)
 }
 
 // MustAffectedRows at least one row is affected.
@@ -916,81 +938,54 @@ func sqlReturning(add *Add, returning ...string) (prepare string, args []interfa
 // Case Implementing SQL CASE.
 type Case struct {
 	alias  string
-	when   []Filter
+	when   []*PrepareArgs
 	then   []*PrepareArgs
 	others *PrepareArgs
 }
 
-func NewCase() *Case {
+func newCase() *Case {
 	return &Case{}
 }
 
-// WhenThen CASE WHEN condition THEN result . (not often used)
-func (s *Case) WhenThen(when Filter, thenResultString string, thenResultArgs []interface{}) *Case {
-	if when == nil || when.IsEmpty() || (thenResultString == EmptyString && len(thenResultArgs) == 0) {
+// If CASE WHEN condition THEN expressions.
+func (s *Case) If(when func(f Filter), then string, thenArgs ...interface{}) *Case {
+	if when == nil || then == EmptyString {
 		return s
 	}
-	s.when = append(s.when, when)
+	w := GetFilter()
+	defer PutFilter(w)
+	when(w)
+	if w.IsEmpty() {
+		return s
+	}
+	prepare, args := w.SQL()
+	s.when = append(s.when, &PrepareArgs{
+		Prepare: prepare,
+		Args:    args,
+	})
 	s.then = append(s.then, &PrepareArgs{
-		Prepare: thenResultString,
-		Args:    thenResultArgs,
+		Prepare: then,
+		Args:    thenArgs,
 	})
 	return s
 }
 
-// IfResult CASE WHEN condition THEN thenResultString .
-func (s *Case) IfResult(when Filter, thenResultString string) *Case {
-	return s.WhenThen(when, thenResultString, nil)
-}
-
-// IfArgs CASE WHEN condition THEN thenResultArgs .
-func (s *Case) IfArgs(when Filter, thenResultArgs ...interface{}) *Case {
-	return s.WhenThen(when, EmptyString, thenResultArgs)
-}
-
-// Else Result of else. (not often used)
-func (s *Case) Else(elseString string, elseArgs []interface{}) *Case {
+// Else Expressions of else.
+func (s *Case) Else(elseExpr string, elseArgs ...interface{}) *Case {
+	if elseExpr == EmptyString {
+		return s
+	}
 	s.others = &PrepareArgs{
-		Prepare: elseString,
+		Prepare: elseExpr,
 		Args:    elseArgs,
 	}
 	return s
-}
-
-// ElseResult Result of else.
-func (s *Case) ElseResult(elseResultString string) *Case {
-	return s.Else(elseResultString, nil)
-}
-
-// ElseArgs ELSE elseResultArgs .
-func (s *Case) ElseArgs(elseResultArgs ...interface{}) *Case {
-	return s.Else(EmptyString, elseResultArgs)
 }
 
 // Alias AS alias .
 func (s *Case) Alias(alias string) *Case {
 	s.alias = alias
 	return s
-}
-
-func makeResult(prepare string, args []interface{}) (string, []interface{}) {
-	b := getBuilder()
-	defer putBuilder(b)
-	if prepare == EmptyString {
-		length := len(args)
-		if length == 0 {
-			return EmptyString, nil
-		}
-		placeholders := make([]string, length)
-		for j := 0; j < length; j++ {
-			placeholders[j] = SqlPlaceholder
-		}
-		b.WriteString(strings.Join(placeholders, ", "))
-	} else {
-		b.WriteString(prepare)
-	}
-	result := b.String()
-	return result, args
 }
 
 // SQL Make SQL expr: CASE WHEN condition1 THEN result1 WHEN condition2 THEN result2 ... ELSE else_result END [AS alias_name] .
@@ -1001,32 +996,25 @@ func (s *Case) SQL() (prepare string, args []interface{}) {
 	}
 	b := getBuilder()
 	defer putBuilder(b)
-
 	b.WriteString("CASE")
 	for i := 0; i < lenWhen; i++ {
 		b.WriteString(" WHEN ")
-		k, v := s.when[i].SQL()
-		b.WriteString(k)
-		args = append(args, v...)
-
+		b.WriteString(s.when[i].Prepare)
+		args = append(args, s.when[i].Args...)
 		b.WriteString(" THEN ")
-		p, q := makeResult(s.then[i].Prepare, s.then[i].Args)
-		b.WriteString(p)
-		args = append(args, q...)
+		b.WriteString(s.then[i].Prepare)
+		args = append(args, s.then[i].Args...)
 	}
-
 	b.WriteString(SqlSpace)
 	b.WriteString("ELSE ")
-	p, q := makeResult(s.others.Prepare, s.others.Args)
-	b.WriteString(p)
-	args = append(args, q...)
+	b.WriteString(s.others.Prepare)
+	args = append(args, s.others.Args...)
 	b.WriteString(" END")
 	if s.alias != EmptyString {
 		b.WriteString(SqlSpace)
 		b.WriteString("AS ")
 		b.WriteString(s.alias)
 	}
-
 	prepare = b.String()
 	return
 }
@@ -1775,8 +1763,8 @@ func (s *Mod) Default(fc func(o *Mod)) *Mod {
 	if mod.updateSlice != nil {
 		// Batch add default key-value.
 		s.update2Slice = append(s.update2Slice, mod.updateSlice...)
-		for field, modify := range mod.update {
-			s.update2[field] = modify
+		for field, update := range mod.update {
+			s.update2[field] = update
 		}
 	}
 
@@ -1804,15 +1792,20 @@ func (s *Mod) Decr(field string, value interface{}) *Mod {
 	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
 }
 
-// SetCase SET salary = CASE WHEN department_id = 1 THEN salary * 1.1 WHEN department_id = 2 THEN salary * 1.05 ELSE salary
-func (s *Mod) SetCase(field string, value *Case) *Mod {
+// SetCase SET salary = CASE WHEN department_id = 1 THEN salary * 1.1 WHEN department_id = 2 THEN salary * 1.05 ELSE salary.
+func (s *Mod) SetCase(field string, value func(c *Case)) *Mod {
 	if field == EmptyString || value == nil {
 		return s
 	}
-	expr, args := value.SQL()
+
+	c := GetCase()
+	defer PutCase(c)
+	value(c)
+	expr, args := c.SQL()
 	if expr == EmptyString {
 		return s
 	}
+
 	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s", field, expr), args...)
 }
 
@@ -2483,12 +2476,19 @@ func (s *Get) AddCol(column ...string) *Get {
 }
 
 // AddColCase append the columns list of query.
-func (s *Get) AddColCase(cases ...*Case) *Get {
-	for _, c := range cases {
-		if c == nil {
-			continue
+func (s *Get) AddColCase(caseList ...func(c *Case)) *Get {
+	fc := func(fc func(c *Case)) (string, []interface{}) {
+		if fc == nil {
+			return EmptyString, nil
 		}
-		k, v := c.SQL()
+		c := GetCase()
+		defer PutCase(c)
+		fc(c)
+		return c.SQL()
+	}
+
+	for _, c := range caseList {
+		k, v := fc(c)
 		if k == EmptyString {
 			continue
 		}

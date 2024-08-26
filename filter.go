@@ -204,7 +204,6 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (expr stri
 		}
 		args = append(args, values[i][:]...)
 	}
-
 	oneGroup := make([]string, count)
 	for i := 0; i < count; i++ {
 		oneGroup[i] = SqlPlaceholder
@@ -214,7 +213,6 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (expr stri
 	for i := 0; i < length; i++ {
 		valueGroup[i] = oneGroupString
 	}
-
 	tmp := make([]string, 0, 8)
 	tmp = append(tmp, filterInColsFields(columns...))
 	if not {
@@ -314,26 +312,14 @@ type Filter interface {
 	// Or Use logical operator `OR` to combine custom conditions.
 	Or(expr string, args ...interface{}) Filter
 
-	// Use Reference custom conditions and their parameters for conditional filtering (variant of the And method).
-	Use(expr string, args []interface{}) Filter
-
-	// OrUse Reference custom conditions and their parameters for conditional filtering (variant of the Or method).
-	OrUse(expr string, args []interface{}) Filter
-
 	// Group Add a new condition group, which is connected by the `AND` logical operator by default.
 	Group(group func(g Filter)) Filter
 
 	// OrGroup Add a new condition group, which is connected by the `OR` logical operator by default.
 	OrGroup(group func(g Filter)) Filter
 
-	// Result Use the `AND` logical keyword to connect a set of conditions to filter objects and generate results.
-	Result(fs ...Filter) (prepare string, args []interface{})
-
-	// ResultOr Use the `OR` logical keyword to connect a set of conditions to filter objects and generate results.
-	ResultOr(fs ...Filter) (prepare string, args []interface{})
-
-	// Import Implement import a set of conditional filter objects into the current object.
-	Import(fs ...Filter) Filter
+	// Use Implement import a set of conditional filter objects into the current object.
+	Use(fs ...Filter) Filter
 
 	// New Create a new conditional filter object based on a set of conditional filter objects.
 	New(fs ...Filter) Filter
@@ -360,22 +346,31 @@ type Filter interface {
 	In(column string, values ...interface{}) Filter
 
 	// InSql Implement conditional filtering: column IN ( subquery ) .
-	InSql(column string, prepare string, args []interface{}) Filter
+	InSql(column string, prepare string, args ...interface{}) Filter
 
 	// InCols Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
 	InCols(columns []string, values ...[]interface{}) Filter
 
 	// InColsSql Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
-	InColsSql(columns []string, prepare string, args []interface{}) Filter
+	InColsSql(columns []string, prepare string, args ...interface{}) Filter
 
 	// Exists Implement conditional filtering: EXISTS ( subquery ) .
-	Exists(prepare string, args []interface{}) Filter
+	Exists(prepare string, args ...interface{}) Filter
 
 	// Like Implement conditional filtering: column LIKE value .
 	Like(column string, value interface{}) Filter
 
 	// IsNull Implement conditional filtering: column IS NULL .
 	IsNull(column string) Filter
+
+	// InGet Implement conditional filtering: column IN ( subquery ) .
+	InGet(column string, get *Get) Filter
+
+	// InColsGet Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
+	InColsGet(columns []string, get *Get) Filter
+
+	// ExistsGet Implement conditional filtering: EXISTS ( subquery ) .
+	ExistsGet(get *Get) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
 	NotEqual(column string, value interface{}) Filter
@@ -386,17 +381,8 @@ type Filter interface {
 	// NotIn Implement conditional filtering: column NOT IN ( value1, value2, value3... ) .
 	NotIn(column string, values ...interface{}) Filter
 
-	// NotInSql Implement conditional filtering: column NOT IN ( subquery ) .
-	NotInSql(column string, prepare string, args []interface{}) Filter
-
 	// NotInCols Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
 	NotInCols(columns []string, values ...[]interface{}) Filter
-
-	// NotInColsSql Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( subquery ) .
-	NotInColsSql(columns []string, prepare string, args []interface{}) Filter
-
-	// NotExists Implement conditional filtering: NOT EXISTS ( subquery ) .
-	NotExists(prepare string, args []interface{}) Filter
 
 	// NotLike Implement conditional filtering: column NOT LIKE value .
 	NotLike(column string, value interface{}) Filter
@@ -527,14 +513,6 @@ func (s *filter) Or(expr string, args ...interface{}) Filter {
 	return s.add(SqlOr, expr, args...)
 }
 
-func (s *filter) Use(expr string, args []interface{}) Filter {
-	return s.add(SqlAnd, expr, args...)
-}
-
-func (s *filter) OrUse(expr string, args []interface{}) Filter {
-	return s.add(SqlOr, expr, args...)
-}
-
 func (s *filter) Group(group func(g Filter)) Filter {
 	return s.addGroup(SqlAnd, group)
 }
@@ -543,38 +521,22 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 	return s.addGroup(SqlOr, group)
 }
 
-func (s *filter) Result(fs ...Filter) (prepare string, args []interface{}) {
+func (s *filter) Use(fs ...Filter) Filter {
 	g := GetFilter()
 	defer PutFilter(g)
 	for _, f := range fs {
 		if f == nil || f.IsEmpty() {
 			continue
 		}
-		g.Use(f.SQL())
+		expr, param := f.SQL()
+		g.And(expr, param...)
 	}
-	prepare, args = g.SQL()
-	return
-}
-
-func (s *filter) ResultOr(fs ...Filter) (prepare string, args []interface{}) {
-	g := GetFilter()
-	defer PutFilter(g)
-	for _, f := range fs {
-		if f == nil || f.IsEmpty() {
-			continue
-		}
-		g.OrUse(f.SQL())
-	}
-	prepare, args = g.SQL()
-	return
-}
-
-func (s *filter) Import(fs ...Filter) Filter {
-	return s.Use(s.Result(fs...))
+	prepare, args := g.SQL()
+	return s.And(prepare, args...)
 }
 
 func (s *filter) New(fs ...Filter) Filter {
-	return filterNew().Import(fs...)
+	return filterNew().Use(fs...)
 }
 
 func (s *filter) GreaterThan(column string, value interface{}) Filter {
@@ -606,24 +568,24 @@ func (s *filter) In(column string, values ...interface{}) Filter {
 	return s.add(SqlAnd, expr, args...)
 }
 
-func (s *filter) InSql(column string, prepare string, args []interface{}) Filter {
-	expr, list := filterInSql(column, prepare, args, false)
-	return s.add(SqlAnd, expr, list...)
+func (s *filter) InSql(column string, prepare string, args ...interface{}) Filter {
+	expr, param := filterInSql(column, prepare, args, false)
+	return s.add(SqlAnd, expr, param...)
 }
 
 func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
-	expr, list := filterInCols(columns, values, false)
-	return s.add(SqlAnd, expr, list...)
+	expr, param := filterInCols(columns, values, false)
+	return s.add(SqlAnd, expr, param...)
 }
 
-func (s *filter) InColsSql(columns []string, prepare string, args []interface{}) Filter {
-	expr, list := filterInColsSql(columns, prepare, args, false)
-	return s.add(SqlAnd, expr, list...)
+func (s *filter) InColsSql(columns []string, prepare string, args ...interface{}) Filter {
+	expr, param := filterInColsSql(columns, prepare, args, false)
+	return s.add(SqlAnd, expr, param...)
 }
 
-func (s *filter) Exists(prepare string, args []interface{}) Filter {
-	expr, list := filterExists(prepare, args, false)
-	return s.add(SqlAnd, expr, list...)
+func (s *filter) Exists(prepare string, args ...interface{}) Filter {
+	expr, param := filterExists(prepare, args, false)
+	return s.add(SqlAnd, expr, param...)
 }
 
 func (s *filter) Like(column string, value interface{}) Filter {
@@ -632,6 +594,30 @@ func (s *filter) Like(column string, value interface{}) Filter {
 
 func (s *filter) IsNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(column, false))
+}
+
+func (s *filter) InGet(column string, get *Get) Filter {
+	if get == nil {
+		return s
+	}
+	expr, args := get.SQL()
+	return s.InSql(column, expr, args...)
+}
+
+func (s *filter) InColsGet(columns []string, get *Get) Filter {
+	if get == nil {
+		return s
+	}
+	expr, args := get.SQL()
+	return s.InColsSql(columns, expr, args...)
+}
+
+func (s *filter) ExistsGet(get *Get) Filter {
+	if get == nil {
+		return s
+	}
+	expr, args := get.SQL()
+	return s.Exists(expr, args...)
 }
 
 func (s *filter) NotEqual(column string, value interface{}) Filter {
@@ -647,24 +633,9 @@ func (s *filter) NotIn(column string, values ...interface{}) Filter {
 	return s.add(SqlAnd, expr, args...)
 }
 
-func (s *filter) NotInSql(column string, prepare string, args []interface{}) Filter {
-	expr, list := filterInSql(column, prepare, args, true)
-	return s.add(SqlAnd, expr, list...)
-}
-
 func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
 	expr, args := filterInCols(columns, values, true)
 	return s.add(SqlAnd, expr, args...)
-}
-
-func (s *filter) NotInColsSql(columns []string, prepare string, args []interface{}) Filter {
-	expr, list := filterInColsSql(columns, prepare, args, true)
-	return s.add(SqlAnd, expr, list...)
-}
-
-func (s *filter) NotExists(prepare string, args []interface{}) Filter {
-	expr, list := filterExists(prepare, args, true)
-	return s.add(SqlAnd, expr, list...)
 }
 
 func (s *filter) NotLike(column string, value interface{}) Filter {
@@ -673,23 +644,6 @@ func (s *filter) NotLike(column string, value interface{}) Filter {
 
 func (s *filter) IsNotNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(column, true))
-}
-
-// InGet Simplify calling Filter.InSql .
-func InGet(f Filter, column string, get *Get) {
-	prepare, args := get.SQL()
-	f.InSql(column, prepare, args)
-}
-
-// InColsGet Simplify calling Filter.InColsSql .
-func InColsGet(f Filter, columns []string, get *Get) {
-	prepare, args := get.SQL()
-	f.InColsSql(columns, prepare, args)
-}
-
-// ExistsGet Simplify calling Filter.Exists .
-func ExistsGet(f Filter, get *Get) {
-	f.Exists(get.SQL())
 }
 
 func buildFilterAll(f Filter, column string, logic string, subquery *Get) {
