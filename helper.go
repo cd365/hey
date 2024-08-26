@@ -74,9 +74,9 @@ func putBuilder(b *strings.Builder) {
 // getInsertByStruct get *insertByStruct from pool.
 func getInsertByStruct() *insertByStruct {
 	tmp := insertByStructPool.Get().(*insertByStruct)
-	tmp.allow = make(map[string]*struct{})
-	tmp.except = make(map[string]*struct{})
-	tmp.used = make(map[string]*struct{})
+	tmp.allow = make(map[string]*struct{}, 32)
+	tmp.except = make(map[string]*struct{}, 32)
+	tmp.used = make(map[string]*struct{}, 8)
 	return tmp
 }
 
@@ -126,7 +126,9 @@ func LastNotEmptyString(sss []string) string {
 
 // RemoveDuplicate remove duplicate element.
 func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
-	mp, ok, length := make(map[interface{}]*struct{}), false, len(dynamic)
+	length := len(dynamic)
+	mp := make(map[interface{}]*struct{}, length)
+	ok := false
 	result = make([]interface{}, 0, length)
 	for i := 0; i < length; i++ {
 		if _, ok = mp[dynamic[i]]; ok {
@@ -139,10 +141,10 @@ func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
 }
 
 // RemoveDuplicates remove duplicate element.
-func RemoveDuplicates[T comparable](
-	dynamic ...T,
-) (result []T) {
-	mp, ok, length := make(map[T]*struct{}), false, len(dynamic)
+func RemoveDuplicates[T comparable](dynamic ...T) (result []T) {
+	length := len(dynamic)
+	mp := make(map[T]*struct{}, length)
+	ok := false
 	result = make([]T, 0, length)
 	for i := 0; i < length; i++ {
 		if _, ok = mp[dynamic[i]]; ok {
@@ -168,9 +170,9 @@ type bindStruct struct {
 
 func bindStructInit() *bindStruct {
 	return &bindStruct{
-		direct:     make(map[string]int),
-		indirect:   make(map[string][]int),
-		structType: make(map[reflect.Type]*struct{}),
+		direct:     make(map[string]int, 32),
+		indirect:   make(map[string][]int, 32),
+		structType: make(map[reflect.Type]*struct{}, 8),
 	}
 }
 
@@ -578,7 +580,7 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 	if ofKind != reflect.Struct {
 		return
 	}
-	excepted := make(map[string]*struct{})
+	excepted := make(map[string]*struct{}, 32)
 	for _, field := range except {
 		excepted[field] = &struct{}{}
 	}
@@ -590,7 +592,7 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 	values = make([]interface{}, 0, length)
 
 	last := 0
-	fieldsIndex := make(map[string]int)
+	fieldsIndex := make(map[string]int, 32)
 
 	add := func(field string, value interface{}) {
 		if _, ok := exists[field]; ok {
@@ -675,7 +677,7 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 	if ofKind != reflect.Struct {
 		return
 	}
-	excepted := make(map[string]*struct{})
+	excepted := make(map[string]*struct{}, 32)
 	for _, field := range except {
 		excepted[field] = &struct{}{}
 	}
@@ -687,7 +689,7 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 	values = make([]interface{}, 0, length)
 
 	last := 0
-	fieldsIndex := make(map[string]int)
+	fieldsIndex := make(map[string]int, 32)
 
 	add := func(field string, value interface{}) {
 		if _, ok := exists[field]; ok {
@@ -731,12 +733,12 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 		storage[v] = originValues[k]
 	}
 
-	exists := make(map[string]*struct{})
+	exists := make(map[string]*struct{}, 32)
 	fields = make([]string, 0)
 	values = make([]interface{}, 0)
 
 	last := 0
-	fieldsIndex := make(map[string]int)
+	fieldsIndex := make(map[string]int, 32)
 
 	add := func(field string, value interface{}) {
 		if _, ok := exists[field]; ok {
@@ -946,7 +948,7 @@ func (s *Case) IfArgs(when Filter, thenResultArgs ...interface{}) *Case {
 	return s.WhenThen(when, EmptyString, thenResultArgs)
 }
 
-// Else ELSE result . (not often used)
+// Else Result of else. (not often used)
 func (s *Case) Else(elseString string, elseArgs []interface{}) *Case {
 	s.others = &PrepareArgs{
 		Prepare: elseString,
@@ -955,7 +957,7 @@ func (s *Case) Else(elseString string, elseArgs []interface{}) *Case {
 	return s
 }
 
-// ElseString ELSE elseResultString .
+// ElseResult Result of else.
 func (s *Case) ElseResult(elseResultString string) *Case {
 	return s.Else(elseResultString, nil)
 }
@@ -1178,11 +1180,11 @@ type Add struct {
 func NewAdd(way *Way) *Add {
 	add := &Add{
 		schema:              newSchema(way),
-		exceptMap:           make(map[string]*struct{}),
-		permitMap:           make(map[string]*struct{}),
-		fieldsFieldIndex:    make(map[string]int),
+		exceptMap:           make(map[string]*struct{}, 32),
+		permitMap:           make(map[string]*struct{}, 32),
+		fieldsFieldIndex:    make(map[string]int, 32),
 		values:              make([][]interface{}, 1),
-		defaultFieldsValues: make(map[string]interface{}),
+		defaultFieldsValues: make(map[string]interface{}, 8),
 	}
 	return add
 }
@@ -1283,7 +1285,7 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 	}
 
 	if s.except != nil {
-		// Delete fields and values ​​that are not allowed to be inserted.
+		// Delete fields and values that are not allowed to be inserted.
 		indexes := make(map[int]*struct{}, length1)
 		for i := 0; i < length1; i++ {
 			if _, ok := s.exceptMap[fields[i]]; ok {
@@ -1315,7 +1317,7 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 	}
 
 	if s.permit != nil {
-		// Delete fields and values ​​that are not allowed to be inserted.
+		// Delete fields and values that are not allowed to be inserted.
 		indexes := make(map[int]*struct{}, length1)
 		for i := 0; i < length1; i++ {
 			if _, ok := s.permitMap[fields[i]]; ok {
@@ -1403,7 +1405,7 @@ func (s *Add) Default(fc func(o *Add)) *Add {
 
 	// reset value for .fieldsLastIndex .fieldsFieldIndex .fields .values .
 	add.fieldsLastIndex = 0
-	add.fieldsFieldIndex = make(map[string]int)
+	add.fieldsFieldIndex = make(map[string]int, 32)
 	add.fields = nil
 	add.values = make([][]interface{}, 1)
 
@@ -1632,10 +1634,10 @@ type Mod struct {
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema:  newSchema(way),
-		update:  make(map[string]*modify),
-		update2: make(map[string]*modify),
-		except:  make(map[string]*struct{}),
-		permit:  make(map[string]*struct{}),
+		update:  make(map[string]*modify, 8),
+		update2: make(map[string]*modify, 8),
+		except:  make(map[string]*struct{}, 32),
+		permit:  make(map[string]*struct{}, 32),
 	}
 }
 
@@ -1676,7 +1678,7 @@ func (s *Mod) Except(except ...string) *Mod {
 		}
 	}
 
-	if length := len(remove); length > 0 {
+	if count := len(remove); count > 0 {
 		latest := make([]string, 0, len(s.permitSlice))
 		for _, field := range s.permitSlice {
 			if _, ok := remove[field]; ok {
@@ -1709,7 +1711,7 @@ func (s *Mod) Permit(permit ...string) *Mod {
 		}
 	}
 
-	if length := len(remove); length > 0 {
+	if count := len(remove); count > 0 {
 		latest := make([]string, 0, len(s.exceptSlice))
 		for _, field := range s.exceptSlice {
 			if _, ok := remove[field]; ok {
@@ -1766,7 +1768,7 @@ func (s *Mod) Default(fc func(o *Mod)) *Mod {
 	mod := &v
 
 	// reset value for .update .updateSlice .
-	mod.update = make(map[string]*modify)
+	mod.update = make(map[string]*modify, 8)
 	mod.updateSlice = nil
 	fc(mod)
 
@@ -1854,7 +1856,7 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	if length == 0 {
 		return
 	}
-	exists := make(map[string]*struct{})
+	exists := make(map[string]*struct{}, 32)
 	fields := make([]string, 0, length)
 	for _, field := range s.updateSlice {
 		exists[field] = &struct{}{}
@@ -2545,7 +2547,7 @@ var (
 
 // Order set the column sorting list in batches through regular expressions according to the request parameter value.
 func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
-	fieldMap := make(map[string]string)
+	fieldMap := make(map[string]string, 8)
 	for _, m := range orderMap {
 		for k, v := range m {
 			fieldMap[k] = v

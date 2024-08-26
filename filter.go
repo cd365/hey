@@ -353,7 +353,7 @@ type Filter interface {
 	// Equal Implement conditional filtering: column = value .
 	Equal(column string, value interface{}) Filter
 
-	// Between Implement conditional filtering: column BEWTEEN value1 AND value2 .
+	// Between Implement conditional filtering: column BETWEEN value1 AND value2 .
 	Between(column string, start interface{}, end interface{}) Filter
 
 	// In Implement conditional filtering: column IN ( value1, value2, value3... ) .
@@ -362,10 +362,10 @@ type Filter interface {
 	// InSql Implement conditional filtering: column IN ( subquery ) .
 	InSql(column string, prepare string, args []interface{}) Filter
 
-	// InCols Implement conditional filtering: ( column1, column2, cloumn3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
+	// InCols Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
 	InCols(columns []string, values ...[]interface{}) Filter
 
-	// InColsSql Implement conditional filtering: ( column1, column2, cloumn3... ) IN ( subquery ) .
+	// InColsSql Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
 	InColsSql(columns []string, prepare string, args []interface{}) Filter
 
 	// Exists Implement conditional filtering: EXISTS ( subquery ) .
@@ -380,7 +380,7 @@ type Filter interface {
 	// NotEqual Implement conditional filtering: column <> value .
 	NotEqual(column string, value interface{}) Filter
 
-	// NotBetween Implement conditional filtering: column NOT BEWTEEN value1 AND value2 .
+	// NotBetween Implement conditional filtering: column NOT BETWEEN value1 AND value2 .
 	NotBetween(column string, start interface{}, end interface{}) Filter
 
 	// NotIn Implement conditional filtering: column NOT IN ( value1, value2, value3... ) .
@@ -389,10 +389,10 @@ type Filter interface {
 	// NotInSql Implement conditional filtering: column NOT IN ( subquery ) .
 	NotInSql(column string, prepare string, args []interface{}) Filter
 
-	// NotInCols Implement conditional filtering: ( column1, column2, cloumn3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
+	// NotInCols Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
 	NotInCols(columns []string, values ...[]interface{}) Filter
 
-	// NotInColsSql Implement conditional filtering: ( column1, column2, cloumn3... ) NOT IN ( subquery ) .
+	// NotInColsSql Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( subquery ) .
 	NotInColsSql(columns []string, prepare string, args []interface{}) Filter
 
 	// NotExists Implement conditional filtering: NOT EXISTS ( subquery ) .

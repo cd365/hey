@@ -974,7 +974,7 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 	count := len(columns)
 	var slices []map[string]interface{}
 	for rows.Next() {
-		tmp := make(map[string]interface{})
+		tmp := make(map[string]interface{}, 32)
 		scan := make([]interface{}, count)
 		for i := range scan {
 			scan[i] = new(interface{})
@@ -988,7 +988,7 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 		}
 		slices = append(slices, tmp)
 	}
-	fcs := make(map[string]func(interface{}) interface{})
+	fcs := make(map[string]func(interface{}) interface{}, 32)
 	for _, v := range types {
 		if tmp := adjustViewData(v); tmp != nil {
 			fcs[v.Name()] = tmp
