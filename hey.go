@@ -6,12 +6,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/cd365/hey/v2/logger"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+)
+
+const (
+	DriverNameMysql    = "mysql"
+	DriverNamePostgres = "postgres"
+	DriverNameSqlite3  = "sqlite3"
 )
 
 const (
@@ -23,10 +29,9 @@ const (
 )
 
 const (
-	SqlDollar = "$"
-	SqlPoint  = "."
-	SqlSpace  = " "
-	SqlStar   = "*"
+	SqlPoint = "."
+	SqlSpace = " "
+	SqlStar  = "*"
 
 	SqlAs       = "AS"
 	SqlAsc      = "ASC"
@@ -42,12 +47,6 @@ const (
 
 	SqlAnd = "AND"
 	SqlOr  = "OR"
-
-	SqlAvg   = "AVG"
-	SqlMax   = "MAX"
-	SqlMin   = "MIN"
-	SqlSum   = "SUM"
-	SqlCount = "COUNT"
 
 	SqlNot  = "NOT"
 	SqlNull = "NULL"
@@ -82,98 +81,109 @@ const (
 	AliasG = "g"
 )
 
-var (
-	// poolStmt *Stmt pool.
-	poolStmt *sync.Pool
-)
-
-// init Initialize.
-func init() {
-	// initialize *Stmt.
-	poolStmt = &sync.Pool{}
-	poolStmt.New = func() interface{} { return &Stmt{} }
-}
-
-// getStmt Get *Stmt from pool.
-func getStmt() *Stmt {
-	return poolStmt.Get().(*Stmt)
-}
-
-// putStmt Put *Stmt in the pool.
-func putStmt(s *Stmt) {
-	s.way = nil
-	s.caller = nil
-	s.prepare = EmptyString
-	s.stmt = nil
-	s.log = nil
-	poolStmt.Put(s)
-}
-
 // Config Configure of Way.
 type Config struct {
+	// Scan Scan data into structure.
+	Scan func(rows *sql.Rows, result interface{}, tag string) error
+
+	// ScanTag Scan data to tag mapping on structure.
+	ScanTag string
+
+	// Helper Helpers for handling different types of databases.
+	Helper Helper
+
 	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
 	DeleteMustUseWhere bool
 
 	// UpdateMustUseWhere Updated data must be filtered using conditions.
 	UpdateMustUseWhere bool
+
+	// TransactionOptions Start transaction.
+	TransactionOptions *sql.TxOptions
+
+	// TransactionMaxDuration Maximum transaction execution time.
+	TransactionMaxDuration time.Duration
+
+	// WarnDuration SQL execution time warning threshold.
+	WarnDuration time.Duration
 }
 
 var (
-	DefaultConfig = &Config{
-		DeleteMustUseWhere: true,
-		UpdateMustUseWhere: true,
+	DefaultConfig = Config{
+		Scan:                   ScanSliceStruct,
+		ScanTag:                DefaultTag,
+		DeleteMustUseWhere:     true,
+		UpdateMustUseWhere:     true,
+		TransactionMaxDuration: time.Second * 5,
+		WarnDuration:           time.Millisecond * 200,
 	}
 )
 
-// LogArgs Record executed args of prepare.
-type LogArgs struct {
-	// Args SQL parameter list.
-	Args []interface{}
+// logSql Record executed prepare args.
+type logSql struct {
+	way *Way
 
-	// StartAt The start time of the SQL statement.
-	StartAt time.Time
+	// prepare Preprocess the SQL statements that are executed.
+	prepare string
 
-	// EndAt The end time of the SQL statement.
-	EndAt time.Time
+	// args SQL parameter list.
+	args *logSqlArgs
+
+	// err An error encountered when executing SQL.
+	err error
 }
 
-// LogSQL Record executed prepare args.
-type LogSQL struct {
-	// TxId Transaction ID.
-	TxId string
+// logSqlArgs Record executed args of prepare.
+type logSqlArgs struct {
+	// args SQL parameter list.
+	args []interface{}
 
-	// TxMsg Transaction descriptors.
-	TxMsg string
+	// startAt The start time of the SQL statement.
+	startAt time.Time
 
-	// Prepare Preprocess the SQL statements that are executed.
-	Prepare string
-
-	// Error An error encountered when executing SQL.
-	Error error
-
-	// Args SQL parameter list.
-	Args *LogArgs
+	// endAt The end time of the SQL statement.
+	endAt time.Time
 }
 
-// LogTrans Record executed transaction.
-type LogTrans struct {
-	// Transaction id.
-	TxId string
+func (s *Way) logger(prepare string, args []interface{}) *logSql {
+	return &logSql{
+		way:     s,
+		prepare: prepare,
+		args: &logSqlArgs{
+			startAt: time.Now(),
+			args:    args,
+		},
+	}
+}
 
-	// Transaction message.
-	TxMsg string
-
-	// Transaction start at.
-	StartAt time.Time
-
-	// Transaction end at.
-	EndAt time.Time
-
-	// Transaction result COMMIT || ROLLBACK.
-	State string
-
-	// Error.
-	Error error
+func (s *logSql) write() {
+	if s.way.log == nil {
+		return
+	}
+	if s.args.endAt.IsZero() {
+		s.args.endAt = time.Now()
+	}
+	if s.way.transaction != nil {
+		s.way.transaction.logSql = append(s.way.transaction.logSql, s)
+		return
+	}
+	lg := s.way.log.Info()
+	if s.err != nil {
+		lg = s.way.log.Error()
+		lg.Str("error", s.err.Error())
+		lg.Str("script", PrepareString(s.prepare, s.args.args))
+	} else {
+		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.WarnDuration {
+			lg = s.way.log.Warn()
+			lg.Str("script", PrepareString(s.prepare, s.args.args))
+		}
+	}
+	lg.Str("prepare", s.prepare)
+	lg.Any("args", s.args.args)
+	lg.Int64("start_at", s.args.startAt.UnixMilli())
+	lg.Int64("end_at", s.args.endAt.UnixMilli())
+	lg.Str("cost", s.args.endAt.Sub(s.args.startAt).String())
+	lg.Send()
 }
 
 // PrepareArgs Statements to be executed and corresponding parameter list.
@@ -191,177 +201,137 @@ type Reader interface {
 
 // Way Quick insert, delete, update, select helper.
 type Way struct {
-	// Custom properties: the instance of the database connect pool.
+	cfg *Config
+
 	db *sql.DB
 
-	// Custom properties: fix prepare sql script before call prepare method.
-	fix func(string) string
+	log *logger.Logger
 
-	// Custom properties: bind struct tag and table column.
-	tag string
+	transaction *transaction
 
-	// Custom properties: logger executed sql statement.
-	log func(log *LogSQL)
-
-	// The transaction instance.
-	tx *sql.Tx
-
-	// The transaction start at.
-	txAt *time.Time
-
-	// The transaction unique id.
-	txId string
-
-	// The transaction message.
-	txMsg string
-
-	// Custom properties: logger executed transaction.
-	txLog func(log *LogTrans)
-
-	// Custom properties: the transaction isolation level.
-	txOpts *sql.TxOptions
-
-	// Custom properties: configure of *Way.
-	config *Config
-
-	// Custom properties: scan query result.
-	scan func(rows *sql.Rows, result interface{}, tag string) error
-
-	// Custom properties: get a query-only object.
 	reader Reader
 
-	// Whether the current object is a query object, ignore current values when calling getWay and putWay.
-	isRead *struct{}
+	isRead bool
 }
 
-// Opts Custom attribute value of *Way.
-type Opts func(s *Way)
-
-// WithPrepare -> Uses custom fix prepare.
-func WithPrepare(fix func(prepare string) string) Opts {
-	return func(s *Way) { s.fix = fix }
-}
-
-// WithTag -> Uses custom tag.
-func WithTag(tag string) Opts {
-	return func(s *Way) { s.tag = tag }
-}
-
-// WithLogger -> Uses custom logger.
-func WithLogger(log func(log *LogSQL)) Opts {
-	return func(s *Way) { s.log = log }
-}
-
-// WithTxLogger -> Uses custom transaction logger.
-func WithTxLogger(txLog func(log *LogTrans)) Opts {
-	return func(s *Way) { s.txLog = txLog }
-}
-
-// WithTxOpts -> Uses custom global default transaction isolation level.
-func WithTxOpts(txOpts *sql.TxOptions) Opts {
-	return func(s *Way) { s.txOpts = txOpts }
-}
-
-// WithConfig -> Uses custom configure.
-func WithConfig(config *Config) Opts {
-	return func(s *Way) { s.config = config }
-}
-
-// WithScan -> Uses scan for query data.
-func WithScan(scan func(rows *sql.Rows, result interface{}, tag string) error) Opts {
-	return func(s *Way) { s.scan = scan }
-}
-
-// WithReader -> uses reader for query.
-func WithReader(reader Reader) Opts {
-	return func(s *Way) { s.reader = reader }
-}
-
-// NewWay Instantiate a helper.
-func NewWay(db *sql.DB, opts ...Opts) *Way {
-	s := &Way{
-		db:     db,
-		tag:    DefaultTag,
-		config: DefaultConfig,
-		scan:   ScanSliceStruct,
+func (s *Way) SetConfig(cfg Config) *Way {
+	if cfg.Scan == nil || cfg.ScanTag == "" || cfg.Helper == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
+		return s
 	}
-	for _, opt := range opts {
-		opt(s)
-	}
+	s.cfg = &cfg
 	return s
 }
 
-// DB -> Get the database connection pool object in the current instance.
-func (s *Way) DB() *sql.DB {
-	return s.db
+func (s *Way) SetLogger(l *logger.Logger) *Way {
+	s.log = l
+	return s
 }
 
-// Tag -> Get tag value.
-func (s *Way) Tag() string {
-	return s.tag
+func (s *Way) SetReader(reader Reader) *Way {
+	s.reader = reader
+	return s
 }
 
-// Read -> Get an object for read.
 func (s *Way) Read() *Way {
 	if s.reader == nil {
 		return s
 	}
 	readWay := s.reader.Read()
-	if readWay.isRead == nil {
-		readWay.isRead = &struct{}{}
-	}
+	readWay.isRead = true
 	return readWay
 }
 
 // IsRead -> Is an object for read?
 func (s *Way) IsRead() bool {
-	return s.isRead != nil
+	return s.isRead
+}
+
+func (s *Way) DB() *sql.DB {
+	return s.db
+}
+
+func NewWay(driverName string, dataSourceName string) (*Way, error) {
+	db, err := sql.Open(driverName, dataSourceName)
+	if err != nil {
+		return nil, err
+	}
+	if err = db.Ping(); err != nil {
+		return nil, err
+	}
+	way := &Way{}
+	way.db = db
+	config := DefaultConfig
+	switch driverName {
+	case DriverNameMysql:
+		config.Helper = NewMysqlHelper()
+	case DriverNameSqlite3:
+		config.Helper = NewMysqlHelper()
+	case DriverNamePostgres, "pgsql", "postgresql":
+		config.Helper = NewPostgresHelper()
+	default:
+	}
+	way.SetConfig(config)
+	return way, nil
 }
 
 // begin -> Open transaction.
-func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
-	opt := s.txOpts
+func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (tx *Way, err error) {
+	tmp := *s
+	tx = &tmp
+
+	opt := tx.cfg.TransactionOptions
 	length := len(opts)
 	for i := length - 1; i >= 0; i-- {
 		if opts[i] != nil {
 			opt = opts[i]
+			break
 		}
 	}
+
+	tx.transaction = &transaction{
+		way: tx,
+	}
 	if conn != nil {
-		s.tx, err = conn.BeginTx(ctx, opt)
+		tx.transaction.tx, err = conn.BeginTx(ctx, opt)
 	} else {
-		s.tx, err = s.db.BeginTx(ctx, opt)
+		tx.transaction.tx, err = tx.db.BeginTx(ctx, opt)
 	}
 	if err != nil {
 		return
 	}
-	now := time.Now()
-	s.txAt = &now
-	s.txId = fmt.Sprintf("%d%s%d%s%p", now.UnixNano(), SqlPoint, os.Getpid(), SqlPoint, s.tx)
+	tx.transaction.startAt = time.Now()
+	tx.transaction.id = fmt.Sprintf("%d%s%d%s%p", tx.transaction.startAt.UnixNano(), SqlPoint, os.Getpid(), SqlPoint, tx.transaction)
+	tx.transaction.start()
 	return
 }
 
 // commit -> Commit transaction.
 func (s *Way) commit() (err error) {
-	err = s.tx.Commit()
-	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, EmptyString, EmptyString
+	tx := s.transaction
+	tx.state = "COMMIT"
+	defer tx.write()
+	tx.err = tx.tx.Commit()
+	s.transaction, err = nil, tx.err
 	return
 }
 
 // rollback -> Rollback transaction.
 func (s *Way) rollback() (err error) {
-	err = s.tx.Rollback()
-	s.tx, s.txAt, s.txId, s.txMsg = nil, nil, EmptyString, EmptyString
+	tx := s.transaction
+	tx.state = "ROLLBACK"
+	defer tx.write()
+	tx.err = tx.tx.Rollback()
+	s.transaction, err = nil, tx.err
 	return
 }
 
-// Begin -> Open transaction(no transaction logging).
-func (s *Way) Begin(ctx context.Context, opts ...*sql.TxOptions) error {
+// Begin -> Open transaction.
+func (s *Way) Begin(ctx context.Context, opts ...*sql.TxOptions) (*Way, error) {
 	return s.begin(ctx, nil, opts...)
 }
 
-// BeginWithConn -> Open transaction(no transaction logging).
-func (s *Way) BeginWithConn(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) error {
+// BeginConn -> Open transaction using *sql.Conn.
+func (s *Way) BeginConn(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (*Way, error) {
 	return s.begin(ctx, conn, opts...)
 }
 
@@ -375,112 +345,98 @@ func (s *Way) Rollback() error {
 	return s.rollback()
 }
 
-// TxNil -> Whether the current instance has not opened a transaction.
-func (s *Way) TxNil() bool {
-	return s.tx == nil
+// IsInTransaction -> Is it in transaction?.
+func (s *Way) IsInTransaction() bool {
+	return s.transaction != nil
 }
 
-// TxMsg -> Set the prompt for the current transaction, can only be set once.
-func (s *Way) TxMsg(msg string) *Way {
-	if s.tx == nil {
+// SetTransactionMsg -> Set the prompt for the current transaction, can only be set once.
+func (s *Way) SetTransactionMsg(msg string) *Way {
+	if s.transaction == nil {
 		return s
 	}
-	if s.txMsg == EmptyString {
-		s.txMsg = msg
+	if s.transaction.message == EmptyString {
+		s.transaction.message = msg
 	}
 	return s
 }
 
-// TxArgs Optional args for begin a transaction.
-type TxArgs struct {
-	// Use the specified database connection, default nil.
-	Conn *sql.Conn
-
-	// Use the specified transaction isolation level, default *Way.txOpts.
-	Opts *sql.TxOptions
-
-	// Try calling transaction multiple times, default 1.
-	Times int
-}
-
-// transaction -> Batch execute SQL through transactions.
-func (s *Way) transaction(ctx context.Context, fc func(tx *Way) error, args *TxArgs) (err error) {
-	if s.tx != nil {
+// tryTransaction -> Batch execute SQL through transactions.
+func (s *Way) tryTransaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
+	if s.transaction != nil {
 		return fc(s)
 	}
-	tmp := *s
-	way := &tmp
-	if err = way.begin(ctx, args.Conn, args.Opts); err != nil {
-		return
+
+	tx, ber := s.begin(ctx, conn, opts...)
+	if ber != nil {
+		return ber
 	}
-	log := &LogTrans{
-		TxId:    way.txId,
-		StartAt: *(way.txAt),
-	}
+
 	ok := false
 	defer func() {
-		log.TxMsg = way.txMsg
 		if err == nil && ok {
-			err = way.commit()
-			log.State = "COMMIT"
+			err = tx.commit()
 		} else {
-			_ = way.rollback()
-			log.State = "ROLLBACK"
-		}
-		log.Error = err
-		if s.txLog != nil {
-			log.EndAt = time.Now()
-			s.txLog(log)
+			err = tx.rollback()
 		}
 	}()
-	if err = fc(way); err != nil {
+	if err = fc(tx); err != nil {
 		return
 	}
 	ok = true
 	return
 }
 
-// TxTryCtx -> Batch execute SQL through transactions, In args, only the last transaction parameter is valid.
-func (s *Way) TxTryCtx(ctx context.Context, fc func(tx *Way) error, args ...*TxArgs) (err error) {
-	param := &TxArgs{
-		Opts:  s.txOpts,
-		Times: 1,
+// TransactionContext -> Batch execute SQL through transactions.
+func (s *Way) TransactionContext(ctx context.Context, retries int, transaction func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
+	opt := s.cfg.TransactionOptions
+	for i := len(opts) - 1; i >= 0; i-- {
+		if opts[i] != nil {
+			opt = opts[i]
+			break
+		}
 	}
-	length := len(args)
-	for i := length - 1; i >= 0; i-- {
-		if args[i] == nil {
-			continue
-		}
-		if args[i].Conn != nil {
-			param.Conn = args[i].Conn
-		}
-		if args[i].Opts != nil {
-			param.Opts = args[i].Opts
-		}
-		if args[i].Times > 0 {
-			param.Times = args[i].Times
-		}
-		break
-	}
-	for i := 0; i < param.Times; i++ {
-		if err = s.transaction(ctx, fc, param); err == nil {
+	for i := 0; i < retries; i++ {
+		if err = s.tryTransaction(ctx, transaction, conn, opt); err == nil {
 			break
 		}
 	}
 	return
 }
 
-// TxTry -> Batch execute SQL through transactions, In args, only the last transaction parameter is valid.
-func (s *Way) TxTry(fc func(tx *Way) error, args ...*TxArgs) error {
-	return s.TxTryCtx(context.Background(), fc, args...)
+// transactionRetry -> Batch execute SQL through transactions.
+func (s *Way) transactionRetry(timeout time.Duration, transaction func(tx *Way) error, opts ...*sql.TxOptions) error {
+	// Using timeout context to prevent database transactions from causing deadlocks.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return s.tryTransaction(ctx, transaction, nil, opts...)
+}
+
+// TransactionRetry -> Batch execute SQL through transactions.
+func (s *Way) TransactionRetry(retries int, transaction func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
+	timeout := time.Second * 5
+	if s.cfg.TransactionMaxDuration > 0 {
+		timeout = s.cfg.TransactionMaxDuration
+	}
+	for i := 0; i < retries; i++ {
+		if err = s.transactionRetry(timeout, transaction, opts...); err == nil {
+			break
+		}
+	}
+	return
+}
+
+// Transaction -> Batch execute SQL through transactions.
+func (s *Way) Transaction(transaction func(tx *Way) error, opts ...*sql.TxOptions) error {
+	return s.TransactionRetry(1, transaction, opts...)
 }
 
 // Now -> Get current time, the transaction open status will get the same time.
 func (s *Way) Now() time.Time {
-	if s.TxNil() {
+	if !s.IsInTransaction() {
 		return time.Now()
 	}
-	return *(s.txAt)
+	return s.transaction.startAt
 }
 
 // ScanAll -> Iteratively scan from query results.
@@ -510,17 +466,10 @@ func (s *Way) caller(caller ...Caller) Caller {
 			return caller[i]
 		}
 	}
-	if s.tx != nil {
-		return s.tx
+	if s.transaction != nil {
+		return s.transaction.tx
 	}
 	return s.db
-}
-
-// logger -> Call logger.
-func (s *Way) logger(log *LogSQL) {
-	if s.log != nil {
-		s.log(log)
-	}
 }
 
 // Stmt Prepare handle.
@@ -529,34 +478,29 @@ type Stmt struct {
 	caller  Caller
 	prepare string
 	stmt    *sql.Stmt
-	log     *LogSQL
 }
 
 // Close -> Close prepare handle.
 func (s *Stmt) Close() (err error) {
 	if s.stmt != nil {
 		err = s.stmt.Close()
-		putStmt(s) // successfully called.
 	}
 	return
 }
 
 // QueryContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
-	s.log.Args = &LogArgs{
-		Args: args,
-	}
-	defer s.way.logger(s.log)
-	s.log.Args.StartAt = time.Now()
+	lg := s.way.logger(s.prepare, args)
+	defer lg.write()
 	rows, err := s.stmt.QueryContext(ctx, args...)
-	s.log.Args.EndAt = time.Now()
+	lg.args.endAt = time.Now()
 	if err != nil {
-		s.log.Error = err
+		lg.err = err
 		return err
 	}
 	defer func() { _ = rows.Close() }()
-	s.log.Error = query(rows)
-	return s.log.Error
+	lg.err = query(rows)
+	return lg.err
 }
 
 // Query -> Query prepared, that can be called repeatedly.
@@ -566,15 +510,12 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) error {
-	s.log.Args = &LogArgs{
-		Args: args,
-	}
-	defer s.way.logger(s.log)
-	s.log.Args.StartAt = time.Now()
+	lg := s.way.logger(s.prepare, args)
+	defer lg.write()
 	row := s.stmt.QueryRowContext(ctx, args...)
-	s.log.Args.EndAt = time.Now()
-	s.log.Error = query(row)
-	return s.log.Error
+	lg.args.endAt = time.Now()
+	lg.err = query(row)
+	return lg.err
 }
 
 // QueryRow -> Query prepared, that can be called repeatedly.
@@ -584,14 +525,11 @@ func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (e
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
-	s.log.Args = &LogArgs{
-		Args: args,
-	}
-	defer s.way.logger(s.log)
-	s.log.Args.StartAt = time.Now()
+	lg := s.way.logger(s.prepare, args)
+	defer lg.write()
 	result, err := s.stmt.ExecContext(ctx, args...)
-	s.log.Args.EndAt = time.Now()
-	s.log.Error = err
+	lg.args.endAt = time.Now()
+	lg.err = err
 	return result, err
 }
 
@@ -616,7 +554,7 @@ func (s *Stmt) Exec(args ...interface{}) (int64, error) {
 
 // TakeAllContext -> Query prepared and get all query results, that can be called repeatedly.
 func (s *Stmt) TakeAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
-	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.way.scan(rows, result, s.way.tag) }, args...)
+	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.way.cfg.Scan(rows, result, s.way.cfg.ScanTag) }, args...)
 }
 
 // TakeAll -> Query prepared and get all query results, that can be called repeatedly.
@@ -625,35 +563,34 @@ func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
 }
 
 // PrepareContext -> Prepare sql statement, don't forget to call *Stmt.Close().
-func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (*Stmt, error) {
-	stmt := getStmt()
-	stmt.log = &LogSQL{}
-	stmt.log.TxId, stmt.log.TxMsg = s.txId, s.txMsg
-	defer func() {
-		if stmt.stmt == nil {
-			putStmt(stmt) // called when stmt.caller.PrepareContext() failed.
-		}
-	}()
-	stmt.way = s
-	stmt.caller = s.caller(caller...)
-	stmt.prepare = prepare
-	if s.fix != nil {
-		stmt.prepare = s.fix(prepare)
+func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (stmt *Stmt, err error) {
+	stmt = &Stmt{
+		way:     s,
+		caller:  s.caller(caller...),
+		prepare: s.cfg.Helper.Prepare(prepare),
 	}
-	stmt.log.Prepare = stmt.prepare
-	tmp, err := stmt.caller.PrepareContext(ctx, stmt.prepare)
+	stmt.stmt, err = stmt.caller.PrepareContext(ctx, stmt.prepare)
 	if err != nil {
-		stmt.log.Error = err
-		s.logger(stmt.log)
 		return nil, err
 	}
-	stmt.stmt = tmp
 	return stmt, nil
 }
 
 // Prepare -> Prepare sql statement, don't forget to call *Stmt.Close().
 func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
 	return s.PrepareContext(context.Background(), prepare, caller...)
+}
+
+// InsertReturningId -> Insert one, returning id.
+func (s *Way) InsertReturningId(ctx context.Context, helper Helper, prepare string, args []interface{}) (id int64, err error) {
+	ls := s.logger(prepare, args)
+	defer ls.write()
+	id, err = helper.InsertReturningId(ctx, s, prepare, args)
+	ls.args.endAt = time.Now()
+	if err != nil {
+		ls.err = err
+	}
+	return
 }
 
 // QueryContext -> Execute the query sql statement.
@@ -688,7 +625,7 @@ func (s *Way) QueryRow(query func(row *sql.Row) error, prepare string, args ...i
 
 // TakeAllContext -> Query prepared and get all query results, through the mapping of column names and struct tags.
 func (s *Way) TakeAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
-	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.scan(rows, result, s.tag) }, prepare, args...)
+	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.cfg.Scan(rows, result, s.cfg.ScanTag) }, prepare, args...)
 }
 
 // TakeAll -> Query prepared and get all query results.
@@ -726,72 +663,61 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
-// getter -> Query, execute the query sql statement without args, no prepared is used.
-func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) error {
+// getter -> Query, execute the query sql statement with args, no prepared is used.
+func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
-	log := &LogSQL{
-		TxId:    s.txId,
-		TxMsg:   s.txMsg,
-		Prepare: prepare,
-		Args:    &LogArgs{},
-	}
-	defer s.logger(log)
-	log.Args.StartAt = time.Now()
-	rows, err := s.caller(caller...).QueryContext(ctx, prepare)
-	log.Args.EndAt = time.Now()
+	lg := s.logger(prepare, args)
+	defer lg.write()
+	rows, err := s.caller(caller).QueryContext(ctx, prepare, args...)
+	lg.args.endAt = time.Now()
 	if err != nil {
-		log.Error = err
-		return log.Error
+		lg.err = err
+		return err
 	}
 	defer func() { _ = rows.Close() }()
-	log.Error = query(rows)
-	return log.Error
+	err = query(rows)
+	lg.err = err
+	return err
 }
 
-// setter -> Execute, execute the execute sql statement without args, no prepared is used.
-func (s *Way) setter(ctx context.Context, prepare string, caller ...Caller) (rowsAffected int64, err error) {
+// setter -> Execute, execute the execute sql statement with args, no prepared is used.
+func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ...interface{}) (rowsAffected int64, err error) {
 	if prepare == "" {
 		return
 	}
-	log := &LogSQL{
-		TxId:    s.txId,
-		TxMsg:   s.txMsg,
-		Prepare: prepare,
-		Args:    &LogArgs{},
-	}
-	defer s.logger(log)
-	log.Args.StartAt = time.Now()
-	result, rer := s.caller(caller...).ExecContext(ctx, prepare)
-	log.Args.EndAt = time.Now()
+	lg := s.logger(prepare, args)
+	defer lg.write()
+	result, rer := s.caller(caller).ExecContext(ctx, prepare, args...)
+	lg.args.endAt = time.Now()
 	if rer != nil {
-		log.Error, err = rer, rer
+		lg.err, err = rer, rer
 		return
 	}
 	rowsAffected, err = result.RowsAffected()
-	log.Error = err
+	lg.err = err
 	return
 }
 
-// GetterContext -> Execute the query sql statement without args, no prepared is used.
-func (s *Way) GetterContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, caller ...Caller) (err error) {
-	return s.getter(ctx, query, prepare, caller...)
+// GetterContext -> Execute the query sql statement with args, no prepared is used.
+func (s *Way) GetterContext(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) (err error) {
+	return s.getter(ctx, caller, query, prepare, args...)
 }
 
-// Getter -> Execute the query sql statement without args, no prepared is used.
-func (s *Way) Getter(query func(rows *sql.Rows) error, prepare string, caller ...Caller) error {
-	return s.GetterContext(context.Background(), query, prepare, caller...)
+// Getter -> Execute the query sql statement with args, no prepared is used.
+func (s *Way) Getter(caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+	return s.GetterContext(context.Background(), caller, query, prepare, args...)
 }
 
-// SetterContext -> Execute the execute sql statement without args, no prepared is used.
-func (s *Way) SetterContext(ctx context.Context, prepare string, caller ...Caller) (int64, error) {
-	return s.setter(ctx, prepare, caller...)
+// SetterContext -> Execute the execute sql statement with args, no prepared is used.
+func (s *Way) SetterContext(ctx context.Context, caller Caller, prepare string, args ...interface{}) (int64, error) {
+	return s.setter(ctx, caller, prepare, args...)
 }
 
-// Setter -> Execute the execute sql statement without args, no prepared is used.
-func (s *Way) Setter(prepare string, caller ...Caller) (int64, error) {
-	return s.SetterContext(context.Background(), prepare, caller...)
+// Setter -> Execute the execute sql statement with args, no prepared is used.
+func (s *Way) Setter(caller Caller, prepare string, args ...interface{}) (int64, error) {
+	return s.SetterContext(context.Background(), caller, prepare, args...)
 }
 
 // F -> Quickly initialize a filter.
@@ -819,44 +745,44 @@ func (s *Way) Get(table ...string) *Get {
 	return NewGet(s).Table(LastNotEmptyString(table))
 }
 
-// Ident -> SQL identifier.
-func (s *Way) Ident(prefix ...string) *Ident {
-	return newIdent(prefix...)
+// Fields -> SQL identifier.
+func (s *Way) Fields(prefix ...string) *Fields {
+	return NewFields(s).SetPrefix(LastNotEmptyString(prefix))
 }
 
-// AliasA SQL identifier prefix a.
-func (s *Way) AliasA() *Ident {
-	return s.Ident(AliasA)
+// T1 Table alias `a`
+func (s *Way) T1() *Fields {
+	return s.Fields(AliasA)
 }
 
-// AliasB SQL identifier prefix b.
-func (s *Way) AliasB() *Ident {
-	return s.Ident(AliasB)
+// T2 Table alias `b`
+func (s *Way) T2() *Fields {
+	return s.Fields(AliasB)
 }
 
-// AliasC SQL identifier prefix c.
-func (s *Way) AliasC() *Ident {
-	return s.Ident(AliasC)
+// T3 Table alias `c`
+func (s *Way) T3() *Fields {
+	return s.Fields(AliasC)
 }
 
-// AliasD SQL identifier prefix d.
-func (s *Way) AliasD() *Ident {
-	return s.Ident(AliasD)
+// T4 Table alias `d`
+func (s *Way) T4() *Fields {
+	return s.Fields(AliasD)
 }
 
-// AliasE SQL identifier prefix e.
-func (s *Way) AliasE() *Ident {
-	return s.Ident(AliasE)
+// T5 Table alias `e`
+func (s *Way) T5() *Fields {
+	return s.Fields(AliasE)
 }
 
-// AliasF SQL identifier prefix f.
-func (s *Way) AliasF() *Ident {
-	return s.Ident(AliasF)
+// T6 Table alias `f`
+func (s *Way) T6() *Fields {
+	return s.Fields(AliasF)
 }
 
-// AliasG SQL identifier prefix g.
-func (s *Way) AliasG() *Ident {
-	return s.Ident(AliasG)
+// T7 Table alias `g`
+func (s *Way) T7() *Fields {
+	return s.Fields(AliasG)
 }
 
 // read Implement Reader.
@@ -1045,12 +971,12 @@ func PrepareString(prepare string, args []interface{}) string {
 	}
 	index := 0
 	origin := []byte(prepare)
-	latest := getBuilder()
-	defer putBuilder(latest)
+	latest := getStringBuilder()
+	defer putStringBuilder(latest)
 	length := len(origin)
-	byte63 := SqlPlaceholder[0]
+	questionMark := byte('?')
 	for i := 0; i < length; i++ {
-		if origin[i] == byte63 && index < count {
+		if origin[i] == questionMark && index < count {
 			latest.WriteString(ArgString(args[index]))
 			index++
 		} else {

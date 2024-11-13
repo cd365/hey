@@ -14,10 +14,7 @@ import (
 	"sync"
 )
 
-const (
-	Id = "id"
-)
-
+// Common data values for table.column.
 const (
 	State0   = 0
 	State1   = 1
@@ -28,56 +25,25 @@ const (
 )
 
 var (
-	ErrNoAffectedRows = errors.New("hey: there are no affected rows")
+	// ErrNoAffectedRows No rows are affected when execute SQL.
+	ErrNoAffectedRows = errors.New("database: there are no affected rows")
 )
 
 var (
-	// builder sql builder pool.
-	builder *sync.Pool
-
 	// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
-	insertByStructPool *sync.Pool
-
-	// identPool prefix pool.
-	identPool *sync.Pool
+	insertByStructPool = &sync.Pool{
+		New: func() interface{} {
+			return &insertByStruct{}
+		},
+	}
 
 	// casePool case pool.
-	casePool *sync.Pool
+	casePool = &sync.Pool{
+		New: func() interface{} {
+			return newCase()
+		},
+	}
 )
-
-// init initialize.
-func init() {
-	builder = &sync.Pool{}
-	builder.New = func() interface{} {
-		return &strings.Builder{}
-	}
-
-	insertByStructPool = &sync.Pool{}
-	insertByStructPool.New = func() interface{} {
-		return &insertByStruct{}
-	}
-
-	identPool = &sync.Pool{}
-	identPool.New = func() any {
-		return newIdent()
-	}
-
-	casePool = &sync.Pool{}
-	casePool.New = func() any {
-		return newCase()
-	}
-}
-
-// getBuilder get sql builder from pool.
-func getBuilder() *strings.Builder {
-	return builder.Get().(*strings.Builder)
-}
-
-// putBuilder put sql builder in the pool.
-func putBuilder(b *strings.Builder) {
-	b.Reset()
-	builder.Put(b)
-}
 
 // getInsertByStruct get *insertByStruct from pool.
 func getInsertByStruct() *insertByStruct {
@@ -96,19 +62,6 @@ func putInsertByStruct(b *insertByStruct) {
 	b.used = nil
 	b.structReflectType = nil
 	insertByStructPool.Put(b)
-}
-
-// GetIdent get *Ident from pool.
-func GetIdent(alias ...string) *Ident {
-	ident := identPool.Get().(*Ident)
-	ident.prefix = LastNotEmptyString(alias)
-	return ident
-}
-
-// PutIdent put *Ident in the pool.
-func PutIdent(i *Ident) {
-	i.prefix = EmptyString
-	identPool.Put(i)
 }
 
 // GetCase get *Case from pool.
@@ -814,8 +767,8 @@ func RemoveSliceMemberByIndex[T interface{}](indexList []int, elementList []T) [
 
 // ConcatString concatenate string.
 func ConcatString(sss ...string) string {
-	b := getBuilder()
-	defer putBuilder(b)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 	length := len(sss)
 	for i := 0; i < length; i++ {
 		b.WriteString(sss[i])
@@ -833,7 +786,7 @@ func SqlAlias(name string, alias string) string {
 
 // SqlPrefix sql prefix name.
 func SqlPrefix(prefix string, name string) string {
-	if prefix == EmptyString {
+	if prefix == EmptyString || strings.HasPrefix(name, fmt.Sprintf("%s%s", prefix, SqlPoint)) {
 		return name
 	}
 	return fmt.Sprintf("%s%s%s", prefix, SqlPoint, name)
@@ -919,22 +872,6 @@ func MergeSlice[V interface{}](elems ...[]V) []V {
 	return result
 }
 
-// sqlReturning build RETURNING statement, the contents of the RETURNING clause are the same as the output list of the SELECT command.
-func sqlReturning(add *Add, returning ...string) (prepare string, args []interface{}) {
-	prepare, args = add.SQL()
-	b := getBuilder()
-	defer putBuilder(b)
-	b.WriteString(prepare)
-	b.WriteString(" RETURNING ")
-	tmp := strings.Join(returning, ", ")
-	if tmp == EmptyString {
-		tmp = "*"
-	}
-	b.WriteString(tmp)
-	prepare = b.String()
-	return
-}
-
 // Case Implementing SQL CASE.
 type Case struct {
 	alias  string
@@ -994,8 +931,8 @@ func (s *Case) SQL() (prepare string, args []interface{}) {
 	if lenWhen == 0 || lenWhen != lenThen || s.others == nil {
 		return
 	}
-	b := getBuilder()
-	defer putBuilder(b)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 	b.WriteString("CASE")
 	for i := 0; i < lenWhen; i++ {
 		b.WriteString(" WHEN ")
@@ -1036,9 +973,9 @@ func newSchema(way *Way) *schema {
 }
 
 // comment make SQL statement builder, SqlPlaceholder "?" should not appear in comments.
-// defer putBuilder(builder) should be called immediately after calling the current method.
+// defer putStringBuilder(builder) should be called immediately after calling the current method.
 func comment(schema *schema) (b *strings.Builder) {
-	b = getBuilder()
+	b = getStringBuilder()
 	schema.comment = strings.TrimSpace(schema.comment)
 	schema.comment = strings.ReplaceAll(schema.comment, SqlPlaceholder, EmptyString)
 	if schema.comment == EmptyString {
@@ -1093,12 +1030,12 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
-	defer putBuilder(buf)
+	defer putStringBuilder(buf)
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(s.schema.table)
 
-	config := s.schema.way.config
-	if config != nil && config.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
+	cfg := s.schema.way.cfg
+	if cfg.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
 		prepare, args = EmptyString, nil
 		return
 	}
@@ -1155,13 +1092,6 @@ type Add struct {
 
 	// subQuery INSERT VALUES is query statement.
 	subQuery *SubQuery
-
-	// onConflict On conflict do something.
-	onConflict     *string
-	onConflictArgs []interface{}
-
-	// useResult Custom use of sql.Result.
-	useResult func(result sql.Result) error
 }
 
 // NewAdd for INSERT.
@@ -1422,7 +1352,7 @@ func (s *Add) Create(create interface{}) *Add {
 		return s
 	}
 
-	return s.FieldsValues(StructInsert(create, s.schema.way.tag, s.except, s.permit))
+	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, s.except, s.permit))
 }
 
 // ValuesSubQuery values is a query SQL statement.
@@ -1456,31 +1386,6 @@ func (s *Add) ValuesSubQueryGet(get *Get, fields ...string) *Add {
 	return s.ValuesSubQuery(get.SQL())
 }
 
-// OnConflict on conflict do something.
-func (s *Add) OnConflict(prepare string, args []interface{}) *Add {
-	s.onConflict = &prepare
-	s.onConflictArgs = args
-	return s
-}
-
-// UseResult provide sql.Result object.
-func (s *Add) UseResult(fc func(result sql.Result) error) *Add {
-	if fc != nil {
-		s.useResult = fc
-	}
-	return s
-}
-
-// withOnConflict with ON CONFLICT object.
-func (s *Add) withOnConflict(buf *strings.Builder) (onConflictArgs []interface{}) {
-	if s.onConflict != nil && *s.onConflict != EmptyString {
-		buf.WriteString(SqlSpace)
-		buf.WriteString(*s.onConflict)
-		onConflictArgs = s.onConflictArgs
-	}
-	return
-}
-
 // SQL build SQL statement.
 func (s *Add) SQL() (prepare string, args []interface{}) {
 	if s.schema.table == EmptyString {
@@ -1488,7 +1393,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	}
 
 	buf := comment(s.schema)
-	defer putBuilder(buf)
+	defer putStringBuilder(buf)
 
 	if s.subQuery != nil {
 		buf.WriteString("INSERT INTO ")
@@ -1502,9 +1407,6 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		subPrepare, subArgs := s.subQuery.SQL()
 		buf.WriteString(subPrepare)
 		args = subArgs
-		if onConflictArgs := s.withOnConflict(buf); onConflictArgs != nil {
-			args = append(args, onConflictArgs...)
-		}
 		prepare = buf.String()
 		return
 	}
@@ -1525,7 +1427,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		}
 		s.FieldValue(field, value)
 		if !addDefault {
-			addDefault = !addDefault
+			addDefault = true
 		}
 	}
 	if addDefault {
@@ -1551,9 +1453,6 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	buf.WriteString(strings.Join(s.fields, ", "))
 	buf.WriteString(" ) VALUES ")
 	buf.WriteString(strings.Join(values, ", "))
-	if onConflictArgs := s.withOnConflict(buf); onConflictArgs != nil {
-		args = append(args, onConflictArgs...)
-	}
 	prepare = buf.String()
 	return
 }
@@ -1561,23 +1460,23 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 // Add execute the built SQL statement.
 func (s *Add) Add() (int64, error) {
 	prepare, args := s.SQL()
-	if s.useResult == nil {
-		return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
+	if prepare == EmptyString {
+		return 0, nil
 	}
-	result, err := s.schema.way.ExecuteContext(s.schema.ctx, prepare, args...)
-	if err != nil {
-		return 0, err
-	}
-	if err = s.useResult(result); err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// Returning insert a row and return the data.
-func (s *Add) Returning(fc func(row *sql.Row) error, returning ...string) error {
-	prepare, args := sqlReturning(s, returning...)
-	return s.schema.way.QueryRowContext(s.schema.ctx, fc, prepare, args...)
+// ReturningId execute the built SQL statement, returning auto-increment field value.
+func (s *Add) ReturningId(helpers ...Helper) (id int64, err error) {
+	helper := s.schema.way.cfg.Helper
+	for i := len(helpers) - 1; i >= 0; i-- {
+		if helpers[i] != nil {
+			helper = helpers[i]
+			break
+		}
+	}
+	prepare, args := s.SQL()
+	return s.schema.way.InsertReturningId(s.schema.ctx, helper, prepare, args)
 }
 
 // Way get current *Way.
@@ -1800,6 +1699,7 @@ func (s *Mod) SetCase(field string, value func(c *Case)) *Mod {
 
 	c := GetCase()
 	defer PutCase(c)
+
 	value(c)
 	expr, args := c.SQL()
 	if expr == EmptyString {
@@ -1829,12 +1729,12 @@ func (s *Mod) Modify(modify interface{}) *Mod {
 		}
 		return s
 	}
-	return s.FieldsValues(StructModify(modify, s.schema.way.tag, s.exceptSlice...))
+	return s.FieldsValues(StructModify(modify, s.schema.way.cfg.ScanTag, s.exceptSlice...))
 }
 
 // Update for compare origin and latest to automatically calculate need to update fields.
 func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
-	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.tag, s.exceptSlice...))
+	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.cfg.ScanTag, s.exceptSlice...))
 }
 
 // Where set where.
@@ -1873,8 +1773,8 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 		field[k] = s.update2[v].expr
 		value = append(value, s.update2[v].args...)
 	}
-	buf := getBuilder()
-	defer putBuilder(buf)
+	buf := getStringBuilder()
+	defer putStringBuilder(buf)
 	buf.WriteString(strings.Join(field, ", "))
 	prepare = buf.String()
 	args = value
@@ -1891,14 +1791,14 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 		return
 	}
 	buf := comment(s.schema)
-	defer putBuilder(buf)
+	defer putStringBuilder(buf)
 	buf.WriteString("UPDATE ")
 	buf.WriteString(s.schema.table)
 	buf.WriteString(" SET ")
 	buf.WriteString(prepare)
 
-	config := s.schema.way.config
-	if config != nil && config.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
+	cfg := s.schema.way.cfg
+	if cfg.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
 		prepare, args = EmptyString, nil
 		return
 	}
@@ -1970,8 +1870,8 @@ func (s *GetWith) WithGet(alias string, get *Get) *GetWith {
 }
 
 func (s *GetWith) SQL() (prepare string, args []interface{}) {
-	b := getBuilder()
-	defer putBuilder(b)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 	if s.recursive {
 		b.WriteString("RECURSIVE")
 		b.WriteString(SqlSpace)
@@ -2010,34 +1910,6 @@ type GetJoin struct {
 	alias    *string   // query table alias name.
 	on       string    // conditions for join query; ON a.order_id = b.order_id  <=> USING ( order_id ).
 	using    []string  // conditions for join query; USING ( order_id, ... ).
-}
-
-func newJoin(joinType string, table ...string) *GetJoin {
-	join := &GetJoin{
-		joinType: joinType,
-	}
-	join.Table(LastNotEmptyString(table))
-	return join
-}
-
-func InnerJoin(table ...string) *GetJoin {
-	return newJoin(SqlJoinInner, table...)
-}
-
-func LeftJoin(table ...string) *GetJoin {
-	return newJoin(SqlJoinLeft, table...)
-}
-
-func RightJoin(table ...string) *GetJoin {
-	return newJoin(SqlJoinRight, table...)
-}
-
-func FullJoin(table ...string) *GetJoin {
-	return newJoin(SqlJoinFull, table...)
-}
-
-func CrossJoin(table ...string) *GetJoin {
-	return newJoin(SqlJoinCross, table...)
 }
 
 // Table set table name.
@@ -2101,8 +1973,8 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 		return
 	}
 
-	buf := getBuilder()
-	defer putBuilder(buf)
+	buf := getStringBuilder()
+	defer putStringBuilder(buf)
 
 	buf.WriteString(s.joinType)
 
@@ -2141,110 +2013,6 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 type Limiter interface {
 	GetLimit() int64
 	GetOffset() int64
-}
-
-// Ident sql identifier.
-type Ident struct {
-	prefix string
-}
-
-func newIdent(prefix ...string) *Ident {
-	return &Ident{
-		prefix: LastNotEmptyString(prefix),
-	}
-}
-
-// V returns expressions in different formats based on the length of the parameter.
-// length=0: prefix value
-// length=1: prefix.name
-// length>1: prefix.name AS alias_name (the alias value must not be empty, otherwise it will not be used)
-func (s *Ident) V(sss ...string) string {
-	length := len(sss)
-	if length == 0 {
-		return s.prefix
-	}
-	name := sss[0]
-	if s.prefix != EmptyString {
-		name = ConcatString(s.prefix, SqlPoint, name)
-	}
-	if length == 1 {
-		return name
-	}
-	return SqlAlias(name, LastNotEmptyString(sss[1:]))
-}
-
-func (s *Ident) groupFunc(nameFunc string, field string, alias ...string) string {
-	return SqlAlias(ConcatString(nameFunc, SqlLeftSmallBracket, field, SqlRightSmallBracket), LastNotEmptyString(alias))
-}
-
-// Avg AVG([prefix.]xxx)[ AS xxx|custom].
-func (s *Ident) Avg(field string, alias ...string) string {
-	return s.groupFunc(SqlAvg, s.V(field), alias...)
-}
-
-// Max MAX([prefix.]xxx)[ AS xxx|custom].
-func (s *Ident) Max(field string, alias ...string) string {
-	return s.groupFunc(SqlMax, s.V(field), alias...)
-}
-
-// Min MIN([prefix.]xxx)[ AS xxx|custom].
-func (s *Ident) Min(field string, alias ...string) string {
-	return s.groupFunc(SqlMin, s.V(field), alias...)
-}
-
-// Sum SUM([prefix.]xxx)[ AS xxx|custom].
-func (s *Ident) Sum(field string, alias ...string) string {
-	return s.groupFunc(SqlSum, s.V(field), alias...)
-}
-
-// COUNT COUNT([prefix.]xxx) AS count|custom.
-func (s *Ident) COUNT(field string, alias ...string) string {
-	fieldAlias := LastNotEmptyString(alias)
-	if fieldAlias == EmptyString {
-		fieldAlias = "count"
-	}
-	return s.groupFunc(SqlCount, field, fieldAlias)
-}
-
-// AVG AVG([prefix.]xxx) AS xxx.
-func (s *Ident) AVG(field string) string {
-	return s.Avg(field, field)
-}
-
-// MAX MAX([prefix.]xxx) AS xxx.
-func (s *Ident) MAX(field string) string {
-	return s.Max(field, field)
-}
-
-// MIN MIN([prefix.]xxx) AS xxx.
-func (s *Ident) MIN(field string) string {
-	return s.Min(field, field)
-}
-
-// SUM SUM([prefix.]xxx) AS xxx.
-func (s *Ident) SUM(field string) string {
-	return s.Sum(field, field)
-}
-
-// Field Batch set field prefix.
-func (s *Ident) Field(field ...string) []string {
-	if s.prefix == EmptyString {
-		return field[:]
-	}
-	prefix := fmt.Sprintf("%s%s", s.prefix, SqlPoint)
-	length := len(field)
-	result := make([]string, 0, length)
-	for i := 0; i < length; i++ {
-		if field[i] == EmptyString ||
-			strings.HasPrefix(field[i], prefix) ||
-			strings.Contains(field[i], SqlSpace) ||
-			strings.Contains(field[i], SqlLeftSmallBracket) {
-			result = append(result, field[i])
-			continue
-		}
-		result = append(result, ConcatString(prefix, field[i]))
-	}
-	return result
 }
 
 // Get for SELECT.
@@ -2377,8 +2145,8 @@ func (s *Get) Alias(alias string) *Get {
 	return s
 }
 
-// Joins for join one or more tables.
-func (s *Get) Joins(joins ...*GetJoin) *Get {
+// joins for join one or more tables.
+func (s *Get) joins(joins ...*GetJoin) *Get {
 	length := len(joins)
 	for i := 0; i < length; i++ {
 		if joins[i] == nil {
@@ -2403,7 +2171,7 @@ func (s *Get) typeJoin(joinType string, fs []func(j *GetJoin)) *Get {
 		fs[i](tmp)
 		joins = append(joins, tmp)
 	}
-	return s.Joins(joins...)
+	return s.joins(joins...)
 }
 
 // InnerJoin for inner join.
@@ -2469,14 +2237,14 @@ func (s *Get) Column(column ...string) *Get {
 	return s
 }
 
-// AddCol append the columns list of query.
-func (s *Get) AddCol(column ...string) *Get {
+// AddColumn append the columns list of query.
+func (s *Get) AddColumn(column ...string) *Get {
 	s.column = append(s.column, column...)
 	return s
 }
 
-// AddColCase append the columns list of query.
-func (s *Get) AddColCase(caseList ...func(c *Case)) *Get {
+// AddColumnCase append the columns list of query.
+func (s *Get) AddColumnCase(caseList ...func(c *Case)) *Get {
 	fc := func(fc func(c *Case)) (string, []interface{}) {
 		if fc == nil {
 			return EmptyString, nil
@@ -2499,16 +2267,6 @@ func (s *Get) AddColCase(caseList ...func(c *Case)) *Get {
 		}
 	}
 	return s
-}
-
-// PrefixColumn Prefix the field list with the table name or table alias.
-func PrefixColumn(table string, column ...string) []string {
-	if table == EmptyString {
-		return column
-	}
-	ident := GetIdent(table)
-	defer PutIdent(ident)
-	return ident.Field(column...)
 }
 
 // Distinct Remove duplicate records: one field value or a combination of multiple fields.
@@ -2618,8 +2376,8 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 // BuildWith Build SQL WITH.
 // [WITH a AS ( xxx )[, b AS ( xxx ) ]].
 func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
-	b := getBuilder()
-	defer putBuilder(b)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 
 	b.WriteString("WITH ")
 
@@ -2656,8 +2414,8 @@ func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
 // /*query2*/( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]])
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
 func BuildUnion(withs []*GetWith, unionType string, gets []*Get) (prepare string, args []interface{}) {
-	b := getBuilder()
-	defer putBuilder(b)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 
 	if unionType == EmptyString {
 		unionType = SqlUnionAll
@@ -2723,7 +2481,7 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 	}
 
 	buf := comment(s.schema)
-	defer putBuilder(buf)
+	defer putStringBuilder(buf)
 
 	if s.with != nil {
 		prepareWith, argsWith := BuildWith(s.with)
@@ -2813,8 +2571,8 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 // BuildOrderByLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
 func BuildOrderByLimitOffset(s *Get) (prepare string) {
-	buf := getBuilder()
-	defer putBuilder(buf)
+	buf := getStringBuilder()
+	defer putStringBuilder(buf)
 
 	if len(s.order) > 0 {
 		buf.WriteString(" ORDER BY ")
@@ -2839,8 +2597,8 @@ func BuildGet(s *Get) (prepare string, args []interface{}) {
 		return
 	}
 
-	buf := getBuilder()
-	defer putBuilder(buf)
+	buf := getStringBuilder()
+	defer putStringBuilder(buf)
 
 	buf.WriteString(prepare)
 
@@ -3027,8 +2785,8 @@ func getLink(keyword string, gets ...*Get) (prepare string, args []interface{}) 
 	if keyword == EmptyString {
 		return
 	}
-	b := getBuilder()
-	defer putBuilder(b)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 	added := false
 	for _, v := range gets {
 		if v == nil {
@@ -3064,155 +2822,4 @@ func ExpectGet(gets ...*Get) (prepare string, args []interface{}) {
 // IntersectGet (query1) INTERSECT (query2) INTERSECT (query3)...
 func IntersectGet(gets ...*Get) (prepare string, args []interface{}) {
 	return getLink(SqlIntersect, gets...)
-}
-
-// WindowFunc SQL window function.
-type WindowFunc struct {
-	// withFunc The window function used.
-	withFunc string
-
-	// partition Setting up window partitions.
-	partition []string
-
-	// order Sorting data within a group.
-	order []string
-
-	// windowFrame Window frame clause. `ROWS` or `RANGE`.
-	windowFrame string
-
-	// alias Serial number column alias.
-	alias string
-}
-
-// WithFunc Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...
-func (s *WindowFunc) WithFunc(withFunc string) *WindowFunc {
-	s.withFunc = withFunc
-	return s
-}
-
-// RowNumber ROW_NUMBER() Assign a unique serial number to each row, in the order specified, starting with 1.
-func (s *WindowFunc) RowNumber() *WindowFunc {
-	return s.WithFunc("ROW_NUMBER()")
-}
-
-// Rank RANK() Assign a rank to each row, if there are duplicate values, the rank is skipped.
-func (s *WindowFunc) Rank() *WindowFunc {
-	return s.WithFunc("RANK()")
-}
-
-// DenseRank DENSE_RANK() Similar to RANK(), but does not skip rankings.
-func (s *WindowFunc) DenseRank() *WindowFunc {
-	return s.WithFunc("DENSE_RANK()")
-}
-
-// Ntile NTILE() Divide the rows in the window into n buckets and assign a bucket number to each row.
-func (s *WindowFunc) Ntile(buckets int64) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("NTILE(%d)", buckets))
-}
-
-// Sum SUM() Returns the sum of all rows in the window.
-func (s *WindowFunc) Sum(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("SUM(%s)", column))
-}
-
-// Max MAX() Returns the maximum value within the window.
-func (s *WindowFunc) Max(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("MAX(%s)", column))
-}
-
-// Min MIN() Returns the minimum value within the window.
-func (s *WindowFunc) Min(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("MIN(%s)", column))
-}
-
-// Avg AVG() Returns the average of all rows in the window.
-func (s *WindowFunc) Avg(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("AVG(%s)", column))
-}
-
-// Count COUNT() Returns the number of rows in the window.
-func (s *WindowFunc) Count(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("COUNT(%s)", column))
-}
-
-// Lag LAG() Returns the value of the row before the current row.
-func (s *WindowFunc) Lag(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", column, offset, ArgString(defaultValue)))
-}
-
-// Lead LEAD() Returns the value of a row after the current row.
-func (s *WindowFunc) Lead(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", column, offset, ArgString(defaultValue)))
-}
-
-// NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
-func (s *WindowFunc) NthValue(column string, LineNumber int64) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("NTH_VALUE(%s, %d)", column, LineNumber))
-}
-
-// FirstValue FIRST_VALUE() Returns the value of the first row in the window.
-func (s *WindowFunc) FirstValue(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("FIRST_VALUE(%s)", column))
-}
-
-// LastValue LAST_VALUE() Returns the value of the last row in the window.
-func (s *WindowFunc) LastValue(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAST_VALUE(%s)", column))
-}
-
-// Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
-func (s *WindowFunc) Partition(column ...string) *WindowFunc {
-	s.partition = append(s.partition, column...)
-	return s
-}
-
-// Asc Define the sorting within the partition so that the window function is calculated in order.
-func (s *WindowFunc) Asc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", column, SqlAsc))
-	return s
-}
-
-// Desc Define the sorting within the partition so that the window function is calculated in descending order.
-func (s *WindowFunc) Desc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", column, SqlDesc))
-	return s
-}
-
-// WindowFrame Set custom window frame clause.
-func (s *WindowFunc) WindowFrame(windowFrame string) *WindowFunc {
-	s.windowFrame = windowFrame
-	return s
-}
-
-// Alias Set the alias of the field that uses the window function.
-func (s *WindowFunc) Alias(alias string) *WindowFunc {
-	s.alias = alias
-	return s
-}
-
-// Result Query column expressions.
-func (s *WindowFunc) Result() string {
-	if s.withFunc == EmptyString || s.partition == nil || s.order == nil || s.alias == EmptyString {
-		panic("hey: the SQL window function parameters are incomplete.")
-	}
-	b := getBuilder()
-	defer putBuilder(b)
-	b.WriteString(s.withFunc)
-	b.WriteString(" OVER ( PARTITION BY ")
-	b.WriteString(strings.Join(s.partition, ", "))
-	b.WriteString(" ORDER BY ")
-	b.WriteString(strings.Join(s.order, ", "))
-	if s.windowFrame != "" {
-		b.WriteString(" ")
-		b.WriteString(s.windowFrame)
-	}
-	b.WriteString(" ) AS ")
-	b.WriteString(s.alias)
-	return b.String()
-}
-
-func NewWindowFunc(alias ...string) *WindowFunc {
-	return &WindowFunc{
-		alias: LastNotEmptyString(alias),
-	}
 }

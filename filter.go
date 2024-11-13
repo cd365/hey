@@ -415,28 +415,27 @@ func F() Filter {
 	return filterNew()
 }
 
-// filterPool Built-in Filter Pool.
-var filterPool = &sync.Pool{}
-
-func init() {
-	filterPool.New = func() interface{} { return filterNew() }
+var filters = &sync.Pool{
+	New: func() interface{} {
+		return filterNew()
+	},
 }
 
 func GetFilter() Filter {
-	return filterPool.Get().(*filter)
+	return filters.Get().(*filter)
 }
 
 func PutFilter(f Filter) {
 	f.Clean()
-	filterPool.Put(f)
+	filters.Put(f)
 }
 
 func (s *filter) SQL() (string, []interface{}) {
 	if s.num == 0 {
 		return EmptyString, nil
 	}
-	b := getBuilder()
-	defer putBuilder(b)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 	if s.not {
 		b.WriteString(SqlNot)
 		b.WriteString(SqlSpace)
@@ -494,13 +493,13 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if group == nil {
 		return s
 	}
-	g := GetFilter()
-	defer PutFilter(g)
-	group(g)
-	if g.IsEmpty() {
+	groups := GetFilter()
+	defer PutFilter(groups)
+	group(groups)
+	if groups.IsEmpty() {
 		return s
 	}
-	expr, args := g.SQL()
+	expr, args := groups.SQL()
 	s.add(logic, expr, args...)
 	return s
 }
@@ -522,16 +521,16 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 }
 
 func (s *filter) Use(fs ...Filter) Filter {
-	g := GetFilter()
-	defer PutFilter(g)
-	for _, f := range fs {
-		if f == nil || f.IsEmpty() {
+	groups := GetFilter()
+	defer PutFilter(groups)
+	for _, tmp := range fs {
+		if tmp == nil || tmp.IsEmpty() {
 			continue
 		}
-		expr, param := f.SQL()
-		g.And(expr, param...)
+		expr, param := tmp.SQL()
+		groups.And(expr, param...)
 	}
-	prepare, args := g.SQL()
+	prepare, args := groups.SQL()
 	return s.And(prepare, args...)
 }
 
