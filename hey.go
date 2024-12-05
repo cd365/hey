@@ -214,6 +214,10 @@ type Way struct {
 	isRead bool
 }
 
+func (s *Way) GetConfig() *Config {
+	return s.cfg
+}
+
 func (s *Way) SetConfig(cfg Config) *Way {
 	if cfg.Scan == nil || cfg.ScanTag == "" || cfg.Helper == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
@@ -222,9 +226,17 @@ func (s *Way) SetConfig(cfg Config) *Way {
 	return s
 }
 
+func (s *Way) GetLogger() *logger.Logger {
+	return s.log
+}
+
 func (s *Way) SetLogger(l *logger.Logger) *Way {
 	s.log = l
 	return s
+}
+
+func (s *Way) GetReader() Reader {
+	return s.reader
 }
 
 func (s *Way) SetReader(reader Reader) *Way {

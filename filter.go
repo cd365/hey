@@ -129,7 +129,7 @@ func filterLessThanEqual(column string) string {
 	return filterSqlExpr(column, SqlLessThanEqual)
 }
 
-func filterIn(column string, values []interface{}, not bool) (expr string, args []interface{}) {
+func filterIn(column string, values []interface{}, not bool) (prepare string, args []interface{}) {
 	if column == EmptyString || values == nil {
 		return
 	}
@@ -142,9 +142,9 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 	length = len(values)
 	if length == 1 {
 		if not {
-			expr = filterNotEqual(column)
+			prepare = filterNotEqual(column)
 		} else {
-			expr = filterEqual(column)
+			prepare = filterEqual(column)
 		}
 		args = []interface{}{values[0]}
 		return
@@ -167,28 +167,27 @@ func filterIn(column string, values []interface{}, not bool) (expr string, args 
 	tmp = append(tmp, " IN ", SqlLeftSmallBracket, SqlSpace)
 	tmp = append(tmp, result...)
 	tmp = append(tmp, SqlSpace, SqlRightSmallBracket)
-	expr = ConcatString(tmp...)
+	prepare = ConcatString(tmp...)
 	return
 }
 
-func filterInSql(column string, prepare string, args []interface{}, not bool) (expr string, param []interface{}) {
+func filterInSql(column string, prepare string, args []interface{}, not bool) (string, []interface{}) {
 	if column == EmptyString || prepare == EmptyString {
-		return
+		return EmptyString, nil
 	}
-	expr = column
+	result := column
 	if not {
-		expr = ConcatString(expr, " NOT")
+		result = ConcatString(result, " NOT")
 	}
-	expr = ConcatString(expr, " IN ", SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
-	param = args
-	return
+	result = ConcatString(result, " IN ", SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
+	return result, args
 }
 
 func filterInColsFields(columns ...string) string {
 	return ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(columns, ", "), SqlSpace, SqlRightSmallBracket)
 }
 
-func filterInCols(columns []string, values [][]interface{}, not bool) (expr string, args []interface{}) {
+func filterInCols(columns []string, values [][]interface{}, not bool) (prepare string, args []interface{}) {
 	count := len(columns)
 	if count == 0 {
 		return
@@ -221,14 +220,14 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (expr stri
 	tmp = append(tmp, " IN ", SqlLeftSmallBracket, SqlSpace)
 	tmp = append(tmp, strings.Join(valueGroup, ", "))
 	tmp = append(tmp, SqlSpace, SqlRightSmallBracket)
-	expr = ConcatString(tmp...)
+	prepare = ConcatString(tmp...)
 	return
 }
 
-func filterInColsSql(columns []string, prepare string, args []interface{}, not bool) (expr string, param []interface{}) {
+func filterInColsSql(columns []string, prepare string, args []interface{}, not bool) (string, []interface{}) {
 	count := len(columns)
 	if count == 0 || prepare == EmptyString {
-		return
+		return EmptyString, nil
 	}
 	tmp := make([]string, 0, 8)
 	tmp = append(tmp, filterInColsFields(columns...))
@@ -238,57 +237,53 @@ func filterInColsSql(columns []string, prepare string, args []interface{}, not b
 	tmp = append(tmp, " IN ", SqlLeftSmallBracket, SqlSpace)
 	tmp = append(tmp, prepare)
 	tmp = append(tmp, SqlSpace, SqlRightSmallBracket)
-	expr = ConcatString(tmp...)
-	param = args
-	return
+	return ConcatString(tmp...), args
 }
 
-func filterExists(prepare string, args []interface{}, not bool) (expr string, param []interface{}) {
+func filterExists(prepare string, args []interface{}, not bool) (string, []interface{}) {
 	if prepare == EmptyString {
-		return
+		return EmptyString, nil
 	}
 	exists := "EXISTS"
 	if not {
 		exists = ConcatString("NOT ", exists)
 	}
-	expr = ConcatString(exists, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
-	param = args
-	return
+	return ConcatString(exists, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket), args
 }
 
-func filterBetween(column string, not bool) (expr string) {
+func filterBetween(column string, not bool) (prepare string) {
 	if column == EmptyString {
 		return
 	}
-	expr = column
+	prepare = column
 	if not {
-		expr = ConcatString(expr, " NOT")
+		prepare = ConcatString(prepare, " NOT")
 	}
-	expr = ConcatString(expr, " BETWEEN ", SqlPlaceholder, " AND ", SqlPlaceholder)
+	prepare = ConcatString(prepare, " BETWEEN ", SqlPlaceholder, " AND ", SqlPlaceholder)
 	return
 }
 
-func filterLike(column string, not bool) (expr string) {
+func filterLike(column string, not bool) (prepare string) {
 	if column == EmptyString {
 		return
 	}
-	expr = column
+	prepare = column
 	if not {
-		expr = ConcatString(expr, " NOT")
+		prepare = ConcatString(prepare, " NOT")
 	}
-	expr = ConcatString(expr, " LIKE ", SqlPlaceholder)
+	prepare = ConcatString(prepare, " LIKE ", SqlPlaceholder)
 	return
 }
 
-func filterIsNull(column string, not bool) (expr string) {
+func filterIsNull(column string, not bool) (prepare string) {
 	if column == EmptyString {
 		return
 	}
-	expr = ConcatString(column, " IS")
+	prepare = ConcatString(column, " IS")
 	if not {
-		expr = ConcatString(expr, " NOT")
+		prepare = ConcatString(prepare, " NOT")
 	}
-	expr = ConcatString(expr, " NULL")
+	prepare = ConcatString(prepare, " NULL")
 	return
 }
 
@@ -307,10 +302,10 @@ type Filter interface {
 	Not() Filter
 
 	// And Use logical operator `AND` to combine custom conditions.
-	And(expr string, args ...interface{}) Filter
+	And(prepare string, args ...interface{}) Filter
 
 	// Or Use logical operator `OR` to combine custom conditions.
-	Or(expr string, args ...interface{}) Filter
+	Or(prepare string, args ...interface{}) Filter
 
 	// Group Add a new condition group, which is connected by the `AND` logical operator by default.
 	Group(group func(g Filter)) Filter
@@ -415,19 +410,20 @@ func F() Filter {
 	return filterNew()
 }
 
-var filters = &sync.Pool{
+// poolFilter filter pool.
+var poolFilter = &sync.Pool{
 	New: func() interface{} {
 		return filterNew()
 	},
 }
 
 func GetFilter() Filter {
-	return filters.Get().(*filter)
+	return poolFilter.Get().(*filter)
 }
 
 func PutFilter(f Filter) {
 	f.Clean()
-	filters.Put(f)
+	poolFilter.Put(f)
 }
 
 func (s *filter) SQL() (string, []interface{}) {
@@ -473,17 +469,17 @@ func (s *filter) Not() Filter {
 	return s
 }
 
-func (s *filter) add(logic string, expr string, args ...interface{}) *filter {
-	if expr == EmptyString {
+func (s *filter) add(logic string, prepare string, args ...interface{}) *filter {
+	if prepare == EmptyString {
 		return s
 	}
 	if s.num == 0 {
-		s.prepare.WriteString(expr)
+		s.prepare.WriteString(prepare)
 		s.args = args[:]
 		s.num++
 		return s
 	}
-	s.prepare.WriteString(ConcatString(SqlSpace, logic, SqlSpace, expr))
+	s.prepare.WriteString(ConcatString(SqlSpace, logic, SqlSpace, prepare))
 	s.args = append(s.args, args[:]...)
 	s.num++
 	return s
@@ -493,23 +489,23 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if group == nil {
 		return s
 	}
-	groups := GetFilter()
-	defer PutFilter(groups)
-	group(groups)
-	if groups.IsEmpty() {
+	tmp := GetFilter()
+	defer PutFilter(tmp)
+	group(tmp)
+	if tmp.IsEmpty() {
 		return s
 	}
-	expr, args := groups.SQL()
-	s.add(logic, expr, args...)
+	prepare, args := tmp.SQL()
+	s.add(logic, prepare, args...)
 	return s
 }
 
-func (s *filter) And(expr string, args ...interface{}) Filter {
-	return s.add(SqlAnd, expr, args...)
+func (s *filter) And(prepare string, args ...interface{}) Filter {
+	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) Or(expr string, args ...interface{}) Filter {
-	return s.add(SqlOr, expr, args...)
+func (s *filter) Or(prepare string, args ...interface{}) Filter {
+	return s.add(SqlOr, prepare, args...)
 }
 
 func (s *filter) Group(group func(g Filter)) Filter {
@@ -520,22 +516,22 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 	return s.addGroup(SqlOr, group)
 }
 
-func (s *filter) Use(fs ...Filter) Filter {
+func (s *filter) Use(filters ...Filter) Filter {
 	groups := GetFilter()
 	defer PutFilter(groups)
-	for _, tmp := range fs {
+	for _, tmp := range filters {
 		if tmp == nil || tmp.IsEmpty() {
 			continue
 		}
-		expr, param := tmp.SQL()
-		groups.And(expr, param...)
+		prepare, args := tmp.SQL()
+		groups.And(prepare, args...)
 	}
 	prepare, args := groups.SQL()
 	return s.And(prepare, args...)
 }
 
-func (s *filter) New(fs ...Filter) Filter {
-	return filterNew().Use(fs...)
+func (s *filter) New(filters ...Filter) Filter {
+	return filterNew().Use(filters...)
 }
 
 func (s *filter) GreaterThan(column string, value interface{}) Filter {
@@ -563,28 +559,28 @@ func (s *filter) Between(column string, start interface{}, end interface{}) Filt
 }
 
 func (s *filter) In(column string, values ...interface{}) Filter {
-	expr, args := filterIn(column, values, false)
-	return s.add(SqlAnd, expr, args...)
+	prepare, args := filterIn(column, values, false)
+	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InSql(column string, prepare string, args ...interface{}) Filter {
-	expr, param := filterInSql(column, prepare, args, false)
-	return s.add(SqlAnd, expr, param...)
+	prepare, args = filterInSql(column, prepare, args, false)
+	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
-	expr, param := filterInCols(columns, values, false)
-	return s.add(SqlAnd, expr, param...)
+	prepare, args := filterInCols(columns, values, false)
+	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InColsSql(columns []string, prepare string, args ...interface{}) Filter {
-	expr, param := filterInColsSql(columns, prepare, args, false)
-	return s.add(SqlAnd, expr, param...)
+	prepare, args = filterInColsSql(columns, prepare, args, false)
+	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) Exists(prepare string, args ...interface{}) Filter {
-	expr, param := filterExists(prepare, args, false)
-	return s.add(SqlAnd, expr, param...)
+	prepare, args = filterExists(prepare, args, false)
+	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) Like(column string, value interface{}) Filter {
@@ -599,24 +595,33 @@ func (s *filter) InGet(column string, get *Get) Filter {
 	if get == nil {
 		return s
 	}
-	expr, args := get.SQL()
-	return s.InSql(column, expr, args...)
+	prepare, args := get.SQL()
+	if prepare == EmptyString {
+		return s
+	}
+	return s.InSql(column, prepare, args...)
 }
 
 func (s *filter) InColsGet(columns []string, get *Get) Filter {
 	if get == nil {
 		return s
 	}
-	expr, args := get.SQL()
-	return s.InColsSql(columns, expr, args...)
+	prepare, args := get.SQL()
+	if prepare == EmptyString {
+		return s
+	}
+	return s.InColsSql(columns, prepare, args...)
 }
 
 func (s *filter) ExistsGet(get *Get) Filter {
 	if get == nil {
 		return s
 	}
-	expr, args := get.SQL()
-	return s.Exists(expr, args...)
+	prepare, args := get.SQL()
+	if prepare == EmptyString {
+		return s
+	}
+	return s.Exists(prepare, args...)
 }
 
 func (s *filter) NotEqual(column string, value interface{}) Filter {
@@ -628,13 +633,13 @@ func (s *filter) NotBetween(column string, start interface{}, end interface{}) F
 }
 
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
-	expr, args := filterIn(column, values, true)
-	return s.add(SqlAnd, expr, args...)
+	prepare, args := filterIn(column, values, true)
+	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
-	expr, args := filterInCols(columns, values, true)
-	return s.add(SqlAnd, expr, args...)
+	prepare, args := filterInCols(columns, values, true)
+	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) NotLike(column string, value interface{}) Filter {
@@ -649,12 +654,12 @@ func buildFilterAll(f Filter, column string, logic string, subquery *Get) {
 	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
 		return
 	}
-	expr, args := subquery.SQL()
-	if expr == EmptyString {
+	prepare, args := subquery.SQL()
+	if prepare == EmptyString {
 		return
 	}
-	expr = ConcatString(column, SqlSpace, logic, SqlSpace, SqlAll, SqlSpace, SqlLeftSmallBracket, SqlSpace, expr, SqlSpace, SqlRightSmallBracket)
-	f.And(expr, args...)
+	prepare = ConcatString(column, SqlSpace, logic, SqlSpace, SqlAll, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
+	f.And(prepare, args...)
 }
 
 // EqualAll There are few practical application scenarios because all values are required to be equal.
@@ -691,12 +696,12 @@ func buildFilterAny(f Filter, column string, logic string, subquery *Get) {
 	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
 		return
 	}
-	expr, args := subquery.SQL()
-	if expr == EmptyString {
+	prepare, args := subquery.SQL()
+	if prepare == EmptyString {
 		return
 	}
-	expr = ConcatString(column, SqlSpace, logic, SqlSpace, SqlAny, SqlSpace, SqlLeftSmallBracket, SqlSpace, expr, SqlSpace, SqlRightSmallBracket)
-	f.And(expr, args...)
+	prepare = ConcatString(column, SqlSpace, logic, SqlSpace, SqlAny, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
+	f.And(prepare, args...)
 }
 
 // EqualAny Implement the filter condition: column = ANY ( subquery ) .
