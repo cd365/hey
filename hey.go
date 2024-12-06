@@ -267,22 +267,34 @@ func NewWay(driverName string, dataSourceName string) (*Way, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*8)
+	defer cancel()
+	if err = db.PingContext(ctx); err != nil {
 		return nil, err
 	}
 	way := &Way{}
 	way.db = db
-	config := DefaultConfig
+	cfg := DefaultConfig
 	switch driverName {
 	case DriverNameMysql:
-		config.Helper = NewMysqlHelper()
+		helper := NewMysqlHelper()
+		helper.driverName = []byte(driverName)
+		helper.dataSourceName = []byte(dataSourceName)
+		cfg.Helper = helper
 	case DriverNameSqlite3:
-		config.Helper = NewMysqlHelper()
+		helper := NewSqlite3Helper()
+		helper.driverName = []byte(driverName)
+		helper.dataSourceName = []byte(dataSourceName)
+		cfg.Helper = helper
 	case DriverNamePostgres, "pgsql", "postgresql":
-		config.Helper = NewPostgresHelper()
+		helper := NewPostgresHelper()
+		helper.driverName = []byte(driverName)
+		helper.dataSourceName = []byte(dataSourceName)
+		cfg.Helper = helper
 	default:
+		// set up *Way.cfg.Helper yourself
 	}
-	way.SetConfig(config)
+	way.SetConfig(cfg)
 	return way, nil
 }
 

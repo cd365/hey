@@ -13,6 +13,12 @@ import (
  **/
 
 type Helper interface {
+	// DriverName Get the driver name.
+	DriverName() []byte
+
+	// DataSourceName Get the data source name.
+	DataSourceName() []byte
+
 	// Identifier Database tag identifier.
 	Identifier() string
 
@@ -30,7 +36,18 @@ type Helper interface {
 }
 
 // MysqlHelper helper for mysql.
-type MysqlHelper struct{}
+type MysqlHelper struct {
+	driverName     []byte
+	dataSourceName []byte
+}
+
+func (s *MysqlHelper) DriverName() []byte {
+	return s.driverName
+}
+
+func (s *MysqlHelper) DataSourceName() []byte {
+	return s.dataSourceName
+}
 
 func (s *MysqlHelper) Identifier() string {
 	return "`"
@@ -79,7 +96,17 @@ func NewMysqlHelper() *MysqlHelper {
 
 // PostgresHelper helper for postgresql.
 type PostgresHelper struct {
-	returning string
+	driverName     []byte
+	dataSourceName []byte
+	returning      string
+}
+
+func (s *PostgresHelper) DriverName() []byte {
+	return s.driverName
+}
+
+func (s *PostgresHelper) DataSourceName() []byte {
+	return s.dataSourceName
 }
 
 func (s *PostgresHelper) Identifier() string {
@@ -149,6 +176,65 @@ func NewPostgresHelper() *PostgresHelper {
 	}
 }
 
+// Sqlite3Helper helper for sqlite3.
+type Sqlite3Helper struct {
+	driverName     []byte
+	dataSourceName []byte
+}
+
+func (s *Sqlite3Helper) DriverName() []byte {
+	return s.driverName
+}
+
+func (s *Sqlite3Helper) DataSourceName() []byte {
+	return s.dataSourceName
+}
+
+func (s *Sqlite3Helper) Identifier() string {
+	return "`"
+}
+
+func (s *Sqlite3Helper) Prepare(prepare string) string {
+	return prepare
+}
+
+func (s *Sqlite3Helper) Returning() string {
+	return ""
+}
+
+func (s *Sqlite3Helper) InsertReturningId(ctx context.Context, way *Way, prepare string, args []interface{}) (int64, error) {
+	if way.transaction != nil {
+		stmt, err := way.transaction.tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = stmt.Close() }()
+		result, err := stmt.ExecContext(ctx, args...)
+		if err != nil {
+			return 0, err
+		}
+		return result.LastInsertId()
+	}
+	stmt, err := way.Prepare(prepare)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = stmt.Close() }()
+	result, err := stmt.ExecuteContext(ctx, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (s *Sqlite3Helper) IfNull(columnName string, columnDefaultValue string) string {
+	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
+}
+
+func NewSqlite3Helper() *Sqlite3Helper {
+	return &Sqlite3Helper{}
+}
+
 // ColumnAdjust Adjust the column name according to the column name.
 func ColumnAdjust(columns []string, adjust func(column string) string) {
 	for index, column := range columns {
@@ -158,15 +244,13 @@ func ColumnAdjust(columns []string, adjust func(column string) string) {
 
 // ColumnCommon Identifier contain column name.
 func ColumnCommon(columns []string, identifier string) {
+	double := fmt.Sprintf("%s%s", identifier, identifier)
 	ColumnAdjust(columns, func(column string) string {
-		return fmt.Sprintf("%s%s%s", identifier, column, identifier)
-	})
-}
-
-// ColumnFormat Column names are replaced in batches with %s.
-func ColumnFormat(columns []string, format string) {
-	ColumnAdjust(columns, func(column string) string {
-		return strings.ReplaceAll(format, "%s", column)
+		after := fmt.Sprintf("%s%s%s", identifier, column, identifier)
+		if strings.Contains(after, double) {
+			return column
+		}
+		return after
 	})
 }
 
@@ -207,11 +291,6 @@ func (s *Fields) Adjust(columns []string, adjust func(column string) string) {
 // Common Identifier contain column name.
 func (s *Fields) Common(columns []string) {
 	ColumnCommon(columns, s.way.cfg.Helper.Identifier())
-}
-
-// Format Column names are replaced in batches with %s.
-func (s *Fields) Format(columns []string, format string) {
-	ColumnFormat(columns, format)
 }
 
 // The following methods rely on return values.
