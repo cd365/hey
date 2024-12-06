@@ -321,6 +321,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		tx.transaction.tx, err = tx.db.BeginTx(ctx, opt)
 	}
 	if err != nil {
+		tx = nil
 		return
 	}
 	tx.transaction.startAt = time.Now()
@@ -369,8 +370,8 @@ func (s *Way) Rollback() error {
 	return s.rollback()
 }
 
-// IsInTransaction -> Is it in transaction?.
-func (s *Way) IsInTransaction() bool {
+// IsTheTransactionOpened -> Is the transaction opened?
+func (s *Way) IsTheTransactionOpened() bool {
 	return s.transaction != nil
 }
 
@@ -385,18 +386,28 @@ func (s *Way) SetTransactionMsg(msg string) *Way {
 	return s
 }
 
-// tryTransaction -> Batch execute SQL through transactions.
-func (s *Way) tryTransaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
-	if s.transaction != nil {
-		return fc(s)
+// openTransaction -> Start a new transaction and execute a set of SQL statements atomically.
+func (s *Way) openTransaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	tx, ber := s.begin(ctx, conn, opts...)
-	if ber != nil {
-		return ber
+	timeout := time.Second * 8
+	if s.cfg != nil && s.cfg.TransactionMaxDuration > 0 {
+		timeout = s.cfg.TransactionMaxDuration
+	}
+
+	ctxTimeout, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var tx *Way
+	tx, err = s.begin(ctxTimeout, conn, opts...)
+	if err != nil {
+		return
 	}
 
 	ok := false
+
 	defer func() {
 		if err == nil && ok {
 			err = tx.commit()
@@ -404,60 +415,37 @@ func (s *Way) tryTransaction(ctx context.Context, fc func(tx *Way) error, conn *
 			err = tx.rollback()
 		}
 	}()
+
 	if err = fc(tx); err != nil {
 		return
 	}
+
 	ok = true
+
 	return
 }
 
-// TransactionContext -> Batch execute SQL through transactions.
-func (s *Way) TransactionContext(ctx context.Context, retries int, transaction func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
-	opt := s.cfg.TransactionOptions
-	for i := len(opts) - 1; i >= 0; i-- {
-		if opts[i] != nil {
-			opt = opts[i]
-			break
-		}
+// Transaction -> Atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
+func (s *Way) Transaction(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) error {
+	if s.IsTheTransactionOpened() {
+		return fc(s)
 	}
+	return s.openTransaction(ctx, fc, nil, opts...)
+}
+
+// NewTransaction -> Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
+func (s *Way) NewTransaction(ctx context.Context, retries int, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	for i := 0; i < retries; i++ {
-		if err = s.tryTransaction(ctx, transaction, conn, opt); err == nil {
+		if err = s.openTransaction(ctx, fc, nil, opts...); err == nil {
 			break
 		}
 	}
 	return
-}
-
-// transactionRetry -> Batch execute SQL through transactions.
-func (s *Way) transactionRetry(timeout time.Duration, transaction func(tx *Way) error, opts ...*sql.TxOptions) error {
-	// Using timeout context to prevent database transactions from causing deadlocks.
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return s.tryTransaction(ctx, transaction, nil, opts...)
-}
-
-// TransactionRetry -> Batch execute SQL through transactions.
-func (s *Way) TransactionRetry(retries int, transaction func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
-	timeout := time.Second * 5
-	if s.cfg.TransactionMaxDuration > 0 {
-		timeout = s.cfg.TransactionMaxDuration
-	}
-	for i := 0; i < retries; i++ {
-		if err = s.transactionRetry(timeout, transaction, opts...); err == nil {
-			break
-		}
-	}
-	return
-}
-
-// Transaction -> Batch execute SQL through transactions.
-func (s *Way) Transaction(transaction func(tx *Way) error, opts ...*sql.TxOptions) error {
-	return s.TransactionRetry(1, transaction, opts...)
 }
 
 // Now -> Get current time, the transaction open status will get the same time.
 func (s *Way) Now() time.Time {
-	if !s.IsInTransaction() {
+	if !s.IsTheTransactionOpened() {
 		return time.Now()
 	}
 	return s.transaction.startAt
