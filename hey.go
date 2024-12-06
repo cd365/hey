@@ -267,9 +267,7 @@ func NewWay(driverName string, dataSourceName string) (*Way, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*8)
-	defer cancel()
-	if err = db.PingContext(ctx); err != nil {
+	if err = db.Ping(); err != nil {
 		return nil, err
 	}
 	way := &Way{}
