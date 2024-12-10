@@ -368,24 +368,24 @@ func (s *Way) Rollback() error {
 	return s.rollback()
 }
 
-// IsTheTransactionOpened -> Is the transaction opened?
-func (s *Way) IsTheTransactionOpened() bool {
-	return s.transaction != nil
+// TransactionIsNil -> Is the transaction object empty?
+func (s *Way) TransactionIsNil() bool {
+	return s.transaction == nil
 }
 
-// SetTransactionMsg -> Set the prompt for the current transaction, can only be set once.
-func (s *Way) SetTransactionMsg(msg string) *Way {
+// TransactionMessage -> Set the prompt for the current transaction, can only be set once.
+func (s *Way) TransactionMessage(message string) *Way {
 	if s.transaction == nil {
 		return s
 	}
 	if s.transaction.message == EmptyString {
-		s.transaction.message = msg
+		s.transaction.message = message
 	}
 	return s
 }
 
-// openTransaction -> Start a new transaction and execute a set of SQL statements atomically.
-func (s *Way) openTransaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
+// newTransaction -> Start a new transaction and execute a set of SQL statements atomically.
+func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -425,16 +425,21 @@ func (s *Way) openTransaction(ctx context.Context, fc func(tx *Way) error, conn 
 
 // Transaction -> Atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
 func (s *Way) Transaction(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) error {
-	if s.IsTheTransactionOpened() {
+	if !s.TransactionIsNil() {
 		return fc(s)
 	}
-	return s.openTransaction(ctx, fc, nil, opts...)
+	return s.newTransaction(ctx, fc, nil, opts...)
 }
 
-// NewTransaction -> Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
-func (s *Way) NewTransaction(ctx context.Context, retries int, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
+// TransactionNew -> Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
+func (s *Way) TransactionNew(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) error {
+	return s.newTransaction(ctx, fc, nil, opts...)
+}
+
+// TransactionRetry Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
+func (s *Way) TransactionRetry(ctx context.Context, retries int, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	for i := 0; i < retries; i++ {
-		if err = s.openTransaction(ctx, fc, nil, opts...); err == nil {
+		if err = s.newTransaction(ctx, fc, nil, opts...); err == nil {
 			break
 		}
 	}
@@ -443,7 +448,7 @@ func (s *Way) NewTransaction(ctx context.Context, retries int, fc func(tx *Way) 
 
 // Now -> Get current time, the transaction open status will get the same time.
 func (s *Way) Now() time.Time {
-	if !s.IsTheTransactionOpened() {
+	if s.TransactionIsNil() {
 		return time.Now()
 	}
 	return s.transaction.startAt
