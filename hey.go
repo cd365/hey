@@ -119,22 +119,22 @@ var (
 	}
 )
 
-// logSql Record executed prepare args.
-type logSql struct {
+// LogSql Record executed prepare args.
+type LogSql struct {
 	way *Way
 
 	// prepare Preprocess the SQL statements that are executed.
 	prepare string
 
 	// args SQL parameter list.
-	args *logSqlArgs
+	args *LogSqlArgs
 
 	// err An error encountered when executing SQL.
 	err error
 }
 
-// logSqlArgs Record executed args of prepare.
-type logSqlArgs struct {
+// LogSqlArgs Record executed args of prepare.
+type LogSqlArgs struct {
 	// args SQL parameter list.
 	args []interface{}
 
@@ -145,18 +145,18 @@ type logSqlArgs struct {
 	endAt time.Time
 }
 
-func (s *Way) logger(prepare string, args []interface{}) *logSql {
-	return &logSql{
+func (s *Way) LogSql(prepare string, args []interface{}) *LogSql {
+	return &LogSql{
 		way:     s,
 		prepare: prepare,
-		args: &logSqlArgs{
+		args: &LogSqlArgs{
 			startAt: time.Now(),
 			args:    args,
 		},
 	}
 }
 
-func (s *logSql) write() {
+func (s *LogSql) Write() {
 	if s.way.log == nil {
 		return
 	}
@@ -505,8 +505,8 @@ func (s *Stmt) Close() (err error) {
 
 // QueryContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
-	lg := s.way.logger(s.prepare, args)
-	defer lg.write()
+	lg := s.way.LogSql(s.prepare, args)
+	defer lg.Write()
 	rows, err := s.stmt.QueryContext(ctx, args...)
 	lg.args.endAt = time.Now()
 	if err != nil {
@@ -525,8 +525,8 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) error {
-	lg := s.way.logger(s.prepare, args)
-	defer lg.write()
+	lg := s.way.LogSql(s.prepare, args)
+	defer lg.Write()
 	row := s.stmt.QueryRowContext(ctx, args...)
 	lg.args.endAt = time.Now()
 	lg.err = query(row)
@@ -540,8 +540,8 @@ func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (e
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
-	lg := s.way.logger(s.prepare, args)
-	defer lg.write()
+	lg := s.way.LogSql(s.prepare, args)
+	defer lg.Write()
 	result, err := s.stmt.ExecContext(ctx, args...)
 	lg.args.endAt = time.Now()
 	lg.err = err
@@ -598,14 +598,7 @@ func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
 
 // InsertReturningId -> Insert one, returning id.
 func (s *Way) InsertReturningId(ctx context.Context, helper Helper, prepare string, args []interface{}) (id int64, err error) {
-	ls := s.logger(prepare, args)
-	defer ls.write()
-	id, err = helper.InsertReturningId(ctx, s, prepare, args)
-	ls.args.endAt = time.Now()
-	if err != nil {
-		ls.err = err
-	}
-	return
+	return helper.InsertReturningId(ctx, s, prepare, args)
 }
 
 // QueryContext -> Execute the query sql statement.
@@ -683,8 +676,8 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
-	lg := s.logger(prepare, args)
-	defer lg.write()
+	lg := s.LogSql(prepare, args)
+	defer lg.Write()
 	rows, err := s.caller(caller).QueryContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
 	if err != nil {
@@ -702,8 +695,8 @@ func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ..
 	if prepare == "" {
 		return
 	}
-	lg := s.logger(prepare, args)
-	defer lg.write()
+	lg := s.LogSql(prepare, args)
+	defer lg.Write()
 	result, rer := s.caller(caller).ExecContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
 	if rer != nil {

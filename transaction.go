@@ -17,7 +17,7 @@ type transaction struct {
 
 	err error
 
-	logSql []*logSql
+	logSql []*LogSql
 
 	endAt time.Time
 

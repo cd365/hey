@@ -63,6 +63,8 @@ func (s *MysqlHelper) Returning() string {
 
 func (s *MysqlHelper) InsertReturningId(ctx context.Context, way *Way, prepare string, args []interface{}) (int64, error) {
 	if way.transaction != nil {
+		lg := way.LogSql(prepare, args)
+		defer lg.Write()
 		stmt, err := way.transaction.tx.PrepareContext(ctx, prepare)
 		if err != nil {
 			return 0, err
@@ -146,6 +148,8 @@ func (s *PostgresHelper) InsertReturningId(ctx context.Context, way *Way, prepar
 	var id int64
 	prepare = fmt.Sprintf("%s RETURNING %s", prepare, s.Returning())
 	if way.transaction != nil {
+		lg := way.LogSql(prepare, args)
+		defer lg.Write()
 		stmt, err := way.transaction.tx.PrepareContext(ctx, prepare)
 		if err != nil {
 			return 0, err
@@ -204,6 +208,8 @@ func (s *Sqlite3Helper) Returning() string {
 
 func (s *Sqlite3Helper) InsertReturningId(ctx context.Context, way *Way, prepare string, args []interface{}) (int64, error) {
 	if way.transaction != nil {
+		lg := way.LogSql(prepare, args)
+		defer lg.Write()
 		stmt, err := way.transaction.tx.PrepareContext(ctx, prepare)
 		if err != nil {
 			return 0, err
