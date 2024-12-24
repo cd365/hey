@@ -3,6 +3,7 @@ package hey
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -33,6 +34,9 @@ type Helper interface {
 
 	// IfNull Set a default value when the query field value is NULL.
 	IfNull(columnName string, columnDefaultValue string) string
+
+	// BinaryDataToHexString Convert binary data to hexadecimal string.
+	BinaryDataToHexString(binaryData []byte) string
 }
 
 // MysqlHelper helper for mysql.
@@ -90,6 +94,10 @@ func (s *MysqlHelper) InsertReturningId(ctx context.Context, way *Way, prepare s
 
 func (s *MysqlHelper) IfNull(columnName string, columnDefaultValue string) string {
 	return fmt.Sprintf("IFNULL(%s,%s)", columnName, columnDefaultValue)
+}
+
+func (s *MysqlHelper) BinaryDataToHexString(binaryData []byte) string {
+	return fmt.Sprintf("UNHEX('%s')", hex.EncodeToString(binaryData))
 }
 
 func NewMysqlHelper() *MysqlHelper {
@@ -174,6 +182,10 @@ func (s *PostgresHelper) IfNull(columnName string, columnDefaultValue string) st
 	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
 }
 
+func (s *PostgresHelper) BinaryDataToHexString(binaryData []byte) string {
+	return fmt.Sprintf(`E'\\x%s'`, hex.EncodeToString(binaryData))
+}
+
 func NewPostgresHelper() *PostgresHelper {
 	return &PostgresHelper{
 		returning: "id",
@@ -235,6 +247,10 @@ func (s *Sqlite3Helper) InsertReturningId(ctx context.Context, way *Way, prepare
 
 func (s *Sqlite3Helper) IfNull(columnName string, columnDefaultValue string) string {
 	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
+}
+
+func (s *Sqlite3Helper) BinaryDataToHexString(binaryData []byte) string {
+	return fmt.Sprintf(`X'%s'`, hex.EncodeToString(binaryData))
 }
 
 func NewSqlite3Helper() *Sqlite3Helper {
@@ -468,6 +484,9 @@ func NewFields(way *Way) *Fields {
 
 // WindowFunc sql window function.
 type WindowFunc struct {
+	// Helper Database helper.
+	Helper Helper
+
 	// withFunc The window function used.
 	withFunc string
 
@@ -537,12 +556,12 @@ func (s *WindowFunc) Count(column string) *WindowFunc {
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", column, offset, ArgString(defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", column, offset, ArgString(s.Helper, defaultValue)))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", column, offset, ArgString(defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", column, offset, ArgString(s.Helper, defaultValue)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
@@ -611,8 +630,9 @@ func (s *WindowFunc) Result() string {
 	return b.String()
 }
 
-func NewWindowFunc(alias ...string) *WindowFunc {
+func NewWindowFunc(way *Way, alias ...string) *WindowFunc {
 	return &WindowFunc{
-		alias: LastNotEmptyString(alias),
+		Helper: way.cfg.Helper,
+		alias:  LastNotEmptyString(alias),
 	}
 }

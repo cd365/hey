@@ -171,11 +171,11 @@ func (s *LogSql) Write() {
 	if s.err != nil {
 		lg = s.way.log.Error()
 		lg.Str("error", s.err.Error())
-		lg.Str("script", PrepareString(s.prepare, s.args.args))
+		lg.Str("script", PrepareString(s.way.cfg.Helper, s.prepare, s.args.args))
 	} else {
 		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.WarnDuration {
 			lg = s.way.log.Warn()
-			lg.Str("script", PrepareString(s.prepare, s.args.args))
+			lg.Str("script", PrepareString(s.way.cfg.Helper, s.prepare, s.args.args))
 		}
 	}
 	lg.Str("prepare", s.prepare)
@@ -793,6 +793,11 @@ func (s *Way) T7() *Fields {
 	return s.Fields(AliasG)
 }
 
+// WindowFunc New a window function object.
+func (s *Way) WindowFunc(alias ...string) *WindowFunc {
+	return NewWindowFunc(s, alias...)
+}
+
 // read Implement Reader.
 type read struct {
 	// reads Read list.
@@ -937,7 +942,7 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 }
 
 // ArgString Convert SQL statement parameters into text strings.
-func ArgString(i interface{}) string {
+func ArgString(helper Helper, i interface{}) string {
 	if i == nil {
 		return SqlNull
 	}
@@ -962,17 +967,19 @@ func ArgString(i interface{}) string {
 		return fmt.Sprintf("%f", tmp)
 	case reflect.String:
 		return fmt.Sprintf("'%s'", tmp)
-	case reflect.Slice:
-		if t.Elem().Kind() == reflect.Uint8 {
-			return fmt.Sprintf("'%s'", tmp)
-		}
 	default:
+		if bts, ok := tmp.([]byte); ok {
+			if bts == nil {
+				return SqlNull
+			}
+			return helper.BinaryDataToHexString(bts)
+		}
+		return fmt.Sprintf("'%v'", tmp)
 	}
-	return fmt.Sprintf("'%v'", tmp)
 }
 
 // PrepareString Merge executed SQL statements and parameters.
-func PrepareString(prepare string, args []interface{}) string {
+func PrepareString(helper Helper, prepare string, args []interface{}) string {
 	count := len(args)
 	if count == 0 {
 		return prepare
@@ -985,7 +992,7 @@ func PrepareString(prepare string, args []interface{}) string {
 	questionMark := byte('?')
 	for i := 0; i < length; i++ {
 		if origin[i] == questionMark && index < count {
-			latest.WriteString(ArgString(args[index]))
+			latest.WriteString(ArgString(helper, args[index]))
 			index++
 		} else {
 			latest.WriteByte(origin[i])
