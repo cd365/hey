@@ -164,7 +164,7 @@ func (s *PostgresHelper) InsertReturningId(ctx context.Context, way *Way, prepar
 		}
 		defer func() { _ = stmt.Close() }()
 		err = stmt.QueryRowContext(ctx, args...).Scan(&id)
-		return id, nil
+		return id, err
 	}
 	stmt, err := way.PrepareContext(ctx, prepare)
 	if err != nil {
