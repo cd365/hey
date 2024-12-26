@@ -287,6 +287,21 @@ func filterIsNull(column string, not bool) (prepare string) {
 	return
 }
 
+// filterUseValue Get value's current value as an interface{}, otherwise return nil.
+func filterUseValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+	v := reflect.ValueOf(value)
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	return v.Interface()
+}
+
 // Filter Implement SQL statement condition filtering.
 type Filter interface {
 	// SQL Generate conditional filtering SQL statements and their parameters.
@@ -535,27 +550,48 @@ func (s *filter) New(filters ...Filter) Filter {
 }
 
 func (s *filter) GreaterThan(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterGreaterThan(column), value)
+	if value = filterUseValue(value); value != nil {
+		s.add(SqlAnd, filterGreaterThan(column), value)
+	}
+	return s
 }
 
 func (s *filter) GreaterThanEqual(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterGreaterThanEqual(column), value)
+	if value = filterUseValue(value); value != nil {
+		s.add(SqlAnd, filterGreaterThanEqual(column), value)
+	}
+	return s
 }
 
 func (s *filter) LessThan(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterLessThan(column), value)
+	if value = filterUseValue(value); value != nil {
+		s.add(SqlAnd, filterLessThan(column), value)
+	}
+	return s
 }
 
 func (s *filter) LessThanEqual(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterLessThanEqual(column), value)
+	if value = filterUseValue(value); value != nil {
+		s.add(SqlAnd, filterLessThanEqual(column), value)
+	}
+	return s
 }
 
 func (s *filter) Equal(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterEqual(column), value)
+	if value == nil {
+		return s.IsNull(column)
+	}
+	if value = filterUseValue(value); value != nil {
+		s.add(SqlAnd, filterEqual(column), value)
+	}
+	return s
 }
 
 func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
-	return s.add(SqlAnd, filterBetween(column, false), start, end)
+	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
+		s.add(SqlAnd, filterBetween(column, false), start, end)
+	}
+	return s
 }
 
 func (s *filter) In(column string, values ...interface{}) Filter {
@@ -584,7 +620,12 @@ func (s *filter) Exists(prepare string, args ...interface{}) Filter {
 }
 
 func (s *filter) Like(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterLike(column, false), value)
+	value = filterUseValue(value)
+	likeValue, ok := value.(string)
+	if !ok || likeValue == EmptyString {
+		return s
+	}
+	return s.add(SqlAnd, filterLike(column, false), likeValue)
 }
 
 func (s *filter) IsNull(column string) Filter {
@@ -625,11 +666,20 @@ func (s *filter) ExistsGet(get *Get) Filter {
 }
 
 func (s *filter) NotEqual(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterNotEqual(column), value)
+	if value == nil {
+		return s.IsNotNull(column)
+	}
+	if value = filterUseValue(value); value != nil {
+		s.add(SqlAnd, filterNotEqual(column), value)
+	}
+	return s
 }
 
 func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
-	return s.add(SqlAnd, filterBetween(column, true), start, end)
+	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
+		s.add(SqlAnd, filterBetween(column, true), start, end)
+	}
+	return s
 }
 
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
@@ -643,7 +693,12 @@ func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
 }
 
 func (s *filter) NotLike(column string, value interface{}) Filter {
-	return s.add(SqlAnd, filterLike(column, true), value)
+	value = filterUseValue(value)
+	likeValue, ok := value.(string)
+	if !ok || likeValue == EmptyString {
+		return s
+	}
+	return s.add(SqlAnd, filterLike(column, true), likeValue)
 }
 
 func (s *filter) IsNotNull(column string) Filter {
