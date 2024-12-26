@@ -621,11 +621,21 @@ func (s *filter) Exists(prepare string, args ...interface{}) Filter {
 
 func (s *filter) Like(column string, value interface{}) Filter {
 	value = filterUseValue(value)
-	likeValue, ok := value.(string)
-	if !ok || likeValue == EmptyString {
+	if value == nil {
 		return s
 	}
-	return s.add(SqlAnd, filterLike(column, false), likeValue)
+	like := EmptyString
+	if tmp, ok := value.(string); !ok {
+		if item := reflect.ValueOf(value); item.Kind() == reflect.String {
+			like = item.String()
+		}
+	} else {
+		like = tmp
+	}
+	if like != EmptyString {
+		s.add(SqlAnd, filterLike(column, false), like)
+	}
+	return s
 }
 
 func (s *filter) IsNull(column string) Filter {
@@ -694,11 +704,21 @@ func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
 
 func (s *filter) NotLike(column string, value interface{}) Filter {
 	value = filterUseValue(value)
-	likeValue, ok := value.(string)
-	if !ok || likeValue == EmptyString {
+	if value == nil {
 		return s
 	}
-	return s.add(SqlAnd, filterLike(column, true), likeValue)
+	like := EmptyString
+	if tmp, ok := value.(string); !ok {
+		if item := reflect.ValueOf(value); item.Kind() == reflect.String {
+			like = item.String()
+		}
+	} else {
+		like = tmp
+	}
+	if like != EmptyString {
+		s.add(SqlAnd, filterLike(column, true), like)
+	}
+	return s
 }
 
 func (s *filter) IsNotNull(column string) Filter {
