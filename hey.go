@@ -81,6 +81,10 @@ const (
 	AliasG = "g"
 )
 
+const (
+	DefaultAliasNameCount = "counts"
+)
+
 // Config Configure of Way.
 type Config struct {
 	// Scan Scan data into structure.
@@ -753,44 +757,44 @@ func (s *Way) Get(table ...string) *Get {
 	return NewGet(s).Table(LastNotEmptyString(table))
 }
 
-// Fields -> SQL identifier.
-func (s *Way) Fields(prefix ...string) *Fields {
-	return NewFields(s).SetPrefix(LastNotEmptyString(prefix))
+// T Table empty alias
+func (s *Way) T() *AdjustColumn {
+	return NewAdjustColumn(s)
 }
 
-// T1 Table alias `a`
-func (s *Way) T1() *Fields {
-	return s.Fields(AliasA)
+// TA Table alias `a`
+func (s *Way) TA() *AdjustColumn {
+	return NewAdjustColumn(s, AliasA)
 }
 
-// T2 Table alias `b`
-func (s *Way) T2() *Fields {
-	return s.Fields(AliasB)
+// TB Table alias `b`
+func (s *Way) TB() *AdjustColumn {
+	return NewAdjustColumn(s, AliasB)
 }
 
-// T3 Table alias `c`
-func (s *Way) T3() *Fields {
-	return s.Fields(AliasC)
+// TC Table alias `c`
+func (s *Way) TC() *AdjustColumn {
+	return NewAdjustColumn(s, AliasC)
 }
 
-// T4 Table alias `d`
-func (s *Way) T4() *Fields {
-	return s.Fields(AliasD)
+// TD Table alias `d`
+func (s *Way) TD() *AdjustColumn {
+	return NewAdjustColumn(s, AliasD)
 }
 
-// T5 Table alias `e`
-func (s *Way) T5() *Fields {
-	return s.Fields(AliasE)
+// TE Table alias `e`
+func (s *Way) TE() *AdjustColumn {
+	return NewAdjustColumn(s, AliasE)
 }
 
-// T6 Table alias `f`
-func (s *Way) T6() *Fields {
-	return s.Fields(AliasF)
+// TF Table alias `f`
+func (s *Way) TF() *AdjustColumn {
+	return NewAdjustColumn(s, AliasF)
 }
 
-// T7 Table alias `g`
-func (s *Way) T7() *Fields {
-	return s.Fields(AliasG)
+// TG Table alias `g`
+func (s *Way) TG() *AdjustColumn {
+	return NewAdjustColumn(s, AliasG)
 }
 
 // WindowFunc New a window function object.

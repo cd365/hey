@@ -16,10 +16,15 @@ import (
 
 // Common data values for table.column.
 const (
-	State0   = 0
-	State1   = 1
-	StateNo  = "NO"
+	State0 = 0
+	State1 = 1
+
+	StateY = "Y"
+	StateN = "N"
+
 	StateYes = "YES"
+	StateNo  = "NO"
+
 	StateOn  = "ON"
 	StateOff = "OFF"
 )

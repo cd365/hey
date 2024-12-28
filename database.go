@@ -257,224 +257,136 @@ func NewSqlite3Helper() *Sqlite3Helper {
 	return &Sqlite3Helper{}
 }
 
-// ColumnAdjust Adjust the column name according to the column name.
-func ColumnAdjust(columns []string, adjust func(column string) string) {
-	for index, column := range columns {
-		columns[index] = adjust(column)
-	}
-}
-
-// ColumnCommon Identifier contain column name.
-func ColumnCommon(columns []string, identifier string) {
-	double := fmt.Sprintf("%s%s", identifier, identifier)
-	ColumnAdjust(columns, func(column string) string {
-		after := fmt.Sprintf("%s%s%s", identifier, column, identifier)
-		if strings.Contains(after, double) {
-			return column
-		}
-		return after
-	})
-}
-
-// ColumnPrefix Prefix column name.
-func ColumnPrefix(columns []string, prefix string) {
-	ColumnAdjust(columns, func(column string) string {
-		return SqlPrefix(prefix, column)
-	})
-}
-
 /**
  * sql identifier.
  **/
 
-type Fields struct {
-	way    *Way
-	prefix string
+type AdjustColumn struct {
+	alias string
+	way   *Way
 }
 
-// GetPrefix Get prefix value.
-func (s *Fields) GetPrefix() string {
-	return s.prefix
+// Alias Get the alias name value.
+func (s *AdjustColumn) Alias() string {
+	return s.alias
 }
 
-// SetPrefix Set prefix value.
-func (s *Fields) SetPrefix(prefix string) *Fields {
-	s.prefix = prefix
+// SetAlias Set the alias name value.
+func (s *AdjustColumn) SetAlias(alias string) *AdjustColumn {
+	s.alias = alias
 	return s
 }
 
-// Batch process field names according to slices.
-
-// Adjust Adjusting the column name according to the column name.
-func (s *Fields) Adjust(columns []string, adjust func(column string) string) {
-	ColumnAdjust(columns, adjust)
-}
-
-// Common Identifier contain column name.
-func (s *Fields) Common(columns []string) {
-	ColumnCommon(columns, s.way.cfg.Helper.Identifier())
-}
-
-// The following methods rely on return values.
-
-// Ordinary Add sql identifier to column names. column_name -> `column_name` || "column_name" || ...
-func (s *Fields) Ordinary(column string) string {
-	columns := []string{column}
-	s.Common(columns)
-	return columns[0]
-}
-
-// Name Prefix the column name with the table name. column_name -> a.column_name
-func (s *Fields) Name(column string, prefixes ...string) string {
-	if len(prefixes) == 1 && prefixes[0] == "" {
-		return column
+// Adjust Batch adjust columns.
+func (s *AdjustColumn) Adjust(adjust func(column string) string, columns ...string) []string {
+	if adjust != nil {
+		for index, column := range columns {
+			columns[index] = adjust(column)
+		}
 	}
-	prefix := LastNotEmptyString(prefixes)
-	if prefix == "" {
-		prefix = s.prefix
-	}
-	return SqlPrefix(prefix, column)
-}
-
-// Names Batch set column name prefix. [column_name, ...] -> [a.column_name, ...]
-func (s *Fields) Names(columns ...string) []string {
-	ColumnPrefix(columns, s.prefix)
 	return columns
 }
 
-// NamePrefix Sets the prefix name of a group of fields using the specified prefix name. [column_name, ...] -> [a.column_name, ...]
-func (s *Fields) NamePrefix(prefix string, columns ...string) []string {
-	if prefix == "" {
-		prefix = s.prefix
+// ColumnAll Add table name prefix to column names in batches.
+func (s *AdjustColumn) ColumnAll(columns ...string) []string {
+	if s.alias == EmptyString {
+		return columns
 	}
-	ColumnPrefix(columns, prefix)
-	return columns
-}
-
-// With Prefix the column name with the table name. column_name -> column_name -> `a`.`column_name`
-func (s *Fields) With(column string, prefixes ...string) string {
-	columns := []string{column}
-	s.Common(columns)
-	if len(prefixes) == 1 && prefixes[0] == "" {
-		return columns[0]
-	}
-	prefix := LastNotEmptyString(prefixes)
-	if prefix == "" {
-		prefix = s.prefix
-	}
-	if prefix != "" {
-		prefixName := []string{prefix}
-		s.Common(prefixName)
-		prefix = prefixName[0]
-	}
-	return SqlPrefix(prefix, columns[0])
-
-}
-
-// Withs Batch set column name prefix. ["column_name", ...] -> ["`column_name`", ...] OR ["column_name", ...] -> ["`a`.`column_name`", ...]
-func (s *Fields) Withs(columns ...string) []string {
+	prefix := fmt.Sprintf("%s%s", s.alias, SqlPoint)
 	for index, column := range columns {
-		columns[index] = s.With(column, s.prefix)
+		if !strings.HasPrefix(column, prefix) {
+			columns[index] = fmt.Sprintf("%s%s", prefix, column)
+		}
 	}
 	return columns
 }
 
-// WithsPrefix Sets the prefix name of a group of fields using the specified prefix name. ["column_name", ...] -> ["`column_name`", ...] OR ["column_name", ...] -> ["`a`.`column_name`", ...]
-func (s *Fields) WithsPrefix(prefix string, columns ...string) []string {
-	if prefix == "" {
-		prefix = s.prefix
+// Column Add table name prefix to single column name, allowing column alias to be set.
+func (s *AdjustColumn) Column(column string, aliases ...string) string {
+	return SqlAlias(s.ColumnAll(column)[0], LastNotEmptyString(aliases))
+}
+
+// Sum SUM(column[, alias])
+func (s *AdjustColumn) Sum(column string, aliases ...string) string {
+	return SqlAlias(fmt.Sprintf("SUM(%s)", s.Column(column)), LastNotEmptyString(aliases))
+}
+
+// Max MAX(column[, alias])
+func (s *AdjustColumn) Max(column string, aliases ...string) string {
+	return SqlAlias(fmt.Sprintf("MAX(%s)", s.Column(column)), LastNotEmptyString(aliases))
+}
+
+// Min MIN(column[, alias])
+func (s *AdjustColumn) Min(column string, aliases ...string) string {
+	return SqlAlias(fmt.Sprintf("MIN(%s)", s.Column(column)), LastNotEmptyString(aliases))
+}
+
+// Avg AVG(column[, alias])
+func (s *AdjustColumn) Avg(column string, aliases ...string) string {
+	return SqlAlias(fmt.Sprintf("AVG(%s)", s.Column(column)), LastNotEmptyString(aliases))
+}
+
+// Count Example
+// Count(): `COUNT(*) AS counts`
+// Count("total"): `COUNT(*) AS total`
+// Count("1", "total"): `COUNT(1) AS total`
+// Count("id", "counts"): `COUNT(id) AS counts`
+func (s *AdjustColumn) Count(counts ...string) string {
+	count := "COUNT(*)"
+	length := len(counts)
+	if length == 0 {
+		// using default expression: `COUNT(*) AS counts`
+		return SqlAlias(count, DefaultAliasNameCount)
 	}
-	for index, column := range columns {
-		columns[index] = s.With(column, prefix)
+	if length == 1 && counts[0] != EmptyString {
+		// only set alias name
+		return SqlAlias(count, counts[0])
 	}
-	return columns
-}
-
-// Alias Before calling this method, you should usually call the Normal or General method.
-func (s *Fields) Alias(column string, alias ...string) string {
-	if column == "" {
-		return ""
+	// set COUNT function parameters and alias name
+	countAlias := DefaultAliasNameCount
+	field := false
+	for i := 0; i < length; i++ {
+		if counts[i] == EmptyString {
+			continue
+		}
+		if field {
+			countAlias = counts[i]
+			break
+		}
+		count, field = fmt.Sprintf("COUNT(%s)", counts[i]), true
 	}
-	aliasName := LastNotEmptyString(alias)
-	if aliasName == "" {
-		return column
-	}
-	if strings.Contains(column, s.way.cfg.Helper.Identifier()) {
-		common := []string{aliasName}
-		s.Common(common)
-		aliasName = common[0]
-	}
-	return SqlAlias(column, aliasName)
-}
-
-// Sum SUM(column_name)
-func (s *Fields) Sum(column string, alias ...string) string {
-	columns := []string{column}
-	s.Adjust(columns, func(column string) string {
-		return fmt.Sprintf("SUM(%s)", column)
-	})
-	return s.Alias(columns[0], alias...)
-}
-
-// Max MAX(column_name)
-func (s *Fields) Max(column string, alias ...string) string {
-	columns := []string{column}
-	s.Adjust(columns, func(column string) string {
-		return fmt.Sprintf("MAX(%s)", column)
-	})
-	return s.Alias(columns[0], alias...)
-}
-
-// Min MIN(column_name)
-func (s *Fields) Min(column string, alias ...string) string {
-	columns := []string{column}
-	s.Adjust(columns, func(column string) string {
-		return fmt.Sprintf("MIN(%s)", column)
-	})
-	return s.Alias(columns[0], alias...)
-}
-
-// Avg AVG(column_name)
-func (s *Fields) Avg(column string, alias ...string) string {
-	columns := []string{column}
-	s.Adjust(columns, func(column string) string {
-		return fmt.Sprintf("AVG(%s)", column)
-	})
-	return s.Alias(columns[0], alias...)
-}
-
-// Count COUNT(column_name)
-func (s *Fields) Count(column string, alias ...string) string {
-	columns := []string{column}
-	s.Adjust(columns, func(column string) string {
-		return fmt.Sprintf("COUNT(%s)", column)
-	})
-	return s.Alias(columns[0], alias...)
+	return SqlAlias(count, countAlias)
 }
 
 // IfNull If the value is NULL, set the default value.
-func (s *Fields) IfNull(column string, columnDefaultValue string, alias ...string) string {
-	return s.Alias(s.way.cfg.Helper.IfNull(column, columnDefaultValue), alias...)
+func (s *AdjustColumn) IfNull(column string, defaultValue string, aliases ...string) string {
+	return SqlAlias(s.way.cfg.Helper.IfNull(s.Column(column), defaultValue), LastNotEmptyString(aliases))
 }
 
 // IfNullSum IF_NULL(SUM(column),0)[ AS column_name]
-func (s *Fields) IfNullSum(column string, alias ...string) string {
-	return s.Alias(s.IfNull(s.Sum(column), "0"), alias...)
+func (s *AdjustColumn) IfNullSum(column string, aliases ...string) string {
+	return SqlAlias(s.IfNull(s.Sum(column), "0"), LastNotEmptyString(aliases))
 }
 
 // IfNullMax IF_NULL(MAX(column),0)[ AS column_name]
-func (s *Fields) IfNullMax(column string, alias ...string) string {
-	return s.Alias(s.IfNull(s.Max(column), "0"), alias...)
+func (s *AdjustColumn) IfNullMax(column string, aliases ...string) string {
+	return SqlAlias(s.IfNull(s.Max(column), "0"), LastNotEmptyString(aliases))
 }
 
 // IfNullMin IF_NULL(MIN(column),0)[ AS column_name]
-func (s *Fields) IfNullMin(column string, alias ...string) string {
-	return s.Alias(s.IfNull(s.Min(column), "0"), alias...)
+func (s *AdjustColumn) IfNullMin(column string, aliases ...string) string {
+	return SqlAlias(s.IfNull(s.Min(column), "0"), LastNotEmptyString(aliases))
 }
 
-func NewFields(way *Way) *Fields {
-	return &Fields{
-		way: way,
+// IfNullAvg IF_NULL(AVG(column),0)[ AS column_name]
+func (s *AdjustColumn) IfNullAvg(column string, aliases ...string) string {
+	return SqlAlias(s.IfNull(s.Avg(column), "0"), LastNotEmptyString(aliases))
+}
+
+func NewAdjustColumn(way *Way, aliases ...string) *AdjustColumn {
+	return &AdjustColumn{
+		alias: LastNotEmptyString(aliases),
+		way:   way,
 	}
 }
 
@@ -630,9 +542,9 @@ func (s *WindowFunc) Result() string {
 	return b.String()
 }
 
-func NewWindowFunc(way *Way, alias ...string) *WindowFunc {
+func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 	return &WindowFunc{
 		Helper: way.cfg.Helper,
-		alias:  LastNotEmptyString(alias),
+		alias:  LastNotEmptyString(aliases),
 	}
 }
