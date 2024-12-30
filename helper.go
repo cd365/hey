@@ -2623,7 +2623,7 @@ func BuildGet(s *Get) (prepare string, args []interface{}) {
 func BuildCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
 	if countColumns == nil {
 		countColumns = []string{
-			SqlAlias("COUNT(*)", "count"),
+			SqlAlias("COUNT(*)", DefaultAliasNameCount),
 		}
 	}
 
