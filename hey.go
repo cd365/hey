@@ -600,11 +600,6 @@ func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
 	return s.PrepareContext(context.Background(), prepare, caller...)
 }
 
-// InsertReturningId -> Insert one, returning id.
-func (s *Way) InsertReturningId(ctx context.Context, helper Helper, prepare string, args []interface{}) (id int64, err error) {
-	return helper.InsertReturningId(ctx, s, prepare, args)
-}
-
 // QueryContext -> Execute the query sql statement.
 func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	stmt, err := s.PrepareContext(ctx, prepare)

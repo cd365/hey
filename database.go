@@ -1,8 +1,6 @@
 package hey
 
 import (
-	"context"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"strconv"
@@ -13,6 +11,63 @@ import (
  * database helper.
  **/
 
+type Identifier interface {
+	Identify() string
+	AddIdentify(names []string) []string
+	DelIdentify(names []string) []string
+}
+
+type identifier struct {
+	identify string
+}
+
+func (s *identifier) Identify() string {
+	return s.identify
+}
+
+func (s *identifier) AddIdentify(names []string) []string {
+	length := len(names)
+	identify := s.identify
+	if length == 0 || identify == EmptyString {
+		return names
+	}
+	result := make([]string, 0, length)
+	for i := 0; i < length; i++ {
+		if names[i] == EmptyString {
+			continue
+		}
+		if strings.Contains(names[i], identify) {
+			result = append(result, names[i])
+			continue
+		}
+		value := fmt.Sprintf("%s%s%s", identify, names[i], identify)
+		if strings.Contains(value, SqlPoint) {
+			value = strings.ReplaceAll(names[i], SqlPoint, fmt.Sprintf("%s%s%s", identify, SqlPoint, identify))
+		}
+		result = append(result, value)
+	}
+	return result
+}
+
+func (s *identifier) DelIdentify(names []string) []string {
+	length := len(names)
+	identify := s.identify
+	if length == 0 || identify == EmptyString {
+		return names
+	}
+	result := make([]string, length)
+	for i := 0; i < length; i++ {
+		result[i] = strings.ReplaceAll(names[i], identify, EmptyString)
+	}
+	return result
+}
+
+func NewIdentifier(identify string) Identifier {
+	return &identifier{
+		identify: identify,
+	}
+}
+
 type Helper interface {
 	// DriverName Get the driver name.
 	DriverName() []byte
@@ -20,17 +75,12 @@ type Helper interface {
 	// DataSourceName Get the data source name.
 	DataSourceName() []byte
 
-	// Identifier Database tag identifier.
-	Identifier() string
+	Identifier
+
+	SetIdentify(identifier Identifier) Helper
 
 	// Prepare Before executing preprocessing, adjust the preprocessing SQL format.
 	Prepare(prepare string) string
-
-	// Returning When inserting a SQL statement, the auto-increment column of the inserted data is returned.
-	Returning() string
-
-	// InsertReturningId Insert a SQL statement and return the auto-increment column value of the inserted data.
-	InsertReturningId(ctx context.Context, way *Way, prepare string, args []interface{}) (columnValue int64, err error)
 
 	// IfNull Set a default value when the query field value is NULL.
 	IfNull(columnName string, columnDefaultValue string) string
@@ -43,6 +93,7 @@ type Helper interface {
 type MysqlHelper struct {
 	driverName     []byte
 	dataSourceName []byte
+	Identifier
 }
 
 func (s *MysqlHelper) DriverName() []byte {
@@ -53,43 +104,13 @@ func (s *MysqlHelper) DataSourceName() []byte {
 	return s.dataSourceName
 }
 
-func (s *MysqlHelper) Identifier() string {
-	return "`"
+func (s *MysqlHelper) SetIdentify(identifier Identifier) Helper {
+	s.Identifier = identifier
+	return s
 }
 
 func (s *MysqlHelper) Prepare(prepare string) string {
 	return prepare
-}
-
-func (s *MysqlHelper) Returning() string {
-	return ""
-}
-
-func (s *MysqlHelper) InsertReturningId(ctx context.Context, way *Way, prepare string, args []interface{}) (int64, error) {
-	if way.transaction != nil {
-		lg := way.LogSql(prepare, args)
-		defer lg.Write()
-		stmt, err := way.transaction.tx.PrepareContext(ctx, prepare)
-		if err != nil {
-			return 0, err
-		}
-		defer func() { _ = stmt.Close() }()
-		result, err := stmt.ExecContext(ctx, args...)
-		if err != nil {
-			return 0, err
-		}
-		return result.LastInsertId()
-	}
-	stmt, err := way.Prepare(prepare)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = stmt.Close() }()
-	result, err := stmt.ExecuteContext(ctx, args...)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 func (s *MysqlHelper) IfNull(columnName string, columnDefaultValue string) string {
@@ -101,14 +122,16 @@ func (s *MysqlHelper) BinaryDataToHexString(binaryData []byte) string {
 }
 
 func NewMysqlHelper() *MysqlHelper {
-	return &MysqlHelper{}
+	return &MysqlHelper{
+		Identifier: NewIdentifier("`"),
+	}
 }
 
 // PostgresHelper helper for postgresql.
 type PostgresHelper struct {
 	driverName     []byte
 	dataSourceName []byte
-	returning      string
+	Identifier
 }
 
 func (s *PostgresHelper) DriverName() []byte {
@@ -119,8 +142,9 @@ func (s *PostgresHelper) DataSourceName() []byte {
 	return s.dataSourceName
 }
 
-func (s *PostgresHelper) Identifier() string {
-	return `"`
+func (s *PostgresHelper) SetIdentify(identifier Identifier) Helper {
+	s.Identifier = identifier
+	return s
 }
 
 func (s *PostgresHelper) Prepare(prepare string) string {
@@ -143,41 +167,6 @@ func (s *PostgresHelper) Prepare(prepare string) string {
 	return latest.String()
 }
 
-func (s *PostgresHelper) SetReturning(returning string) *PostgresHelper {
-	s.returning = returning
-	return s
-}
-
-func (s *PostgresHelper) Returning() string {
-	return s.returning
-}
-
-func (s *PostgresHelper) InsertReturningId(ctx context.Context, way *Way, prepare string, args []interface{}) (int64, error) {
-	var id int64
-	prepare = fmt.Sprintf("%s RETURNING %s", prepare, s.Returning())
-	if way.transaction != nil {
-		lg := way.LogSql(prepare, args)
-		defer lg.Write()
-		stmt, err := way.transaction.tx.PrepareContext(ctx, prepare)
-		if err != nil {
-			return 0, err
-		}
-		defer func() { _ = stmt.Close() }()
-		err = stmt.QueryRowContext(ctx, args...).Scan(&id)
-		return id, err
-	}
-	stmt, err := way.PrepareContext(ctx, prepare)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = stmt.Close() }()
-	err = stmt.QueryRowContext(ctx, func(rows *sql.Row) error { return rows.Scan(&id) }, args...)
-	if err != nil {
-		return 0, err
-	}
-	return id, nil
-}
-
 func (s *PostgresHelper) IfNull(columnName string, columnDefaultValue string) string {
 	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
 }
@@ -188,7 +177,7 @@ func (s *PostgresHelper) BinaryDataToHexString(binaryData []byte) string {
 
 func NewPostgresHelper() *PostgresHelper {
 	return &PostgresHelper{
-		returning: "id",
+		Identifier: NewIdentifier(`"`),
 	}
 }
 
@@ -196,6 +185,7 @@ func NewPostgresHelper() *PostgresHelper {
 type Sqlite3Helper struct {
 	driverName     []byte
 	dataSourceName []byte
+	Identifier
 }
 
 func (s *Sqlite3Helper) DriverName() []byte {
@@ -206,43 +196,13 @@ func (s *Sqlite3Helper) DataSourceName() []byte {
 	return s.dataSourceName
 }
 
-func (s *Sqlite3Helper) Identifier() string {
-	return "`"
+func (s *Sqlite3Helper) SetIdentify(identifier Identifier) Helper {
+	s.Identifier = identifier
+	return s
 }
 
 func (s *Sqlite3Helper) Prepare(prepare string) string {
 	return prepare
-}
-
-func (s *Sqlite3Helper) Returning() string {
-	return ""
-}
-
-func (s *Sqlite3Helper) InsertReturningId(ctx context.Context, way *Way, prepare string, args []interface{}) (int64, error) {
-	if way.transaction != nil {
-		lg := way.LogSql(prepare, args)
-		defer lg.Write()
-		stmt, err := way.transaction.tx.PrepareContext(ctx, prepare)
-		if err != nil {
-			return 0, err
-		}
-		defer func() { _ = stmt.Close() }()
-		result, err := stmt.ExecContext(ctx, args...)
-		if err != nil {
-			return 0, err
-		}
-		return result.LastInsertId()
-	}
-	stmt, err := way.Prepare(prepare)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = stmt.Close() }()
-	result, err := stmt.ExecuteContext(ctx, args...)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
 }
 
 func (s *Sqlite3Helper) IfNull(columnName string, columnDefaultValue string) string {
@@ -254,7 +214,9 @@ func (s *Sqlite3Helper) BinaryDataToHexString(binaryData []byte) string {
 }
 
 func NewSqlite3Helper() *Sqlite3Helper {
-	return &Sqlite3Helper{}
+	return &Sqlite3Helper{
+		Identifier: NewIdentifier("`"),
+	}
 }
 
 /**
@@ -336,14 +298,14 @@ func (s *AdjustColumn) Count(counts ...string) string {
 	length := len(counts)
 	if length == 0 {
 		// using default expression: `COUNT(*) AS counts`
-		return SqlAlias(count, DefaultAliasNameCount)
+		return SqlAlias(count, s.way.cfg.Helper.AddIdentify([]string{DefaultAliasNameCount})[0])
 	}
 	if length == 1 && counts[0] != EmptyString {
 		// only set alias name
 		return SqlAlias(count, counts[0])
 	}
 	// set COUNT function parameters and alias name
-	countAlias := DefaultAliasNameCount
+	countAlias := s.way.cfg.Helper.AddIdentify([]string{DefaultAliasNameCount})[0]
 	field := false
 	for i := 0; i < length; i++ {
 		if counts[i] == EmptyString {

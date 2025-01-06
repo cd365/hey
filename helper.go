@@ -658,6 +658,7 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 		return
 	}
 	excepted := make(map[string]*struct{}, 32)
+	except = except
 	for _, field := range except {
 		excepted[field] = &struct{}{}
 	}
@@ -1037,7 +1038,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 	buf := comment(s.schema)
 	defer putStringBuilder(buf)
 	buf.WriteString("DELETE FROM ")
-	buf.WriteString(s.schema.table)
+	buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
 
 	cfg := s.schema.way.cfg
 	if cfg.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
@@ -1067,21 +1068,11 @@ func (s *Del) Way() *Way {
 	return s.schema.way
 }
 
-// F make new Filter.
-func (s *Del) F(fs ...Filter) Filter {
-	return F().New(fs...)
-}
-
 // Add for INSERT.
 type Add struct {
 	schema *schema
 
-	/* insert one or more rows */
-	// Fields that are not allowed to be inserted.
-	exceptMap map[string]*struct{}
-	except    []string
-
-	// Permit the following fields can be inserted.
+	/* List of fields that are allowed to be added. */
 	permitMap map[string]*struct{}
 	permit    []string
 
@@ -1103,7 +1094,6 @@ type Add struct {
 func NewAdd(way *Way) *Add {
 	add := &Add{
 		schema:              newSchema(way),
-		exceptMap:           make(map[string]*struct{}, 32),
 		permitMap:           make(map[string]*struct{}, 32),
 		fieldsFieldIndex:    make(map[string]int, 32),
 		values:              make([][]interface{}, 1),
@@ -1130,67 +1120,15 @@ func (s *Add) Table(table string) *Add {
 	return s
 }
 
-// Except exclude some columns from insert one or more rows.
-func (s *Add) Except(except ...string) *Add {
-	remove := make(map[string]*struct{}, len(except))
-	for _, field := range except {
-		if field == EmptyString {
-			continue
-		}
-		if _, ok := s.exceptMap[field]; ok {
-			continue
-		}
-		s.exceptMap[field] = &struct{}{}
-		s.except = append(s.except, field)
-
-		if _, ok := s.permitMap[field]; ok {
-			remove[field] = &struct{}{}
-		}
-	}
-
-	if length := len(remove); length > 0 {
-		latest := make([]string, 0, len(s.permit))
-		for _, field := range s.permit {
-			if _, ok := remove[field]; ok {
-				delete(s.permitMap, field)
-				continue
-			}
-			latest = append(latest, field)
-		}
-		s.permit = latest
-	}
-
-	return s
-}
-
 // Permit Set a list of fields that can only be inserted.
 func (s *Add) Permit(permit ...string) *Add {
-	remove := make(map[string]*struct{}, len(permit))
+	permit = s.schema.way.cfg.Helper.AddIdentify(permit)
 	for _, field := range permit {
-		if field == EmptyString {
-			continue
-		}
 		if _, ok := s.permitMap[field]; ok {
 			continue
 		}
 		s.permitMap[field] = &struct{}{}
 		s.permit = append(s.permit, field)
-
-		if _, ok := s.exceptMap[field]; ok {
-			remove[field] = &struct{}{}
-		}
-	}
-
-	if length := len(remove); length > 0 {
-		latest := make([]string, 0, len(s.except))
-		for _, field := range s.except {
-			if _, ok := remove[field]; ok {
-				delete(s.exceptMap, field)
-				continue
-			}
-			latest = append(latest, field)
-		}
-		s.except = latest
 	}
 	return s
 }
@@ -1207,40 +1145,9 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 		}
 	}
 
-	if s.except != nil {
-		// Delete fields and values that are not allowed to be inserted.
-		indexes := make(map[int]*struct{}, length1)
-		for i := 0; i < length1; i++ {
-			if _, ok := s.exceptMap[fields[i]]; ok {
-				indexes[i] = &struct{}{}
-			}
-		}
-		if length3 := len(indexes); length3 > 0 {
-			length4 := length1 - length3
-			fields1 := make([]string, 0, length4)
-			values1 := make([][]interface{}, length2)
-			for k := range values {
-				values1[k] = make([]interface{}, 0, length4)
-			}
-			for i := range fields {
-				if _, ok := indexes[i]; ok {
-					continue
-				}
-				fields1 = append(fields1, fields[i])
-				for k := range values {
-					values1[k] = append(values1[k], values[k][i])
-				}
-			}
-			fields, values = fields1, values1
-			length1, length2 = len(fields), len(values)
-			if length1 == 0 || length2 == 0 {
-				return s
-			}
-		}
-	}
+	fields = s.schema.way.cfg.Helper.AddIdentify(fields)
 
 	if s.permit != nil {
-		// Delete fields and values that are not allowed to be inserted.
 		indexes := make(map[int]*struct{}, length1)
 		for i := 0; i < length1; i++ {
 			if _, ok := s.permitMap[fields[i]]; ok {
@@ -1286,11 +1193,7 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 
 // FieldValue append field-value for insert one or more rows.
 func (s *Add) FieldValue(field string, value interface{}) *Add {
-	if s.except != nil {
-		if _, ok := s.exceptMap[field]; ok {
-			return s
-		}
-	}
+	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 	if s.permit != nil {
 		if _, ok := s.permitMap[field]; !ok {
 			return s
@@ -1357,7 +1260,7 @@ func (s *Add) Create(create interface{}) *Add {
 		return s
 	}
 
-	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, s.except, s.permit))
+	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.DelIdentify(s.permit)))
 }
 
 // ValuesSubQuery values is a query SQL statement.
@@ -1372,13 +1275,6 @@ func (s *Add) ValuesSubQueryGet(get *Get, fields ...string) *Add {
 		return s
 	}
 	if length := len(fields); length > 0 {
-		if s.except != nil {
-			for _, c := range fields {
-				if _, ok := s.exceptMap[c]; ok {
-					return s
-				}
-			}
-		}
 		if s.permit != nil {
 			for _, c := range fields {
 				if _, ok := s.permitMap[c]; !ok {
@@ -1402,7 +1298,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 
 	if s.subQuery != nil {
 		buf.WriteString("INSERT INTO ")
-		buf.WriteString(s.schema.table)
+		buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
 		if len(s.fields) > 0 {
 			buf.WriteString(" ( ")
 			buf.WriteString(strings.Join(s.fields, ", "))
@@ -1421,7 +1317,11 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		return
 	}
 
-	addDefault := false
+	resetCount := false
+	had := make(map[string]*struct{}, count)
+	for i := 0; i < count; i++ {
+		had[s.fields[i]] = &struct{}{}
+	}
 	for _, field := range s.defaultFields {
 		if _, ok := s.fieldsFieldIndex[field]; ok {
 			continue
@@ -1430,12 +1330,15 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 		if !ok {
 			continue
 		}
+		if _, ok = had[field]; ok {
+			continue
+		}
 		s.FieldValue(field, value)
-		if !addDefault {
-			addDefault = true
+		if !resetCount {
+			resetCount = true
 		}
 	}
-	if addDefault {
+	if resetCount {
 		count = len(s.fields)
 	}
 
@@ -1471,17 +1374,26 @@ func (s *Add) Add() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// ReturningId execute the built SQL statement, returning auto-increment field value.
-func (s *Add) ReturningId(helpers ...Helper) (id int64, err error) {
-	helper := s.schema.way.cfg.Helper
-	for i := len(helpers) - 1; i >= 0; i-- {
-		if helpers[i] != nil {
-			helper = helpers[i]
-			break
-		}
-	}
+// ReturnId execute the built SQL statement, returning auto-increment field value.
+func (s *Add) ReturnId(getReturningColumn func() string, getId func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error)) (id int64, err error) {
 	prepare, args := s.SQL()
-	return s.schema.way.InsertReturningId(s.schema.ctx, helper, prepare, args)
+	if prepare == EmptyString {
+		return 0, nil
+	}
+	returningColumn := ""
+	if getReturningColumn != nil {
+		returningColumn = getReturningColumn()
+	}
+	if returningColumn != "" {
+		returningColumn = s.schema.way.cfg.Helper.AddIdentify([]string{returningColumn})[0]
+		prepare = fmt.Sprintf("%s RETURNING %s", prepare, returningColumn)
+	}
+	stmt, err := s.schema.way.PrepareContext(s.schema.ctx, prepare)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = stmt.Close() }()
+	return getId(s.schema.ctx, stmt, args)
 }
 
 // Way get current *Way.
@@ -1502,22 +1414,18 @@ type Mod struct {
 	// update updated fields.
 	update map[string]*modify
 
-	// updateSlice the fields to be updated are updated sequentially.
-	updateSlice []string
+	// updateSort the fields to be updated are updated sequentially.
+	updateSort []string
 
-	// update2 [default] updated fields, the effective condition is len(update) > 0.
-	update2 map[string]*modify
+	// defaultUpdate [default] updated fields, the effective condition is len(update) > 0.
+	defaultUpdate map[string]*modify
 
-	// update2Slice [default] the fields to be updated are updated sequentially.
-	update2Slice []string
+	// defaultUpdateSort [default] the fields to be updated are updated sequentially.
+	defaultUpdateSort []string
 
-	// except excepted fields.
-	except      map[string]*struct{}
-	exceptSlice []string
-
-	// permit permitted fields.
-	permit      map[string]*struct{}
-	permitSlice []string
+	// permitMap permitted fields.
+	permitMap map[string]*struct{}
+	permit    []string
 
 	where Filter
 }
@@ -1525,11 +1433,10 @@ type Mod struct {
 // NewMod for UPDATE.
 func NewMod(way *Way) *Mod {
 	return &Mod{
-		schema:  newSchema(way),
-		update:  make(map[string]*modify, 8),
-		update2: make(map[string]*modify, 8),
-		except:  make(map[string]*struct{}, 32),
-		permit:  make(map[string]*struct{}, 32),
+		schema:        newSchema(way),
+		update:        make(map[string]*modify, 8),
+		defaultUpdate: make(map[string]*modify, 8),
+		permitMap:     make(map[string]*struct{}, 32),
 	}
 }
 
@@ -1551,68 +1458,15 @@ func (s *Mod) Table(table string) *Mod {
 	return s
 }
 
-// Except exclude some fields from update.
-func (s *Mod) Except(except ...string) *Mod {
-	length := len(except)
-	remove := make(map[string]*struct{}, length)
-	for i := 0; i < length; i++ {
-		if except[i] == EmptyString {
-			continue
-		}
-		if _, ok := s.except[except[i]]; ok {
-			continue
-		}
-		s.except[except[i]] = &struct{}{}
-		s.exceptSlice = append(s.exceptSlice, except[i])
-
-		if _, ok := s.permit[except[i]]; ok {
-			remove[except[i]] = &struct{}{}
-		}
-	}
-
-	if count := len(remove); count > 0 {
-		latest := make([]string, 0, len(s.permitSlice))
-		for _, field := range s.permitSlice {
-			if _, ok := remove[field]; ok {
-				delete(s.permit, field)
-				continue
-			}
-			latest = append(latest, field)
-		}
-		s.permitSlice = latest
-	}
-	return s
-}
-
 // Permit Sets a list of fields that can only be updated.
 func (s *Mod) Permit(permit ...string) *Mod {
-	length := len(permit)
-	remove := make(map[string]*struct{}, length)
-	for i := 0; i < length; i++ {
-		if permit[i] == EmptyString {
+	permit = s.schema.way.cfg.Helper.AddIdentify(permit)
+	for _, field := range permit {
+		if _, ok := s.permitMap[field]; ok {
 			continue
 		}
-		if _, ok := s.permit[permit[i]]; ok {
-			continue
-		}
-		s.permit[permit[i]] = &struct{}{}
-		s.permitSlice = append(s.permitSlice, permit[i])
-
-		if _, ok := s.except[permit[i]]; ok {
-			remove[permit[i]] = &struct{}{}
-		}
-	}
-
-	if count := len(remove); count > 0 {
-		latest := make([]string, 0, len(s.exceptSlice))
-		for _, field := range s.exceptSlice {
-			if _, ok := remove[field]; ok {
-				delete(s.except, field)
-				continue
-			}
-			latest = append(latest, field)
-		}
-		s.exceptSlice = latest
+		s.permitMap[field] = &struct{}{}
+		s.permit = append(s.permit, field)
 	}
 	return s
 }
@@ -1623,14 +1477,10 @@ func (s *Mod) fieldExprArgs(field string, expr string, args ...interface{}) *Mod
 		return s
 	}
 
-	if s.exceptSlice != nil {
-		if _, ok := s.except[field]; ok {
-			return s
-		}
-	}
+	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 
-	if s.permitSlice != nil {
-		if _, ok := s.permit[field]; !ok {
+	if s.permit != nil {
+		if _, ok := s.permitMap[field]; !ok {
 			return s
 		}
 	}
@@ -1644,8 +1494,8 @@ func (s *Mod) fieldExprArgs(field string, expr string, args ...interface{}) *Mod
 		s.update[field] = tmp
 		return s
 	}
-	s.updateSlice = append(s.updateSlice, field)
 	s.update[field] = tmp
+	s.updateSort = append(s.updateSort, field)
 	return s
 }
 
@@ -1659,17 +1509,17 @@ func (s *Mod) Default(fc func(o *Mod)) *Mod {
 	v := *s
 	mod := &v
 
-	// reset value for .update .updateSlice .
+	// reset value for `update` `updateSort` .
 	mod.update = make(map[string]*modify, 8)
-	mod.updateSlice = nil
+	mod.updateSort = nil
 	fc(mod)
 
-	if mod.updateSlice != nil {
+	if mod.updateSort != nil {
 		// Batch add default key-value.
-		s.update2Slice = append(s.update2Slice, mod.updateSlice...)
 		for field, update := range mod.update {
-			s.update2[field] = update
+			s.defaultUpdate[field] = update
 		}
+		s.defaultUpdateSort = append(s.defaultUpdateSort, mod.updateSort...)
 	}
 
 	return s
@@ -1683,16 +1533,19 @@ func (s *Mod) Expr(field string, expr string, args ...interface{}) *Mod {
 
 // Set field = value.
 func (s *Mod) Set(field string, value interface{}) *Mod {
+	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s", field, SqlPlaceholder), value)
 }
 
 // Incr SET field = field + value.
 func (s *Mod) Incr(field string, value interface{}) *Mod {
+	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s + %s", field, field, SqlPlaceholder), value)
 }
 
 // Decr SET field = field - value.
 func (s *Mod) Decr(field string, value interface{}) *Mod {
+	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
 }
 
@@ -1711,6 +1564,7 @@ func (s *Mod) SetCase(field string, value func(c *Case)) *Mod {
 		return s
 	}
 
+	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s", field, expr), args...)
 }
 
@@ -1734,12 +1588,12 @@ func (s *Mod) Modify(modify interface{}) *Mod {
 		}
 		return s
 	}
-	return s.FieldsValues(StructModify(modify, s.schema.way.cfg.ScanTag, s.exceptSlice...))
+	return s.FieldsValues(StructModify(modify, s.schema.way.cfg.ScanTag))
 }
 
 // Update for compare origin and latest to automatically calculate need to update fields.
 func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
-	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.cfg.ScanTag, s.exceptSlice...))
+	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.cfg.ScanTag))
 }
 
 // Where set where.
@@ -1756,11 +1610,11 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	}
 	exists := make(map[string]*struct{}, 32)
 	fields := make([]string, 0, length)
-	for _, field := range s.updateSlice {
+	for _, field := range s.updateSort {
 		exists[field] = &struct{}{}
 		fields = append(fields, field)
 	}
-	for _, field := range s.update2Slice {
+	for _, field := range s.defaultUpdateSort {
 		if _, ok := exists[field]; !ok {
 			fields = append(fields, field)
 		}
@@ -1775,8 +1629,8 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 			value = append(value, s.update[v].args...)
 			continue
 		}
-		field[k] = s.update2[v].expr
-		value = append(value, s.update2[v].args...)
+		field[k] = s.defaultUpdate[v].expr
+		value = append(value, s.defaultUpdate[v].args...)
 	}
 	buf := getStringBuilder()
 	defer putStringBuilder(buf)
@@ -1798,7 +1652,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	buf := comment(s.schema)
 	defer putStringBuilder(buf)
 	buf.WriteString("UPDATE ")
-	buf.WriteString(s.schema.table)
+	buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
 	buf.WriteString(" SET ")
 	buf.WriteString(prepare)
 
@@ -1831,11 +1685,6 @@ func (s *Mod) Mod() (int64, error) {
 // Way get current *Way.
 func (s *Mod) Way() *Way {
 	return s.schema.way
-}
-
-// F make new Filter.
-func (s *Mod) F(fs ...Filter) Filter {
-	return F().New(fs...)
 }
 
 // GetWith CTE: Common Table Expression.
@@ -2517,7 +2366,7 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 	buf.WriteString(" FROM ")
 
 	if s.subQuery == nil {
-		buf.WriteString(s.schema.table)
+		buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
 	} else {
 		buf.WriteString("( ")
 		subPrepare, subArgs := s.subQuery.SQL()
@@ -2623,7 +2472,7 @@ func BuildGet(s *Get) (prepare string, args []interface{}) {
 func BuildCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
 	if countColumns == nil {
 		countColumns = []string{
-			SqlAlias("COUNT(*)", DefaultAliasNameCount),
+			SqlAlias("COUNT(*)", s.schema.way.cfg.Helper.AddIdentify([]string{DefaultAliasNameCount})[0]),
 		}
 	}
 
@@ -2773,11 +2622,6 @@ func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...
 // CountGet execute the built SQL statement and scan query result, count + get.
 func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error) {
 	return GetCountGet(s, result, countColumn...)
-}
-
-// F make new Filter.
-func (s *Get) F(fs ...Filter) Filter {
-	return F().New(fs...)
 }
 
 // Way get current *Way.
