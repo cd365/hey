@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 /**
@@ -13,57 +14,103 @@ import (
 
 type Identifier interface {
 	Identify() string
-	AddIdentify(names []string) []string
-	DelIdentify(names []string) []string
+	AddIdentify(keys []string) []string
+	DelIdentify(keys []string) []string
 }
 
 type identifier struct {
-	identify string
+	identify   string
+	add        map[string]string
+	addRWMutex *sync.RWMutex
+	del        map[string]string
+	delRWMutex *sync.RWMutex
 }
 
 func (s *identifier) Identify() string {
 	return s.identify
 }
 
-func (s *identifier) AddIdentify(names []string) []string {
-	length := len(names)
+func (s *identifier) getAdd(key string) (value string, ok bool) {
+	s.addRWMutex.RLock()
+	defer s.addRWMutex.RUnlock()
+	value, ok = s.add[key]
+	return
+}
+
+func (s *identifier) setAdd(key string, value string) {
+	s.addRWMutex.Lock()
+	defer s.addRWMutex.Unlock()
+	s.add[key] = value
+	return
+}
+
+func (s *identifier) getDel(key string) (value string, ok bool) {
+	s.delRWMutex.RLock()
+	defer s.delRWMutex.RUnlock()
+	value, ok = s.del[key]
+	return
+}
+
+func (s *identifier) setDel(key string, value string) {
+	s.delRWMutex.Lock()
+	defer s.delRWMutex.Unlock()
+	s.del[key] = value
+	return
+}
+
+func (s *identifier) AddIdentify(keys []string) []string {
+	length := len(keys)
 	identify := s.identify
 	if length == 0 || identify == EmptyString {
-		return names
+		return keys
 	}
 	result := make([]string, 0, length)
 	for i := 0; i < length; i++ {
-		if names[i] == EmptyString {
-			result = append(result, names[i])
+		if keys[i] == EmptyString {
+			result = append(result, keys[i])
 			continue
 		}
-		value := strings.ReplaceAll(names[i], identify, "")
-		value = strings.TrimSpace(value)
-		values := strings.Split(value, SqlPoint)
-		for k, v := range values {
-			values[k] = fmt.Sprintf("%s%s%s", identify, v, identify)
+		value, ok := s.getAdd(keys[i])
+		if !ok {
+			value = strings.ReplaceAll(keys[i], identify, EmptyString)
+			value = strings.TrimSpace(value)
+			values := strings.Split(value, SqlPoint)
+			for k, v := range values {
+				values[k] = fmt.Sprintf("%s%s%s", identify, v, identify)
+			}
+			value = strings.Join(values, SqlPoint)
+			s.setAdd(keys[i], value)
 		}
-		result = append(result, strings.Join(values, SqlPoint))
+		result = append(result, value)
 	}
 	return result
 }
 
-func (s *identifier) DelIdentify(names []string) []string {
-	length := len(names)
+func (s *identifier) DelIdentify(keys []string) []string {
+	length := len(keys)
 	identify := s.identify
 	if length == 0 || identify == EmptyString {
-		return names
+		return keys
 	}
 	result := make([]string, length)
 	for i := 0; i < length; i++ {
-		result[i] = strings.ReplaceAll(names[i], identify, EmptyString)
+		value, ok := s.getDel(keys[i])
+		if !ok {
+			value = strings.ReplaceAll(keys[i], identify, EmptyString)
+			s.setDel(keys[i], value)
+		}
+		result[i] = value
 	}
 	return result
 }
 
 func NewIdentifier(identify string) Identifier {
 	return &identifier{
-		identify: identify,
+		identify:   identify,
+		add:        make(map[string]string, 512),
+		addRWMutex: &sync.RWMutex{},
+		del:        make(map[string]string, 512),
+		delRWMutex: &sync.RWMutex{},
 	}
 }
 
