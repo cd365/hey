@@ -121,15 +121,25 @@ type Helper interface {
 	// DataSourceName Get the data source name.
 	DataSourceName() []byte
 
+	// SetIdentifier Custom Identifier.
+	SetIdentifier(identifier Identifier) Helper
+
 	Identifier
 
-	SetIdentifier(identifier Identifier) Helper
+	// SetPrepare Custom method.
+	SetPrepare(prepare func(prepare string) string) Helper
 
 	// Prepare Before executing preprocessing, adjust the preprocessing SQL format.
 	Prepare(prepare string) string
 
+	// SetIfNull Custom method.
+	SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper
+
 	// IfNull Set a default value when the query field value is NULL.
 	IfNull(columnName string, columnDefaultValue string) string
+
+	// SetBinaryDataToHexString Custom method.
+	SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper
 
 	// BinaryDataToHexString Convert binary data to hexadecimal string.
 	BinaryDataToHexString(binaryData []byte) string
@@ -139,7 +149,12 @@ type Helper interface {
 type MysqlHelper struct {
 	driverName     []byte
 	dataSourceName []byte
+
 	Identifier
+
+	prepare               func(prepare string) string
+	ifNull                func(columnName string, columnDefaultValue string) string
+	binaryDataToHexString func(binaryData []byte) string
 }
 
 func (s *MysqlHelper) DriverName() []byte {
@@ -151,19 +166,51 @@ func (s *MysqlHelper) DataSourceName() []byte {
 }
 
 func (s *MysqlHelper) SetIdentifier(identifier Identifier) Helper {
-	s.Identifier = identifier
+	if identifier != nil {
+		s.Identifier = identifier
+	}
+	return s
+}
+
+func (s *MysqlHelper) SetPrepare(prepare func(prepare string) string) Helper {
+	if prepare != nil {
+		s.prepare = prepare
+	}
 	return s
 }
 
 func (s *MysqlHelper) Prepare(prepare string) string {
+	if s.prepare != nil {
+		return s.prepare(prepare)
+	}
 	return prepare
 }
 
+func (s *MysqlHelper) SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper {
+	if ifNull != nil {
+		s.ifNull = ifNull
+	}
+	return s
+}
+
 func (s *MysqlHelper) IfNull(columnName string, columnDefaultValue string) string {
+	if s.ifNull != nil {
+		return s.ifNull(columnName, columnDefaultValue)
+	}
 	return fmt.Sprintf("IFNULL(%s,%s)", columnName, columnDefaultValue)
 }
 
+func (s *MysqlHelper) SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper {
+	if binaryDataToHexString != nil {
+		s.binaryDataToHexString = binaryDataToHexString
+	}
+	return s
+}
+
 func (s *MysqlHelper) BinaryDataToHexString(binaryData []byte) string {
+	if s.binaryDataToHexString != nil {
+		return s.binaryDataToHexString(binaryData)
+	}
 	return fmt.Sprintf("UNHEX('%s')", hex.EncodeToString(binaryData))
 }
 
@@ -177,7 +224,12 @@ func NewMysqlHelper() *MysqlHelper {
 type PostgresHelper struct {
 	driverName     []byte
 	dataSourceName []byte
+
 	Identifier
+
+	prepare               func(prepare string) string
+	ifNull                func(columnName string, columnDefaultValue string) string
+	binaryDataToHexString func(binaryData []byte) string
 }
 
 func (s *PostgresHelper) DriverName() []byte {
@@ -189,11 +241,23 @@ func (s *PostgresHelper) DataSourceName() []byte {
 }
 
 func (s *PostgresHelper) SetIdentifier(identifier Identifier) Helper {
-	s.Identifier = identifier
+	if identifier != nil {
+		s.Identifier = identifier
+	}
+	return s
+}
+
+func (s *PostgresHelper) SetPrepare(prepare func(prepare string) string) Helper {
+	if prepare != nil {
+		s.prepare = prepare
+	}
 	return s
 }
 
 func (s *PostgresHelper) Prepare(prepare string) string {
+	if s.prepare != nil {
+		return s.prepare(prepare)
+	}
 	var index int64
 	latest := getStringBuilder()
 	defer putStringBuilder(latest)
@@ -213,11 +277,31 @@ func (s *PostgresHelper) Prepare(prepare string) string {
 	return latest.String()
 }
 
+func (s *PostgresHelper) SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper {
+	if ifNull != nil {
+		s.ifNull = ifNull
+	}
+	return s
+}
+
 func (s *PostgresHelper) IfNull(columnName string, columnDefaultValue string) string {
+	if s.ifNull != nil {
+		return s.ifNull(columnName, columnDefaultValue)
+	}
 	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
 }
 
+func (s *PostgresHelper) SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper {
+	if binaryDataToHexString != nil {
+		s.binaryDataToHexString = binaryDataToHexString
+	}
+	return s
+}
+
 func (s *PostgresHelper) BinaryDataToHexString(binaryData []byte) string {
+	if s.binaryDataToHexString != nil {
+		return s.binaryDataToHexString(binaryData)
+	}
 	return fmt.Sprintf(`E'\\x%s'`, hex.EncodeToString(binaryData))
 }
 
@@ -231,7 +315,12 @@ func NewPostgresHelper() *PostgresHelper {
 type Sqlite3Helper struct {
 	driverName     []byte
 	dataSourceName []byte
+
 	Identifier
+
+	prepare               func(prepare string) string
+	ifNull                func(columnName string, columnDefaultValue string) string
+	binaryDataToHexString func(binaryData []byte) string
 }
 
 func (s *Sqlite3Helper) DriverName() []byte {
@@ -243,19 +332,51 @@ func (s *Sqlite3Helper) DataSourceName() []byte {
 }
 
 func (s *Sqlite3Helper) SetIdentifier(identifier Identifier) Helper {
-	s.Identifier = identifier
+	if identifier != nil {
+		s.Identifier = identifier
+	}
+	return s
+}
+
+func (s *Sqlite3Helper) SetPrepare(prepare func(prepare string) string) Helper {
+	if prepare != nil {
+		s.prepare = prepare
+	}
 	return s
 }
 
 func (s *Sqlite3Helper) Prepare(prepare string) string {
+	if s.prepare != nil {
+		return s.prepare(prepare)
+	}
 	return prepare
 }
 
+func (s *Sqlite3Helper) SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper {
+	if ifNull != nil {
+		s.ifNull = ifNull
+	}
+	return s
+}
+
 func (s *Sqlite3Helper) IfNull(columnName string, columnDefaultValue string) string {
+	if s.ifNull != nil {
+		return s.ifNull(columnName, columnDefaultValue)
+	}
 	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
 }
 
+func (s *Sqlite3Helper) SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper {
+	if binaryDataToHexString != nil {
+		s.binaryDataToHexString = binaryDataToHexString
+	}
+	return s
+}
+
 func (s *Sqlite3Helper) BinaryDataToHexString(binaryData []byte) string {
+	if s.binaryDataToHexString != nil {
+		return s.binaryDataToHexString(binaryData)
+	}
 	return fmt.Sprintf(`X'%s'`, hex.EncodeToString(binaryData))
 }
 
