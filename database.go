@@ -34,17 +34,16 @@ func (s *identifier) AddIdentify(names []string) []string {
 	result := make([]string, 0, length)
 	for i := 0; i < length; i++ {
 		if names[i] == EmptyString {
-			continue
-		}
-		if strings.Contains(names[i], identify) {
 			result = append(result, names[i])
 			continue
 		}
-		value := fmt.Sprintf("%s%s%s", identify, names[i], identify)
-		if strings.Contains(value, SqlPoint) {
-			value = strings.ReplaceAll(names[i], SqlPoint, fmt.Sprintf("%s%s%s", identify, SqlPoint, identify))
+		value := strings.ReplaceAll(names[i], identify, "")
+		value = strings.TrimSpace(value)
+		values := strings.Split(value, SqlPoint)
+		for k, v := range values {
+			values[k] = fmt.Sprintf("%s%s%s", identify, v, identify)
 		}
-		result = append(result, value)
+		result = append(result, strings.Join(values, SqlPoint))
 	}
 	return result
 }
