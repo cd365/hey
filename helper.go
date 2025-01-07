@@ -589,14 +589,6 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 	for i := 0; i < length; i++ {
 		field := ofType.Field(i)
 
-		column := field.Tag.Get(tag)
-		if column == EmptyString || column == "-" {
-			continue
-		}
-		if _, ok := excepted[column]; ok {
-			continue
-		}
-
 		fieldType := field.Type
 		fieldKind := fieldType.Kind()
 		pointerDepth := 0
@@ -604,6 +596,33 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 			pointerDepth++
 			fieldType = fieldType.Elem()
 			fieldKind = fieldType.Kind()
+		}
+
+		if fieldKind == reflect.Struct {
+			fieldValue := ofValue.Field(i)
+			isNil := false
+			for j := 0; j < pointerDepth; j++ {
+				if isNil = fieldValue.IsNil(); isNil {
+					break
+				}
+				fieldValue = fieldValue.Elem()
+			}
+			if isNil {
+				continue
+			}
+			tmpFields, tmpValues := StructModify(fieldValue.Interface(), tag, except...)
+			for index, tmpField := range tmpFields {
+				add(tmpField, tmpValues[index])
+			}
+			continue
+		}
+
+		column := field.Tag.Get(tag)
+		if column == EmptyString || column == "-" {
+			continue
+		}
+		if _, ok := excepted[column]; ok {
+			continue
 		}
 
 		fieldValue := ofValue.Field(i)
@@ -658,7 +677,6 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 		return
 	}
 	excepted := make(map[string]*struct{}, 32)
-	except = except
 	for _, field := range except {
 		excepted[field] = &struct{}{}
 	}
@@ -686,6 +704,35 @@ func StructObtain(object interface{}, tag string, except ...string) (fields []st
 
 	for i := 0; i < length; i++ {
 		field := ofType.Field(i)
+
+		fieldType := field.Type
+		fieldKind := fieldType.Kind()
+		pointerDepth := 0
+		for fieldKind == reflect.Pointer {
+			pointerDepth++
+			fieldType = fieldType.Elem()
+			fieldKind = fieldType.Kind()
+		}
+
+		if fieldKind == reflect.Struct {
+			fieldValue := ofValue.Field(i)
+			isNil := false
+			for j := 0; j < pointerDepth; j++ {
+				if fieldValue.IsNil() {
+					isNil = true
+					break
+				}
+				fieldValue = fieldValue.Elem()
+			}
+			if isNil {
+				continue
+			}
+			tmpFields, tmpValues := StructObtain(fieldValue.Interface(), tag, except...)
+			for index, tmpField := range tmpFields {
+				add(tmpField, tmpValues[index])
+			}
+			continue
+		}
 
 		column := field.Tag.Get(tag)
 		if column == EmptyString || column == "-" {
@@ -1592,8 +1639,9 @@ func (s *Mod) Modify(modify interface{}) *Mod {
 }
 
 // Update for compare origin and latest to automatically calculate need to update fields.
-func (s *Mod) Update(originObject interface{}, latestObject interface{}) *Mod {
-	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.cfg.ScanTag))
+func (s *Mod) Update(originObject interface{}, latestObject interface{}, except ...string) *Mod {
+	except = s.schema.way.cfg.Helper.DelIdentify(except)
+	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.cfg.ScanTag, except...))
 }
 
 // Where set where.

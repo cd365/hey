@@ -77,7 +77,7 @@ type Helper interface {
 
 	Identifier
 
-	SetIdentify(identifier Identifier) Helper
+	SetIdentifier(identifier Identifier) Helper
 
 	// Prepare Before executing preprocessing, adjust the preprocessing SQL format.
 	Prepare(prepare string) string
@@ -104,7 +104,7 @@ func (s *MysqlHelper) DataSourceName() []byte {
 	return s.dataSourceName
 }
 
-func (s *MysqlHelper) SetIdentify(identifier Identifier) Helper {
+func (s *MysqlHelper) SetIdentifier(identifier Identifier) Helper {
 	s.Identifier = identifier
 	return s
 }
@@ -142,7 +142,7 @@ func (s *PostgresHelper) DataSourceName() []byte {
 	return s.dataSourceName
 }
 
-func (s *PostgresHelper) SetIdentify(identifier Identifier) Helper {
+func (s *PostgresHelper) SetIdentifier(identifier Identifier) Helper {
 	s.Identifier = identifier
 	return s
 }
@@ -196,7 +196,7 @@ func (s *Sqlite3Helper) DataSourceName() []byte {
 	return s.dataSourceName
 }
 
-func (s *Sqlite3Helper) SetIdentify(identifier Identifier) Helper {
+func (s *Sqlite3Helper) SetIdentifier(identifier Identifier) Helper {
 	s.Identifier = identifier
 	return s
 }
