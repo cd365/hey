@@ -2061,6 +2061,7 @@ func (s *Get) Where(where Filter) *Get {
 
 // Group set group columns.
 func (s *Get) Group(group ...string) *Get {
+	group = s.schema.way.cfg.Helper.AddIdentify(group)
 	s.group = append(s.group, group...)
 	return s
 }
@@ -2134,6 +2135,7 @@ func (s *Get) orderBy(column string, order string) *Get {
 	if column == EmptyString || (order != SqlAsc && order != SqlDesc) {
 		return s
 	}
+	column = s.schema.way.cfg.Helper.AddIdentify([]string{column})[0]
 	if _, ok := s.orderMap[column]; ok {
 		return s
 	}
@@ -2162,6 +2164,10 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 	fieldMap := make(map[string]string, 8)
 	for _, m := range orderMap {
 		for k, v := range m {
+			if k == EmptyString || v == EmptyString {
+				continue
+			}
+			k, v = s.schema.way.cfg.Helper.DelIdentify([]string{k})[0], s.schema.way.cfg.Helper.DelIdentify([]string{v})[0]
 			fieldMap[k] = v
 		}
 	}
