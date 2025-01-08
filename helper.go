@@ -948,7 +948,7 @@ func (s *Case) If(when func(f Filter), then string, thenArgs ...interface{}) *Ca
 	if w.IsEmpty() {
 		return s
 	}
-	prepare, args := w.SQL()
+	prepare, args := w.Script()
 	s.when = append(s.when, &PrepareArgs{
 		Prepare: prepare,
 		Args:    args,
@@ -978,8 +978,8 @@ func (s *Case) Alias(alias string) *Case {
 	return s
 }
 
-// SQL Make SQL expr: CASE WHEN condition1 THEN result1 WHEN condition2 THEN result2 ... ELSE else_result END [AS alias_name] .
-func (s *Case) SQL() (prepare string, args []interface{}) {
+// Script Make SQL expr: CASE WHEN condition1 THEN result1 WHEN condition2 THEN result2 ... ELSE else_result END [AS alias_name] .
+func (s *Case) Script() (prepare string, args []interface{}) {
 	lenWhen, lenThen := len(s.when), len(s.then)
 	if lenWhen == 0 || lenWhen != lenThen || s.others == nil {
 		return
@@ -1014,7 +1014,7 @@ type schema struct {
 	ctx     context.Context
 	way     *Way
 	comment string
-	table   string
+	table   AliasScript
 }
 
 // newSchema new schema with *Way.
@@ -1066,8 +1066,8 @@ func (s *Del) Context(ctx context.Context) *Del {
 }
 
 // Table set table name.
-func (s *Del) Table(table string) *Del {
-	s.schema.table = table
+func (s *Del) Table(table string, args ...interface{}) *Del {
+	s.schema.table = NewAliasScript(table, args...)
 	return s
 }
 
@@ -1077,15 +1077,21 @@ func (s *Del) Where(where Filter) *Del {
 	return s
 }
 
-// SQL build SQL statement.
-func (s *Del) SQL() (prepare string, args []interface{}) {
-	if s.schema.table == EmptyString {
+// Script build SQL statement.
+func (s *Del) Script() (prepare string, args []interface{}) {
+	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
+
 	buf := comment(s.schema)
 	defer putStringBuilder(buf)
 	buf.WriteString("DELETE FROM ")
-	buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
+
+	table, param := s.schema.table.Script()
+	buf.WriteString(table)
+	if param != nil {
+		args = append(args, param...)
+	}
 
 	cfg := s.schema.way.cfg
 	if cfg.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
@@ -1094,10 +1100,10 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.SQL()
+		where, whereArgs := s.where.Script()
 		buf.WriteString(" WHERE ")
 		buf.WriteString(where)
-		args = whereArgs
+		args = append(args, whereArgs...)
 	}
 
 	prepare = buf.String()
@@ -1106,7 +1112,7 @@ func (s *Del) SQL() (prepare string, args []interface{}) {
 
 // Del execute the built SQL statement.
 func (s *Del) Del() (int64, error) {
-	prepare, args := s.SQL()
+	prepare, args := s.Script()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
@@ -1162,8 +1168,8 @@ func (s *Add) Context(ctx context.Context) *Add {
 }
 
 // Table set table name.
-func (s *Add) Table(table string) *Add {
-	s.schema.table = table
+func (s *Add) Table(table string, args ...interface{}) *Add {
+	s.schema.table = NewAliasScript(table, args...)
 	return s
 }
 
@@ -1331,12 +1337,12 @@ func (s *Add) ValuesSubQueryGet(get *Get, fields ...string) *Add {
 		}
 		s.fields = fields
 	}
-	return s.ValuesSubQuery(get.SQL())
+	return s.ValuesSubQuery(get.Script())
 }
 
-// SQL build SQL statement.
-func (s *Add) SQL() (prepare string, args []interface{}) {
-	if s.schema.table == EmptyString {
+// Script build SQL statement.
+func (s *Add) Script() (prepare string, args []interface{}) {
+	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
 
@@ -1345,14 +1351,15 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 
 	if s.subQuery != nil {
 		buf.WriteString("INSERT INTO ")
-		buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
+		table, _ := s.schema.table.Script()
+		buf.WriteString(table)
 		if len(s.fields) > 0 {
 			buf.WriteString(" ( ")
 			buf.WriteString(strings.Join(s.fields, ", "))
 			buf.WriteString(" )")
 		}
 		buf.WriteString(SqlSpace)
-		subPrepare, subArgs := s.subQuery.SQL()
+		subPrepare, subArgs := s.subQuery.Script()
 		buf.WriteString(subPrepare)
 		args = subArgs
 		prepare = buf.String()
@@ -1403,7 +1410,8 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 	}
 
 	buf.WriteString("INSERT INTO ")
-	buf.WriteString(s.schema.table)
+	table, _ := s.schema.table.Script()
+	buf.WriteString(table)
 	buf.WriteString(" ( ")
 	buf.WriteString(strings.Join(s.fields, ", "))
 	buf.WriteString(" ) VALUES ")
@@ -1414,7 +1422,7 @@ func (s *Add) SQL() (prepare string, args []interface{}) {
 
 // Add execute the built SQL statement.
 func (s *Add) Add() (int64, error) {
-	prepare, args := s.SQL()
+	prepare, args := s.Script()
 	if prepare == EmptyString {
 		return 0, nil
 	}
@@ -1423,7 +1431,7 @@ func (s *Add) Add() (int64, error) {
 
 // ReturnId execute the built SQL statement, returning auto-increment field value.
 func (s *Add) ReturnId(getReturningColumn func() string, getId func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error)) (id int64, err error) {
-	prepare, args := s.SQL()
+	prepare, args := s.Script()
 	if prepare == EmptyString {
 		return 0, nil
 	}
@@ -1500,8 +1508,8 @@ func (s *Mod) Context(ctx context.Context) *Mod {
 }
 
 // Table set table name.
-func (s *Mod) Table(table string) *Mod {
-	s.schema.table = table
+func (s *Mod) Table(table string, args ...interface{}) *Mod {
+	s.schema.table = NewAliasScript(table, args...)
 	return s
 }
 
@@ -1606,7 +1614,7 @@ func (s *Mod) SetCase(field string, value func(c *Case)) *Mod {
 	defer PutCase(c)
 
 	value(c)
-	expr, args := c.SQL()
+	expr, args := c.Script()
 	if expr == EmptyString {
 		return s
 	}
@@ -1688,9 +1696,9 @@ func (s *Mod) SetSQL() (prepare string, args []interface{}) {
 	return
 }
 
-// SQL build SQL statement.
-func (s *Mod) SQL() (prepare string, args []interface{}) {
-	if s.schema.table == EmptyString {
+// Script build SQL statement.
+func (s *Mod) Script() (prepare string, args []interface{}) {
+	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
 	prepare, args = s.SetSQL()
@@ -1700,7 +1708,11 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	buf := comment(s.schema)
 	defer putStringBuilder(buf)
 	buf.WriteString("UPDATE ")
-	buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
+
+	table, param := s.schema.table.Script()
+	buf.WriteString(table)
+	args = append(args, param...)
+
 	buf.WriteString(" SET ")
 	buf.WriteString(prepare)
 
@@ -1711,7 +1723,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.SQL()
+		where, whereArgs := s.where.Script()
 		buf.WriteString(" WHERE ")
 		buf.WriteString(where)
 		args = append(args, whereArgs...)
@@ -1723,7 +1735,7 @@ func (s *Mod) SQL() (prepare string, args []interface{}) {
 
 // Mod execute the built SQL statement.
 func (s *Mod) Mod() (int64, error) {
-	prepare, args := s.SQL()
+	prepare, args := s.Script()
 	if prepare == EmptyString {
 		return 0, nil
 	}
@@ -1764,14 +1776,14 @@ func (s *GetWith) WithGet(alias string, get *Get) *GetWith {
 	if alias == EmptyString || get == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := get.Script()
 	if prepare == EmptyString {
 		return s
 	}
 	return s.With(alias, prepare, args)
 }
 
-func (s *GetWith) SQL() (prepare string, args []interface{}) {
+func (s *GetWith) Script() (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	if s.recursive {
@@ -1799,7 +1811,7 @@ func NewSubQuery(prepare string, args []interface{}) *SubQuery {
 	}
 }
 
-func (s *SubQuery) SQL() (prepare string, args []interface{}) {
+func (s *SubQuery) Script() (prepare string, args []interface{}) {
 	prepare, args = s.prepare, s.args
 	return
 }
@@ -1831,7 +1843,7 @@ func (s *GetJoin) SubQueryGet(get *Get, alias ...string) *GetJoin {
 	if get == nil {
 		return s
 	}
-	s.subQuery = NewSubQuery(get.SQL())
+	s.subQuery = NewSubQuery(get.Script())
 	if str := LastNotEmptyString(alias); str != EmptyString {
 		s.Alias(str)
 	}
@@ -1869,8 +1881,8 @@ func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
 	return s.On(strings.Join(tmp, " AND "))
 }
 
-// SQL build SQL statement.
-func (s *GetJoin) SQL() (prepare string, args []interface{}) {
+// Script build SQL statement.
+func (s *GetJoin) Script() (prepare string, args []interface{}) {
 	if s.table == EmptyString && (s.subQuery == nil || s.alias == nil || *s.alias == EmptyString) {
 		return
 	}
@@ -1882,7 +1894,7 @@ func (s *GetJoin) SQL() (prepare string, args []interface{}) {
 
 	if s.subQuery != nil {
 		buf.WriteString(" ( ")
-		subPrepare, subArgs := s.subQuery.SQL()
+		subPrepare, subArgs := s.subQuery.Script()
 		buf.WriteString(subPrepare)
 		buf.WriteString(" ) AS ")
 		buf.WriteString(*s.alias)
@@ -1936,12 +1948,6 @@ type Get struct {
 
 	// query field list args.
 	columnCaseArgs []interface{}
-
-	// the query table is a sub query.
-	subQuery *SubQuery
-
-	// set an alias for the queried table.
-	alias *string
 
 	// join query.
 	join []*GetJoin
@@ -2016,7 +2022,7 @@ func (s *Get) With(with ...*GetWith) *Get {
 
 // Table set table name.
 func (s *Get) Table(table string, alias ...string) *Get {
-	s.schema.table = table
+	s.schema.table = NewAliasScript(table)
 	if str := LastNotEmptyString(alias); str != EmptyString {
 		s.Alias(str)
 	}
@@ -2025,7 +2031,7 @@ func (s *Get) Table(table string, alias ...string) *Get {
 
 // SubQuery table is a query SQL statement.
 func (s *Get) SubQuery(prepare string, args []interface{}) *Get {
-	s.subQuery = NewSubQuery(prepare, args)
+	s.schema.table = NewAliasScript(ConcatString("( ", prepare, " )"), args)
 	return s
 }
 
@@ -2034,16 +2040,14 @@ func (s *Get) SubQueryGet(get *Get, alias ...string) *Get {
 	if get == nil {
 		return s
 	}
-	s.subQuery = NewSubQuery(get.SQL())
-	if name := LastNotEmptyString(alias); name != EmptyString {
-		s.Alias(name)
-	}
+	s.SubQuery(get.Script())
+	s.schema.table.Alias(LastNotEmptyString(alias))
 	return s
 }
 
 // Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
 func (s *Get) Alias(alias string) *Get {
-	s.alias = &alias
+	s.schema.table.Alias(alias)
 	return s
 }
 
@@ -2155,7 +2159,7 @@ func (s *Get) AddColumnCase(caseList ...func(c *Case)) *Get {
 		c := GetCase()
 		defer PutCase(c)
 		fc(c)
-		return c.SQL()
+		return c.Script()
 	}
 
 	for _, c := range caseList {
@@ -2292,7 +2296,7 @@ func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
 	num := 0
 
 	for _, with := range withs {
-		prepareThis, argsThis := with.SQL()
+		prepareThis, argsThis := with.Script()
 		if prepareThis == EmptyString {
 			continue
 		}
@@ -2336,7 +2340,7 @@ func BuildUnion(withs []*GetWith, unionType string, gets []*Get) (prepare string
 			continue
 		}
 
-		prepareThis, argsThis := get.SQL()
+		prepareThis, argsThis := get.Script()
 		if prepareThis == EmptyString {
 			continue
 		}
@@ -2384,7 +2388,7 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 		return
 	}
 
-	if s.schema.table == EmptyString && s.subQuery == nil {
+	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
 
@@ -2419,20 +2423,9 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 
 	buf.WriteString(" FROM ")
 
-	if s.subQuery == nil {
-		buf.WriteString(s.schema.way.cfg.Helper.AddIdentify([]string{s.schema.table})[0])
-	} else {
-		buf.WriteString("( ")
-		subPrepare, subArgs := s.subQuery.SQL()
-		buf.WriteString(subPrepare)
-		buf.WriteString(" )")
-		args = append(args, subArgs...)
-	}
-
-	if s.alias != nil && *s.alias != EmptyString {
-		buf.WriteString(" AS ")
-		buf.WriteString(*s.alias)
-	}
+	table, param := s.schema.table.Script()
+	buf.WriteString(table)
+	args = append(args, param...)
 
 	if s.join != nil {
 		length := len(s.join)
@@ -2440,7 +2433,7 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 			if s.join[i] == nil {
 				continue
 			}
-			joinPrepare, joinArgs := s.join[i].SQL()
+			joinPrepare, joinArgs := s.join[i].Script()
 			if joinPrepare != EmptyString {
 				buf.WriteString(SqlSpace)
 				buf.WriteString(joinPrepare)
@@ -2450,7 +2443,7 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.SQL()
+		where, whereArgs := s.where.Script()
 		buf.WriteString(" WHERE ")
 		buf.WriteString(where)
 		args = append(args, whereArgs...)
@@ -2461,7 +2454,7 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 			buf.WriteString(" GROUP BY ")
 			buf.WriteString(strings.Join(s.group, ", "))
 			if s.having != nil {
-				having, havingArgs := s.having.SQL()
+				having, havingArgs := s.having.Script()
 				if having != EmptyString {
 					buf.WriteString(" HAVING ")
 					buf.WriteString(having)
@@ -2539,11 +2532,11 @@ func BuildCount(s *Get, countColumns ...string) (prepare string, args []interfac
 		Column(countColumns...).
 		SubQuery(prepare, args).
 		Alias(AliasA).
-		SQL()
+		Script()
 }
 
-// SQL build SQL statement.
-func (s *Get) SQL() (prepare string, args []interface{}) {
+// Script build SQL statement.
+func (s *Get) Script() (prepare string, args []interface{}) {
 	return BuildGet(s)
 }
 

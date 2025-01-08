@@ -304,8 +304,7 @@ func filterUseValue(value interface{}) interface{} {
 
 // Filter Implement SQL statement condition filtering.
 type Filter interface {
-	// SQL Generate conditional filtering SQL statements and their parameters.
-	SQL() (string, []interface{})
+	Script
 
 	// Clean Clear the existing conditional filtering of the current object.
 	Clean() Filter
@@ -441,7 +440,7 @@ func PutFilter(f Filter) {
 	poolFilter.Put(f)
 }
 
-func (s *filter) SQL() (string, []interface{}) {
+func (s *filter) Script() (string, []interface{}) {
 	if s.num == 0 {
 		return EmptyString, nil
 	}
@@ -510,7 +509,7 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if tmp.IsEmpty() {
 		return s
 	}
-	prepare, args := tmp.SQL()
+	prepare, args := tmp.Script()
 	s.add(logic, prepare, args...)
 	return s
 }
@@ -538,10 +537,10 @@ func (s *filter) Use(filters ...Filter) Filter {
 		if tmp == nil || tmp.IsEmpty() {
 			continue
 		}
-		prepare, args := tmp.SQL()
+		prepare, args := tmp.Script()
 		groups.And(prepare, args...)
 	}
-	prepare, args := groups.SQL()
+	prepare, args := groups.Script()
 	return s.And(prepare, args...)
 }
 
@@ -646,7 +645,7 @@ func (s *filter) InGet(column string, get *Get) Filter {
 	if get == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := get.Script()
 	if prepare == EmptyString {
 		return s
 	}
@@ -657,7 +656,7 @@ func (s *filter) InColsGet(columns []string, get *Get) Filter {
 	if get == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := get.Script()
 	if prepare == EmptyString {
 		return s
 	}
@@ -668,7 +667,7 @@ func (s *filter) ExistsGet(get *Get) Filter {
 	if get == nil {
 		return s
 	}
-	prepare, args := get.SQL()
+	prepare, args := get.Script()
 	if prepare == EmptyString {
 		return s
 	}
@@ -729,7 +728,7 @@ func buildFilterAll(f Filter, column string, logic string, subquery *Get) {
 	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
 		return
 	}
-	prepare, args := subquery.SQL()
+	prepare, args := subquery.Script()
 	if prepare == EmptyString {
 		return
 	}
@@ -771,7 +770,7 @@ func buildFilterAny(f Filter, column string, logic string, subquery *Get) {
 	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
 		return
 	}
-	prepare, args := subquery.SQL()
+	prepare, args := subquery.Script()
 	if prepare == EmptyString {
 		return
 	}

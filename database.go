@@ -677,3 +677,70 @@ func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 		alias:  LastNotEmptyString(aliases),
 	}
 }
+
+// Script SQL script and it's corresponding parameters list.
+type Script interface {
+	// IsEmpty Check if the script statement is empty.
+	IsEmpty() bool
+
+	// Script Get a list of script statements and their corresponding parameters.
+	Script() (prepare string, args []interface{})
+}
+
+type prepareArgs struct {
+	prepare string
+	args    []interface{}
+}
+
+func (s *prepareArgs) IsEmpty() bool {
+	return s.prepare == EmptyString
+}
+
+func (s *prepareArgs) Script() (prepare string, args []interface{}) {
+	prepare, args = s.prepare, s.args
+	return
+}
+
+func NewScript(prepare string, args ...interface{}) Script {
+	return &prepareArgs{
+		prepare: prepare,
+		args:    args,
+	}
+}
+
+type AliasScript interface {
+	Script
+
+	// Alias Setting aliases for script statements.
+	Alias(alias string) Script
+}
+
+type aliasPrepareArgs struct {
+	script Script
+	alias  string
+}
+
+func (s *aliasPrepareArgs) IsEmpty() bool {
+	return s.script == nil || s.script.IsEmpty()
+}
+
+func (s *aliasPrepareArgs) Script() (prepare string, args []interface{}) {
+	prepare, args = s.script.Script()
+	if s.alias != EmptyString {
+		prepare = ConcatString(prepare, SqlSpace, s.alias)
+	}
+	return
+}
+
+func (s *aliasPrepareArgs) Alias(alias string) Script {
+	if alias != EmptyString {
+		s.alias = alias
+	}
+	return s
+}
+
+func NewAliasScript(prepare string, args ...interface{}) AliasScript {
+	return &aliasPrepareArgs{
+		script: NewScript(prepare, args...),
+	}
+}
