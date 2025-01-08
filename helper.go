@@ -1014,7 +1014,7 @@ type schema struct {
 	ctx     context.Context
 	way     *Way
 	comment string
-	table   AliasScript
+	table   TableScript
 }
 
 // newSchema new schema with *Way.
@@ -1067,7 +1067,7 @@ func (s *Del) Context(ctx context.Context) *Del {
 
 // Table set table name.
 func (s *Del) Table(table string, args ...interface{}) *Del {
-	s.schema.table = NewAliasScript(table, args...)
+	s.schema.table = NewTableScript(table, args...)
 	return s
 }
 
@@ -1169,7 +1169,7 @@ func (s *Add) Context(ctx context.Context) *Add {
 
 // Table set table name.
 func (s *Add) Table(table string, args ...interface{}) *Add {
-	s.schema.table = NewAliasScript(table, args...)
+	s.schema.table = NewTableScript(table, args...)
 	return s
 }
 
@@ -1509,7 +1509,7 @@ func (s *Mod) Context(ctx context.Context) *Mod {
 
 // Table set table name.
 func (s *Mod) Table(table string, args ...interface{}) *Mod {
-	s.schema.table = NewAliasScript(table, args...)
+	s.schema.table = NewTableScript(table, args...)
 	return s
 }
 
@@ -1658,8 +1658,8 @@ func (s *Mod) Where(where Filter) *Mod {
 	return s
 }
 
-// SetSQL prepare args of set.
-func (s *Mod) SetSQL() (prepare string, args []interface{}) {
+// SetScript prepare args of set.
+func (s *Mod) SetScript() (prepare string, args []interface{}) {
 	length := len(s.update)
 	if length == 0 {
 		return
@@ -1701,7 +1701,7 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
-	prepare, args = s.SetSQL()
+	prepare, args = s.SetScript()
 	if prepare == EmptyString {
 		return
 	}
@@ -1745,58 +1745,6 @@ func (s *Mod) Mod() (int64, error) {
 // Way get current *Way.
 func (s *Mod) Way() *Way {
 	return s.schema.way
-}
-
-// GetWith CTE: Common Table Expression.
-type GetWith struct {
-	recursive bool
-	alias     string
-	prepare   string
-	args      []interface{}
-}
-
-func NewWith() *GetWith {
-	return &GetWith{}
-}
-
-func (s *GetWith) Recursive(recursive bool) *GetWith {
-	s.recursive = recursive
-	return s
-}
-
-func (s *GetWith) With(alias string, prepare string, args []interface{}) *GetWith {
-	if alias == EmptyString || prepare == EmptyString {
-		return s
-	}
-	s.alias, s.prepare, s.args = alias, prepare, args
-	return s
-}
-
-func (s *GetWith) WithGet(alias string, get *Get) *GetWith {
-	if alias == EmptyString || get == nil {
-		return s
-	}
-	prepare, args := get.Script()
-	if prepare == EmptyString {
-		return s
-	}
-	return s.With(alias, prepare, args)
-}
-
-func (s *GetWith) Script() (prepare string, args []interface{}) {
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-	if s.recursive {
-		b.WriteString("RECURSIVE")
-		b.WriteString(SqlSpace)
-	}
-	b.WriteString(s.alias)
-	b.WriteString(" AS ( ")
-	b.WriteString(s.prepare)
-	b.WriteString(" )")
-	prepare = b.String()
-	args = s.args
-	return
 }
 
 type SubQuery struct {
@@ -1935,7 +1883,7 @@ type Get struct {
 	schema *schema
 
 	// with of query.
-	with []*GetWith
+	with []WithScript
 
 	// distinct remove duplicate records: one field value or a combination of multiple fields.
 	distinct bool
@@ -2015,14 +1963,14 @@ func (s *Get) Raw(prepare string, args []interface{}) *Get {
 }
 
 // With for with query.
-func (s *Get) With(with ...*GetWith) *Get {
+func (s *Get) With(with ...WithScript) *Get {
 	s.with = append(s.with, with...)
 	return s
 }
 
 // Table set table name.
 func (s *Get) Table(table string, alias ...string) *Get {
-	s.schema.table = NewAliasScript(table)
+	s.schema.table = NewTableScript(table)
 	if str := LastNotEmptyString(alias); str != EmptyString {
 		s.Alias(str)
 	}
@@ -2031,7 +1979,7 @@ func (s *Get) Table(table string, alias ...string) *Get {
 
 // SubQuery table is a query SQL statement.
 func (s *Get) SubQuery(prepare string, args []interface{}) *Get {
-	s.schema.table = NewAliasScript(ConcatString("( ", prepare, " )"), args)
+	s.schema.table = NewTableScript(ConcatString("( ", prepare, " )"), args)
 	return s
 }
 
@@ -2287,7 +2235,7 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 
 // BuildWith Build SQL WITH.
 // [WITH a AS ( xxx )[, b AS ( xxx ) ]].
-func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
+func BuildWith(lists []WithScript) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 
@@ -2295,17 +2243,17 @@ func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
 
 	num := 0
 
-	for _, with := range withs {
-		prepareThis, argsThis := with.Script()
-		if prepareThis == EmptyString {
+	for _, tmp := range lists {
+		if tmp == nil || tmp.IsEmpty() {
 			continue
 		}
+		table, param := tmp.Script()
 		if num > 0 {
 			b.WriteString(", ")
 		}
 		num++
-		b.WriteString(prepareThis)
-		args = append(args, argsThis...)
+		b.WriteString(table)
+		args = append(args, param...)
 	}
 
 	if num == 0 {
@@ -2315,7 +2263,6 @@ func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
 
 	b.WriteString(SqlSpace)
 	prepare = b.String()
-
 	return
 }
 
@@ -2325,7 +2272,7 @@ func BuildWith(withs []*GetWith) (prepare string, args []interface{}) {
 // UNION [ALL]
 // /*query2*/( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]])
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func BuildUnion(withs []*GetWith, unionType string, gets []*Get) (prepare string, args []interface{}) {
+func BuildUnion(withs []WithScript, unionType string, gets []*Get) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 
@@ -2540,8 +2487,8 @@ func (s *Get) Script() (prepare string, args []interface{}) {
 	return BuildGet(s)
 }
 
-// SQLCount build SQL statement for count.
-func (s *Get) SQLCount(columns ...string) (string, []interface{}) {
+// CountScript build SQL statement for count.
+func (s *Get) CountScript(columns ...string) (string, []interface{}) {
 	return BuildCount(s, columns...)
 }
 

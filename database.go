@@ -12,6 +12,660 @@ import (
  * database helper.
  **/
 
+// Script SQL script and it's corresponding parameter list.
+type Script interface {
+	// Script Get a list of script statements and their corresponding parameters.
+	Script() (prepare string, args []interface{})
+}
+
+type sqlScript struct {
+	prepare string
+	args    []interface{}
+}
+
+func (s *sqlScript) Script() (prepare string, args []interface{}) {
+	if s.prepare != EmptyString {
+		prepare, args = s.prepare, s.args
+	}
+	return
+}
+
+func NewScript(prepare string, args ...interface{}) Script {
+	return &sqlScript{
+		prepare: prepare,
+		args:    args,
+	}
+}
+
+type ScriptIsEmpty interface {
+	IsEmpty() bool
+}
+
+func IsEmptyScript(script Script) bool {
+	if script == nil {
+		return true
+	}
+	prepare, _ := script.Script()
+	return prepare == EmptyString
+}
+
+// TableScript SQL statement table and its corresponding parameter list, allowing table aliases to be set.
+type TableScript interface {
+	Script
+
+	ScriptIsEmpty
+
+	// Alias Setting aliases for script statements.
+	Alias(alias string) TableScript
+
+	// GetAlias Getting aliases for script statements.
+	GetAlias() string
+}
+
+type tableScript struct {
+	script Script
+	alias  string
+}
+
+func (s *tableScript) IsEmpty() bool {
+	return IsEmptyScript(s.script)
+}
+
+func (s *tableScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	prepare, args = s.script.Script()
+	if s.alias != EmptyString {
+		prepare = ConcatString(prepare, SqlSpace, s.alias)
+	}
+	return
+}
+
+func (s *tableScript) Alias(alias string) TableScript {
+	if alias != EmptyString {
+		s.alias = alias
+	}
+	return s
+}
+
+func (s *tableScript) GetAlias() string {
+	return s.alias
+}
+
+func NewTableScript(prepare string, args ...interface{}) TableScript {
+	return &tableScript{
+		script: NewScript(prepare, args...),
+	}
+}
+
+// WithScript CTE: Common Table Expression.
+type WithScript interface {
+	Script
+
+	ScriptIsEmpty
+
+	// With Set common table expression.
+	With(alias string, script Script) WithScript
+
+	// Alias Setting aliases for script statements.
+	Alias(alias string) WithScript
+
+	// GetAlias Getting aliases for script statements.
+	GetAlias() string
+}
+
+type withScript struct {
+	alias  string
+	script Script
+}
+
+func NewWith() WithScript {
+	return &withScript{}
+}
+
+func (s *withScript) IsEmpty() bool {
+	return s.alias == EmptyString || IsEmptyScript(s.script)
+}
+
+func (s *withScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString(s.alias)
+	b.WriteString(" AS ( ")
+	prepare, args = s.script.Script()
+	b.WriteString(prepare)
+	b.WriteString(" )")
+	prepare = b.String()
+	return
+}
+
+func (s *withScript) With(alias string, script Script) WithScript {
+	if alias == EmptyString || IsEmptyScript(s.script) {
+		return s
+	}
+	s.alias, s.script = alias, script
+	return s
+}
+
+func (s *withScript) Alias(alias string) WithScript {
+	if alias != EmptyString {
+		s.alias = alias
+	}
+	return s
+}
+
+func (s *withScript) GetAlias() string {
+	return s.alias
+}
+
+type SelectColumns struct {
+	columns     []string
+	columnsMap  map[string]int
+	columnsArgs map[int][]interface{}
+}
+
+func NewSelectColumns() *SelectColumns {
+	return &SelectColumns{
+		columns:     make([]string, 0, 32),
+		columnsMap:  make(map[string]int, 32),
+		columnsArgs: make(map[int][]interface{}, 32),
+	}
+}
+
+func (s *SelectColumns) Script() (prepare string, args []interface{}) {
+	length := len(s.columns)
+	if length == 0 {
+		return SqlStar, nil
+	}
+	columns := make([]string, 0, length)
+	for i := 0; i < length; i++ {
+		tmpArgs, ok := s.columnsArgs[i]
+		if !ok {
+			continue
+		}
+		columns = append(columns, s.columns[i])
+		if tmpArgs != nil {
+			args = append(args, tmpArgs...)
+		}
+	}
+	prepare = strings.Join(columns, ", ")
+	return
+}
+
+func (s *SelectColumns) Add(column string, args ...interface{}) *SelectColumns {
+	if column == EmptyString {
+		return s
+	}
+	index, ok := s.columnsMap[column]
+	if ok {
+		s.columnsArgs[index] = args
+		return s
+	}
+	index = len(s.columns)
+	s.columns = append(s.columns, column)
+	s.columnsMap[column] = index
+	s.columnsArgs[index] = args
+	return s
+}
+
+func (s *SelectColumns) Del(columns ...string) *SelectColumns {
+	deleted := make(map[int]*struct{}, len(columns))
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		index, ok := s.columnsMap[column]
+		if !ok {
+			continue
+		}
+		deleted[index] = &struct{}{}
+	}
+	length := len(s.columns)
+	resultColumns := make([]string, 0, length)
+	for index, column := range s.columns {
+		if _, ok := deleted[index]; ok {
+			delete(s.columnsMap, column)
+			delete(s.columnsArgs, index)
+		} else {
+			resultColumns = append(resultColumns, column)
+		}
+	}
+	s.columns = resultColumns
+	return s
+}
+
+func (s *SelectColumns) Len() int {
+	return len(s.columns)
+}
+
+type JoinRequire func(leftAlias string, rightAlias string) (string, []interface{})
+
+type JoinScript interface {
+	Script() (prepare string, args []interface{})
+
+	Join(joinTypeString string, leftTable TableScript, rightTable TableScript, require JoinRequire, rightTableSelectColumns ...string) JoinScript
+
+	InnerJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript
+
+	LeftJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript
+
+	RightJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript
+
+	// SetMasterSelectColumns Set the fields in the master table that need to be retrieved.
+	SetMasterSelectColumns(columns ...string) JoinScript
+
+	// AttachSelectColumns Add other query fields or custom fields, for example: COUNT(*) AS counts, a.username.
+	AttachSelectColumns(columns []string, args ...interface{}) JoinScript
+}
+
+type joinType struct {
+	joinType          string
+	rightTable        TableScript
+	joinRequire       string
+	joinRequireArgs   []interface{}
+	rightSelectColumn *SelectColumns
+}
+type joinScript struct {
+	master              TableScript
+	masterSelectColumns *SelectColumns
+
+	joins []*joinType
+
+	// attachSelectColumns Not a simple column name.
+	attachSelectColumns     []string
+	attachSelectColumnsArgs []interface{}
+}
+
+func NewJoinScript(master TableScript) JoinScript {
+	if master == nil || master.IsEmpty() {
+		panic("master is empty")
+	}
+	if master.GetAlias() == EmptyString {
+		panic("master alias is empty")
+	}
+	tmp := &joinScript{
+		master:              master,
+		masterSelectColumns: NewSelectColumns(),
+		joins:               make([]*joinType, 8),
+	}
+	return tmp
+}
+
+func (s *joinScript) Script() (prepare string, args []interface{}) {
+	selectColumns := NewSelectColumns()
+	masterSelectColumns, masterSelectColumnsArgs := s.masterSelectColumns.Script()
+	selectColumns.Add(masterSelectColumns, masterSelectColumnsArgs...)
+
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+
+	for _, join := range s.joins {
+		if join.rightSelectColumn != nil {
+			joinSelectColumns, joinSelectColumnsArgs := join.rightSelectColumn.Script()
+			selectColumns.Add(joinSelectColumns, joinSelectColumnsArgs...)
+		}
+	}
+	for _, column := range s.attachSelectColumns {
+		selectColumns.Add(column)
+	}
+
+	selectColumnsPrepare, selectColumnsArgs := selectColumns.Script()
+	if selectColumnsPrepare == EmptyString {
+		selectColumnsPrepare, selectColumnsArgs = SqlStar, nil
+	} else {
+		args = append(args, selectColumnsArgs...)
+	}
+	if s.attachSelectColumns != nil && s.attachSelectColumnsArgs != nil {
+		args = append(args, s.attachSelectColumnsArgs...)
+	}
+
+	b.WriteString("SELECT ")
+	b.WriteString(selectColumnsPrepare)
+	b.WriteString(" FROM ")
+	masterPrepare, masterArgs := s.master.Script()
+	b.WriteString(masterPrepare)
+	b.WriteString(SqlSpace)
+	args = append(args, masterArgs...)
+	for _, join := range s.joins {
+		if join == nil {
+			continue
+		}
+		b.WriteString(join.joinType)
+		b.WriteString(SqlSpace)
+		joinPrepare, joinArgs := join.rightTable.Script()
+		b.WriteString(joinPrepare)
+		b.WriteString(SqlSpace)
+		args = append(args, joinArgs...)
+		if join.joinRequire != EmptyString {
+			b.WriteString(join.joinRequire)
+			if join.joinRequireArgs != nil {
+				args = append(args, join.joinRequireArgs...)
+			}
+		}
+	}
+	return
+}
+
+func (s *joinScript) Join(joinTypeString string, leftTable TableScript, rightTable TableScript, require JoinRequire, rightTableSelectColumns ...string) JoinScript {
+	if joinTypeString == EmptyString {
+		joinTypeString = SqlJoinInner
+	}
+	if leftTable == nil || leftTable.IsEmpty() {
+		leftTable = s.master
+	}
+	if rightTable == nil || rightTable.IsEmpty() {
+		return s
+	}
+	join := &joinType{
+		joinType:   joinTypeString,
+		rightTable: rightTable,
+	}
+	rightTableAlias := rightTable.GetAlias()
+	prefix := fmt.Sprintf("%s.", rightTableAlias)
+	for _, column := range rightTableSelectColumns {
+		if column == EmptyString {
+			continue
+		}
+		if join.rightSelectColumn == nil {
+			join.rightSelectColumn = NewSelectColumns()
+		}
+		if !strings.HasPrefix(column, prefix) {
+			column = fmt.Sprintf("%s%s", prefix, column)
+		}
+		join.rightSelectColumn.Add(column)
+	}
+	if require != nil {
+		join.joinRequire, join.joinRequireArgs = require(leftTable.GetAlias(), rightTable.GetAlias())
+	}
+	s.joins = append(s.joins, join)
+	return s
+}
+
+func (s *joinScript) InnerJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript {
+	return s.Join(SqlJoinInner, left, right, require, rightColumns...)
+}
+
+func (s *joinScript) LeftJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript {
+	return s.Join(SqlJoinLeft, left, right, require, rightColumns...)
+}
+
+func (s *joinScript) RightJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript {
+	return s.Join(SqlJoinRight, left, right, require, rightColumns...)
+}
+
+func (s *joinScript) SetMasterSelectColumns(columns ...string) JoinScript {
+	prefix := fmt.Sprintf("%s.", s.master.GetAlias())
+	masterSelectColumns := NewSelectColumns()
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		if !strings.HasPrefix(column, prefix) {
+			column = fmt.Sprintf("%s%s", prefix, column)
+		}
+		masterSelectColumns.Add(column)
+	}
+	if masterSelectColumns.Len() > 0 {
+		s.masterSelectColumns = masterSelectColumns
+	}
+	return s
+}
+
+func (s *joinScript) AttachSelectColumns(columns []string, args ...interface{}) JoinScript {
+	s.attachSelectColumns, s.attachSelectColumnsArgs = columns, args
+	return s
+}
+
+type InsertColumnsScript interface {
+	Script
+
+	ScriptIsEmpty
+
+	SetColumns(columns []string) InsertColumnsScript
+
+	Add(columns ...string) InsertColumnsScript
+
+	Del(columns ...string) InsertColumnsScript
+
+	Len() int
+}
+
+type insertColumnsScript struct {
+	columns    []string
+	columnsMap map[string]int
+}
+
+func NewInsertColumnScript() InsertColumnsScript {
+	return &insertColumnsScript{
+		columns:    make([]string, 0, 32),
+		columnsMap: make(map[string]int, 32),
+	}
+}
+
+func (s *insertColumnsScript) IsEmpty() bool {
+	return len(s.columns) == 0
+}
+
+func (s *insertColumnsScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	return ConcatString("( ", strings.Join(s.columns, ", "), " )"), nil
+}
+
+func (s *insertColumnsScript) SetColumns(columns []string) InsertColumnsScript {
+	s.columns = columns
+	return s
+}
+
+func (s *insertColumnsScript) Add(columns ...string) InsertColumnsScript {
+	num := len(s.columns)
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		if _, ok := s.columnsMap[column]; ok {
+			continue
+		}
+		s.columns = append(s.columns, column)
+		s.columnsMap[column] = num
+		num++
+	}
+	return s
+}
+
+func (s *insertColumnsScript) Del(columns ...string) InsertColumnsScript {
+	deleted := make(map[int]*struct{}, len(columns))
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		index, ok := s.columnsMap[column]
+		if !ok {
+			continue
+		}
+		deleted[index] = &struct{}{}
+	}
+	length := len(s.columns)
+	columns = make([]string, 0, length)
+	columnsMap := make(map[string]int, length)
+	num := 0
+	for index, column := range s.columns {
+		if _, ok := deleted[index]; !ok {
+			columns = append(columns, column)
+			columnsMap[column] = num
+			num++
+		}
+	}
+	s.columns, s.columnsMap = columns, columnsMap
+	return s
+}
+
+func (s *insertColumnsScript) Len() int {
+	return len(s.columns)
+}
+
+type InsertValuesScript interface {
+	Script
+
+	ScriptIsEmpty
+
+	SetScript(script Script) InsertValuesScript
+
+	SetValues(values ...[]interface{}) InsertValuesScript
+
+	LenValues() int
+}
+
+type insertValuesScript struct {
+	script Script
+	values [][]interface{}
+}
+
+func NewInsertValuesScript() InsertValuesScript {
+	return &insertValuesScript{}
+}
+
+func (s *insertValuesScript) IsEmpty() bool {
+	return IsEmptyScript(s.script) && (len(s.values) == 0 || len(s.values[0]) == 0)
+}
+
+func (s *insertValuesScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	if !IsEmptyScript(s.script) {
+		prepare, args = s.script.Script()
+		return
+	}
+	count := len(s.values)
+	length := len(s.values[0])
+	line := make([]string, length)
+	args = make([]interface{}, 0, count*length)
+	for i := 0; i < length; i++ {
+		line[i] = SqlPlaceholder
+		args = append(args, s.values[i]...)
+	}
+	rows := make([]string, length)
+	for i := 0; i < count; i++ {
+		rows[i] = ConcatString("( ", strings.Join(rows, ", "), " )")
+	}
+	prepare = strings.Join(rows, ", ")
+	return
+}
+
+func (s *insertValuesScript) SetScript(script Script) InsertValuesScript {
+	s.script = script
+	return s
+}
+
+func (s *insertValuesScript) SetValues(values ...[]interface{}) InsertValuesScript {
+	s.values = values
+	return s
+}
+
+func (s *insertValuesScript) LenValues() int {
+	return len(s.values)
+}
+
+type UpdateSetScript interface {
+	Script
+
+	ScriptIsEmpty
+
+	Expr(expr string, args ...interface{}) UpdateSetScript
+
+	Set(column string, value interface{}) UpdateSetScript
+
+	Decr(column string, decr interface{}) UpdateSetScript
+
+	Incr(column string, incr interface{}) UpdateSetScript
+
+	SetMap(columnValue map[string]interface{}) UpdateSetScript
+
+	SetSlice(columns []string, values []interface{}) UpdateSetScript
+
+	Len() int
+}
+
+type updateSetScript struct {
+	update     []string
+	updateArgs [][]interface{}
+	updateMap  map[string]int
+}
+
+func NewUpdateSetScript() UpdateSetScript {
+	return &updateSetScript{
+		update:     make([]string, 0, 8),
+		updateArgs: make([][]interface{}, 0, 8),
+		updateMap:  make(map[string]int, 8),
+	}
+}
+
+func (s *updateSetScript) IsEmpty() bool {
+	return len(s.update) == 0
+}
+
+func (s *updateSetScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	prepare = strings.Join(s.update, ", ")
+	for _, tmp := range s.updateArgs {
+		args = append(args, tmp...)
+	}
+	return
+}
+
+func (s *updateSetScript) Expr(expr string, args ...interface{}) UpdateSetScript {
+	if expr == EmptyString {
+		return s
+	}
+	index, ok := s.updateMap[expr]
+	if ok {
+		s.update[index], s.updateArgs[index] = expr, args
+		return s
+	}
+	s.updateMap[expr] = len(s.update)
+	s.update = append(s.update, expr)
+	s.updateArgs = append(s.updateArgs, args)
+	return s
+}
+
+func (s *updateSetScript) Set(column string, value interface{}) UpdateSetScript {
+	return s.Expr(fmt.Sprintf("%s = %s", column, SqlPlaceholder), value)
+}
+
+func (s *updateSetScript) Decr(column string, decrement interface{}) UpdateSetScript {
+	return s.Expr(fmt.Sprintf("%s = %s - %s", column, column, SqlPlaceholder), decrement)
+}
+
+func (s *updateSetScript) Incr(column string, increment interface{}) UpdateSetScript {
+	return s.Expr(fmt.Sprintf("%s = %s + %s", column, column, SqlPlaceholder), increment)
+}
+
+func (s *updateSetScript) SetMap(columnValue map[string]interface{}) UpdateSetScript {
+	for column, value := range columnValue {
+		s.Set(column, value)
+	}
+	return s
+}
+
+func (s *updateSetScript) SetSlice(columns []string, values []interface{}) UpdateSetScript {
+	for index, column := range columns {
+		s.Set(column, values[index])
+	}
+	return s
+}
+
+func (s *updateSetScript) Len() int {
+	return len(s.update)
+}
+
 type Identifier interface {
 	Identify() string
 	AddIdentify(keys []string) []string
@@ -675,72 +1329,5 @@ func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 	return &WindowFunc{
 		Helper: way.cfg.Helper,
 		alias:  LastNotEmptyString(aliases),
-	}
-}
-
-// Script SQL script and it's corresponding parameters list.
-type Script interface {
-	// IsEmpty Check if the script statement is empty.
-	IsEmpty() bool
-
-	// Script Get a list of script statements and their corresponding parameters.
-	Script() (prepare string, args []interface{})
-}
-
-type prepareArgs struct {
-	prepare string
-	args    []interface{}
-}
-
-func (s *prepareArgs) IsEmpty() bool {
-	return s.prepare == EmptyString
-}
-
-func (s *prepareArgs) Script() (prepare string, args []interface{}) {
-	prepare, args = s.prepare, s.args
-	return
-}
-
-func NewScript(prepare string, args ...interface{}) Script {
-	return &prepareArgs{
-		prepare: prepare,
-		args:    args,
-	}
-}
-
-type AliasScript interface {
-	Script
-
-	// Alias Setting aliases for script statements.
-	Alias(alias string) Script
-}
-
-type aliasPrepareArgs struct {
-	script Script
-	alias  string
-}
-
-func (s *aliasPrepareArgs) IsEmpty() bool {
-	return s.script == nil || s.script.IsEmpty()
-}
-
-func (s *aliasPrepareArgs) Script() (prepare string, args []interface{}) {
-	prepare, args = s.script.Script()
-	if s.alias != EmptyString {
-		prepare = ConcatString(prepare, SqlSpace, s.alias)
-	}
-	return
-}
-
-func (s *aliasPrepareArgs) Alias(alias string) Script {
-	if alias != EmptyString {
-		s.alias = alias
-	}
-	return s
-}
-
-func NewAliasScript(prepare string, args ...interface{}) AliasScript {
-	return &aliasPrepareArgs{
-		script: NewScript(prepare, args...),
 	}
 }
