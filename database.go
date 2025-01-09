@@ -12,6 +12,10 @@ import (
  * database helper.
  **/
 
+type Empty interface {
+	IsEmpty() bool
+}
+
 // Script SQL script and it's corresponding parameter list.
 type Script interface {
 	// Script Get a list of script statements and their corresponding parameters.
@@ -37,10 +41,6 @@ func NewScript(prepare string, args ...interface{}) Script {
 	}
 }
 
-type ScriptIsEmpty interface {
-	IsEmpty() bool
-}
-
 func IsEmptyScript(script Script) bool {
 	if script == nil {
 		return true
@@ -51,9 +51,9 @@ func IsEmptyScript(script Script) bool {
 
 // TableScript SQL statement table and its corresponding parameter list, allowing table aliases to be set.
 type TableScript interface {
-	Script
+	Empty
 
-	ScriptIsEmpty
+	Script
 
 	// Alias Setting aliases for script statements.
 	Alias(alias string) TableScript
@@ -101,9 +101,9 @@ func NewTableScript(prepare string, args ...interface{}) TableScript {
 
 // WithScript CTE: Common Table Expression.
 type WithScript interface {
-	Script
+	Empty
 
-	ScriptIsEmpty
+	Script
 
 	// With Set common table expression.
 	With(alias string, script Script) WithScript
@@ -242,10 +242,18 @@ func (s *SelectColumns) Len() int {
 	return len(s.columns)
 }
 
-type JoinRequire func(leftAlias string, rightAlias string) (string, []interface{})
+type JoinRequire func(leftAlias string, rightAlias string) (prepare string, args []interface{})
 
 type JoinScript interface {
 	Script() (prepare string, args []interface{})
+
+	On(requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
+
+	Using(using []string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
+
+	OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
+
+	Usings(columns ...string) []string
 
 	Join(joinTypeString string, leftTable TableScript, rightTable TableScript, require JoinRequire, rightTableSelectColumns ...string) JoinScript
 
@@ -255,26 +263,26 @@ type JoinScript interface {
 
 	RightJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript
 
+	Where(where func(where Filter)) JoinScript
+
 	// SetMasterSelectColumns Set the fields in the master table that need to be retrieved.
 	SetMasterSelectColumns(columns ...string) JoinScript
 
-	// AttachSelectColumns Add other query fields or custom fields, for example: COUNT(*) AS counts, a.username.
-	AttachSelectColumns(columns []string, args ...interface{}) JoinScript
+	// SetAttachSelectColumns Add other query fields or custom fields, for example: COUNT(*) AS counts, a.username.
+	SetAttachSelectColumns(columns []string, args ...interface{}) JoinScript
 }
 
-type joinType struct {
+type joinTable struct {
 	joinType          string
 	rightTable        TableScript
-	joinRequire       string
-	joinRequireArgs   []interface{}
+	joinRequire       Script
 	rightSelectColumn *SelectColumns
 }
 type joinScript struct {
 	master              TableScript
 	masterSelectColumns *SelectColumns
-
-	joins []*joinType
-
+	joins               []*joinTable
+	filter              Filter
 	// attachSelectColumns Not a simple column name.
 	attachSelectColumns     []string
 	attachSelectColumnsArgs []interface{}
@@ -288,20 +296,19 @@ func NewJoinScript(master TableScript) JoinScript {
 		panic("master alias is empty")
 	}
 	tmp := &joinScript{
-		master:              master,
-		masterSelectColumns: NewSelectColumns(),
-		joins:               make([]*joinType, 8),
+		master: master,
+		joins:  make([]*joinTable, 8),
+		filter: F(),
 	}
 	return tmp
 }
 
 func (s *joinScript) Script() (prepare string, args []interface{}) {
 	selectColumns := NewSelectColumns()
-	masterSelectColumns, masterSelectColumnsArgs := s.masterSelectColumns.Script()
-	selectColumns.Add(masterSelectColumns, masterSelectColumnsArgs...)
-
-	b := getStringBuilder()
-	defer putStringBuilder(b)
+	if s.masterSelectColumns != nil {
+		masterSelectColumns, masterSelectColumnsArgs := s.masterSelectColumns.Script()
+		selectColumns.Add(masterSelectColumns, masterSelectColumnsArgs...)
+	}
 
 	for _, join := range s.joins {
 		if join.rightSelectColumn != nil {
@@ -323,6 +330,9 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 		args = append(args, s.attachSelectColumnsArgs...)
 	}
 
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+
 	b.WriteString("SELECT ")
 	b.WriteString(selectColumnsPrepare)
 	b.WriteString(" FROM ")
@@ -340,14 +350,108 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 		b.WriteString(joinPrepare)
 		b.WriteString(SqlSpace)
 		args = append(args, joinArgs...)
-		if join.joinRequire != EmptyString {
-			b.WriteString(join.joinRequire)
-			if join.joinRequireArgs != nil {
-				args = append(args, join.joinRequireArgs...)
+		if join.joinRequire != nil {
+			joinRequirePrepare, joinRequireArgs := join.joinRequire.Script()
+			if joinRequirePrepare != EmptyString {
+				b.WriteString(joinRequirePrepare)
+				if joinRequireArgs != nil {
+					args = append(args, joinRequireArgs...)
+				}
 			}
 		}
 	}
 	return
+}
+
+// On For `... JOIN ON ...`
+func (s *joinScript) On(requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
+	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
+		b := getStringBuilder()
+		defer putStringBuilder(b)
+		added := false
+		var param []interface{}
+		for _, require := range requires {
+			script := require(leftAlias, rightAlias)
+			if script == nil {
+				continue
+			}
+			prepare, param = script.Script()
+			if prepare == EmptyString {
+				continue
+			}
+			if !added {
+				added = true
+				b.WriteString("ON ")
+			} else {
+				b.WriteString(" AND ")
+			}
+			b.WriteString(prepare)
+			if param != nil {
+				args = append(args, param...)
+			}
+		}
+		prepare = b.String()
+		return
+	}
+}
+
+// Using For `... JOIN USING ...`
+func (s *joinScript) Using(using []string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
+	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
+		columns := make([]string, 0, len(using))
+		for _, column := range using {
+			if column == EmptyString {
+				continue
+			}
+			columns = append(columns, column)
+		}
+		if len(columns) == 0 {
+			return
+		}
+		b := getStringBuilder()
+		defer putStringBuilder(b)
+		b.WriteString("USING ( ")
+		b.WriteString(strings.Join(using, ", "))
+		b.WriteString(" )")
+		var param []interface{}
+		for _, require := range requires {
+			if require == nil {
+				continue
+			}
+			script := require(leftAlias, rightAlias)
+			if script == nil {
+				continue
+			}
+			prepare, param = script.Script()
+			if prepare != EmptyString {
+				b.WriteString(" AND ")
+				b.WriteString(prepare)
+				if param != nil {
+					args = append(args, param...)
+				}
+			}
+		}
+		prepare = b.String()
+		return
+	}
+}
+
+// OnEqual For `... JOIN ON ... = ... [...]`
+func (s *joinScript) OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
+	onRequire := make([]func(leftAlias string, rightAlias string) Script, 0, len(requires)+1)
+	onEqual := func(leftAlias string, rightAlias string) Script {
+		if leftColumn == EmptyString || rightColumn == EmptyString {
+			return nil
+		}
+		return NewScript(fmt.Sprintf("%s.%s = %s.%s", leftAlias, leftColumn, rightAlias, rightColumn))
+	}
+	onRequire = append(onRequire, onEqual)
+	onRequire = append(onRequire, requires...)
+	return s.On(onRequire...)
+}
+
+func (s *joinScript) Usings(columns ...string) []string {
+	return columns
 }
 
 func (s *joinScript) Join(joinTypeString string, leftTable TableScript, rightTable TableScript, require JoinRequire, rightTableSelectColumns ...string) JoinScript {
@@ -360,7 +464,7 @@ func (s *joinScript) Join(joinTypeString string, leftTable TableScript, rightTab
 	if rightTable == nil || rightTable.IsEmpty() {
 		return s
 	}
-	join := &joinType{
+	join := &joinTable{
 		joinType:   joinTypeString,
 		rightTable: rightTable,
 	}
@@ -379,7 +483,10 @@ func (s *joinScript) Join(joinTypeString string, leftTable TableScript, rightTab
 		join.rightSelectColumn.Add(column)
 	}
 	if require != nil {
-		join.joinRequire, join.joinRequireArgs = require(leftTable.GetAlias(), rightTable.GetAlias())
+		requirePrepare, requireArgs := require(leftTable.GetAlias(), rightTable.GetAlias())
+		if requirePrepare != EmptyString {
+			join.joinRequire = NewScript(requirePrepare, requireArgs...)
+		}
 	}
 	s.joins = append(s.joins, join)
 	return s
@@ -395,6 +502,14 @@ func (s *joinScript) LeftJoin(left TableScript, right TableScript, require JoinR
 
 func (s *joinScript) RightJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript {
 	return s.Join(SqlJoinRight, left, right, require, rightColumns...)
+}
+
+func (s *joinScript) Where(where func(where Filter)) JoinScript {
+	if where == nil {
+		return s
+	}
+	where(s.filter)
+	return s
 }
 
 func (s *joinScript) SetMasterSelectColumns(columns ...string) JoinScript {
@@ -415,15 +530,15 @@ func (s *joinScript) SetMasterSelectColumns(columns ...string) JoinScript {
 	return s
 }
 
-func (s *joinScript) AttachSelectColumns(columns []string, args ...interface{}) JoinScript {
+func (s *joinScript) SetAttachSelectColumns(columns []string, args ...interface{}) JoinScript {
 	s.attachSelectColumns, s.attachSelectColumnsArgs = columns, args
 	return s
 }
 
 type InsertColumnsScript interface {
-	Script
+	Empty
 
-	ScriptIsEmpty
+	Script
 
 	SetColumns(columns []string) InsertColumnsScript
 
@@ -510,9 +625,9 @@ func (s *insertColumnsScript) Len() int {
 }
 
 type InsertValuesScript interface {
-	Script
+	Empty
 
-	ScriptIsEmpty
+	Script
 
 	SetScript(script Script) InsertValuesScript
 
@@ -573,9 +688,9 @@ func (s *insertValuesScript) LenValues() int {
 }
 
 type UpdateSetScript interface {
-	Script
+	Empty
 
-	ScriptIsEmpty
+	Script
 
 	Expr(expr string, args ...interface{}) UpdateSetScript
 
