@@ -1071,9 +1071,24 @@ func (s *Del) Table(table string, args ...interface{}) *Del {
 	return s
 }
 
+// TableScript Set table script.
+func (s *Del) TableScript(tableScript TableScript) *Del {
+	if tableScript == nil || IsEmptyScript(tableScript) {
+		return s
+	}
+	s.schema.table = tableScript
+	return s
+}
+
 // Where set where.
-func (s *Del) Where(where Filter) *Del {
-	s.where = where
+func (s *Del) Where(where func(where Filter)) *Del {
+	if where == nil {
+		return s
+	}
+	if s.where == nil {
+		s.where = F()
+	}
+	where(s.where)
 	return s
 }
 
@@ -1085,7 +1100,8 @@ func (s *Del) Script() (prepare string, args []interface{}) {
 
 	buf := comment(s.schema)
 	defer putStringBuilder(buf)
-	buf.WriteString("DELETE FROM ")
+	buf.WriteString("DELETE ")
+	buf.WriteString("FROM ")
 
 	table, param := s.schema.table.Script()
 	buf.WriteString(table)
@@ -1103,7 +1119,9 @@ func (s *Del) Script() (prepare string, args []interface{}) {
 		where, whereArgs := s.where.Script()
 		buf.WriteString(" WHERE ")
 		buf.WriteString(where)
-		args = append(args, whereArgs...)
+		if whereArgs != nil {
+			args = append(args, whereArgs...)
+		}
 	}
 
 	prepare = buf.String()
@@ -1125,32 +1143,41 @@ func (s *Del) Way() *Way {
 type Add struct {
 	schema *schema
 
-	/* List of fields that are allowed to be added. */
-	permitMap map[string]*struct{}
-	permit    []string
+	except InsertFieldsScript
+	permit InsertFieldsScript
 
-	// Key-value pairs have been set.
-	fieldsLastIndex  int
-	fieldsFieldIndex map[string]int
-	fields           []string
-	values           [][]interface{}
+	fieldsScript InsertFieldsScript
+	valuesScript InsertValuesScript
 
-	// Key-value default pairs have been set.
-	defaultFields       []string
-	defaultFieldsValues map[string]interface{}
+	fieldsScriptDefault InsertFieldsScript
+	valuesScriptDefault InsertValuesScript
 
-	// subQuery INSERT VALUES is query statement.
-	subQuery *SubQuery
+	fromScript Script
+
+	// /* List of fields that are allowed to be added. */
+	// permitMap map[string]*struct{}
+	// permit    []string
+	//
+	// // Key-value pairs have been set.
+	// fieldsLastIndex  int
+	// fieldsFieldIndex map[string]int
+	// fields           []string
+	// values           [][]interface{}
+	//
+	// // Key-value default pairs have been set.
+	// defaultFields       []string
+	// defaultFieldsValues map[string]interface{}
+	//
+	// // subQuery INSERT VALUES is query statement.
+	// subQuery *SubQuery
 }
 
 // NewAdd for INSERT.
 func NewAdd(way *Way) *Add {
 	add := &Add{
-		schema:              newSchema(way),
-		permitMap:           make(map[string]*struct{}, 32),
-		fieldsFieldIndex:    make(map[string]int, 32),
-		values:              make([][]interface{}, 1),
-		defaultFieldsValues: make(map[string]interface{}, 8),
+		schema:       newSchema(way),
+		fieldsScript: NewInsertFieldScript(),
+		valuesScript: NewInsertValuesScript(),
 	}
 	return add
 }
@@ -1168,21 +1195,26 @@ func (s *Add) Context(ctx context.Context) *Add {
 }
 
 // Table set table name.
-func (s *Add) Table(table string, args ...interface{}) *Add {
-	s.schema.table = NewTableScript(table, args...)
+func (s *Add) Table(table string) *Add {
+	s.schema.table = NewTableScript(table)
+	return s
+}
+
+// Except Set the list of fields that cannot be inserted.
+func (s *Add) Except(fields ...string) *Add {
+	if s.except == nil {
+		s.except = NewInsertFieldScript()
+	}
+	s.except.Add(fields...)
 	return s
 }
 
 // Permit Set a list of fields that can only be inserted.
-func (s *Add) Permit(permit ...string) *Add {
-	permit = s.schema.way.cfg.Helper.AddIdentify(permit)
-	for _, field := range permit {
-		if _, ok := s.permitMap[field]; ok {
-			continue
-		}
-		s.permitMap[field] = &struct{}{}
-		s.permit = append(s.permit, field)
+func (s *Add) Permit(fields ...string) *Add {
+	if s.permit == nil {
+		s.permit = NewInsertFieldScript()
 	}
+	s.permit.Add(fields...)
 	return s
 }
 
@@ -1200,47 +1232,27 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 
 	fields = s.schema.way.cfg.Helper.AddIdentify(fields)
 
+	s.fieldsScript.SetFields(fields)
+	s.valuesScript.SetValues(values...)
+
 	if s.permit != nil {
-		indexes := make(map[int]*struct{}, length1)
-		for i := 0; i < length1; i++ {
-			if _, ok := s.permitMap[fields[i]]; ok {
-				indexes[i] = &struct{}{}
+		s.fieldsScript.Range(func(index int, field string) (doBreak bool) {
+			if s.permit.FieldIndex(field) < 0 {
+				s.fieldsScript.DelByIndex(index)
+				s.valuesScript.Del(index)
 			}
-		}
-		if length3 := len(indexes); length3 > 0 {
-			length4 := length1 - length3
-			fields1 := make([]string, 0, length4)
-			values1 := make([][]interface{}, length2)
-			for k := range values {
-				values1[k] = make([]interface{}, 0, length4)
-			}
-			for i := range fields {
-				if _, ok := indexes[i]; !ok {
-					continue
-				}
-				fields1 = append(fields1, fields[i])
-				for k := range values {
-					values1[k] = append(values1[k], values[k][i])
-				}
-			}
-			fields, values = fields1, values1
-			length1, length2 = len(fields), len(values)
-			if length1 == 0 || length2 == 0 {
-				return s
-			}
-		}
+			return false
+		})
 	}
-
-	s.fieldsLastIndex = 0
-	s.fieldsFieldIndex = make(map[string]int, length1*2)
-	for i := 0; i < length1; i++ {
-		if _, ok := s.fieldsFieldIndex[fields[i]]; !ok {
-			s.fieldsFieldIndex[fields[i]] = s.fieldsLastIndex
-			s.fieldsLastIndex++
-		}
+	if s.except != nil {
+		s.fieldsScript.Range(func(index int, field string) (doBreak bool) {
+			if s.except.FieldIndex(field) >= 0 {
+				s.fieldsScript.DelByIndex(index)
+				s.valuesScript.Del(index)
+			}
+			return false
+		})
 	}
-
-	s.fields, s.values = fields, values
 	return s
 }
 
@@ -1248,32 +1260,24 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 func (s *Add) FieldValue(field string, value interface{}) *Add {
 	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 	if s.permit != nil {
-		if _, ok := s.permitMap[field]; !ok {
+		if s.permit.FieldIndex(field) < 0 {
+			return s
+		}
+	}
+	if s.except != nil {
+		if s.except.FieldIndex(field) >= 0 {
 			return s
 		}
 	}
 
-	// Replacement value already exists.
-	if index, ok := s.fieldsFieldIndex[field]; ok {
-		for i := range s.values {
-			s.values[i][index] = value
-		}
-		return s
-	}
-
-	// It does not exist, add a key-value pair.
-	s.fieldsFieldIndex[field] = s.fieldsLastIndex
-	s.fieldsLastIndex++
-	s.fields = append(s.fields, field)
-	for i := range s.values {
-		s.values[i] = append(s.values[i], value)
-	}
+	s.fieldsScript.Add(field)
+	s.valuesScript.Set(s.fieldsScript.FieldIndex(field), value)
 
 	return s
 }
 
 // Default Add field = value .
-func (s *Add) Default(fc func(o *Add)) *Add {
+func (s *Add) Default(fc func(add *Add)) *Add {
 	if fc == nil {
 		return s
 	}
@@ -1282,23 +1286,14 @@ func (s *Add) Default(fc func(o *Add)) *Add {
 	v := *s
 	add := &v
 
-	// reset value for .fieldsLastIndex .fieldsFieldIndex .fields .values .
-	add.fieldsLastIndex = 0
-	add.fieldsFieldIndex = make(map[string]int, 32)
-	add.fields = nil
-	add.values = make([][]interface{}, 1)
+	add.fieldsScript = NewInsertFieldScript()
+	add.valuesScript = NewInsertValuesScript()
 
 	fc(add)
 
-	num := len(add.fields)
-	if num > 0 && len(add.values) == 1 {
-		if num == len(add.values[0]) {
-			// Batch add default key-value.
-			s.defaultFields = append(s.defaultFields, add.fields...)
-			for index, field := range add.fields {
-				s.defaultFieldsValues[field] = add.values[0][index]
-			}
-		}
+	if !add.fieldsScript.IsEmpty() && !add.valuesScript.IsEmpty() {
+		s.fieldsScriptDefault = add.fieldsScript
+		s.valuesScriptDefault = add.valuesScript
 	}
 
 	return s
@@ -1313,31 +1308,56 @@ func (s *Add) Create(create interface{}) *Add {
 		return s
 	}
 
-	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.DelIdentify(s.permit)))
+	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.DelIdentify(s.permit.Fields())))
 }
 
-// ValuesSubQuery values is a query SQL statement.
-func (s *Add) ValuesSubQuery(prepare string, args []interface{}) *Add {
-	s.subQuery = NewSubQuery(prepare, args)
+// ValuesScript values is a query SQL statement.
+func (s *Add) ValuesScript(script Script) *Add {
+	if script == nil || IsEmptyScript(script) {
+		return s
+	}
+	s.fromScript = script
 	return s
 }
 
-// ValuesSubQueryGet values is a query SQL statement.
-func (s *Add) ValuesSubQueryGet(get *Get, fields ...string) *Add {
-	if get == nil {
+// ValuesScriptFields values is a query SQL statement.
+func (s *Add) ValuesScriptFields(script JoinTableScript) *Add {
+	if script == nil || IsEmptyScript(script) {
 		return s
 	}
-	if length := len(fields); length > 0 {
-		if s.permit != nil {
-			for _, c := range fields {
-				if _, ok := s.permitMap[c]; !ok {
-					return s
+	fields := script.GetSelectColumns()
+	s.fieldsScript.SetFields(fields)
+
+	ok := true
+	if s.permit != nil {
+		s.permit.Range(func(index int, field string) (doBreak bool) {
+			if s.fieldsScript.FieldIndex(field) < 0 {
+				if ok {
+					ok = !ok
 				}
+				return true
 			}
-		}
-		s.fields = fields
+			return false
+		})
 	}
-	return s.ValuesSubQuery(get.Script())
+
+	if s.except != nil {
+		s.except.Range(func(index int, field string) bool {
+			if s.fieldsScript.FieldIndex(field) >= 0 {
+				if ok {
+					ok = !ok
+				}
+				return true
+			}
+			return false
+		})
+	}
+
+	if !ok {
+		return s
+	}
+
+	return s.ValuesScript(script)
 }
 
 // Script build SQL statement.
@@ -1346,77 +1366,49 @@ func (s *Add) Script() (prepare string, args []interface{}) {
 		return
 	}
 
-	buf := comment(s.schema)
-	defer putStringBuilder(buf)
+	b := comment(s.schema)
+	defer putStringBuilder(b)
 
-	if s.subQuery != nil {
-		buf.WriteString("INSERT INTO ")
+	if s.fromScript != nil {
+		b.WriteString("INSERT ")
+		b.WriteString("INTO ")
 		table, _ := s.schema.table.Script()
-		buf.WriteString(table)
-		if len(s.fields) > 0 {
-			buf.WriteString(" ( ")
-			buf.WriteString(strings.Join(s.fields, ", "))
-			buf.WriteString(" )")
+		b.WriteString(table)
+		if !IsEmptyScript(s.fieldsScript) {
+			b.WriteString(SqlSpace)
+			fields, _ := s.fieldsScript.Script()
+			b.WriteString(fields)
 		}
-		buf.WriteString(SqlSpace)
-		subPrepare, subArgs := s.subQuery.Script()
-		buf.WriteString(subPrepare)
-		args = subArgs
-		prepare = buf.String()
+		b.WriteString(SqlSpace)
+		fromPrepare, fromArgs := s.fromScript.Script()
+		b.WriteString(fromPrepare)
+		if fromArgs != nil {
+			args = append(args, fromArgs...)
+		}
+		prepare = b.String()
 		return
 	}
 
-	count := len(s.fields)
+	count := len(s.fieldsScript.Fields())
 	if count == 0 {
 		return
 	}
 
-	resetCount := false
-	had := make(map[string]*struct{}, count)
-	for i := 0; i < count; i++ {
-		had[s.fields[i]] = &struct{}{}
-	}
-	for _, field := range s.defaultFields {
-		if _, ok := s.fieldsFieldIndex[field]; ok {
-			continue
-		}
-		value, ok := s.defaultFieldsValues[field]
-		if !ok {
-			continue
-		}
-		if _, ok = had[field]; ok {
-			continue
-		}
-		s.FieldValue(field, value)
-		if !resetCount {
-			resetCount = true
-		}
-	}
-	if resetCount {
-		count = len(s.fields)
-	}
-
-	tmpList := make([]string, count)
-	for i := 0; i < count; i++ {
-		tmpList[i] = SqlPlaceholder
-	}
-	value := fmt.Sprintf("( %s )", strings.Join(tmpList, ", "))
-
-	length := len(s.values)
-	values := make([]string, length)
-	for i := 0; i < length; i++ {
-		args = append(args, s.values[i]...)
-		values[i] = value
-	}
-
-	buf.WriteString("INSERT INTO ")
+	b.WriteString("INSERT ")
+	b.WriteString("INTO ")
 	table, _ := s.schema.table.Script()
-	buf.WriteString(table)
-	buf.WriteString(" ( ")
-	buf.WriteString(strings.Join(s.fields, ", "))
-	buf.WriteString(" ) VALUES ")
-	buf.WriteString(strings.Join(values, ", "))
-	prepare = buf.String()
+	b.WriteString(table)
+	b.WriteString(SqlSpace)
+	fields, _ := s.fieldsScript.Script()
+	b.WriteString(fields)
+	b.WriteString(SqlSpace)
+	values, param := s.valuesScript.Script()
+	b.WriteString("VALUES ")
+	b.WriteString(values)
+	if param != nil {
+		args = append(args, param...)
+	}
+	prepare = b.String()
 	return
 }
 

@@ -841,93 +841,148 @@ func UnionAllScript(scripts ...Script) Script {
 	}, scripts...)
 }
 
-type InsertColumnsScript interface {
+type InsertFieldsScript interface {
 	Empty
 
 	Script
 
-	SetColumns(columns []string) InsertColumnsScript
+	SetFields(fields []string) InsertFieldsScript
 
-	Add(columns ...string) InsertColumnsScript
+	Fields() []string
 
-	Del(columns ...string) InsertColumnsScript
+	Add(fields ...string) InsertFieldsScript
+
+	Del(fields ...string) InsertFieldsScript
+
+	DelByIndex(indexes ...int) InsertFieldsScript
+
+	FieldIndex(field string) int
+
+	Range(custom func(index int, field string) (doBreak bool)) InsertFieldsScript
 
 	Len() int
 }
 
-type insertColumnsScript struct {
-	columns    []string
-	columnsMap map[string]int
+type insertFieldsScript struct {
+	fields    []string
+	fieldsMap map[string]int
 }
 
-func NewInsertColumnScript() InsertColumnsScript {
-	return &insertColumnsScript{
-		columns:    make([]string, 0, 32),
-		columnsMap: make(map[string]int, 32),
+func NewInsertFieldScript() InsertFieldsScript {
+	return &insertFieldsScript{
+		fields:    make([]string, 0, 32),
+		fieldsMap: make(map[string]int, 32),
 	}
 }
 
-func (s *insertColumnsScript) IsEmpty() bool {
-	return len(s.columns) == 0
+func (s *insertFieldsScript) IsEmpty() bool {
+	return len(s.fields) == 0
 }
 
-func (s *insertColumnsScript) Script() (prepare string, args []interface{}) {
+func (s *insertFieldsScript) Script() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	return ConcatString("( ", strings.Join(s.columns, ", "), " )"), nil
+	return ConcatString("( ", strings.Join(s.fields, ", "), " )"), nil
 }
 
-func (s *insertColumnsScript) SetColumns(columns []string) InsertColumnsScript {
-	s.columns = columns
+func (s *insertFieldsScript) SetFields(fields []string) InsertFieldsScript {
+	s.fields = fields
 	return s
 }
 
-func (s *insertColumnsScript) Add(columns ...string) InsertColumnsScript {
-	num := len(s.columns)
-	for _, column := range columns {
+func (s *insertFieldsScript) Fields() []string {
+	return s.fields[:]
+}
+
+func (s *insertFieldsScript) Add(fields ...string) InsertFieldsScript {
+	num := len(s.fields)
+	for _, column := range fields {
 		if column == EmptyString {
 			continue
 		}
-		if _, ok := s.columnsMap[column]; ok {
+		if _, ok := s.fieldsMap[column]; ok {
 			continue
 		}
-		s.columns = append(s.columns, column)
-		s.columnsMap[column] = num
+		s.fields = append(s.fields, column)
+		s.fieldsMap[column] = num
 		num++
 	}
 	return s
 }
 
-func (s *insertColumnsScript) Del(columns ...string) InsertColumnsScript {
-	deleted := make(map[int]*struct{}, len(columns))
-	for _, column := range columns {
+func (s *insertFieldsScript) Del(fields ...string) InsertFieldsScript {
+	deleted := make(map[int]*struct{}, len(fields))
+	for _, column := range fields {
 		if column == EmptyString {
 			continue
 		}
-		index, ok := s.columnsMap[column]
+		index, ok := s.fieldsMap[column]
 		if !ok {
 			continue
 		}
 		deleted[index] = &struct{}{}
 	}
-	length := len(s.columns)
-	columns = make([]string, 0, length)
+	length := len(s.fields)
+	fields = make([]string, 0, length)
 	columnsMap := make(map[string]int, length)
 	num := 0
-	for index, column := range s.columns {
+	for index, column := range s.fields {
 		if _, ok := deleted[index]; !ok {
-			columns = append(columns, column)
+			fields = append(fields, column)
 			columnsMap[column] = num
 			num++
 		}
 	}
-	s.columns, s.columnsMap = columns, columnsMap
+	s.fields, s.fieldsMap = fields, columnsMap
 	return s
 }
 
-func (s *insertColumnsScript) Len() int {
-	return len(s.columns)
+func (s *insertFieldsScript) DelByIndex(indexes ...int) InsertFieldsScript {
+	length := len(s.fields)
+	minIndex, maxIndex := 0, length-1
+	if maxIndex < minIndex {
+		return s
+	}
+	deleted := make(map[int]*struct{}, len(indexes))
+	for _, index := range indexes {
+		if index >= minIndex && index <= maxIndex {
+			deleted[index] = &struct{}{}
+		}
+	}
+	fields := make([]string, 0, length)
+	for index := range s.fields {
+		if _, ok := deleted[index]; ok {
+			continue
+		}
+		fields = append(fields, s.fields[index])
+	}
+	s.fields = fields
+	return s
+}
+
+func (s *insertFieldsScript) FieldIndex(field string) int {
+	index, ok := s.fieldsMap[field]
+	if !ok {
+		return -1
+	}
+	return index
+}
+
+func (s *insertFieldsScript) Range(custom func(index int, field string) (doBreak bool)) InsertFieldsScript {
+	if custom == nil {
+		return s
+	}
+	for index, field := range s.fields {
+		if custom(index, field) {
+			break
+		}
+	}
+	return s
+}
+
+func (s *insertFieldsScript) Len() int {
+	return len(s.fields)
 }
 
 type InsertValuesScript interface {
@@ -938,6 +993,10 @@ type InsertValuesScript interface {
 	SetScript(script Script) InsertValuesScript
 
 	SetValues(values ...[]interface{}) InsertValuesScript
+
+	Set(index int, value interface{}) InsertValuesScript
+
+	Del(indexes ...int) InsertValuesScript
 
 	LenValues() int
 }
@@ -985,6 +1044,57 @@ func (s *insertValuesScript) SetScript(script Script) InsertValuesScript {
 }
 
 func (s *insertValuesScript) SetValues(values ...[]interface{}) InsertValuesScript {
+	s.values = values
+	return s
+}
+
+func (s *insertValuesScript) Set(index int, value interface{}) InsertValuesScript {
+	if index < 0 {
+		return s
+	}
+	if s.values == nil {
+		s.values = make([][]interface{}, 1)
+	}
+	for num, tmp := range s.values {
+		length := len(tmp)
+		if index > length {
+			continue
+		}
+		if index == length {
+			s.values[num] = append(s.values[num], value)
+		} else {
+			s.values[num][index] = value
+		}
+	}
+	return s
+}
+
+func (s *insertValuesScript) Del(indexes ...int) InsertValuesScript {
+	length := len(indexes)
+	if length == 0 {
+		return s
+	}
+	deleted := make(map[int]*struct{}, length)
+	for _, index := range indexes {
+		if index < 0 {
+			continue
+		}
+		deleted[index] = &struct{}{}
+	}
+	length = len(deleted)
+	if length == 0 {
+		return s
+	}
+	values := make([][]interface{}, len(s.values))
+	for index, value := range s.values {
+		values[index] = make([]interface{}, 0, len(value))
+		for num, tmp := range value {
+			if _, ok := deleted[num]; ok {
+				continue
+			}
+			values[index] = append(values[index], tmp)
+		}
+	}
 	s.values = values
 	return s
 }
