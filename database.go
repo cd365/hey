@@ -162,6 +162,7 @@ func (s *withScript) GetAlias() string {
 	return s.alias
 }
 
+// SelectColumns For select columns.
 type SelectColumns struct {
 	columns     []string
 	columnsMap  map[string]int
@@ -244,6 +245,75 @@ func (s *SelectColumns) Len() int {
 
 type JoinRequire func(leftAlias string, rightAlias string) (prepare string, args []interface{})
 
+// JoinTableScript For join table with self select columns.
+type JoinTableScript interface {
+	TableScript
+
+	AddSelectColumns(columns ...string) JoinTableScript
+
+	DelSelectColumns(columns ...string) JoinTableScript
+
+	GetSelectColumns() []string
+
+	GetSelectColumnsString() string
+}
+
+type joinTableScript struct {
+	TableScript
+	selectColumns *SelectColumns
+}
+
+func (s *joinTableScript) AddSelectColumns(columns ...string) JoinTableScript {
+	for _, column := range columns {
+		s.selectColumns.Add(column)
+	}
+	return s
+}
+
+func (s *joinTableScript) DelSelectColumns(columns ...string) JoinTableScript {
+	for _, column := range columns {
+		s.selectColumns.Del(column)
+	}
+	return s
+}
+
+func (s *joinTableScript) GetSelectColumns() []string {
+	if s.TableScript == nil {
+		return nil
+	}
+	alias := s.GetAlias()
+	if alias == EmptyString {
+		return nil
+	}
+	prefix := fmt.Sprintf("%s.", alias)
+	prepare, _ := s.selectColumns.Script()
+	prepare = strings.ReplaceAll(prepare, " ", "")
+	columns := strings.Split(prepare, ",")
+	result := make([]string, 0, len(columns))
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		if !strings.HasPrefix(column, prefix) {
+			column = fmt.Sprintf("%s%s", prefix, column)
+		}
+		result = append(result, column)
+	}
+	return result
+}
+
+func (s *joinTableScript) GetSelectColumnsString() string {
+	return strings.Join(s.GetSelectColumns(), ", ")
+}
+
+func NewJoinTableScript(tableScript TableScript) JoinTableScript {
+	return &joinTableScript{
+		TableScript:   tableScript,
+		selectColumns: NewSelectColumns(),
+	}
+}
+
+// JoinScript Join table.
 type JoinScript interface {
 	Script() (prepare string, args []interface{})
 
@@ -253,42 +323,37 @@ type JoinScript interface {
 
 	OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
 
-	Usings(columns ...string) []string
+	UseColumns(columns ...string) []string
 
-	Join(joinTypeString string, leftTable TableScript, rightTable TableScript, require JoinRequire, rightTableSelectColumns ...string) JoinScript
+	Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
 
-	InnerJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript
+	InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
 
-	LeftJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript
+	LeftJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
 
-	RightJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript
+	RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
 
 	Where(where func(where Filter)) JoinScript
-
-	// SetMasterSelectColumns Set the fields in the master table that need to be retrieved.
-	SetMasterSelectColumns(columns ...string) JoinScript
 
 	// SetAttachSelectColumns Add other query fields or custom fields, for example: COUNT(*) AS counts, a.username.
 	SetAttachSelectColumns(columns []string, args ...interface{}) JoinScript
 }
 
 type joinTable struct {
-	joinType          string
-	rightTable        TableScript
-	joinRequire       Script
-	rightSelectColumn *SelectColumns
+	joinType    string
+	rightTable  JoinTableScript
+	joinRequire Script
 }
 type joinScript struct {
-	master              TableScript
-	masterSelectColumns *SelectColumns
-	joins               []*joinTable
-	filter              Filter
+	master JoinTableScript
+	joins  []*joinTable
+	filter Filter
 	// attachSelectColumns Not a simple column name.
 	attachSelectColumns     []string
 	attachSelectColumnsArgs []interface{}
 }
 
-func NewJoinScript(master TableScript) JoinScript {
+func NewJoinScript(master JoinTableScript) JoinScript {
 	if master == nil || master.IsEmpty() {
 		panic("master is empty")
 	}
@@ -305,15 +370,13 @@ func NewJoinScript(master TableScript) JoinScript {
 
 func (s *joinScript) Script() (prepare string, args []interface{}) {
 	selectColumns := NewSelectColumns()
-	if s.masterSelectColumns != nil {
-		masterSelectColumns, masterSelectColumnsArgs := s.masterSelectColumns.Script()
-		selectColumns.Add(masterSelectColumns, masterSelectColumnsArgs...)
+	if column := s.master.GetSelectColumnsString(); column != EmptyString {
+		selectColumns.Add(column)
 	}
 
 	for _, join := range s.joins {
-		if join.rightSelectColumn != nil {
-			joinSelectColumns, joinSelectColumnsArgs := join.rightSelectColumn.Script()
-			selectColumns.Add(joinSelectColumns, joinSelectColumnsArgs...)
+		if column := join.rightTable.GetSelectColumnsString(); column != EmptyString {
+			selectColumns.Add(column)
 		}
 	}
 	for _, column := range s.attachSelectColumns {
@@ -326,6 +389,7 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 	} else {
 		args = append(args, selectColumnsArgs...)
 	}
+
 	if s.attachSelectColumns != nil && s.attachSelectColumnsArgs != nil {
 		args = append(args, s.attachSelectColumnsArgs...)
 	}
@@ -450,11 +514,11 @@ func (s *joinScript) OnEqual(leftColumn string, rightColumn string, requires ...
 	return s.On(onRequire...)
 }
 
-func (s *joinScript) Usings(columns ...string) []string {
+func (s *joinScript) UseColumns(columns ...string) []string {
 	return columns
 }
 
-func (s *joinScript) Join(joinTypeString string, leftTable TableScript, rightTable TableScript, require JoinRequire, rightTableSelectColumns ...string) JoinScript {
+func (s *joinScript) Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
 	if joinTypeString == EmptyString {
 		joinTypeString = SqlJoinInner
 	}
@@ -468,40 +532,26 @@ func (s *joinScript) Join(joinTypeString string, leftTable TableScript, rightTab
 		joinType:   joinTypeString,
 		rightTable: rightTable,
 	}
-	rightTableAlias := rightTable.GetAlias()
-	prefix := fmt.Sprintf("%s.", rightTableAlias)
-	for _, column := range rightTableSelectColumns {
-		if column == EmptyString {
-			continue
-		}
-		if join.rightSelectColumn == nil {
-			join.rightSelectColumn = NewSelectColumns()
-		}
-		if !strings.HasPrefix(column, prefix) {
-			column = fmt.Sprintf("%s%s", prefix, column)
-		}
-		join.rightSelectColumn.Add(column)
-	}
-	if require != nil {
-		requirePrepare, requireArgs := require(leftTable.GetAlias(), rightTable.GetAlias())
-		if requirePrepare != EmptyString {
-			join.joinRequire = NewScript(requirePrepare, requireArgs...)
+	if joinRequire != nil {
+		joinRequirePrepare, joinRequireArgs := joinRequire(leftTable.GetAlias(), rightTable.GetAlias())
+		if joinRequirePrepare != EmptyString {
+			join.joinRequire = NewScript(joinRequirePrepare, joinRequireArgs...)
 		}
 	}
 	s.joins = append(s.joins, join)
 	return s
 }
 
-func (s *joinScript) InnerJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript {
-	return s.Join(SqlJoinInner, left, right, require, rightColumns...)
+func (s *joinScript) InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
+	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
 }
 
-func (s *joinScript) LeftJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript {
-	return s.Join(SqlJoinLeft, left, right, require, rightColumns...)
+func (s *joinScript) LeftJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
+	return s.Join(SqlJoinLeft, leftTable, rightTable, joinRequire)
 }
 
-func (s *joinScript) RightJoin(left TableScript, right TableScript, require JoinRequire, rightColumns ...string) JoinScript {
-	return s.Join(SqlJoinRight, left, right, require, rightColumns...)
+func (s *joinScript) RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
+	return s.Join(SqlJoinRight, leftTable, rightTable, joinRequire)
 }
 
 func (s *joinScript) Where(where func(where Filter)) JoinScript {
@@ -509,24 +559,6 @@ func (s *joinScript) Where(where func(where Filter)) JoinScript {
 		return s
 	}
 	where(s.filter)
-	return s
-}
-
-func (s *joinScript) SetMasterSelectColumns(columns ...string) JoinScript {
-	prefix := fmt.Sprintf("%s.", s.master.GetAlias())
-	masterSelectColumns := NewSelectColumns()
-	for _, column := range columns {
-		if column == EmptyString {
-			continue
-		}
-		if !strings.HasPrefix(column, prefix) {
-			column = fmt.Sprintf("%s%s", prefix, column)
-		}
-		masterSelectColumns.Add(column)
-	}
-	if masterSelectColumns.Len() > 0 {
-		s.masterSelectColumns = masterSelectColumns
-	}
 	return s
 }
 
