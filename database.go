@@ -239,6 +239,13 @@ func (s *SelectColumns) Del(columns ...string) *SelectColumns {
 	return s
 }
 
+func (s *SelectColumns) DelAll() *SelectColumns {
+	s.columns = make([]string, 0, 32)
+	s.columnsMap = make(map[string]int, 32)
+	s.columnsArgs = make(map[int][]interface{}, 32)
+	return s
+}
+
 func (s *SelectColumns) Len() int {
 	return len(s.columns)
 }
@@ -252,6 +259,8 @@ type JoinTableScript interface {
 	AddSelectColumns(columns ...string) JoinTableScript
 
 	DelSelectColumns(columns ...string) JoinTableScript
+
+	DelAllSelectColumns() JoinTableScript
 
 	GetSelectColumns() []string
 
@@ -274,6 +283,11 @@ func (s *joinTableScript) DelSelectColumns(columns ...string) JoinTableScript {
 	for _, column := range columns {
 		s.selectColumns.Del(column)
 	}
+	return s
+}
+
+func (s *joinTableScript) DelAllSelectColumns() JoinTableScript {
+	s.selectColumns.DelAll()
 	return s
 }
 
@@ -323,8 +337,6 @@ type JoinScript interface {
 
 	OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
 
-	UseColumns(columns ...string) []string
-
 	Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
 
 	InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
@@ -333,10 +345,11 @@ type JoinScript interface {
 
 	RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
 
+	// Where Don't forget to prefix the specific columns with the table name?
 	Where(where func(where Filter)) JoinScript
 
-	// SetAttachSelectColumns Add other query fields or custom fields, for example: COUNT(*) AS counts, a.username.
-	SetAttachSelectColumns(columns []string, args ...interface{}) JoinScript
+	// SelectExtendColumns The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
+	SelectExtendColumns(custom func(sc *SelectColumns)) JoinScript
 }
 
 type joinTable struct {
@@ -348,9 +361,8 @@ type joinScript struct {
 	master JoinTableScript
 	joins  []*joinTable
 	filter Filter
-	// attachSelectColumns Not a simple column name.
-	attachSelectColumns     []string
-	attachSelectColumnsArgs []interface{}
+	// selectExtendColumns The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
+	selectExtendColumns *SelectColumns
 }
 
 func NewJoinScript(master JoinTableScript) JoinScript {
@@ -361,9 +373,10 @@ func NewJoinScript(master JoinTableScript) JoinScript {
 		panic("master alias is empty")
 	}
 	tmp := &joinScript{
-		master: master,
-		joins:  make([]*joinTable, 8),
-		filter: F(),
+		master:              master,
+		joins:               make([]*joinTable, 8),
+		filter:              F(),
+		selectExtendColumns: NewSelectColumns(),
 	}
 	return tmp
 }
@@ -374,13 +387,14 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 		selectColumns.Add(column)
 	}
 
-	for _, join := range s.joins {
-		if column := join.rightTable.GetSelectColumnsString(); column != EmptyString {
+	for _, tmp := range s.joins {
+		if column := tmp.rightTable.GetSelectColumnsString(); column != EmptyString {
 			selectColumns.Add(column)
 		}
 	}
-	for _, column := range s.attachSelectColumns {
-		selectColumns.Add(column)
+	if s.selectExtendColumns != nil {
+		extendColumnsPrepare, extendColumnsArgs := s.selectExtendColumns.Script()
+		selectColumns.Add(extendColumnsPrepare, extendColumnsArgs...)
 	}
 
 	selectColumnsPrepare, selectColumnsArgs := selectColumns.Script()
@@ -388,10 +402,6 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 		selectColumnsPrepare, selectColumnsArgs = SqlStar, nil
 	} else {
 		args = append(args, selectColumnsArgs...)
-	}
-
-	if s.attachSelectColumns != nil && s.attachSelectColumnsArgs != nil {
-		args = append(args, s.attachSelectColumnsArgs...)
 	}
 
 	b := getStringBuilder()
@@ -404,18 +414,18 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 	b.WriteString(masterPrepare)
 	b.WriteString(SqlSpace)
 	args = append(args, masterArgs...)
-	for _, join := range s.joins {
-		if join == nil {
+	for _, tmp := range s.joins {
+		if tmp == nil {
 			continue
 		}
-		b.WriteString(join.joinType)
+		b.WriteString(tmp.joinType)
 		b.WriteString(SqlSpace)
-		joinPrepare, joinArgs := join.rightTable.Script()
+		joinPrepare, joinArgs := tmp.rightTable.Script()
 		b.WriteString(joinPrepare)
 		b.WriteString(SqlSpace)
 		args = append(args, joinArgs...)
-		if join.joinRequire != nil {
-			joinRequirePrepare, joinRequireArgs := join.joinRequire.Script()
+		if tmp.joinRequire != nil {
+			joinRequirePrepare, joinRequireArgs := tmp.joinRequire.Script()
 			if joinRequirePrepare != EmptyString {
 				b.WriteString(joinRequirePrepare)
 				if joinRequireArgs != nil {
@@ -514,10 +524,6 @@ func (s *joinScript) OnEqual(leftColumn string, rightColumn string, requires ...
 	return s.On(onRequire...)
 }
 
-func (s *joinScript) UseColumns(columns ...string) []string {
-	return columns
-}
-
 func (s *joinScript) Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
 	if joinTypeString == EmptyString {
 		joinTypeString = SqlJoinInner
@@ -562,8 +568,13 @@ func (s *joinScript) Where(where func(where Filter)) JoinScript {
 	return s
 }
 
-func (s *joinScript) SetAttachSelectColumns(columns []string, args ...interface{}) JoinScript {
-	s.attachSelectColumns, s.attachSelectColumnsArgs = columns, args
+func (s *joinScript) SelectExtendColumns(custom func(sc *SelectColumns)) JoinScript {
+	if s.selectExtendColumns == nil {
+		s.selectExtendColumns = NewSelectColumns()
+	}
+	if custom != nil {
+		custom(s.selectExtendColumns)
+	}
 	return s
 }
 
