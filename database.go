@@ -120,7 +120,7 @@ type withScript struct {
 	script Script
 }
 
-func NewWith() WithScript {
+func NewWithScript() WithScript {
 	return &withScript{}
 }
 
@@ -688,7 +688,7 @@ func (s *orderScript) Asc(columns ...string) OrderScript {
 		}
 		s.orderMap[column] = index
 		index++
-		column = fmt.Sprintf("%s ASC", column)
+		column = fmt.Sprintf("%s %s", column, SqlAsc)
 		s.orderBy = append(s.orderBy, column)
 	}
 	return s
@@ -705,7 +705,7 @@ func (s *orderScript) Desc(columns ...string) OrderScript {
 		}
 		s.orderMap[column] = index
 		index++
-		column = fmt.Sprintf("%s DESC", column)
+		column = fmt.Sprintf("%s %s", column, SqlDesc)
 		s.orderBy = append(s.orderBy, column)
 	}
 	return s
@@ -727,7 +727,7 @@ type LimitScript interface {
 
 	Offset(offset int64) LimitScript
 
-	Page(page int64, limits ...int64) LimitScript
+	Page(page int64, limit ...int64) LimitScript
 }
 
 type limitScript struct {
@@ -811,6 +811,7 @@ func ConcatScript(custom func(index int, script Script) Script, scripts ...Scrip
 	return NewScript(b.String(), args...)
 }
 
+// UnionScript (query1) UNION (query2) UNION (query3)...
 func UnionScript(scripts ...Script) Script {
 	return ConcatScript(func(index int, script Script) Script {
 		if index == 0 {
@@ -826,6 +827,7 @@ func UnionScript(scripts ...Script) Script {
 	}, scripts...)
 }
 
+// UnionAllScript (query1) UNION ALL (query2) UNION ALL (query3)...
 func UnionAllScript(scripts ...Script) Script {
 	return ConcatScript(func(index int, script Script) Script {
 		if index == 0 {
@@ -835,6 +837,42 @@ func UnionAllScript(scripts ...Script) Script {
 		b := getStringBuilder()
 		defer putStringBuilder(b)
 		b.WriteString("UNION ALL ( ")
+		b.WriteString(prepare)
+		b.WriteString(" )")
+		return NewScript(b.String(), args...)
+	}, scripts...)
+}
+
+// ExceptScript (query1) EXCEPT (query2) EXCEPT (query3)...
+func ExceptScript(scripts ...Script) Script {
+	return ConcatScript(func(index int, script Script) Script {
+		prepare, args := script.Script()
+		if index == 0 {
+			prepare = fmt.Sprintf("( %s )", prepare)
+			return NewScript(prepare, args...)
+		}
+		b := getStringBuilder()
+		defer putStringBuilder(b)
+		b.WriteString(SqlExpect)
+		b.WriteString(" ( ")
+		b.WriteString(prepare)
+		b.WriteString(" )")
+		return NewScript(b.String(), args...)
+	}, scripts...)
+}
+
+// IntersectScript (query1) INTERSECT (query2) INTERSECT (query3)...
+func IntersectScript(scripts ...Script) Script {
+	return ConcatScript(func(index int, script Script) Script {
+		prepare, args := script.Script()
+		if index == 0 {
+			prepare = fmt.Sprintf("( %s )", prepare)
+			return NewScript(prepare, args...)
+		}
+		b := getStringBuilder()
+		defer putStringBuilder(b)
+		b.WriteString(SqlIntersect)
+		b.WriteString(" ( ")
 		b.WriteString(prepare)
 		b.WriteString(" )")
 		return NewScript(b.String(), args...)

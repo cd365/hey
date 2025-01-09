@@ -1098,13 +1098,13 @@ func (s *Del) Script() (prepare string, args []interface{}) {
 		return
 	}
 
-	buf := comment(s.schema)
-	defer putStringBuilder(buf)
-	buf.WriteString("DELETE ")
-	buf.WriteString("FROM ")
+	b := comment(s.schema)
+	defer putStringBuilder(b)
+	b.WriteString("DELETE ")
+	b.WriteString("FROM ")
 
 	table, param := s.schema.table.Script()
-	buf.WriteString(table)
+	b.WriteString(table)
 	if param != nil {
 		args = append(args, param...)
 	}
@@ -1117,14 +1117,14 @@ func (s *Del) Script() (prepare string, args []interface{}) {
 
 	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := s.where.Script()
-		buf.WriteString(" WHERE ")
-		buf.WriteString(where)
+		b.WriteString(" WHERE ")
+		b.WriteString(where)
 		if whereArgs != nil {
 			args = append(args, whereArgs...)
 		}
 	}
 
-	prepare = buf.String()
+	prepare = b.String()
 	return
 }
 
@@ -1153,23 +1153,6 @@ type Add struct {
 	valuesScriptDefault InsertValuesScript
 
 	fromScript Script
-
-	// /* List of fields that are allowed to be added. */
-	// permitMap map[string]*struct{}
-	// permit    []string
-	//
-	// // Key-value pairs have been set.
-	// fieldsLastIndex  int
-	// fieldsFieldIndex map[string]int
-	// fields           []string
-	// values           [][]interface{}
-	//
-	// // Key-value default pairs have been set.
-	// defaultFields       []string
-	// defaultFieldsValues map[string]interface{}
-	//
-	// // subQuery INSERT VALUES is query statement.
-	// subQuery *SubQuery
 }
 
 // NewAdd for INSERT.
@@ -1694,130 +1677,6 @@ func (s *Mod) Way() *Way {
 	return s.schema.way
 }
 
-type SubQuery struct {
-	prepare string
-	args    []interface{}
-}
-
-func NewSubQuery(prepare string, args []interface{}) *SubQuery {
-	return &SubQuery{
-		prepare: prepare,
-		args:    args,
-	}
-}
-
-func (s *SubQuery) Script() (prepare string, args []interface{}) {
-	prepare, args = s.prepare, s.args
-	return
-}
-
-// GetJoin join SQL statement.
-type GetJoin struct {
-	joinType string    // join type.
-	table    string    // table name.
-	subQuery *SubQuery // table is sub query.
-	alias    *string   // query table alias name.
-	on       string    // conditions for join query; ON a.order_id = b.order_id  <=> USING ( order_id ).
-	using    []string  // conditions for join query; USING ( order_id, ... ).
-}
-
-// Table set table name.
-func (s *GetJoin) Table(table string) *GetJoin {
-	s.table = table
-	return s
-}
-
-// SubQuery table is a query SQL statement.
-func (s *GetJoin) SubQuery(prepare string, args []interface{}) *GetJoin {
-	s.subQuery = NewSubQuery(prepare, args)
-	return s
-}
-
-// SubQueryGet table is a query SQL statement.
-func (s *GetJoin) SubQueryGet(get *Get, alias ...string) *GetJoin {
-	if get == nil {
-		return s
-	}
-	s.subQuery = NewSubQuery(get.Script())
-	if str := LastNotEmptyString(alias); str != EmptyString {
-		s.Alias(str)
-	}
-	return s
-}
-
-// Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
-func (s *GetJoin) Alias(alias string) *GetJoin {
-	s.alias = &alias
-	return s
-}
-
-// On join query condition.
-func (s *GetJoin) On(on string) *GetJoin {
-	s.on = on
-	return s
-}
-
-// Using join query condition.
-func (s *GetJoin) Using(fields ...string) *GetJoin {
-	s.using = fields
-	return s
-}
-
-// OnEqual join query condition, support multiple fields.
-func (s *GetJoin) OnEqual(fields ...string) *GetJoin {
-	length := len(fields)
-	if length&1 == 1 {
-		return s
-	}
-	tmp := make([]string, 0, length)
-	for i := 0; i < length; i += 2 {
-		tmp = append(tmp, fmt.Sprintf("%s = %s", fields[i], fields[i+1]))
-	}
-	return s.On(strings.Join(tmp, " AND "))
-}
-
-// Script build SQL statement.
-func (s *GetJoin) Script() (prepare string, args []interface{}) {
-	if s.table == EmptyString && (s.subQuery == nil || s.alias == nil || *s.alias == EmptyString) {
-		return
-	}
-
-	buf := getStringBuilder()
-	defer putStringBuilder(buf)
-
-	buf.WriteString(s.joinType)
-
-	if s.subQuery != nil {
-		buf.WriteString(" ( ")
-		subPrepare, subArgs := s.subQuery.Script()
-		buf.WriteString(subPrepare)
-		buf.WriteString(" ) AS ")
-		buf.WriteString(*s.alias)
-		args = append(args, subArgs...)
-	} else {
-		buf.WriteString(SqlSpace)
-		buf.WriteString(s.table)
-		if s.alias != nil && *s.alias != EmptyString {
-			buf.WriteString(" AS ")
-			buf.WriteString(*s.alias)
-		}
-	}
-
-	if len(s.using) > 0 {
-		buf.WriteString(" USING ( ")
-		buf.WriteString(strings.Join(s.using, ", "))
-		buf.WriteString(" )")
-	} else {
-		if s.on != EmptyString {
-			buf.WriteString(" ON ")
-			buf.WriteString(s.on)
-		}
-	}
-
-	prepare = buf.String()
-	return
-}
-
 // Limiter limit and offset.
 type Limiter interface {
 	GetLimit() int64
@@ -1830,62 +1689,36 @@ type Get struct {
 	schema *schema
 
 	// with of query.
-	with []WithScript
+	withScript []WithScript
 
-	// distinct remove duplicate records: one field value or a combination of multiple fields.
-	distinct bool
+	// selectColumns query columns list.
+	selectColumns *SelectColumns
 
-	// query field list.
-	column []string
+	// joinScript join query
+	joinScript JoinScript
 
-	// query field list.
-	columnCase []string
-
-	// query field list args.
-	columnCaseArgs []interface{}
-
-	// join query.
-	join []*GetJoin
-
-	// WHERE condition to filter data.
+	// where condition to filter data.
 	where Filter
 
 	// group query result.
-	group []string
-
-	// use HAVING to filter data after grouping.
-	having Filter
-
-	// unions query with union.
-	unions []*Get
-
-	// unionsType query with union type.
-	unionsType string
+	group GroupScript
 
 	// order query result.
-	order []string
-
-	// ordered columns map list.
-	orderMap map[string]string
+	order OrderScript
 
 	// limit the number of query result.
-	limit *int64
-
-	// query result offset.
-	offset *int64
-
-	// native SQL statement.
-	rawPrepare *string
-
-	// args of rawPrepare.
-	rawArgs []interface{}
+	limit LimitScript
 }
 
 // NewGet for SELECT.
 func NewGet(way *Way) *Get {
 	return &Get{
-		schema:   newSchema(way),
-		orderMap: map[string]string{},
+		schema:        newSchema(way),
+		selectColumns: NewSelectColumns(),
+		where:         F(),
+		group:         NewGroupScript(),
+		order:         NewOrderScript(),
+		limit:         NewLimitScript(),
 	}
 }
 
@@ -1901,25 +1734,33 @@ func (s *Get) Context(ctx context.Context) *Get {
 	return s
 }
 
-// Raw Directly set the native SQL statement and the corresponding parameter list.
-func (s *Get) Raw(prepare string, args []interface{}) *Get {
-	if prepare != EmptyString {
-		s.rawPrepare, s.rawArgs = &prepare, args
+// TableScript Directly set the native SQL statement and the corresponding parameter list.
+func (s *Get) TableScript(tableScript TableScript) *Get {
+	if tableScript == nil || IsEmptyScript(tableScript) {
+		return s
 	}
 	return s
 }
 
 // With for with query.
 func (s *Get) With(with ...WithScript) *Get {
-	s.with = append(s.with, with...)
+	for _, tmp := range with {
+		if IsEmptyScript(tmp) {
+			continue
+		}
+		s.withScript = append(s.withScript, tmp)
+	}
 	return s
 }
 
 // Table set table name.
 func (s *Get) Table(table string, alias ...string) *Get {
 	s.schema.table = NewTableScript(table)
-	if str := LastNotEmptyString(alias); str != EmptyString {
-		s.Alias(str)
+	if aliasName := LastNotEmptyString(alias); aliasName != EmptyString {
+		s.Alias(aliasName)
+		if s.joinScript == nil {
+			s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
+		}
 	}
 	return s
 }
@@ -1943,162 +1784,83 @@ func (s *Get) SubQueryGet(get *Get, alias ...string) *Get {
 // Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
 func (s *Get) Alias(alias string) *Get {
 	s.schema.table.Alias(alias)
-	return s
-}
-
-// joins for join one or more tables.
-func (s *Get) joins(joins ...*GetJoin) *Get {
-	length := len(joins)
-	for i := 0; i < length; i++ {
-		if joins[i] == nil {
-			continue
-		}
-		s.join = append(s.join, joins[i])
+	if s.joinScript == nil {
+		s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
 	}
 	return s
 }
 
-// typeJoin join with join-type.
-func (s *Get) typeJoin(joinType string, fs []func(j *GetJoin)) *Get {
-	length := len(fs)
-	joins := make([]*GetJoin, 0, length)
-	for i := 0; i < length; i++ {
-		if fs[i] == nil {
-			continue
-		}
-		tmp := &GetJoin{
-			joinType: joinType,
-		}
-		fs[i](tmp)
-		joins = append(joins, tmp)
+// Join for any join.
+func (s *Get) Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
+	if s.joinScript == nil {
+		s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
 	}
-	return s.joins(joins...)
+	var js JoinRequire
+	if joinRequire != nil {
+		js = joinRequire(s.joinScript)
+	}
+	s.joinScript.Join(joinTypeString, leftTable, rightTable, js)
+	return s
 }
 
 // InnerJoin for inner join.
-func (s *Get) InnerJoin(fs ...func(j *GetJoin)) *Get {
-	return s.typeJoin(SqlJoinInner, fs)
+func (s *Get) InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
+	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
 }
 
 // LeftJoin for left join.
-func (s *Get) LeftJoin(fs ...func(j *GetJoin)) *Get {
-	return s.typeJoin(SqlJoinLeft, fs)
+func (s *Get) LeftJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
+	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
 }
 
 // RightJoin for right join.
-func (s *Get) RightJoin(fs ...func(j *GetJoin)) *Get {
-	return s.typeJoin(SqlJoinRight, fs)
-}
-
-// FullJoin for full join.
-func (s *Get) FullJoin(fs ...func(j *GetJoin)) *Get {
-	return s.typeJoin(SqlJoinFull, fs)
-}
-
-// CrossJoin for cross join.
-func (s *Get) CrossJoin(fs ...func(j *GetJoin)) *Get {
-	return s.typeJoin(SqlJoinCross, fs)
+func (s *Get) RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
+	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
 }
 
 // Where set where.
-func (s *Get) Where(where Filter) *Get {
-	s.where = where
+func (s *Get) Where(where func(where Filter)) *Get {
+	if where == nil {
+		return s
+	}
+	if s.where == nil {
+		s.where = F()
+	}
+	where(s.where)
 	return s
 }
 
 // Group set group columns.
 func (s *Get) Group(group ...string) *Get {
 	group = s.schema.way.cfg.Helper.AddIdentify(group)
-	s.group = append(s.group, group...)
+	s.group.Group(group...)
 	return s
 }
 
 // Having set filter of group result.
-func (s *Get) Having(having Filter) *Get {
-	s.having = having
-	return s
-}
-
-// Union for union(After calling the current method, only WITH, ORDER BY, LIMIT, and OFFSET are valid for the current query attributes.).
-func (s *Get) Union(unions ...*Get) *Get {
-	s.unions = unions
-	s.unionsType = SqlUnion
-	return s
-}
-
-// UnionAll for union all(After calling the current method, only WITH, ORDER BY, LIMIT, and OFFSET are valid for the current query attributes.).
-func (s *Get) UnionAll(unions ...*Get) *Get {
-	s.unions = unions
-	s.unionsType = SqlUnionAll
+func (s *Get) Having(having func(having Filter)) *Get {
+	s.group.Having(having)
 	return s
 }
 
 // Column set the columns list of query.
 func (s *Get) Column(column ...string) *Get {
-	s.column = column
-	return s
-}
-
-// AddColumn append the columns list of query.
-func (s *Get) AddColumn(column ...string) *Get {
-	s.column = append(s.column, column...)
-	return s
-}
-
-// AddColumnCase append the columns list of query.
-func (s *Get) AddColumnCase(caseList ...func(c *Case)) *Get {
-	fc := func(fc func(c *Case)) (string, []interface{}) {
-		if fc == nil {
-			return EmptyString, nil
-		}
-		c := GetCase()
-		defer PutCase(c)
-		fc(c)
-		return c.Script()
+	for _, tmp := range column {
+		s.selectColumns.Add(tmp)
 	}
-
-	for _, c := range caseList {
-		k, v := fc(c)
-		if k == EmptyString {
-			continue
-		}
-
-		s.columnCase = append(s.columnCase, k)
-		if v != nil {
-			s.columnCaseArgs = append(s.columnCaseArgs, v...)
-		}
-	}
-	return s
-}
-
-// Distinct Remove duplicate records: one field value or a combination of multiple fields.
-func (s *Get) Distinct(distinct bool) *Get {
-	s.distinct = distinct
-	return s
-}
-
-// orderBy set order by column.
-func (s *Get) orderBy(column string, order string) *Get {
-	if column == EmptyString || (order != SqlAsc && order != SqlDesc) {
-		return s
-	}
-	column = s.schema.way.cfg.Helper.AddIdentify([]string{column})[0]
-	if _, ok := s.orderMap[column]; ok {
-		return s
-	}
-	s.order = append(s.order, fmt.Sprintf("%s %s", column, order))
-	s.orderMap[column] = order
 	return s
 }
 
 // Asc set order by column ASC.
 func (s *Get) Asc(column string) *Get {
-	return s.orderBy(column, SqlAsc)
+	s.order.Asc(column)
+	return s
 }
 
 // Desc set order by column Desc.
 func (s *Get) Desc(column string) *Get {
-	return s.orderBy(column, SqlDesc)
+	s.order.Desc(column)
+	return s
 }
 
 var (
@@ -2152,23 +1914,19 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 
 // Limit set limit.
 func (s *Get) Limit(limit int64) *Get {
-	if limit <= 0 {
-		// cancel the set value.
-		s.limit = nil
-		return s
-	}
-	s.limit = &limit
+	s.limit.Limit(limit)
 	return s
 }
 
 // Offset set offset.
 func (s *Get) Offset(offset int64) *Get {
-	if offset <= 0 {
-		// cancel the set value.
-		s.offset = nil
-		return s
-	}
-	s.offset = &offset
+	s.limit.Offset(offset)
+	return s
+}
+
+// Page set limit && offset.
+func (s *Get) Page(page int64, limit ...int64) *Get {
+	s.limit.Page(page, limit...)
 	return s
 }
 
@@ -2272,93 +2030,60 @@ func BuildUnion(withs []WithScript, unionType string, gets []*Get) (prepare stri
 // BuildTable Build query table (without ORDER BY, LIMIT, OFFSET).
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
 func BuildTable(s *Get) (prepare string, args []interface{}) {
-	if s.rawPrepare != nil {
-		prepare, args = *s.rawPrepare, s.rawArgs
-		return
-	}
-
-	if s.unions != nil {
-		prepare, args = BuildUnion(s.with, s.unionsType, s.unions)
-		return
-	}
 
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
 
-	buf := comment(s.schema)
-	defer putStringBuilder(buf)
+	b := comment(s.schema)
+	defer putStringBuilder(b)
 
-	if s.with != nil {
-		prepareWith, argsWith := BuildWith(s.with)
-		buf.WriteString(prepareWith)
+	if s.withScript != nil {
+		prepareWith, argsWith := BuildWith(s.withScript)
+		b.WriteString(prepareWith)
 		args = append(args, argsWith...)
 	}
 
-	buf.WriteString("SELECT ")
+	b.WriteString("SELECT ")
 
-	if s.distinct {
-		buf.WriteString(SqlDistinct)
-		buf.WriteString(SqlSpace)
+	selectColumns, selectColumnsArgs := s.selectColumns.Script()
+	b.WriteString(selectColumns)
+	if selectColumnsArgs != nil {
+		args = append(args, selectColumnsArgs...)
 	}
 
-	if s.column == nil && s.columnCase == nil {
-		buf.WriteString(SqlStar)
-	} else {
-		column := s.column
-		if s.columnCase != nil {
-			column = append(column, s.columnCase...)
-			if s.columnCaseArgs != nil {
-				args = append(args, s.columnCaseArgs...)
-			}
-		}
-		buf.WriteString(strings.Join(column, ", "))
-	}
-
-	buf.WriteString(" FROM ")
+	b.WriteString(" FROM ")
 
 	table, param := s.schema.table.Script()
-	buf.WriteString(table)
+	b.WriteString(table)
 	args = append(args, param...)
 
-	if s.join != nil {
-		length := len(s.join)
-		for i := 0; i < length; i++ {
-			if s.join[i] == nil {
-				continue
-			}
-			joinPrepare, joinArgs := s.join[i].Script()
-			if joinPrepare != EmptyString {
-				buf.WriteString(SqlSpace)
-				buf.WriteString(joinPrepare)
-				args = append(args, joinArgs...)
-			}
+	if s.joinScript != nil {
+		joinPrepare, joinArgs := s.joinScript.Script()
+		if joinPrepare != EmptyString {
+			b.Reset()
+			b.WriteString(joinPrepare)
+			args = joinArgs
 		}
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := s.where.Script()
-		buf.WriteString(" WHERE ")
-		buf.WriteString(where)
+		b.WriteString(" WHERE ")
+		b.WriteString(where)
 		args = append(args, whereArgs...)
 	}
 
-	if s.group != nil {
-		if len(s.group) > 0 {
-			buf.WriteString(" GROUP BY ")
-			buf.WriteString(strings.Join(s.group, ", "))
-			if s.having != nil {
-				having, havingArgs := s.having.Script()
-				if having != EmptyString {
-					buf.WriteString(" HAVING ")
-					buf.WriteString(having)
-					args = append(args, havingArgs...)
-				}
-			}
+	if s.group != nil && !s.group.IsEmpty() {
+		b.WriteString(" GROUP BY ")
+		group, groupArgs := s.group.Script()
+		b.WriteString(group)
+		if groupArgs != nil {
+			args = append(args, groupArgs...)
 		}
 	}
 
-	prepare = strings.TrimSpace(buf.String())
+	prepare = strings.TrimSpace(b.String())
 
 	return
 }
@@ -2366,22 +2091,22 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 // BuildOrderByLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
 func BuildOrderByLimitOffset(s *Get) (prepare string) {
-	buf := getStringBuilder()
-	defer putStringBuilder(buf)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 
-	if len(s.order) > 0 {
-		buf.WriteString(" ORDER BY ")
-		buf.WriteString(strings.Join(s.order, ", "))
+	if !s.order.IsEmpty() {
+		order, _ := s.order.Script()
+		b.WriteString(SqlSpace)
+		b.WriteString(order)
 	}
 
-	if s.limit != nil {
-		buf.WriteString(fmt.Sprintf(" LIMIT %d", *s.limit))
-		if s.offset != nil {
-			buf.WriteString(fmt.Sprintf(" OFFSET %d", *s.offset))
-		}
+	if !s.limit.IsEmpty() {
+		limit, _ := s.limit.Script()
+		b.WriteString(SqlSpace)
+		b.WriteString(limit)
 	}
 
-	return buf.String()
+	return b.String()
 }
 
 // BuildGet Build a complete query.
@@ -2392,17 +2117,17 @@ func BuildGet(s *Get) (prepare string, args []interface{}) {
 		return
 	}
 
-	buf := getStringBuilder()
-	defer putStringBuilder(buf)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
 
-	buf.WriteString(prepare)
+	b.WriteString(prepare)
 
 	orderByLimitOffset := BuildOrderByLimitOffset(s)
 	if orderByLimitOffset != EmptyString {
-		buf.WriteString(orderByLimitOffset)
+		b.WriteString(orderByLimitOffset)
 	}
 
-	prepare = strings.TrimSpace(buf.String())
+	prepare = strings.TrimSpace(b.String())
 
 	return
 }
@@ -2568,48 +2293,4 @@ func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error)
 // Way get current *Way.
 func (s *Get) Way() *Way {
 	return s.schema.way
-}
-
-// getLink Use keywords to connect multiple queries.
-func getLink(keyword string, gets ...*Get) (prepare string, args []interface{}) {
-	if keyword == EmptyString {
-		return
-	}
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-	added := false
-	for _, v := range gets {
-		if v == nil {
-			continue
-		}
-		prepareThis, argsThis := BuildGet(v)
-		if prepareThis == EmptyString {
-			continue
-		}
-		if added {
-			b.WriteString(EmptyString)
-			b.WriteString(keyword)
-			b.WriteString(EmptyString)
-		} else {
-			added = true
-		}
-		b.WriteString(SqlLeftSmallBracket)
-		b.WriteString(SqlSpace)
-		b.WriteString(prepareThis)
-		b.WriteString(SqlSpace)
-		b.WriteString(SqlRightSmallBracket)
-		args = append(args, argsThis...)
-	}
-	prepare = b.String()
-	return
-}
-
-// ExpectGet (query1) EXCEPT (query2) EXCEPT (query3)...
-func ExpectGet(gets ...*Get) (prepare string, args []interface{}) {
-	return getLink(SqlExpect, gets...)
-}
-
-// IntersectGet (query1) INTERSECT (query2) INTERSECT (query3)...
-func IntersectGet(gets ...*Get) (prepare string, args []interface{}) {
-	return getLink(SqlIntersect, gets...)
 }
