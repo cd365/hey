@@ -1,6 +1,8 @@
 package hey
 
 import (
+	"context"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"strconv"
@@ -1899,4 +1901,39 @@ func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 		Helper: way.cfg.Helper,
 		alias:  LastNotEmptyString(aliases),
 	}
+}
+
+// ScriptQuery execute the built SQL statement and scan query result.
+func ScriptQuery(ctx context.Context, way *Way, script Script, query func(rows *sql.Rows) (err error)) error {
+	prepare, args := script.Script()
+	return way.QueryContext(ctx, query, prepare, args...)
+}
+
+// ScriptGet execute the built SQL statement and scan query result.
+func ScriptGet(ctx context.Context, way *Way, script Script, result interface{}) error {
+	prepare, args := script.Script()
+	return way.TakeAllContext(ctx, result, prepare, args...)
+}
+
+// ScriptScanAll execute the built SQL statement and scan all from the query results.
+func ScriptScanAll(ctx context.Context, way *Way, script Script, custom func(rows *sql.Rows) error) error {
+	return ScriptQuery(ctx, way, script, func(rows *sql.Rows) error {
+		return way.ScanAll(rows, custom)
+	})
+}
+
+// ScriptScanOne execute the built SQL statement and scan at most once from the query results.
+func ScriptScanOne(ctx context.Context, way *Way, script Script, dest ...interface{}) error {
+	return ScriptQuery(ctx, way, script, func(rows *sql.Rows) error {
+		return way.ScanOne(rows, dest...)
+	})
+}
+
+// ScriptViewMap execute the built SQL statement and scan all from the query results.
+func ScriptViewMap(ctx context.Context, way *Way, script Script) (result []map[string]interface{}, err error) {
+	err = ScriptQuery(ctx, way, script, func(rows *sql.Rows) (err error) {
+		result, err = ScanViewMap(rows)
+		return
+	})
+	return
 }
