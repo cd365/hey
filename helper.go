@@ -1458,21 +1458,12 @@ type modify struct {
 type Mod struct {
 	schema *schema
 
-	// update updated fields.
-	update map[string]*modify
+	except InsertFieldsScript
+	permit InsertFieldsScript
 
-	// updateSort the fields to be updated are updated sequentially.
-	updateSort []string
+	update UpdateSetScript
 
-	// defaultUpdate [default] updated fields, the effective condition is len(update) > 0.
-	defaultUpdate map[string]*modify
-
-	// defaultUpdateSort [default] the fields to be updated are updated sequentially.
-	defaultUpdateSort []string
-
-	// permitMap permitted fields.
-	permitMap map[string]*struct{}
-	permit    []string
+	updateDefault UpdateSetScript
 
 	where Filter
 }
@@ -1480,10 +1471,8 @@ type Mod struct {
 // NewMod for UPDATE.
 func NewMod(way *Way) *Mod {
 	return &Mod{
-		schema:        newSchema(way),
-		update:        make(map[string]*modify, 8),
-		defaultUpdate: make(map[string]*modify, 8),
-		permitMap:     make(map[string]*struct{}, 32),
+		schema: newSchema(way),
+		update: NewUpdateSetScript(),
 	}
 }
 
@@ -1505,44 +1494,23 @@ func (s *Mod) Table(table string, args ...interface{}) *Mod {
 	return s
 }
 
-// Permit Sets a list of fields that can only be updated.
-func (s *Mod) Permit(permit ...string) *Mod {
-	permit = s.schema.way.cfg.Helper.AddIdentify(permit)
-	for _, field := range permit {
-		if _, ok := s.permitMap[field]; ok {
-			continue
-		}
-		s.permitMap[field] = &struct{}{}
-		s.permit = append(s.permit, field)
+// Except Set the list of fields that cannot be updated.
+func (s *Mod) Except(fields ...string) *Mod {
+	if s.except == nil {
+		s.except = NewInsertFieldScript()
 	}
+	fields = s.schema.way.cfg.Helper.AddIdentify(fields)
+	s.except.Add(fields...)
 	return s
 }
 
-// fieldExprArgs SET field = expr .
-func (s *Mod) fieldExprArgs(field string, expr string, args ...interface{}) *Mod {
-	if field == EmptyString || expr == EmptyString {
-		return s
+// Permit Sets a list of fields that can only be updated.
+func (s *Mod) Permit(fields ...string) *Mod {
+	if s.permit == nil {
+		s.permit = NewInsertFieldScript()
 	}
-
-	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
-
-	if s.permit != nil {
-		if _, ok := s.permitMap[field]; !ok {
-			return s
-		}
-	}
-
-	tmp := &modify{
-		expr: expr,
-		args: args,
-	}
-
-	if _, ok := s.update[field]; ok {
-		s.update[field] = tmp
-		return s
-	}
-	s.update[field] = tmp
-	s.updateSort = append(s.updateSort, field)
+	fields = s.schema.way.cfg.Helper.AddIdentify(fields)
+	s.permit.Add(fields...)
 	return s
 }
 
@@ -1556,63 +1524,72 @@ func (s *Mod) Default(fc func(o *Mod)) *Mod {
 	v := *s
 	mod := &v
 
-	// reset value for `update` `updateSort` .
-	mod.update = make(map[string]*modify, 8)
-	mod.updateSort = nil
+	// reset value for `update` .
+	mod.update = NewUpdateSetScript()
 	fc(mod)
 
-	if mod.updateSort != nil {
-		// Batch add default key-value.
-		for field, update := range mod.update {
-			s.defaultUpdate[field] = update
-		}
-		s.defaultUpdateSort = append(s.defaultUpdateSort, mod.updateSort...)
+	if !mod.update.IsEmpty() {
+		s.updateDefault = mod.update
 	}
 
 	return s
 }
 
 // Expr update field using custom expr.
-func (s *Mod) Expr(field string, expr string, args ...interface{}) *Mod {
-	field, expr = strings.TrimSpace(field), strings.TrimSpace(expr)
-	return s.fieldExprArgs(field, expr, args...)
+func (s *Mod) Expr(prepare string, args ...interface{}) *Mod {
+	s.update.Expr(prepare, args...)
+	return s
 }
 
 // Set field = value.
 func (s *Mod) Set(field string, value interface{}) *Mod {
 	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
-	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s", field, SqlPlaceholder), value)
+	if s.permit != nil {
+		if s.permit.FieldIndex(field) < 0 {
+			return s
+		}
+	}
+	if s.except != nil {
+		if s.except.FieldIndex(field) >= 0 {
+			return s
+		}
+	}
+	s.update.Set(field, value)
+	return s
 }
 
 // Incr SET field = field + value.
 func (s *Mod) Incr(field string, value interface{}) *Mod {
 	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
-	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s + %s", field, field, SqlPlaceholder), value)
+	if s.permit != nil {
+		if s.permit.FieldIndex(field) < 0 {
+			return s
+		}
+	}
+	if s.except != nil {
+		if s.except.FieldIndex(field) >= 0 {
+			return s
+		}
+	}
+	s.update.Incr(field, value)
+	return s
 }
 
 // Decr SET field = field - value.
 func (s *Mod) Decr(field string, value interface{}) *Mod {
 	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
-	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s - %s", field, field, SqlPlaceholder), value)
-}
-
-// SetCase SET salary = CASE WHEN department_id = 1 THEN salary * 1.1 WHEN department_id = 2 THEN salary * 1.05 ELSE salary.
-func (s *Mod) SetCase(field string, value func(c *Case)) *Mod {
-	if field == EmptyString || value == nil {
-		return s
+	if s.permit != nil {
+		if s.permit.FieldIndex(field) < 0 {
+			return s
+		}
 	}
-
-	c := GetCase()
-	defer PutCase(c)
-
-	value(c)
-	expr, args := c.Script()
-	if expr == EmptyString {
-		return s
+	if s.except != nil {
+		if s.except.FieldIndex(field) >= 0 {
+			return s
+		}
 	}
-
-	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
-	return s.fieldExprArgs(field, fmt.Sprintf("%s = %s", field, expr), args...)
+	s.update.Decr(field, value)
+	return s
 }
 
 // FieldsValues SET field = value by slice, require len(fields) == len(values).
@@ -1645,47 +1622,23 @@ func (s *Mod) Update(originObject interface{}, latestObject interface{}, except 
 }
 
 // Where set where.
-func (s *Mod) Where(where Filter) *Mod {
-	s.where = where
+func (s *Mod) Where(where func(where Filter)) *Mod {
+	if where == nil {
+		return s
+	}
+	if s.where == nil {
+		s.where = F()
+	}
+	where(s.where)
 	return s
 }
 
 // SetScript prepare args of set.
 func (s *Mod) SetScript() (prepare string, args []interface{}) {
-	length := len(s.update)
-	if length == 0 {
+	if s.update.IsEmpty() {
 		return
 	}
-	exists := make(map[string]*struct{}, 32)
-	fields := make([]string, 0, length)
-	for _, field := range s.updateSort {
-		exists[field] = &struct{}{}
-		fields = append(fields, field)
-	}
-	for _, field := range s.defaultUpdateSort {
-		if _, ok := exists[field]; !ok {
-			fields = append(fields, field)
-		}
-	}
-	length = len(fields)
-	field := make([]string, length)
-	value := make([]interface{}, 0, length)
-	ok := false
-	for k, v := range fields {
-		if _, ok = s.update[v]; ok {
-			field[k] = s.update[v].expr
-			value = append(value, s.update[v].args...)
-			continue
-		}
-		field[k] = s.defaultUpdate[v].expr
-		value = append(value, s.defaultUpdate[v].args...)
-	}
-	buf := getStringBuilder()
-	defer putStringBuilder(buf)
-	buf.WriteString(strings.Join(field, ", "))
-	prepare = buf.String()
-	args = value
-	return
+	return s.update.Script()
 }
 
 // Script build SQL statement.
@@ -1697,16 +1650,16 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 	if prepare == EmptyString {
 		return
 	}
-	buf := comment(s.schema)
-	defer putStringBuilder(buf)
-	buf.WriteString("UPDATE ")
+	b := comment(s.schema)
+	defer putStringBuilder(b)
+	b.WriteString("UPDATE ")
 
 	table, param := s.schema.table.Script()
-	buf.WriteString(table)
+	b.WriteString(table)
 	args = append(args, param...)
 
-	buf.WriteString(" SET ")
-	buf.WriteString(prepare)
+	b.WriteString(" SET ")
+	b.WriteString(prepare)
 
 	cfg := s.schema.way.cfg
 	if cfg.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
@@ -1716,12 +1669,14 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 
 	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := s.where.Script()
-		buf.WriteString(" WHERE ")
-		buf.WriteString(where)
-		args = append(args, whereArgs...)
+		b.WriteString(" WHERE ")
+		b.WriteString(where)
+		if whereArgs != nil {
+			args = append(args, whereArgs...)
+		}
 	}
 
-	prepare = buf.String()
+	prepare = b.String()
 	return
 }
 

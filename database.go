@@ -1108,7 +1108,7 @@ type UpdateSetScript interface {
 
 	Script
 
-	Expr(expr string, args ...interface{}) UpdateSetScript
+	Expr(prepare string, args ...interface{}) UpdateSetScript
 
 	Set(column string, value interface{}) UpdateSetScript
 
@@ -1152,17 +1152,17 @@ func (s *updateSetScript) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *updateSetScript) Expr(expr string, args ...interface{}) UpdateSetScript {
-	if expr == EmptyString {
+func (s *updateSetScript) Expr(prepare string, args ...interface{}) UpdateSetScript {
+	if prepare == EmptyString {
 		return s
 	}
-	index, ok := s.updateMap[expr]
+	index, ok := s.updateMap[prepare]
 	if ok {
-		s.update[index], s.updateArgs[index] = expr, args
+		s.update[index], s.updateArgs[index] = prepare, args
 		return s
 	}
-	s.updateMap[expr] = len(s.update)
-	s.update = append(s.update, expr)
+	s.updateMap[prepare] = len(s.update)
+	s.update = append(s.update, prepare)
 	s.updateArgs = append(s.updateArgs, args)
 	return s
 }
