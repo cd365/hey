@@ -578,6 +578,222 @@ func (s *joinScript) SelectExtendColumns(custom func(sc *SelectColumns)) JoinScr
 	return s
 }
 
+type GroupScript interface {
+	Empty
+
+	Script
+
+	Group(columns ...string) GroupScript
+
+	Having(having func(having Filter)) GroupScript
+}
+
+type groupScript struct {
+	group    []string
+	groupMap map[string]int
+	having   Filter
+}
+
+func (s *groupScript) IsEmpty() bool {
+	return len(s.group) == 0
+}
+
+func (s *groupScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString("GROUP BY ")
+	b.WriteString(strings.Join(s.group, ", "))
+	if !s.having.IsEmpty() {
+		b.WriteString(" HAVING ")
+		having, havingArgs := s.having.Script()
+		b.WriteString(having)
+		if havingArgs != nil {
+			args = append(args, havingArgs...)
+		}
+	}
+	prepare = b.String()
+	return
+}
+
+func (s *groupScript) Group(columns ...string) GroupScript {
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		if _, ok := s.groupMap[column]; ok {
+			continue
+		}
+		s.groupMap[column] = len(s.group)
+		s.group = append(s.group, column)
+	}
+	return s
+}
+
+func (s *groupScript) Having(having func(having Filter)) GroupScript {
+	if having != nil {
+		having(s.having)
+	}
+	return s
+}
+
+func NewGroupScript() GroupScript {
+	return &groupScript{
+		group:    make([]string, 0, 8),
+		groupMap: make(map[string]int, 8),
+		having:   F(),
+	}
+}
+
+type OrderScript interface {
+	Empty
+
+	Script
+
+	Asc(columns ...string) OrderScript
+
+	Desc(columns ...string) OrderScript
+}
+
+type orderScript struct {
+	orderBy  []string
+	orderMap map[string]int
+}
+
+func (s *orderScript) IsEmpty() bool {
+	return len(s.orderBy) == 0
+}
+
+func (s *orderScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString("ORDER BY ")
+	b.WriteString(strings.Join(s.orderBy, ", "))
+	return
+}
+
+func (s *orderScript) Asc(columns ...string) OrderScript {
+	index := len(s.orderBy)
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		if _, ok := s.orderMap[column]; ok {
+			continue
+		}
+		s.orderMap[column] = index
+		index++
+		column = fmt.Sprintf("%s ASC", column)
+		s.orderBy = append(s.orderBy, column)
+	}
+	return s
+}
+
+func (s *orderScript) Desc(columns ...string) OrderScript {
+	index := len(s.orderBy)
+	for _, column := range columns {
+		if column == EmptyString {
+			continue
+		}
+		if _, ok := s.orderMap[column]; ok {
+			continue
+		}
+		s.orderMap[column] = index
+		index++
+		column = fmt.Sprintf("%s DESC", column)
+		s.orderBy = append(s.orderBy, column)
+	}
+	return s
+}
+
+func NewOrderScript() OrderScript {
+	return &orderScript{
+		orderBy:  make([]string, 0, 8),
+		orderMap: make(map[string]int, 8),
+	}
+}
+
+type LimitScript interface {
+	Empty
+
+	Script
+
+	Limit(limit int64) LimitScript
+
+	Offset(offset int64) LimitScript
+
+	Page(page int64, limits ...int64) LimitScript
+}
+
+type limitScript struct {
+	limit  *int64
+	offset *int64
+}
+
+func (s *limitScript) IsEmpty() bool {
+	return s.limit == nil
+}
+
+func (s *limitScript) Script() (prepare string, args []interface{}) {
+	if s.IsEmpty() {
+		return
+	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString(fmt.Sprintf("LIMIT %d", *s.limit))
+	if s.offset != nil && *s.offset >= 0 {
+		b.WriteString(fmt.Sprintf(" OFFSET %d", *s.offset))
+	}
+	prepare = b.String()
+	return
+}
+
+func (s *limitScript) Limit(limit int64) LimitScript {
+	if limit > 0 {
+		s.limit = &limit
+	}
+	return s
+}
+
+func (s *limitScript) Offset(offset int64) LimitScript {
+	if offset > 0 {
+		s.offset = &offset
+	}
+	return s
+}
+
+func (s *limitScript) Page(page int64, limit ...int64) LimitScript {
+	if page <= 0 {
+		return s
+	}
+	for i := len(limit) - 1; i >= 0; i-- {
+		if limit[i] > 0 {
+			s.Limit(limit[i]).Offset((page - 1) * limit[i])
+			break
+		}
+	}
+	return s
+}
+
+func NewLimitScript() LimitScript {
+	return &limitScript{}
+}
+
+type UnionScript interface {
+	Empty
+
+	Script
+
+	Union(scripts ...Script) UnionScript
+
+	UnionAll(scripts ...Script) UnionScript
+}
+
 type InsertColumnsScript interface {
 	Empty
 
