@@ -784,14 +784,61 @@ func NewLimitScript() LimitScript {
 	return &limitScript{}
 }
 
-type UnionScript interface {
-	Empty
+// ConcatScript Concat multiple scripts.
+func ConcatScript(custom func(index int, script Script) Script, scripts ...Script) Script {
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	args := make([]interface{}, 0, 32)
+	index := 0
+	for _, script := range scripts {
+		if script == nil || IsEmptyScript(script) {
+			continue
+		}
+		if custom != nil {
+			script = custom(index, script)
+		}
+		if script == nil || IsEmptyScript(script) {
+			continue
+		}
+		prepare, param := script.Script()
+		if index > 0 {
+			b.WriteString(SqlSpace)
+		}
+		b.WriteString(prepare)
+		args = append(args, param...)
+		index++
+	}
+	return NewScript(b.String(), args...)
+}
 
-	Script
+func UnionScript(scripts ...Script) Script {
+	return ConcatScript(func(index int, script Script) Script {
+		if index == 0 {
+			return script
+		}
+		prepare, args := script.Script()
+		b := getStringBuilder()
+		defer putStringBuilder(b)
+		b.WriteString("UNION ( ")
+		b.WriteString(prepare)
+		b.WriteString(" )")
+		return NewScript(b.String(), args...)
+	}, scripts...)
+}
 
-	Union(scripts ...Script) UnionScript
-
-	UnionAll(scripts ...Script) UnionScript
+func UnionAllScript(scripts ...Script) Script {
+	return ConcatScript(func(index int, script Script) Script {
+		if index == 0 {
+			return script
+		}
+		prepare, args := script.Script()
+		b := getStringBuilder()
+		defer putStringBuilder(b)
+		b.WriteString("UNION ALL ( ")
+		b.WriteString(prepare)
+		b.WriteString(" )")
+		return NewScript(b.String(), args...)
+	}, scripts...)
 }
 
 type InsertColumnsScript interface {
