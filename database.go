@@ -1045,6 +1045,8 @@ type InsertValuesScript interface {
 	Del(indexes ...int) InsertValuesScript
 
 	LenValues() int
+
+	Values() [][]interface{}
 }
 
 type insertValuesScript struct {
@@ -1116,6 +1118,9 @@ func (s *insertValuesScript) Set(index int, value interface{}) InsertValuesScrip
 }
 
 func (s *insertValuesScript) Del(indexes ...int) InsertValuesScript {
+	if s.values == nil {
+		return s
+	}
 	length := len(indexes)
 	if length == 0 {
 		return s
@@ -1147,6 +1152,10 @@ func (s *insertValuesScript) Del(indexes ...int) InsertValuesScript {
 
 func (s *insertValuesScript) LenValues() int {
 	return len(s.values)
+}
+
+func (s *insertValuesScript) Values() [][]interface{} {
+	return s.values
 }
 
 type UpdateSetScript interface {

@@ -1183,21 +1183,17 @@ func (s *Add) Table(table string) *Add {
 	return s
 }
 
-// Except Set the list of fields that cannot be inserted.
-func (s *Add) Except(fields ...string) *Add {
-	if s.except == nil {
-		s.except = NewInsertFieldScript()
+// ExceptPermit Set a list of fields that are not allowed to be inserted and a list of fields that are only allowed to be inserted.
+func (s *Add) ExceptPermit(exceptPermit func(except InsertFieldsScript, permit InsertFieldsScript)) *Add {
+	if exceptPermit != nil {
+		if s.except == nil {
+			s.except = NewInsertFieldScript()
+		}
+		if s.permit == nil {
+			s.permit = NewInsertFieldScript()
+		}
+		exceptPermit(s.except, s.permit)
 	}
-	s.except.Add(fields...)
-	return s
-}
-
-// Permit Set a list of fields that can only be inserted.
-func (s *Add) Permit(fields ...string) *Add {
-	if s.permit == nil {
-		s.permit = NewInsertFieldScript()
-	}
-	s.permit.Add(fields...)
 	return s
 }
 
@@ -1260,25 +1256,17 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 }
 
 // Default Add field = value .
-func (s *Add) Default(fc func(add *Add)) *Add {
-	if fc == nil {
+func (s *Add) Default(add func(add *Add)) *Add {
+	if add == nil {
 		return s
 	}
-
-	// copy current object.
 	v := *s
-	add := &v
-
-	add.fieldsScript = NewInsertFieldScript()
-	add.valuesScript = NewInsertValuesScript()
-
-	fc(add)
-
-	if !add.fieldsScript.IsEmpty() && !add.valuesScript.IsEmpty() {
-		s.fieldsScriptDefault = add.fieldsScript
-		s.valuesScriptDefault = add.valuesScript
+	tmp := &v
+	tmp.fieldsScript, tmp.valuesScript = NewInsertFieldScript(), NewInsertValuesScript()
+	add(tmp)
+	if !tmp.fieldsScript.IsEmpty() && !tmp.valuesScript.IsEmpty() {
+		s.fieldsScriptDefault, s.valuesScriptDefault = tmp.fieldsScript, tmp.valuesScript
 	}
-
 	return s
 }
 
