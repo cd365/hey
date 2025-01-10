@@ -1283,23 +1283,16 @@ func (s *Add) Create(create interface{}) *Add {
 }
 
 // ValuesScript values is a query SQL statement.
-func (s *Add) ValuesScript(script Script) *Add {
+func (s *Add) ValuesScript(script Script, fields []string) *Add {
 	if script == nil || IsEmptyScript(script) {
 		return s
 	}
-	s.fromScript = script
-	return s
-}
 
-// ValuesScriptFields values is a query SQL statement.
-func (s *Add) ValuesScriptFields(script JoinTableScript, fields ...string) *Add {
-	if script == nil || IsEmptyScript(script) {
-		return s
-	}
+	originFields := s.fieldsScript.Fields()
+
 	s.fieldsScript.SetFields(fields)
 
 	if !s.fieldsScript.IsEmpty() {
-
 		ok := true
 		if s.permit != nil {
 			s.permit.Range(func(index int, field string) (toBreak bool) {
@@ -1326,12 +1319,13 @@ func (s *Add) ValuesScriptFields(script JoinTableScript, fields ...string) *Add 
 		}
 
 		if !ok {
+			s.fieldsScript.SetFields(originFields)
 			return s
 		}
-
 	}
 
-	return s.ValuesScript(script)
+	s.fromScript = script
+	return s
 }
 
 // Script build SQL statement.
