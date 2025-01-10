@@ -14,7 +14,7 @@ import (
  * database helper.
  **/
 
-type Empty interface {
+type IsEmpty interface {
 	IsEmpty() bool
 }
 
@@ -36,7 +36,7 @@ func (s *sqlScript) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func NewScript(prepare string, args ...interface{}) Script {
+func NewScript(prepare string, args []interface{}) Script {
 	return &sqlScript{
 		prepare: prepare,
 		args:    args,
@@ -53,7 +53,7 @@ func IsEmptyScript(script Script) bool {
 
 // TableScript SQL statement table and its corresponding parameter list, allowing table aliases to be set.
 type TableScript interface {
-	Empty
+	IsEmpty
 
 	Script
 
@@ -95,15 +95,15 @@ func (s *tableScript) GetAlias() string {
 	return s.alias
 }
 
-func NewTableScript(prepare string, args ...interface{}) TableScript {
+func NewTableScript(prepare string, args []interface{}) TableScript {
 	return &tableScript{
-		script: NewScript(prepare, args...),
+		script: NewScript(prepare, args),
 	}
 }
 
 // WithScript CTE: Common Table Expression.
 type WithScript interface {
-	Empty
+	IsEmpty
 
 	Script
 
@@ -519,7 +519,7 @@ func (s *joinScript) OnEqual(leftColumn string, rightColumn string, requires ...
 		if leftColumn == EmptyString || rightColumn == EmptyString {
 			return nil
 		}
-		return NewScript(fmt.Sprintf("%s.%s = %s.%s", leftAlias, leftColumn, rightAlias, rightColumn))
+		return NewScript(fmt.Sprintf("%s.%s = %s.%s", leftAlias, leftColumn, rightAlias, rightColumn), nil)
 	}
 	onRequire = append(onRequire, onEqual)
 	onRequire = append(onRequire, requires...)
@@ -543,7 +543,7 @@ func (s *joinScript) Join(joinTypeString string, leftTable JoinTableScript, righ
 	if joinRequire != nil {
 		joinRequirePrepare, joinRequireArgs := joinRequire(leftTable.GetAlias(), rightTable.GetAlias())
 		if joinRequirePrepare != EmptyString {
-			join.joinRequire = NewScript(joinRequirePrepare, joinRequireArgs...)
+			join.joinRequire = NewScript(joinRequirePrepare, joinRequireArgs)
 		}
 	}
 	s.joins = append(s.joins, join)
@@ -581,7 +581,7 @@ func (s *joinScript) SelectExtendColumns(custom func(sc *SelectColumns)) JoinScr
 }
 
 type GroupScript interface {
-	Empty
+	IsEmpty
 
 	Script
 
@@ -650,7 +650,7 @@ func NewGroupScript() GroupScript {
 }
 
 type OrderScript interface {
-	Empty
+	IsEmpty
 
 	Script
 
@@ -721,7 +721,7 @@ func NewOrderScript() OrderScript {
 }
 
 type LimitScript interface {
-	Empty
+	IsEmpty
 
 	Script
 
@@ -810,7 +810,7 @@ func ConcatScript(custom func(index int, script Script) Script, scripts ...Scrip
 		args = append(args, param...)
 		index++
 	}
-	return NewScript(b.String(), args...)
+	return NewScript(b.String(), args)
 }
 
 // UnionScript (query1) UNION (query2) UNION (query3)...
@@ -825,7 +825,7 @@ func UnionScript(scripts ...Script) Script {
 		b.WriteString("UNION ( ")
 		b.WriteString(prepare)
 		b.WriteString(" )")
-		return NewScript(b.String(), args...)
+		return NewScript(b.String(), args)
 	}, scripts...)
 }
 
@@ -841,7 +841,7 @@ func UnionAllScript(scripts ...Script) Script {
 		b.WriteString("UNION ALL ( ")
 		b.WriteString(prepare)
 		b.WriteString(" )")
-		return NewScript(b.String(), args...)
+		return NewScript(b.String(), args)
 	}, scripts...)
 }
 
@@ -851,7 +851,7 @@ func ExceptScript(scripts ...Script) Script {
 		prepare, args := script.Script()
 		if index == 0 {
 			prepare = fmt.Sprintf("( %s )", prepare)
-			return NewScript(prepare, args...)
+			return NewScript(prepare, args)
 		}
 		b := getStringBuilder()
 		defer putStringBuilder(b)
@@ -859,7 +859,7 @@ func ExceptScript(scripts ...Script) Script {
 		b.WriteString(" ( ")
 		b.WriteString(prepare)
 		b.WriteString(" )")
-		return NewScript(b.String(), args...)
+		return NewScript(b.String(), args)
 	}, scripts...)
 }
 
@@ -869,7 +869,7 @@ func IntersectScript(scripts ...Script) Script {
 		prepare, args := script.Script()
 		if index == 0 {
 			prepare = fmt.Sprintf("( %s )", prepare)
-			return NewScript(prepare, args...)
+			return NewScript(prepare, args)
 		}
 		b := getStringBuilder()
 		defer putStringBuilder(b)
@@ -877,12 +877,12 @@ func IntersectScript(scripts ...Script) Script {
 		b.WriteString(" ( ")
 		b.WriteString(prepare)
 		b.WriteString(" )")
-		return NewScript(b.String(), args...)
+		return NewScript(b.String(), args)
 	}, scripts...)
 }
 
 type InsertFieldsScript interface {
-	Empty
+	IsEmpty
 
 	Script
 
@@ -894,11 +894,13 @@ type InsertFieldsScript interface {
 
 	Del(fields ...string) InsertFieldsScript
 
-	DelByIndex(indexes ...int) InsertFieldsScript
+	DelUseIndex(indexes ...int) InsertFieldsScript
 
 	FieldIndex(field string) int
 
-	Range(custom func(index int, field string) (doBreak bool)) InsertFieldsScript
+	FieldExists(field string) bool
+
+	Range(custom func(index int, field string) (toBreak bool)) InsertFieldsScript
 
 	Len() int
 }
@@ -978,7 +980,7 @@ func (s *insertFieldsScript) Del(fields ...string) InsertFieldsScript {
 	return s
 }
 
-func (s *insertFieldsScript) DelByIndex(indexes ...int) InsertFieldsScript {
+func (s *insertFieldsScript) DelUseIndex(indexes ...int) InsertFieldsScript {
 	length := len(s.fields)
 	minIndex, maxIndex := 0, length-1
 	if maxIndex < minIndex {
@@ -1009,7 +1011,11 @@ func (s *insertFieldsScript) FieldIndex(field string) int {
 	return index
 }
 
-func (s *insertFieldsScript) Range(custom func(index int, field string) (doBreak bool)) InsertFieldsScript {
+func (s *insertFieldsScript) FieldExists(field string) bool {
+	return s.FieldIndex(field) >= 0
+}
+
+func (s *insertFieldsScript) Range(custom func(index int, field string) (toBreak bool)) InsertFieldsScript {
 	if custom == nil {
 		return s
 	}
@@ -1026,7 +1032,7 @@ func (s *insertFieldsScript) Len() int {
 }
 
 type InsertValuesScript interface {
-	Empty
+	IsEmpty
 
 	Script
 
@@ -1144,7 +1150,7 @@ func (s *insertValuesScript) LenValues() int {
 }
 
 type UpdateSetScript interface {
-	Empty
+	IsEmpty
 
 	Script
 

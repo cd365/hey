@@ -1067,7 +1067,7 @@ func (s *Del) Context(ctx context.Context) *Del {
 
 // Table set table name.
 func (s *Del) Table(table string, args ...interface{}) *Del {
-	s.schema.table = NewTableScript(table, args...)
+	s.schema.table = NewTableScript(table, args)
 	return s
 }
 
@@ -1179,7 +1179,7 @@ func (s *Add) Context(ctx context.Context) *Add {
 
 // Table set table name.
 func (s *Add) Table(table string) *Add {
-	s.schema.table = NewTableScript(table)
+	s.schema.table = NewTableScript(table, nil)
 	return s
 }
 
@@ -1219,18 +1219,18 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 	s.valuesScript.SetValues(values...)
 
 	if s.permit != nil {
-		s.fieldsScript.Range(func(index int, field string) (doBreak bool) {
-			if s.permit.FieldIndex(field) < 0 {
-				s.fieldsScript.DelByIndex(index)
+		s.fieldsScript.Range(func(index int, field string) (toBreak bool) {
+			if !s.permit.FieldExists(field) {
+				s.fieldsScript.DelUseIndex(index)
 				s.valuesScript.Del(index)
 			}
 			return false
 		})
 	}
 	if s.except != nil {
-		s.fieldsScript.Range(func(index int, field string) (doBreak bool) {
-			if s.except.FieldIndex(field) >= 0 {
-				s.fieldsScript.DelByIndex(index)
+		s.fieldsScript.Range(func(index int, field string) (toBreak bool) {
+			if s.except.FieldExists(field) {
+				s.fieldsScript.DelUseIndex(index)
 				s.valuesScript.Del(index)
 			}
 			return false
@@ -1243,12 +1243,12 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 func (s *Add) FieldValue(field string, value interface{}) *Add {
 	field = s.schema.way.cfg.Helper.AddIdentify([]string{field})[0]
 	if s.permit != nil {
-		if s.permit.FieldIndex(field) < 0 {
+		if !s.permit.FieldExists(field) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldIndex(field) >= 0 {
+		if s.except.FieldExists(field) {
 			return s
 		}
 	}
@@ -1304,40 +1304,43 @@ func (s *Add) ValuesScript(script Script) *Add {
 }
 
 // ValuesScriptFields values is a query SQL statement.
-func (s *Add) ValuesScriptFields(script JoinTableScript) *Add {
+func (s *Add) ValuesScriptFields(script JoinTableScript, fields ...string) *Add {
 	if script == nil || IsEmptyScript(script) {
 		return s
 	}
-	fields := script.GetSelectColumns()
 	s.fieldsScript.SetFields(fields)
 
-	ok := true
-	if s.permit != nil {
-		s.permit.Range(func(index int, field string) (doBreak bool) {
-			if s.fieldsScript.FieldIndex(field) < 0 {
-				if ok {
-					ok = !ok
-				}
-				return true
-			}
-			return false
-		})
-	}
+	if !s.fieldsScript.IsEmpty() {
 
-	if s.except != nil {
-		s.except.Range(func(index int, field string) bool {
-			if s.fieldsScript.FieldIndex(field) >= 0 {
-				if ok {
-					ok = !ok
+		ok := true
+		if s.permit != nil {
+			s.permit.Range(func(index int, field string) (toBreak bool) {
+				if !s.fieldsScript.FieldExists(field) {
+					if ok {
+						ok = !ok
+					}
+					return true
 				}
-				return true
-			}
-			return false
-		})
-	}
+				return false
+			})
+		}
 
-	if !ok {
-		return s
+		if s.except != nil {
+			s.except.Range(func(index int, field string) bool {
+				if s.fieldsScript.FieldExists(field) {
+					if ok {
+						ok = !ok
+					}
+					return true
+				}
+				return false
+			})
+		}
+
+		if !ok {
+			return s
+		}
+
 	}
 
 	return s.ValuesScript(script)
@@ -1473,7 +1476,7 @@ func (s *Mod) Context(ctx context.Context) *Mod {
 
 // Table set table name.
 func (s *Mod) Table(table string, args ...interface{}) *Mod {
-	s.schema.table = NewTableScript(table, args...)
+	s.schema.table = NewTableScript(table, args)
 	return s
 }
 
@@ -1755,7 +1758,7 @@ func (s *Get) With(with ...WithScript) *Get {
 
 // Table set table name.
 func (s *Get) Table(table string, alias ...string) *Get {
-	s.schema.table = NewTableScript(table)
+	s.schema.table = NewTableScript(table, nil)
 	if aliasName := LastNotEmptyString(alias); aliasName != EmptyString {
 		s.Alias(aliasName)
 		if s.joinScript == nil {
