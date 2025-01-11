@@ -15,11 +15,11 @@ import (
  **/
 
 type Identifier interface {
-	AddAll(keys []string) []string
-	AddOne(key string) string
-	DelAll(keys []string) []string
-	DelOne(key string) string
-	Identify() string
+	SymbolAddAll(keys []string) []string
+	SymbolAddOne(key string) string
+	SymbolDelAll(keys []string) []string
+	SymbolDelOne(key string) string
+	Symbol() string
 }
 
 type identifier struct {
@@ -58,7 +58,7 @@ func (s *identifier) setDel(key string, value string) {
 	return
 }
 
-func (s *identifier) AddAll(keys []string) []string {
+func (s *identifier) SymbolAddAll(keys []string) []string {
 	length := len(keys)
 	identify := s.identify
 	if length == 0 || identify == EmptyString {
@@ -86,11 +86,11 @@ func (s *identifier) AddAll(keys []string) []string {
 	return result
 }
 
-func (s *identifier) AddOne(key string) string {
-	return s.AddAll([]string{key})[0]
+func (s *identifier) SymbolAddOne(key string) string {
+	return s.SymbolAddAll([]string{key})[0]
 }
 
-func (s *identifier) DelAll(keys []string) []string {
+func (s *identifier) SymbolDelAll(keys []string) []string {
 	length := len(keys)
 	identify := s.identify
 	if length == 0 || identify == EmptyString {
@@ -108,11 +108,11 @@ func (s *identifier) DelAll(keys []string) []string {
 	return result
 }
 
-func (s *identifier) DelOne(key string) string {
-	return s.DelAll([]string{key})[0]
+func (s *identifier) SymbolDelOne(key string) string {
+	return s.SymbolDelAll([]string{key})[0]
 }
 
-func (s *identifier) Identify() string {
+func (s *identifier) Symbol() string {
 	return s.identify
 }
 
@@ -1065,7 +1065,7 @@ func (s *insertFieldsScript) Add(fields ...string) InsertFieldsScript {
 		}
 		exists := column
 		if s.identifier != nil {
-			exists = s.identifier.DelOne(exists)
+			exists = s.identifier.SymbolDelOne(exists)
 		}
 		if _, ok := s.fieldsMap[exists]; ok {
 			continue
@@ -1085,7 +1085,7 @@ func (s *insertFieldsScript) Del(fields ...string) InsertFieldsScript {
 		}
 		exists := column
 		if s.identifier != nil {
-			exists = s.identifier.DelOne(exists)
+			exists = s.identifier.SymbolDelOne(exists)
 		}
 		index, ok := s.fieldsMap[exists]
 		if !ok {
@@ -1134,7 +1134,7 @@ func (s *insertFieldsScript) DelUseIndex(indexes ...int) InsertFieldsScript {
 func (s *insertFieldsScript) FieldIndex(field string) int {
 	exists := field
 	if s.identifier != nil {
-		exists = s.identifier.DelOne(exists)
+		exists = s.identifier.SymbolDelOne(exists)
 	}
 	index, ok := s.fieldsMap[exists]
 	if !ok {
@@ -1379,7 +1379,7 @@ func (s *updateSetScript) Update(update string, args ...interface{}) UpdateSetSc
 	}
 	exists := update
 	if s.identifier != nil {
-		exists = s.identifier.DelOne(exists)
+		exists = s.identifier.SymbolDelOne(exists)
 	}
 	index, ok := s.updateMap[exists]
 	if ok {
@@ -1430,7 +1430,7 @@ func (s *updateSetScript) UpdateIndex(update string) int {
 	update = s.beautifyUpdate(update)
 	exists := update
 	if s.identifier != nil {
-		exists = s.identifier.DelOne(exists)
+		exists = s.identifier.SymbolDelOne(exists)
 	}
 	index, ok := s.updateMap[exists]
 	if !ok {
@@ -1794,14 +1794,14 @@ func (s *AdjustColumn) Count(counts ...string) string {
 	length := len(counts)
 	if length == 0 {
 		// using default expression: `COUNT(*) AS counts`
-		return SqlAlias(count, s.way.cfg.Helper.AddAll([]string{DefaultAliasNameCount})[0])
+		return SqlAlias(count, s.way.cfg.Helper.SymbolAddOne(DefaultAliasNameCount))
 	}
 	if length == 1 && counts[0] != EmptyString {
 		// only set alias name
 		return SqlAlias(count, counts[0])
 	}
 	// set COUNT function parameters and alias name
-	countAlias := s.way.cfg.Helper.AddAll([]string{DefaultAliasNameCount})[0]
+	countAlias := s.way.cfg.Helper.SymbolAddOne(DefaultAliasNameCount)
 	field := false
 	for i := 0; i < length; i++ {
 		if counts[i] == EmptyString {

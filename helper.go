@@ -1204,7 +1204,7 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 			return s
 		}
 	}
-	fields = s.schema.way.cfg.Helper.AddAll(fields)
+	fields = s.schema.way.cfg.Helper.SymbolAddAll(fields)
 	s.fieldsScript.SetFields(fields)
 	s.valuesScript.SetValues(values...)
 	if s.permit != nil {
@@ -1230,7 +1230,7 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 
 // FieldValue append field-value for insert one or more rows.
 func (s *Add) FieldValue(field string, value interface{}) *Add {
-	field = s.schema.way.cfg.Helper.AddOne(field)
+	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1279,7 +1279,7 @@ func (s *Add) Create(create interface{}) *Add {
 		}
 		return s
 	}
-	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.DelAll(s.permit.GetFields())))
+	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.SymbolDelAll(s.permit.GetFields())))
 }
 
 // ValuesScript values is a query SQL statement.
@@ -1470,7 +1470,7 @@ func (s *Mod) Expr(expr string, args ...interface{}) *Mod {
 
 // Set field = value.
 func (s *Mod) Set(field string, value interface{}) *Mod {
-	field = s.schema.way.cfg.Helper.AddOne(field)
+	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1487,7 +1487,7 @@ func (s *Mod) Set(field string, value interface{}) *Mod {
 
 // Incr SET field = field + value.
 func (s *Mod) Incr(field string, value interface{}) *Mod {
-	field = s.schema.way.cfg.Helper.AddOne(field)
+	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1504,7 +1504,7 @@ func (s *Mod) Incr(field string, value interface{}) *Mod {
 
 // Decr SET field = field - value.
 func (s *Mod) Decr(field string, value interface{}) *Mod {
-	field = s.schema.way.cfg.Helper.AddOne(field)
+	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1544,7 +1544,7 @@ func (s *Mod) Modify(modify interface{}) *Mod {
 
 // Update for compare origin and latest to automatically calculate need to update fields.
 func (s *Mod) Update(originObject interface{}, latestObject interface{}, except ...string) *Mod {
-	except = s.schema.way.cfg.Helper.DelAll(except)
+	except = s.schema.way.cfg.Helper.SymbolDelAll(except)
 	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.cfg.ScanTag, except...))
 }
 
@@ -1766,7 +1766,7 @@ func (s *Get) Where(where func(where Filter)) *Get {
 
 // Group set group columns.
 func (s *Get) Group(group ...string) *Get {
-	group = s.schema.way.cfg.Helper.AddAll(group)
+	group = s.schema.way.cfg.Helper.SymbolAddAll(group)
 	s.group.Group(group...)
 	return s
 }
@@ -1816,7 +1816,7 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 			if k == EmptyString || v == EmptyString {
 				continue
 			}
-			k, v = s.schema.way.cfg.Helper.DelOne(k), s.schema.way.cfg.Helper.DelOne(v)
+			k, v = s.schema.way.cfg.Helper.SymbolDelOne(k), s.schema.way.cfg.Helper.SymbolDelOne(v)
 			fieldMap[k] = v
 		}
 	}
@@ -2018,7 +2018,7 @@ func BuildGet(s *Get) (prepare string, args []interface{}) {
 func BuildCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
 	if countColumns == nil {
 		countColumns = []string{
-			SqlAlias("COUNT(*)", s.schema.way.cfg.Helper.AddOne(DefaultAliasNameCount)),
+			SqlAlias("COUNT(*)", s.schema.way.cfg.Helper.SymbolAddOne(DefaultAliasNameCount)),
 		}
 	}
 	if IsEmptyScript(s) {
