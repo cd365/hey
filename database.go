@@ -14,6 +14,118 @@ import (
  * database helper.
  **/
 
+type Identifier interface {
+	AddAll(keys []string) []string
+	AddOne(key string) string
+	DelAll(keys []string) []string
+	DelOne(key string) string
+	Identify() string
+}
+
+type identifier struct {
+	identify   string
+	add        map[string]string
+	addRWMutex *sync.RWMutex
+	del        map[string]string
+	delRWMutex *sync.RWMutex
+}
+
+func (s *identifier) getAdd(key string) (value string, ok bool) {
+	s.addRWMutex.RLock()
+	defer s.addRWMutex.RUnlock()
+	value, ok = s.add[key]
+	return
+}
+
+func (s *identifier) setAdd(key string, value string) {
+	s.addRWMutex.Lock()
+	defer s.addRWMutex.Unlock()
+	s.add[key] = value
+	return
+}
+
+func (s *identifier) getDel(key string) (value string, ok bool) {
+	s.delRWMutex.RLock()
+	defer s.delRWMutex.RUnlock()
+	value, ok = s.del[key]
+	return
+}
+
+func (s *identifier) setDel(key string, value string) {
+	s.delRWMutex.Lock()
+	defer s.delRWMutex.Unlock()
+	s.del[key] = value
+	return
+}
+
+func (s *identifier) AddAll(keys []string) []string {
+	length := len(keys)
+	identify := s.identify
+	if length == 0 || identify == EmptyString {
+		return keys
+	}
+	result := make([]string, 0, length)
+	for i := 0; i < length; i++ {
+		if keys[i] == EmptyString {
+			result = append(result, keys[i])
+			continue
+		}
+		value, ok := s.getAdd(keys[i])
+		if !ok {
+			value = strings.ReplaceAll(keys[i], identify, EmptyString)
+			value = strings.TrimSpace(value)
+			values := strings.Split(value, SqlPoint)
+			for k, v := range values {
+				values[k] = fmt.Sprintf("%s%s%s", identify, v, identify)
+			}
+			value = strings.Join(values, SqlPoint)
+			s.setAdd(keys[i], value)
+		}
+		result = append(result, value)
+	}
+	return result
+}
+
+func (s *identifier) AddOne(key string) string {
+	return s.AddAll([]string{key})[0]
+}
+
+func (s *identifier) DelAll(keys []string) []string {
+	length := len(keys)
+	identify := s.identify
+	if length == 0 || identify == EmptyString {
+		return keys
+	}
+	result := make([]string, length)
+	for i := 0; i < length; i++ {
+		value, ok := s.getDel(keys[i])
+		if !ok {
+			value = strings.ReplaceAll(keys[i], identify, EmptyString)
+			s.setDel(keys[i], value)
+		}
+		result[i] = value
+	}
+	return result
+}
+
+func (s *identifier) DelOne(key string) string {
+	return s.DelAll([]string{key})[0]
+}
+
+func (s *identifier) Identify() string {
+	return s.identify
+}
+
+func NewIdentifier(identify string) Identifier {
+	return &identifier{
+		identify:   identify,
+		add:        make(map[string]string, 512),
+		addRWMutex: &sync.RWMutex{},
+		del:        make(map[string]string, 512),
+		delRWMutex: &sync.RWMutex{},
+	}
+}
+
 type IsEmpty interface {
 	IsEmpty() bool
 }
@@ -886,10 +998,6 @@ type InsertFieldsScript interface {
 
 	Script
 
-	SetFields(fields []string) InsertFieldsScript
-
-	Fields() []string
-
 	Add(fields ...string) InsertFieldsScript
 
 	Del(fields ...string) InsertFieldsScript
@@ -903,11 +1011,16 @@ type InsertFieldsScript interface {
 	Range(custom func(index int, field string) (toBreak bool)) InsertFieldsScript
 
 	Len() int
+
+	SetFields(fields []string) InsertFieldsScript
+
+	GetFields() []string
 }
 
 type insertFieldsScript struct {
-	fields    []string
-	fieldsMap map[string]int
+	identifier Identifier
+	fields     []string
+	fieldsMap  map[string]int
 }
 
 func NewInsertFieldScript() InsertFieldsScript {
@@ -928,13 +1041,9 @@ func (s *insertFieldsScript) Script() (prepare string, args []interface{}) {
 	return ConcatString("( ", strings.Join(s.fields, ", "), " )"), nil
 }
 
-func (s *insertFieldsScript) SetFields(fields []string) InsertFieldsScript {
-	s.fields = fields
+func (s *insertFieldsScript) Identifier(identifier Identifier) InsertFieldsScript {
+	s.identifier = identifier
 	return s
-}
-
-func (s *insertFieldsScript) Fields() []string {
-	return s.fields[:]
 }
 
 func (s *insertFieldsScript) Add(fields ...string) InsertFieldsScript {
@@ -943,7 +1052,11 @@ func (s *insertFieldsScript) Add(fields ...string) InsertFieldsScript {
 		if column == EmptyString {
 			continue
 		}
-		if _, ok := s.fieldsMap[column]; ok {
+		exists := column
+		if s.identifier != nil {
+			exists = s.identifier.DelOne(exists)
+		}
+		if _, ok := s.fieldsMap[exists]; ok {
 			continue
 		}
 		s.fields = append(s.fields, column)
@@ -959,7 +1072,11 @@ func (s *insertFieldsScript) Del(fields ...string) InsertFieldsScript {
 		if column == EmptyString {
 			continue
 		}
-		index, ok := s.fieldsMap[column]
+		exists := column
+		if s.identifier != nil {
+			exists = s.identifier.DelOne(exists)
+		}
+		index, ok := s.fieldsMap[exists]
 		if !ok {
 			continue
 		}
@@ -982,13 +1099,13 @@ func (s *insertFieldsScript) Del(fields ...string) InsertFieldsScript {
 
 func (s *insertFieldsScript) DelUseIndex(indexes ...int) InsertFieldsScript {
 	length := len(s.fields)
-	minIndex, maxIndex := 0, length-1
-	if maxIndex < minIndex {
+	minIndex, maxIndex := 0, length
+	if maxIndex == minIndex {
 		return s
 	}
 	deleted := make(map[int]*struct{}, len(indexes))
 	for _, index := range indexes {
-		if index >= minIndex && index <= maxIndex {
+		if index >= minIndex && index < maxIndex {
 			deleted[index] = &struct{}{}
 		}
 	}
@@ -1004,7 +1121,11 @@ func (s *insertFieldsScript) DelUseIndex(indexes ...int) InsertFieldsScript {
 }
 
 func (s *insertFieldsScript) FieldIndex(field string) int {
-	index, ok := s.fieldsMap[field]
+	exists := field
+	if s.identifier != nil {
+		exists = s.identifier.DelOne(exists)
+	}
+	index, ok := s.fieldsMap[exists]
 	if !ok {
 		return -1
 	}
@@ -1027,6 +1148,14 @@ func (s *insertFieldsScript) Range(custom func(index int, field string) (toBreak
 	return s
 }
 
+func (s *insertFieldsScript) SetFields(fields []string) InsertFieldsScript {
+	return s.Add(fields...)
+}
+
+func (s *insertFieldsScript) GetFields() []string {
+	return s.fields[:]
+}
+
 func (s *insertFieldsScript) Len() int {
 	return len(s.fields)
 }
@@ -1046,7 +1175,7 @@ type InsertValuesScript interface {
 
 	LenValues() int
 
-	Values() [][]interface{}
+	GetValues() [][]interface{}
 }
 
 type insertValuesScript struct {
@@ -1154,7 +1283,7 @@ func (s *insertValuesScript) LenValues() int {
 	return len(s.values)
 }
 
-func (s *insertValuesScript) Values() [][]interface{} {
+func (s *insertValuesScript) GetValues() [][]interface{} {
 	return s.values
 }
 
@@ -1163,7 +1292,9 @@ type UpdateSetScript interface {
 
 	Script
 
-	Expr(prepare string, args ...interface{}) UpdateSetScript
+	Identifier(identifier Identifier) UpdateSetScript
+
+	Update(update string, args ...interface{}) UpdateSetScript
 
 	Set(column string, value interface{}) UpdateSetScript
 
@@ -1176,9 +1307,16 @@ type UpdateSetScript interface {
 	SetSlice(columns []string, values []interface{}) UpdateSetScript
 
 	Len() int
+
+	GetUpdate() (updates []string, args [][]interface{})
+
+	UpdateIndex(prepare string) int
+
+	UpdateExists(prepare string) bool
 }
 
 type updateSetScript struct {
+	identifier Identifier
 	update     []string
 	updateArgs [][]interface{}
 	updateMap  map[string]int
@@ -1207,31 +1345,52 @@ func (s *updateSetScript) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *updateSetScript) Expr(prepare string, args ...interface{}) UpdateSetScript {
-	if prepare == EmptyString {
+func (s *updateSetScript) beautifyUpdate(update string) string {
+	update = strings.TrimSpace(update)
+	for strings.Contains(update, "  ") {
+		update = strings.ReplaceAll(update, "  ", " ")
+	}
+	return update
+}
+
+func (s *updateSetScript) Identifier(identifier Identifier) UpdateSetScript {
+	s.identifier = identifier
+	return s
+}
+
+func (s *updateSetScript) Update(update string, args ...interface{}) UpdateSetScript {
+	if update == EmptyString {
 		return s
 	}
-	index, ok := s.updateMap[prepare]
+	update = s.beautifyUpdate(update)
+	if update == EmptyString {
+		return s
+	}
+	exists := update
+	if s.identifier != nil {
+		exists = s.identifier.DelOne(exists)
+	}
+	index, ok := s.updateMap[exists]
 	if ok {
-		s.update[index], s.updateArgs[index] = prepare, args
+		s.update[index], s.updateArgs[index] = update, args
 		return s
 	}
-	s.updateMap[prepare] = len(s.update)
-	s.update = append(s.update, prepare)
+	s.updateMap[update] = len(s.update)
+	s.update = append(s.update, update)
 	s.updateArgs = append(s.updateArgs, args)
 	return s
 }
 
 func (s *updateSetScript) Set(column string, value interface{}) UpdateSetScript {
-	return s.Expr(fmt.Sprintf("%s = %s", column, SqlPlaceholder), value)
+	return s.Update(fmt.Sprintf("%s = %s", column, SqlPlaceholder), value)
 }
 
 func (s *updateSetScript) Decr(column string, decrement interface{}) UpdateSetScript {
-	return s.Expr(fmt.Sprintf("%s = %s - %s", column, column, SqlPlaceholder), decrement)
+	return s.Update(fmt.Sprintf("%s = %s - %s", column, column, SqlPlaceholder), decrement)
 }
 
 func (s *updateSetScript) Incr(column string, increment interface{}) UpdateSetScript {
-	return s.Expr(fmt.Sprintf("%s = %s + %s", column, column, SqlPlaceholder), increment)
+	return s.Update(fmt.Sprintf("%s = %s + %s", column, column, SqlPlaceholder), increment)
 }
 
 func (s *updateSetScript) SetMap(columnValue map[string]interface{}) UpdateSetScript {
@@ -1252,116 +1411,25 @@ func (s *updateSetScript) Len() int {
 	return len(s.update)
 }
 
-type Identifier interface {
-	AddAll(keys []string) []string
-	AddOne(key string) string
-	DelAll(keys []string) []string
-	DelOne(key string) string
-	Identify() string
+func (s *updateSetScript) GetUpdate() ([]string, [][]interface{}) {
+	return s.update, s.updateArgs
 }
 
-type identifier struct {
-	identify   string
-	add        map[string]string
-	addRWMutex *sync.RWMutex
-	del        map[string]string
-	delRWMutex *sync.RWMutex
-}
-
-func (s *identifier) getAdd(key string) (value string, ok bool) {
-	s.addRWMutex.RLock()
-	defer s.addRWMutex.RUnlock()
-	value, ok = s.add[key]
-	return
-}
-
-func (s *identifier) setAdd(key string, value string) {
-	s.addRWMutex.Lock()
-	defer s.addRWMutex.Unlock()
-	s.add[key] = value
-	return
-}
-
-func (s *identifier) getDel(key string) (value string, ok bool) {
-	s.delRWMutex.RLock()
-	defer s.delRWMutex.RUnlock()
-	value, ok = s.del[key]
-	return
-}
-
-func (s *identifier) setDel(key string, value string) {
-	s.delRWMutex.Lock()
-	defer s.delRWMutex.Unlock()
-	s.del[key] = value
-	return
-}
-
-func (s *identifier) AddAll(keys []string) []string {
-	length := len(keys)
-	identify := s.identify
-	if length == 0 || identify == EmptyString {
-		return keys
+func (s *updateSetScript) UpdateIndex(update string) int {
+	update = s.beautifyUpdate(update)
+	exists := update
+	if s.identifier != nil {
+		exists = s.identifier.DelOne(exists)
 	}
-	result := make([]string, 0, length)
-	for i := 0; i < length; i++ {
-		if keys[i] == EmptyString {
-			result = append(result, keys[i])
-			continue
-		}
-		value, ok := s.getAdd(keys[i])
-		if !ok {
-			value = strings.ReplaceAll(keys[i], identify, EmptyString)
-			value = strings.TrimSpace(value)
-			values := strings.Split(value, SqlPoint)
-			for k, v := range values {
-				values[k] = fmt.Sprintf("%s%s%s", identify, v, identify)
-			}
-			value = strings.Join(values, SqlPoint)
-			s.setAdd(keys[i], value)
-		}
-		result = append(result, value)
+	index, ok := s.updateMap[exists]
+	if !ok {
+		return -1
 	}
-	return result
+	return index
 }
 
-func (s *identifier) AddOne(key string) string {
-	return s.AddAll([]string{key})[0]
-}
-
-func (s *identifier) DelAll(keys []string) []string {
-	length := len(keys)
-	identify := s.identify
-	if length == 0 || identify == EmptyString {
-		return keys
-	}
-	result := make([]string, length)
-	for i := 0; i < length; i++ {
-		value, ok := s.getDel(keys[i])
-		if !ok {
-			value = strings.ReplaceAll(keys[i], identify, EmptyString)
-			s.setDel(keys[i], value)
-		}
-		result[i] = value
-	}
-	return result
-}
-
-func (s *identifier) DelOne(key string) string {
-	return s.DelAll([]string{key})[0]
-}
-
-func (s *identifier) Identify() string {
-	return s.identify
-}
-
-func NewIdentifier(identify string) Identifier {
-	return &identifier{
-		identify:   identify,
-		add:        make(map[string]string, 512),
-		addRWMutex: &sync.RWMutex{},
-		del:        make(map[string]string, 512),
-		delRWMutex: &sync.RWMutex{},
-	}
+func (s *updateSetScript) UpdateExists(update string) bool {
+	return s.UpdateIndex(update) >= 0
 }
 
 type Helper interface {

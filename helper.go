@@ -1141,18 +1141,14 @@ func (s *Del) Way() *Way {
 
 // Add for INSERT.
 type Add struct {
-	schema *schema
-
-	except InsertFieldsScript
-	permit InsertFieldsScript
-
-	fieldsScript InsertFieldsScript
-	valuesScript InsertValuesScript
-
+	schema              *schema
+	except              InsertFieldsScript
+	permit              InsertFieldsScript
+	fieldsScript        InsertFieldsScript
+	valuesScript        InsertValuesScript
 	fieldsScriptDefault InsertFieldsScript
 	valuesScriptDefault InsertValuesScript
-
-	fromScript Script
+	fromScript          Script
 }
 
 // NewAdd for INSERT.
@@ -1208,12 +1204,9 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 			return s
 		}
 	}
-
 	fields = s.schema.way.cfg.Helper.AddAll(fields)
-
 	s.fieldsScript.SetFields(fields)
 	s.valuesScript.SetValues(values...)
-
 	if s.permit != nil {
 		s.fieldsScript.Range(func(index int, field string) (toBreak bool) {
 			if !s.permit.FieldExists(field) {
@@ -1248,10 +1241,8 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 			return s
 		}
 	}
-
 	s.fieldsScript.Add(field)
 	s.valuesScript.Set(s.fieldsScript.FieldIndex(field), value)
-
 	return s
 }
 
@@ -1265,7 +1256,17 @@ func (s *Add) Default(add func(add *Add)) *Add {
 	tmp.fieldsScript, tmp.valuesScript = NewInsertFieldScript(), NewInsertValuesScript()
 	add(tmp)
 	if !tmp.fieldsScript.IsEmpty() && !tmp.valuesScript.IsEmpty() {
-		s.fieldsScriptDefault, s.valuesScriptDefault = tmp.fieldsScript, tmp.valuesScript
+		if s.fieldsScriptDefault == nil {
+			s.fieldsScriptDefault = NewInsertFieldScript()
+		}
+		if tmp.valuesScriptDefault.IsEmpty() {
+			s.valuesScriptDefault = NewInsertValuesScript()
+		}
+		fields, values := tmp.fieldsScript.GetFields(), tmp.valuesScript.GetValues()
+		for index, field := range fields {
+			s.fieldsScriptDefault.Add(field)
+			s.valuesScriptDefault.Set(s.fieldsScriptDefault.FieldIndex(field), values[0][index])
+		}
 	}
 	return s
 }
@@ -1278,7 +1279,7 @@ func (s *Add) Create(create interface{}) *Add {
 		}
 		return s
 	}
-	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.DelAll(s.permit.Fields())))
+	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.DelAll(s.permit.GetFields())))
 }
 
 // ValuesScript values is a query SQL statement.
@@ -1286,11 +1287,8 @@ func (s *Add) ValuesScript(script Script, fields []string) *Add {
 	if script == nil || IsEmptyScript(script) {
 		return s
 	}
-
-	originFields := s.fieldsScript.Fields()
-
+	originFields := s.fieldsScript.GetFields()
 	s.fieldsScript.SetFields(fields)
-
 	if !s.fieldsScript.IsEmpty() {
 		ok := true
 		if s.permit != nil {
@@ -1304,7 +1302,6 @@ func (s *Add) ValuesScript(script Script, fields []string) *Add {
 				return false
 			})
 		}
-
 		if s.except != nil {
 			s.except.Range(func(index int, field string) bool {
 				if s.fieldsScript.FieldExists(field) {
@@ -1316,13 +1313,11 @@ func (s *Add) ValuesScript(script Script, fields []string) *Add {
 				return false
 			})
 		}
-
 		if !ok {
 			s.fieldsScript.SetFields(originFields)
 			return s
 		}
 	}
-
 	s.fromScript = script
 	return s
 }
@@ -1332,10 +1327,8 @@ func (s *Add) Script() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
-
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-
 	if s.fromScript != nil {
 		b.WriteString("INSERT ")
 		b.WriteString("INTO ")
@@ -1355,12 +1348,10 @@ func (s *Add) Script() (prepare string, args []interface{}) {
 		prepare = b.String()
 		return
 	}
-
-	count := len(s.fieldsScript.Fields())
+	count := len(s.fieldsScript.GetFields())
 	if count == 0 {
 		return
 	}
-
 	b.WriteString("INSERT ")
 	b.WriteString("INTO ")
 	table, _ := s.schema.table.Script()
@@ -1368,7 +1359,7 @@ func (s *Add) Script() (prepare string, args []interface{}) {
 	b.WriteString(SqlSpace)
 	// add default field-value
 	if s.fieldsScriptDefault != nil {
-		fields, values := s.fieldsScriptDefault.Fields(), s.valuesScriptDefault.Values()
+		fields, values := s.fieldsScriptDefault.GetFields(), s.valuesScriptDefault.GetValues()
 		if len(values) > 0 && len(fields) == len(values[0]) {
 			for index, field := range fields {
 				if s.fieldsScript.FieldExists(field) {
@@ -1400,8 +1391,8 @@ func (s *Add) Add() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// ReturnId execute the built SQL statement, returning auto-increment field value.
-func (s *Add) ReturnId(
+// AddGetId execute the built SQL statement, returning auto-increment field value.
+func (s *Add) AddGetId(
 	adjust func(prepare string, args []interface{}) (string, []interface{}),
 	custom func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error),
 ) (id int64, err error) {
@@ -1428,31 +1419,21 @@ func (s *Add) Way() *Way {
 	return s.schema.way
 }
 
-// modify set the field to be updated.
-type modify struct {
-	expr string
-	args []interface{}
-}
-
 // Mod for UPDATE.
 type Mod struct {
-	schema *schema
-
-	except InsertFieldsScript
-	permit InsertFieldsScript
-
-	update UpdateSetScript
-
+	schema        *schema
+	except        InsertFieldsScript
+	permit        InsertFieldsScript
+	update        UpdateSetScript
 	updateDefault UpdateSetScript
-
-	where Filter
+	where         Filter
 }
 
 // NewMod for UPDATE.
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema: newSchema(way),
-		update: NewUpdateSetScript(),
+		update: NewUpdateSetScript().Identifier(way.cfg.Helper),
 	}
 }
 
@@ -1474,50 +1455,47 @@ func (s *Mod) Table(table string, args ...interface{}) *Mod {
 	return s
 }
 
-// Except Set the list of fields that cannot be updated.
-func (s *Mod) Except(fields ...string) *Mod {
-	if s.except == nil {
-		s.except = NewInsertFieldScript()
+// ExceptPermit Set a list of fields that are not allowed to be updated and a list of fields that are only allowed to be updated.
+func (s *Mod) ExceptPermit(custom func(except InsertFieldsScript, permit InsertFieldsScript)) *Mod {
+	if custom != nil {
+		if s.except == nil {
+			s.except = NewInsertFieldScript()
+		}
+		if s.permit == nil {
+			s.permit = NewInsertFieldScript()
+		}
+		custom(s.except, s.permit)
 	}
-	fields = s.schema.way.cfg.Helper.AddAll(fields)
-	s.except.Add(fields...)
-	return s
-}
-
-// Permit Sets a list of fields that can only be updated.
-func (s *Mod) Permit(fields ...string) *Mod {
-	if s.permit == nil {
-		s.permit = NewInsertFieldScript()
-	}
-	fields = s.schema.way.cfg.Helper.AddAll(fields)
-	s.permit.Add(fields...)
 	return s
 }
 
 // Default SET field = expr .
-func (s *Mod) Default(fc func(o *Mod)) *Mod {
-	if fc == nil {
+func (s *Mod) Default(custom func(mod *Mod)) *Mod {
+	if custom == nil {
 		return s
 	}
-
-	// copy current object.
-	v := *s
-	mod := &v
-
-	// reset value for `update` .
+	tmp := *s
+	mod := &tmp
 	mod.update = NewUpdateSetScript()
-	fc(mod)
-
+	custom(mod)
 	if !mod.update.IsEmpty() {
-		s.updateDefault = mod.update
+		if s.updateDefault == nil {
+			s.updateDefault = NewUpdateSetScript()
+		}
+		prepares, args := mod.update.GetUpdate()
+		for index, prepare := range prepares {
+			if s.update.UpdateExists(prepare) {
+				continue
+			}
+			s.update.Update(prepare, args[index]...)
+		}
 	}
-
 	return s
 }
 
-// Expr update field using custom expr.
-func (s *Mod) Expr(prepare string, args ...interface{}) *Mod {
-	s.update.Expr(prepare, args...)
+// CustomUpdate update field using custom expression.
+func (s *Mod) CustomUpdate(update string, args ...interface{}) *Mod {
+	s.update.Update(update, args...)
 	return s
 }
 
@@ -1525,12 +1503,12 @@ func (s *Mod) Expr(prepare string, args ...interface{}) *Mod {
 func (s *Mod) Set(field string, value interface{}) *Mod {
 	field = s.schema.way.cfg.Helper.AddOne(field)
 	if s.permit != nil {
-		if s.permit.FieldIndex(field) < 0 {
+		if !s.permit.FieldExists(field) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldIndex(field) >= 0 {
+		if s.except.FieldExists(field) {
 			return s
 		}
 	}
@@ -1542,12 +1520,12 @@ func (s *Mod) Set(field string, value interface{}) *Mod {
 func (s *Mod) Incr(field string, value interface{}) *Mod {
 	field = s.schema.way.cfg.Helper.AddOne(field)
 	if s.permit != nil {
-		if s.permit.FieldIndex(field) < 0 {
+		if !s.permit.FieldExists(field) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldIndex(field) >= 0 {
+		if s.except.FieldExists(field) {
 			return s
 		}
 	}
@@ -1559,12 +1537,12 @@ func (s *Mod) Incr(field string, value interface{}) *Mod {
 func (s *Mod) Decr(field string, value interface{}) *Mod {
 	field = s.schema.way.cfg.Helper.AddOne(field)
 	if s.permit != nil {
-		if s.permit.FieldIndex(field) < 0 {
+		if !s.permit.FieldExists(field) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldIndex(field) >= 0 {
+		if s.except.FieldExists(field) {
 			return s
 		}
 	}
@@ -1613,8 +1591,8 @@ func (s *Mod) Where(where func(where Filter)) *Mod {
 	return s
 }
 
-// SetScript prepare args of set.
-func (s *Mod) SetScript() (prepare string, args []interface{}) {
+// GetUpdateScript prepare args of SET.
+func (s *Mod) GetUpdateScript() (prepare string, args []interface{}) {
 	if s.update.IsEmpty() {
 		return
 	}
@@ -1626,8 +1604,8 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
-	prepare, args = s.SetScript()
-	if prepare == EmptyString {
+	update, updateArgs := s.GetUpdateScript()
+	if update == EmptyString {
 		return
 	}
 	b := comment(s.schema)
@@ -1636,10 +1614,15 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 
 	table, param := s.schema.table.Script()
 	b.WriteString(table)
-	args = append(args, param...)
+	if param != nil {
+		args = append(args, param...)
+	}
 
 	b.WriteString(" SET ")
-	b.WriteString(prepare)
+	b.WriteString(update)
+	if updateArgs != nil {
+		args = append(args, updateArgs...)
+	}
 
 	cfg := s.schema.way.cfg
 	if cfg.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
