@@ -197,9 +197,7 @@ func (s *tableScript) Script() (prepare string, args []interface{}) {
 }
 
 func (s *tableScript) Alias(alias string) TableScript {
-	if alias != EmptyString {
-		s.alias = alias
-	}
+	s.alias = alias // allow setting empty values
 	return s
 }
 
@@ -376,6 +374,8 @@ type JoinTableScript interface {
 
 	DelAllSelectColumns() JoinTableScript
 
+	ExistsSelectColumns() bool
+
 	GetSelectColumns() []string
 
 	GetSelectColumnsString() string
@@ -403,6 +403,10 @@ func (s *joinTableScript) DelSelectColumns(columns ...string) JoinTableScript {
 func (s *joinTableScript) DelAllSelectColumns() JoinTableScript {
 	s.selectColumns.DelAll()
 	return s
+}
+
+func (s *joinTableScript) ExistsSelectColumns() bool {
+	return s.selectColumns.Len() > 0
 }
 
 func (s *joinTableScript) GetSelectColumns() []string {
@@ -434,9 +438,9 @@ func (s *joinTableScript) GetSelectColumnsString() string {
 	return strings.Join(s.GetSelectColumns(), ", ")
 }
 
-func NewJoinTableScript(tableScript TableScript) JoinTableScript {
+func NewJoinTableScript(table string, alias string, args ...interface{}) JoinTableScript {
 	return &joinTableScript{
-		TableScript:   tableScript,
+		TableScript:   NewTableScript(table, args).Alias(alias),
 		selectColumns: NewSelectColumns(),
 	}
 }
@@ -488,7 +492,7 @@ func NewJoinScript(master JoinTableScript) JoinScript {
 	}
 	tmp := &joinScript{
 		master:              master,
-		joins:               make([]*joinTable, 8),
+		joins:               make([]*joinTable, 0, 8),
 		filter:              F(),
 		selectExtendColumns: NewSelectColumns(),
 	}
@@ -496,25 +500,27 @@ func NewJoinScript(master JoinTableScript) JoinScript {
 }
 
 func (s *joinScript) Script() (prepare string, args []interface{}) {
-	selectColumns := NewSelectColumns()
-	if column := s.master.GetSelectColumnsString(); column != EmptyString {
-		selectColumns.Add(column)
+	columns := NewSelectColumns()
+	if s.master.ExistsSelectColumns() {
+		if column := s.master.GetSelectColumnsString(); column != EmptyString {
+			columns.Add(column)
+		}
 	}
 
 	for _, tmp := range s.joins {
-		if column := tmp.rightTable.GetSelectColumnsString(); column != EmptyString {
-			selectColumns.Add(column)
+		if tmp.rightTable.ExistsSelectColumns() {
+			if column := tmp.rightTable.GetSelectColumnsString(); column != EmptyString {
+				columns.Add(column)
+			}
 		}
 	}
-	if s.selectExtendColumns != nil {
+	if s.selectExtendColumns != nil && s.selectExtendColumns.Len() > 0 {
 		extendColumnsPrepare, extendColumnsArgs := s.selectExtendColumns.Script()
-		selectColumns.Add(extendColumnsPrepare, extendColumnsArgs...)
+		columns.Add(extendColumnsPrepare, extendColumnsArgs...)
 	}
 
-	selectColumnsPrepare, selectColumnsArgs := selectColumns.Script()
-	if selectColumnsPrepare == EmptyString {
-		selectColumnsPrepare, selectColumnsArgs = SqlStar, nil
-	} else {
+	selectColumnsPrepare, selectColumnsArgs := columns.Script()
+	if selectColumnsArgs != nil {
 		args = append(args, selectColumnsArgs...)
 	}
 
@@ -528,9 +534,12 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 	b.WriteString(masterPrepare)
 	b.WriteString(SqlSpace)
 	args = append(args, masterArgs...)
-	for _, tmp := range s.joins {
+	for index, tmp := range s.joins {
 		if tmp == nil {
 			continue
+		}
+		if index > 0 {
+			b.WriteString(SqlSpace)
 		}
 		b.WriteString(tmp.joinType)
 		b.WriteString(SqlSpace)
@@ -548,6 +557,7 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 			}
 		}
 	}
+	prepare = b.String()
 	return
 }
 
@@ -788,6 +798,7 @@ func (s *orderScript) Script() (prepare string, args []interface{}) {
 	defer putStringBuilder(b)
 	b.WriteString("ORDER BY ")
 	b.WriteString(strings.Join(s.orderBy, ", "))
+	prepare = b.String()
 	return
 }
 

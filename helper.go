@@ -1693,9 +1693,6 @@ func (s *Get) Table(table string, alias ...string) *Get {
 	s.schema.table = NewTableScript(table, nil)
 	if aliasName := LastNotEmptyString(alias); aliasName != EmptyString {
 		s.Alias(aliasName)
-		if s.joinScript == nil {
-			s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
-		}
 	}
 	return s
 }
@@ -1719,38 +1716,40 @@ func (s *Get) Alias(alias string) *Get {
 		return s
 	}
 	s.schema.table.Alias(alias)
-	if s.joinScript == nil {
-		s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
-	}
 	return s
 }
 
-// Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
-func (s *Get) Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
+// Joins for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
+func (s *Get) Joins(custom func(js JoinScript), master ...func(master TableScript) JoinTableScript) *Get {
+	if custom == nil {
+		return s
+	}
 	if s.joinScript == nil {
-		s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
+		masterTableScript := s.schema.table
+		for i := len(master) - 1; i >= 0; i-- {
+			tmp := master[i]
+			if tmp == nil {
+				continue
+			}
+			tab := tmp(masterTableScript)
+			if tab != nil && !tab.IsEmpty() && tab.GetAlias() != EmptyString {
+				break
+			}
+		}
+		if masterTableScript == nil || masterTableScript.IsEmpty() || masterTableScript.GetAlias() == EmptyString {
+			return s
+		}
+		alias := masterTableScript.GetAlias()
+		if alias == EmptyString {
+			alias = AliasA
+		} else {
+			masterTableScript.Alias(EmptyString)
+		}
+		table, args := masterTableScript.Script()
+		s.joinScript = NewJoinScript(NewJoinTableScript(table, alias, args...))
 	}
-	var js JoinRequire
-	if joinRequire != nil {
-		js = joinRequire(s.joinScript)
-	}
-	s.joinScript.Join(joinTypeString, leftTable, rightTable, js)
+	custom(s.joinScript)
 	return s
-}
-
-// InnerJoin for inner join.
-func (s *Get) InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
-	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
-}
-
-// LeftJoin for left join.
-func (s *Get) LeftJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
-	return s.Join(SqlJoinLeft, leftTable, rightTable, joinRequire)
-}
-
-// RightJoin for right join.
-func (s *Get) RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
-	return s.Join(SqlJoinRight, leftTable, rightTable, joinRequire)
 }
 
 // Where set where.
@@ -1971,18 +1970,22 @@ func BuildOrderByLimitOffset(s *Get) (prepare string, args []interface{}) {
 	defer putStringBuilder(b)
 	if !s.order.IsEmpty() {
 		order, orderArgs := s.order.Script()
-		b.WriteString(SqlSpace)
-		b.WriteString(order)
-		if orderArgs != nil {
-			args = append(args, orderArgs...)
+		if order != EmptyString {
+			b.WriteString(SqlSpace)
+			b.WriteString(order)
+			if orderArgs != nil {
+				args = append(args, orderArgs...)
+			}
 		}
 	}
 	if !s.limit.IsEmpty() {
 		limit, limitArgs := s.limit.Script()
-		b.WriteString(SqlSpace)
-		b.WriteString(limit)
-		if limitArgs != nil {
-			args = append(args, limitArgs...)
+		if limit != EmptyString {
+			b.WriteString(SqlSpace)
+			b.WriteString(limit)
+			if limitArgs != nil {
+				args = append(args, limitArgs...)
+			}
 		}
 	}
 	prepare = b.String()
