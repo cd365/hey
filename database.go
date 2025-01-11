@@ -1205,11 +1205,11 @@ func (s *insertValuesScript) Script() (prepare string, args []interface{}) {
 	args = make([]interface{}, 0, count*length)
 	for i := 0; i < length; i++ {
 		line[i] = SqlPlaceholder
-		args = append(args, s.values[i]...)
 	}
-	rows := make([]string, length)
+	rows := make([]string, count)
 	for i := 0; i < count; i++ {
-		rows[i] = ConcatString("( ", strings.Join(rows, ", "), " )")
+		rows[i] = ConcatString("( ", strings.Join(line, ", "), " )")
+		args = append(args, s.values[i]...)
 	}
 	prepare = strings.Join(rows, ", ")
 	return

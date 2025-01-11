@@ -1259,7 +1259,7 @@ func (s *Add) Default(add func(add *Add)) *Add {
 		if s.fieldsScriptDefault == nil {
 			s.fieldsScriptDefault = NewInsertFieldScript()
 		}
-		if tmp.valuesScriptDefault.IsEmpty() {
+		if tmp.valuesScriptDefault == nil {
 			s.valuesScriptDefault = NewInsertValuesScript()
 		}
 		fields, values := tmp.fieldsScript.GetFields(), tmp.valuesScript.GetValues()
@@ -1287,37 +1287,7 @@ func (s *Add) ValuesScript(script Script, fields []string) *Add {
 	if script == nil || IsEmptyScript(script) {
 		return s
 	}
-	originFields := s.fieldsScript.GetFields()
-	s.fieldsScript.SetFields(fields)
-	if !s.fieldsScript.IsEmpty() {
-		ok := true
-		if s.permit != nil {
-			s.permit.Range(func(index int, field string) (toBreak bool) {
-				if !s.fieldsScript.FieldExists(field) {
-					if ok {
-						ok = !ok
-					}
-					return true
-				}
-				return false
-			})
-		}
-		if s.except != nil {
-			s.except.Range(func(index int, field string) bool {
-				if s.fieldsScript.FieldExists(field) {
-					if ok {
-						ok = !ok
-					}
-					return true
-				}
-				return false
-			})
-		}
-		if !ok {
-			s.fieldsScript.SetFields(originFields)
-			return s
-		}
-	}
+	s.fieldsScript = NewInsertFieldScript().SetFields(fields)
 	s.fromScript = script
 	return s
 }
@@ -1348,8 +1318,7 @@ func (s *Add) Script() (prepare string, args []interface{}) {
 		prepare = b.String()
 		return
 	}
-	count := len(s.fieldsScript.GetFields())
-	if count == 0 {
+	if IsEmptyScript(s.fieldsScript) || IsEmptyScript(s.valuesScript) {
 		return
 	}
 	b.WriteString("INSERT ")
@@ -1493,9 +1462,9 @@ func (s *Mod) Default(custom func(mod *Mod)) *Mod {
 	return s
 }
 
-// CustomUpdate update field using custom expression.
-func (s *Mod) CustomUpdate(update string, args ...interface{}) *Mod {
-	s.update.Update(update, args...)
+// Expr update field using custom expression.
+func (s *Mod) Expr(expr string, args ...interface{}) *Mod {
+	s.update.Update(expr, args...)
 	return s
 }
 
@@ -1665,29 +1634,14 @@ type Limiter interface {
 
 // Get for SELECT.
 type Get struct {
-	// query table.
-	schema *schema
-
-	// with of query.
-	withScript []WithScript
-
-	// selectColumns query columns list.
+	schema        *schema
+	withScript    []WithScript
 	selectColumns *SelectColumns
-
-	// joinScript join query
-	joinScript JoinScript
-
-	// where condition to filter data.
-	where Filter
-
-	// group query result.
-	group GroupScript
-
-	// order query result.
-	order OrderScript
-
-	// limit the number of query result.
-	limit LimitScript
+	joinScript    JoinScript
+	where         Filter
+	group         GroupScript
+	order         OrderScript
+	limit         LimitScript
 }
 
 // NewGet for SELECT.
@@ -1719,6 +1673,7 @@ func (s *Get) TableScript(tableScript TableScript) *Get {
 	if tableScript == nil || IsEmptyScript(tableScript) {
 		return s
 	}
+	s.schema.table = tableScript
 	return s
 }
 
@@ -1746,23 +1701,23 @@ func (s *Get) Table(table string, alias ...string) *Get {
 }
 
 // SubQuery table is a query SQL statement.
-func (s *Get) SubQuery(prepare string, args []interface{}) *Get {
-	s.schema.table = NewTableScript(ConcatString("( ", prepare, " )"), args)
-	return s
-}
-
-// SubQueryGet table is a query SQL statement.
-func (s *Get) SubQueryGet(get *Get, alias ...string) *Get {
-	if get == nil {
+func (s *Get) SubQuery(script Script, alias string) *Get {
+	if alias == EmptyString {
 		return s
 	}
-	s.SubQuery(get.Script())
-	s.schema.table.Alias(LastNotEmptyString(alias))
+	if IsEmptyScript(script) {
+		return s
+	}
+	prepare, args := script.Script()
+	s.schema.table = NewTableScript(ConcatString("( ", prepare, " )"), args).Alias(alias)
 	return s
 }
 
 // Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
 func (s *Get) Alias(alias string) *Get {
+	if alias == EmptyString {
+		return s
+	}
 	s.schema.table.Alias(alias)
 	if s.joinScript == nil {
 		s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
@@ -1770,7 +1725,7 @@ func (s *Get) Alias(alias string) *Get {
 	return s
 }
 
-// Join for any join.
+// Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
 func (s *Get) Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
 	if s.joinScript == nil {
 		s.joinScript = NewJoinScript(NewJoinTableScript(s.schema.table))
@@ -1790,12 +1745,12 @@ func (s *Get) InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, j
 
 // LeftJoin for left join.
 func (s *Get) LeftJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
-	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
+	return s.Join(SqlJoinLeft, leftTable, rightTable, joinRequire)
 }
 
 // RightJoin for right join.
 func (s *Get) RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire func(js JoinScript) JoinRequire) *Get {
-	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
+	return s.Join(SqlJoinRight, leftTable, rightTable, joinRequire)
 }
 
 // Where set where.
@@ -1825,8 +1780,14 @@ func (s *Get) Having(having func(having Filter)) *Get {
 
 // Column set the columns list of query.
 func (s *Get) Column(column ...string) *Get {
+	columns := NewSelectColumns()
 	for _, tmp := range column {
-		s.selectColumns.Add(tmp)
+		if tmp != EmptyString {
+			columns.Add(tmp)
+		}
+	}
+	if columns.Len() > 0 {
+		s.selectColumns = columns
 	}
 	return s
 }
@@ -1923,11 +1884,8 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 func BuildWith(lists []WithScript) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-
 	b.WriteString("WITH ")
-
 	num := 0
-
 	for _, tmp := range lists {
 		if tmp == nil || tmp.IsEmpty() {
 			continue
@@ -1940,120 +1898,60 @@ func BuildWith(lists []WithScript) (prepare string, args []interface{}) {
 		b.WriteString(table)
 		args = append(args, param...)
 	}
-
 	if num == 0 {
 		args = nil
 		return
 	}
-
-	b.WriteString(SqlSpace)
 	prepare = b.String()
-	return
-}
-
-// BuildUnion Combines the results of two or more SELECT queries into a single result set.
-// [WITH xxx]
-// /*query1*/( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]])
-// UNION [ALL]
-// /*query2*/( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]])
-// [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func BuildUnion(withs []WithScript, unionType string, gets []*Get) (prepare string, args []interface{}) {
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-
-	if unionType == EmptyString {
-		unionType = SqlUnionAll
-	}
-
-	num := 0
-
-	for _, get := range gets {
-		if get == nil {
-			continue
-		}
-
-		prepareThis, argsThis := get.Script()
-		if prepareThis == EmptyString {
-			continue
-		}
-
-		if num == 0 {
-			if withs != nil {
-				prepareWith, argsWith := BuildWith(withs)
-				b.WriteString(prepareWith)
-				args = append(args, argsWith...)
-			}
-		} else {
-			b.WriteString(SqlSpace)
-			b.WriteString(unionType)
-			b.WriteString(SqlSpace)
-		}
-
-		num++
-
-		b.WriteString("( ")
-		b.WriteString(prepareThis)
-		b.WriteString(" )")
-
-		args = append(args, argsThis...)
-	}
-
-	if num > 1 {
-		prepare = strings.TrimSpace(b.String())
-	} else {
-		args = nil
-	}
-
 	return
 }
 
 // BuildTable Build query table (without ORDER BY, LIMIT, OFFSET).
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
 func BuildTable(s *Get) (prepare string, args []interface{}) {
-
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
-
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-
 	if s.withScript != nil {
 		prepareWith, argsWith := BuildWith(s.withScript)
-		b.WriteString(prepareWith)
-		args = append(args, argsWith...)
+		if prepareWith != EmptyString {
+			b.WriteString(prepareWith)
+			b.WriteString(SqlSpace)
+			if argsWith != nil {
+				args = append(args, argsWith...)
+			}
+		}
 	}
-
-	b.WriteString("SELECT ")
-
-	selectColumns, selectColumnsArgs := s.selectColumns.Script()
-	b.WriteString(selectColumns)
-	if selectColumnsArgs != nil {
-		args = append(args, selectColumnsArgs...)
-	}
-
-	b.WriteString(" FROM ")
-
-	table, param := s.schema.table.Script()
-	b.WriteString(table)
-	args = append(args, param...)
-
 	if s.joinScript != nil {
 		joinPrepare, joinArgs := s.joinScript.Script()
 		if joinPrepare != EmptyString {
-			b.Reset()
 			b.WriteString(joinPrepare)
-			args = joinArgs
+			if joinArgs != nil {
+				args = append(args, joinArgs...)
+			}
+		}
+	} else {
+		b.WriteString("SELECT ")
+		selectColumns, selectColumnsArgs := s.selectColumns.Script()
+		b.WriteString(selectColumns)
+		if selectColumnsArgs != nil {
+			args = append(args, selectColumnsArgs...)
+		}
+		b.WriteString(" FROM ")
+		table, param := s.schema.table.Script()
+		b.WriteString(table)
+		if param != nil {
+			args = append(args, param...)
 		}
 	}
-
 	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := s.where.Script()
 		b.WriteString(" WHERE ")
 		b.WriteString(where)
 		args = append(args, whereArgs...)
 	}
-
 	if s.group != nil && !s.group.IsEmpty() {
 		b.WriteString(" GROUP BY ")
 		group, groupArgs := s.group.Script()
@@ -2062,31 +1960,33 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 			args = append(args, groupArgs...)
 		}
 	}
-
 	prepare = strings.TrimSpace(b.String())
-
 	return
 }
 
 // BuildOrderByLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func BuildOrderByLimitOffset(s *Get) (prepare string) {
+func BuildOrderByLimitOffset(s *Get) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-
 	if !s.order.IsEmpty() {
-		order, _ := s.order.Script()
+		order, orderArgs := s.order.Script()
 		b.WriteString(SqlSpace)
 		b.WriteString(order)
+		if orderArgs != nil {
+			args = append(args, orderArgs...)
+		}
 	}
-
 	if !s.limit.IsEmpty() {
-		limit, _ := s.limit.Script()
+		limit, limitArgs := s.limit.Script()
 		b.WriteString(SqlSpace)
 		b.WriteString(limit)
+		if limitArgs != nil {
+			args = append(args, limitArgs...)
+		}
 	}
-
-	return b.String()
+	prepare = b.String()
+	return
 }
 
 // BuildGet Build a complete query.
@@ -2096,19 +1996,16 @@ func BuildGet(s *Get) (prepare string, args []interface{}) {
 	if prepare == EmptyString {
 		return
 	}
-
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-
 	b.WriteString(prepare)
-
-	orderByLimitOffset := BuildOrderByLimitOffset(s)
-	if orderByLimitOffset != EmptyString {
-		b.WriteString(orderByLimitOffset)
+	if tmp, param := BuildOrderByLimitOffset(s); tmp != EmptyString {
+		b.WriteString(tmp)
+		if param != nil {
+			args = append(args, param...)
+		}
 	}
-
 	prepare = strings.TrimSpace(b.String())
-
 	return
 }
 
@@ -2121,16 +2018,12 @@ func BuildCount(s *Get, countColumns ...string) (prepare string, args []interfac
 			SqlAlias("COUNT(*)", s.schema.way.cfg.Helper.AddOne(DefaultAliasNameCount)),
 		}
 	}
-
-	prepare, args = BuildTable(s)
-	if prepare == EmptyString {
-		return EmptyString, nil
+	if IsEmptyScript(s) {
+		return
 	}
-
 	return NewGet(s.schema.way).
 		Column(countColumns...).
-		SubQuery(prepare, args).
-		Alias(AliasA).
+		SubQuery(s, AliasA).
 		Script()
 }
 
