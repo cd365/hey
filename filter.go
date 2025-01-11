@@ -373,13 +373,13 @@ type Filter interface {
 	IsNull(column string) Filter
 
 	// InGet Implement conditional filtering: column IN ( subquery ) .
-	InGet(column string, get *Get) Filter
+	InGet(column string, get Script) Filter
 
 	// InColsGet Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
-	InColsGet(columns []string, get *Get) Filter
+	InColsGet(columns []string, get Script) Filter
 
 	// ExistsGet Implement conditional filtering: EXISTS ( subquery ) .
-	ExistsGet(get *Get) Filter
+	ExistsGet(get Script) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
 	NotEqual(column string, value interface{}) Filter
@@ -641,7 +641,7 @@ func (s *filter) IsNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(column, false))
 }
 
-func (s *filter) InGet(column string, get *Get) Filter {
+func (s *filter) InGet(column string, get Script) Filter {
 	if get == nil {
 		return s
 	}
@@ -652,7 +652,7 @@ func (s *filter) InGet(column string, get *Get) Filter {
 	return s.InSql(column, prepare, args...)
 }
 
-func (s *filter) InColsGet(columns []string, get *Get) Filter {
+func (s *filter) InColsGet(columns []string, get Script) Filter {
 	if get == nil {
 		return s
 	}
@@ -663,7 +663,7 @@ func (s *filter) InColsGet(columns []string, get *Get) Filter {
 	return s.InColsSql(columns, prepare, args...)
 }
 
-func (s *filter) ExistsGet(get *Get) Filter {
+func (s *filter) ExistsGet(get Script) Filter {
 	if get == nil {
 		return s
 	}
