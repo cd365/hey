@@ -484,6 +484,10 @@ func NewJoinTableScript(table string, alias string, args ...interface{}) JoinTab
 type JoinScript interface {
 	Script() (prepare string, args []interface{})
 
+	GetMaster() JoinTableScript
+
+	SetMaster(master JoinTableScript) JoinScript
+
 	On(requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
 
 	Using(using []string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
@@ -518,20 +522,24 @@ type joinScript struct {
 	selectExtendColumns *SelectColumns
 }
 
-func NewJoinScript(master JoinTableScript) JoinScript {
-	if master == nil || master.IsEmpty() {
-		panic("master is empty")
-	}
-	if master.GetAlias() == EmptyString {
-		panic("master alias is empty")
-	}
+func NewJoinScript() JoinScript {
 	tmp := &joinScript{
-		master:              master,
 		joins:               make([]*joinTable, 0, 8),
 		filter:              F(),
 		selectExtendColumns: NewSelectColumns(),
 	}
 	return tmp
+}
+
+func (s *joinScript) GetMaster() JoinTableScript {
+	return s.master
+}
+
+func (s *joinScript) SetMaster(master JoinTableScript) JoinScript {
+	if master != nil && !master.IsEmpty() {
+		s.master = master
+	}
+	return s
 }
 
 func (s *joinScript) Script() (prepare string, args []interface{}) {

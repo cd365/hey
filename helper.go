@@ -1706,28 +1706,32 @@ func (s *Get) Join(custom func(js JoinScript), master ...func(master TableScript
 	if custom == nil {
 		return s
 	}
-	if s.joinScript == nil {
-		masterTableScript := s.schema.table
-		for i := len(master) - 1; i >= 0; i-- {
-			tmp := master[i]
-			if tmp == nil {
-				continue
-			}
-			tab := tmp(masterTableScript)
-			if tab != nil && !tab.IsEmpty() && tab.GetAlias() != EmptyString {
-				break
-			}
-		}
-		if masterTableScript == nil || masterTableScript.IsEmpty() || masterTableScript.GetAlias() == EmptyString {
-			return s
-		}
-		alias := masterTableScript.GetAlias()
-		if alias == EmptyString {
-			alias = AliasA
-		}
-		table, args := masterTableScript.Alias(EmptyString).Script()
-		s.joinScript = NewJoinScript(NewJoinTableScript(table, alias, args...))
+	if s.joinScript != nil {
+		custom(s.joinScript)
+		return s
 	}
+	masterTable := s.schema.table
+	for i := len(master) - 1; i >= 0; i-- {
+		tmp := master[i]
+		if tmp == nil {
+			continue
+		}
+		tab := tmp(masterTable)
+		if tab != nil && !tab.IsEmpty() && tab.GetAlias() != EmptyString {
+			break
+		}
+	}
+	if masterTable == nil || masterTable.IsEmpty() {
+		return s
+	}
+	aliasOrigin := masterTable.GetAlias()
+	aliasLatest := aliasOrigin
+	if aliasLatest == EmptyString {
+		aliasLatest = AliasA
+	}
+	table, args := masterTable.Alias(EmptyString).Script()
+	masterTable.Alias(aliasOrigin)
+	s.joinScript = NewJoinScript().SetMaster(NewJoinTableScript(table, aliasLatest, args...))
 	custom(s.joinScript)
 	return s
 }
