@@ -1531,21 +1531,21 @@ func (s *Mod) FieldsValues(fields []string, values []interface{}) *Mod {
 	return s
 }
 
-// Modify value of modify should be one of struct{}, *struct{}, map[string]interface{}.
-func (s *Mod) Modify(modify interface{}) *Mod {
-	if fieldValue, ok := modify.(map[string]interface{}); ok {
+// Update Value of update should be one of struct{}, *struct{}, map[string]interface{}.
+func (s *Mod) Update(update interface{}) *Mod {
+	if fieldValue, ok := update.(map[string]interface{}); ok {
 		for field, value := range fieldValue {
 			s.Set(field, value)
 		}
 		return s
 	}
-	return s.FieldsValues(StructModify(modify, s.schema.way.cfg.ScanTag))
+	return s.FieldsValues(StructModify(update, s.schema.way.cfg.ScanTag))
 }
 
-// Update for compare origin and latest to automatically calculate need to update fields.
-func (s *Mod) Update(originObject interface{}, latestObject interface{}, except ...string) *Mod {
+// Contrast Compare old and new to automatically calculate need to update fields.
+func (s *Mod) Contrast(old, new interface{}, except ...string) *Mod {
 	except = s.schema.way.cfg.Helper.SymbolDelAll(except)
-	return s.FieldsValues(StructUpdate(originObject, latestObject, s.schema.way.cfg.ScanTag, except...))
+	return s.FieldsValues(StructUpdate(old, new, s.schema.way.cfg.ScanTag, except...))
 }
 
 // Where set where.
@@ -1560,8 +1560,8 @@ func (s *Mod) Where(where func(where Filter)) *Mod {
 	return s
 }
 
-// GetUpdateScript prepare args of SET.
-func (s *Mod) GetUpdateScript() (prepare string, args []interface{}) {
+// GetUpdateSetScript prepare args of SET.
+func (s *Mod) GetUpdateSetScript() (prepare string, args []interface{}) {
 	if s.update.IsEmpty() {
 		return
 	}
@@ -1573,7 +1573,7 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
-	update, updateArgs := s.GetUpdateScript()
+	update, updateArgs := s.GetUpdateSetScript()
 	if update == EmptyString {
 		return
 	}
@@ -1668,15 +1668,6 @@ func (s *Get) Context(ctx context.Context) *Get {
 	return s
 }
 
-// TableScript Directly set the native SQL statement and the corresponding parameter list.
-func (s *Get) TableScript(tableScript TableScript) *Get {
-	if tableScript == nil || IsEmptyScript(tableScript) {
-		return s
-	}
-	s.schema.table = tableScript
-	return s
-}
-
 // With for with query.
 func (s *Get) With(with ...WithScript) *Get {
 	for _, tmp := range with {
@@ -1689,20 +1680,20 @@ func (s *Get) With(with ...WithScript) *Get {
 }
 
 // Table set table name.
-func (s *Get) Table(table string, alias ...string) *Get {
+func (s *Get) Table(table string) *Get {
 	s.schema.table = NewTableScript(table, nil)
-	if aliasName := LastNotEmptyString(alias); aliasName != EmptyString {
-		s.Alias(aliasName)
-	}
 	return s
 }
 
-// SubQuery table is a query SQL statement.
-func (s *Get) SubQuery(script Script, alias string) *Get {
-	if alias == EmptyString {
-		return s
-	}
-	if IsEmptyScript(script) {
+// Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
+func (s *Get) Alias(alias string) *Get {
+	s.schema.table.Alias(alias)
+	return s
+}
+
+// TableScript table is a query SQL statement.
+func (s *Get) TableScript(script Script, alias string) *Get {
+	if alias == EmptyString || script == nil || IsEmptyScript(script) {
 		return s
 	}
 	prepare, args := script.Script()
@@ -1710,17 +1701,8 @@ func (s *Get) SubQuery(script Script, alias string) *Get {
 	return s
 }
 
-// Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
-func (s *Get) Alias(alias string) *Get {
-	if alias == EmptyString {
-		return s
-	}
-	s.schema.table.Alias(alias)
-	return s
-}
-
-// Joins for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
-func (s *Get) Joins(custom func(js JoinScript), master ...func(master TableScript) JoinTableScript) *Get {
+// Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
+func (s *Get) Join(custom func(js JoinScript), master ...func(master TableScript) JoinTableScript) *Get {
 	if custom == nil {
 		return s
 	}
@@ -1742,10 +1724,8 @@ func (s *Get) Joins(custom func(js JoinScript), master ...func(master TableScrip
 		alias := masterTableScript.GetAlias()
 		if alias == EmptyString {
 			alias = AliasA
-		} else {
-			masterTableScript.Alias(EmptyString)
 		}
-		table, args := masterTableScript.Script()
+		table, args := masterTableScript.Alias(EmptyString).Script()
 		s.joinScript = NewJoinScript(NewJoinTableScript(table, alias, args...))
 	}
 	custom(s.joinScript)
@@ -1777,16 +1757,15 @@ func (s *Get) Having(having func(having Filter)) *Get {
 	return s
 }
 
-// Column set the columns list of query.
-func (s *Get) Column(column ...string) *Get {
-	columns := NewSelectColumns()
-	for _, tmp := range column {
-		if tmp != EmptyString {
-			columns.Add(tmp)
-		}
+// Select set the columns list of query.
+func (s *Get) Select(selects func(cols *SelectColumns)) *Get {
+	if selects == nil {
+		return s
 	}
-	if columns.Len() > 0 {
-		s.selectColumns = columns
+	tmp := NewSelectColumns()
+	selects(tmp)
+	if tmp.Len() > 0 {
+		s.selectColumns = tmp
 	}
 	return s
 }
@@ -1865,8 +1844,13 @@ func (s *Get) Offset(offset int64) *Get {
 }
 
 // Page set limit && offset.
-func (s *Get) Page(page int64, limit ...int64) *Get {
-	s.limit.Page(page, limit...)
+func (s *Get) Page(limit int64, page int64) *Get {
+	if limit > 0 {
+		if page <= 0 {
+			page = 1
+		}
+		s.limit.Page(page, limit)
+	}
 	return s
 }
 
@@ -2025,8 +2009,8 @@ func BuildCount(s *Get, countColumns ...string) (prepare string, args []interfac
 		return
 	}
 	return NewGet(s.schema.way).
-		Column(countColumns...).
-		SubQuery(s, AliasA).
+		Select(func(cols *SelectColumns) { cols.AddAll(countColumns...) }).
+		TableScript(s, AliasA).
 		Script()
 }
 

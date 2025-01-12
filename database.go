@@ -311,6 +311,18 @@ func (s *SelectColumns) Script() (prepare string, args []interface{}) {
 	return
 }
 
+func (s *SelectColumns) ColumnIndex(column string) int {
+	index, ok := s.columnsMap[column]
+	if !ok {
+		return -1
+	}
+	return index
+}
+
+func (s *SelectColumns) Exists(column string) bool {
+	return s.ColumnIndex(column) >= 0
+}
+
 func (s *SelectColumns) Add(column string, args ...interface{}) *SelectColumns {
 	if column == EmptyString {
 		return s
@@ -324,6 +336,13 @@ func (s *SelectColumns) Add(column string, args ...interface{}) *SelectColumns {
 	s.columns = append(s.columns, column)
 	s.columnsMap[column] = index
 	s.columnsArgs[index] = args
+	return s
+}
+
+func (s *SelectColumns) AddAll(columns ...string) *SelectColumns {
+	for _, column := range columns {
+		s.Add(column)
+	}
 	return s
 }
 
@@ -362,6 +381,19 @@ func (s *SelectColumns) DelAll() *SelectColumns {
 
 func (s *SelectColumns) Len() int {
 	return len(s.columns)
+}
+
+func (s *SelectColumns) GetColumnsArgs() ([]string, map[int][]interface{}) {
+	return s.columns, s.columnsArgs
+}
+
+func (s *SelectColumns) SetColumnsArgs(columns []string, columnsArgs map[int][]interface{}) *SelectColumns {
+	columnsMap := make(map[string]int, 32)
+	for i, column := range columns {
+		columnsMap[column] = i
+	}
+	s.columns, s.columnsMap, s.columnsArgs = columns, columnsMap, columnsArgs
+	return s
 }
 
 // JoinRequire Constructing conditions for join queries.
