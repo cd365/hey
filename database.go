@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,11 +25,12 @@ type Identifier interface {
 }
 
 type identifier struct {
-	identify   string
-	add        map[string]string
-	addRWMutex *sync.RWMutex
-	del        map[string]string
-	delRWMutex *sync.RWMutex
+	identify         string
+	identifierSymbol *regexp.Regexp
+	add              map[string]string
+	addRWMutex       *sync.RWMutex
+	del              map[string]string
+	delRWMutex       *sync.RWMutex
 }
 
 func (s *identifier) getAdd(key string) (value string, ok bool) {
@@ -73,6 +75,11 @@ func (s *identifier) SymbolAddAll(keys []string) []string {
 		}
 		value, ok := s.getAdd(keys[i])
 		if !ok {
+			if !s.identifierSymbol.MatchString(keys[i]) {
+				result = append(result, keys[i])
+				s.setAdd(keys[i], keys[i])
+				continue
+			}
 			value = strings.ReplaceAll(keys[i], identify, EmptyString)
 			value = strings.TrimSpace(value)
 			values := strings.Split(value, SqlPoint)
@@ -119,11 +126,12 @@ func (s *identifier) Symbol() string {
 
 func NewIdentifier(identify string) Identifier {
 	return &identifier{
-		identify:   identify,
-		add:        make(map[string]string, 512),
-		addRWMutex: &sync.RWMutex{},
-		del:        make(map[string]string, 512),
-		delRWMutex: &sync.RWMutex{},
+		identify:         identify,
+		identifierSymbol: regexp.MustCompile("^[A-Za-z][A-Za-z0-9_.]*$"),
+		add:              make(map[string]string, 512),
+		addRWMutex:       &sync.RWMutex{},
+		del:              make(map[string]string, 512),
+		delRWMutex:       &sync.RWMutex{},
 	}
 }
 
