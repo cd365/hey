@@ -14,6 +14,7 @@ import (
  * database helper.
  **/
 
+// Identifier Add or remove quote characters in sql identifiers.
 type Identifier interface {
 	SymbolAddAll(keys []string) []string
 	SymbolAddOne(key string) string
@@ -126,11 +127,12 @@ func NewIdentifier(identify string) Identifier {
 	}
 }
 
+// IsEmpty Check if an object value is empty.
 type IsEmpty interface {
 	IsEmpty() bool
 }
 
-// Script SQL script and it's corresponding parameter list.
+// Script Used to build a SQL expression and its corresponding parameter list.
 type Script interface {
 	// Script Get a list of script statements and their corresponding parameters.
 	Script() (prepare string, args []interface{})
@@ -163,7 +165,7 @@ func IsEmptyScript(script Script) bool {
 	return prepare == EmptyString
 }
 
-// TableScript SQL statement table and its corresponding parameter list, allowing table aliases to be set.
+// TableScript Used to construct expressions that can use table aliases and their corresponding parameter lists.
 type TableScript interface {
 	IsEmpty
 
@@ -274,7 +276,7 @@ func (s *withScript) GetAlias() string {
 	return s.alias
 }
 
-// SelectColumns For select columns.
+// SelectColumns Used to build the list of columns to be queried.
 type SelectColumns struct {
 	columns     []string
 	columnsMap  map[string]int
@@ -362,9 +364,10 @@ func (s *SelectColumns) Len() int {
 	return len(s.columns)
 }
 
+// JoinRequire Constructing conditions for join queries.
 type JoinRequire func(leftAlias string, rightAlias string) (prepare string, args []interface{})
 
-// JoinTableScript For join table with self select columns.
+// JoinTableScript Constructing table for join queries.
 type JoinTableScript interface {
 	TableScript
 
@@ -445,7 +448,7 @@ func NewJoinTableScript(table string, alias string, args ...interface{}) JoinTab
 	}
 }
 
-// JoinScript Join table.
+// JoinScript Constructing multi-table join queries.
 type JoinScript interface {
 	Script() (prepare string, args []interface{})
 
@@ -702,6 +705,7 @@ func (s *joinScript) SelectExtendColumns(custom func(sc *SelectColumns)) JoinScr
 	return s
 }
 
+// GroupScript Constructing query groups.
 type GroupScript interface {
 	IsEmpty
 
@@ -771,6 +775,7 @@ func NewGroupScript() GroupScript {
 	}
 }
 
+// OrderScript Constructing query orders.
 type OrderScript interface {
 	IsEmpty
 
@@ -843,6 +848,7 @@ func NewOrderScript() OrderScript {
 	}
 }
 
+// LimitScript Constructing query limits.
 type LimitScript interface {
 	IsEmpty
 
@@ -1004,6 +1010,7 @@ func IntersectScript(scripts ...Script) Script {
 	}, scripts...)
 }
 
+// InsertFieldsScript Constructing insert fields.
 type InsertFieldsScript interface {
 	IsEmpty
 
@@ -1171,6 +1178,7 @@ func (s *insertFieldsScript) Len() int {
 	return len(s.fields)
 }
 
+// InsertValuesScript Constructing insert values.
 type InsertValuesScript interface {
 	IsEmpty
 
@@ -1298,6 +1306,7 @@ func (s *insertValuesScript) GetValues() [][]interface{} {
 	return s.values
 }
 
+// UpdateSetScript Constructing update sets.
 type UpdateSetScript interface {
 	IsEmpty
 
