@@ -990,7 +990,7 @@ func ConcatScript(custom func(index int, script Script) Script, scripts ...Scrip
 	return NewScript(b.String(), args)
 }
 
-// UnionScript (query1) UNION (query2) UNION (query3)...
+// UnionScript ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...
 func UnionScript(scripts ...Script) Script {
 	return ConcatScript(func(index int, script Script) Script {
 		if index == 0 {
@@ -1006,7 +1006,7 @@ func UnionScript(scripts ...Script) Script {
 	}, scripts...)
 }
 
-// UnionAllScript (query1) UNION ALL (query2) UNION ALL (query3)...
+// UnionAllScript ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )...
 func UnionAllScript(scripts ...Script) Script {
 	return ConcatScript(func(index int, script Script) Script {
 		if index == 0 {
@@ -1022,7 +1022,7 @@ func UnionAllScript(scripts ...Script) Script {
 	}, scripts...)
 }
 
-// ExceptScript (query1) EXCEPT (query2) EXCEPT (query3)...
+// ExceptScript ( QUERY_A ) EXCEPT ( QUERY_B )...
 func ExceptScript(scripts ...Script) Script {
 	return ConcatScript(func(index int, script Script) Script {
 		prepare, args := script.Script()
@@ -1040,7 +1040,7 @@ func ExceptScript(scripts ...Script) Script {
 	}, scripts...)
 }
 
-// IntersectScript (query1) INTERSECT (query2) INTERSECT (query3)...
+// IntersectScript ( QUERY_A ) INTERSECT ( QUERY_B )...
 func IntersectScript(scripts ...Script) Script {
 	return ConcatScript(func(index int, script Script) Script {
 		prepare, args := script.Script()
