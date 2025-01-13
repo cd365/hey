@@ -127,7 +127,7 @@ func (s *identifier) Symbol() string {
 func NewIdentifier(identify string) Identifier {
 	return &identifier{
 		identify:         identify,
-		identifierSymbol: regexp.MustCompile("^[A-Za-z][A-Za-z0-9_.]*$"),
+		identifierSymbol: regexp.MustCompile("^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*)$"),
 		add:              make(map[string]string, 512),
 		addRWMutex:       &sync.RWMutex{},
 		del:              make(map[string]string, 512),
