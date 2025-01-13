@@ -1847,17 +1847,6 @@ func (s *Get) Offset(offset int64) *Get {
 	return s
 }
 
-// Page set limit && offset.
-func (s *Get) Page(limit int64, page int64) *Get {
-	if limit > 0 {
-		if page <= 0 {
-			page = 1
-		}
-		s.limit.Page(page, limit)
-	}
-	return s
-}
-
 // Limiter set limit and offset at the same time.
 func (s *Get) Limiter(limiter Limiter) *Get {
 	if limiter == nil {
