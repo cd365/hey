@@ -221,67 +221,84 @@ func NewTableScript(prepare string, args []interface{}) TableScript {
 	}
 }
 
-// WithScript CTE: Common Table Expression.
-type WithScript interface {
+// MakeWith CTE: Common Table Expression.
+type MakeWith interface {
 	IsEmpty
 
 	Script
 
-	// With Set common table expression.
-	With(alias string, script Script) WithScript
+	// Add Set common table expression.
+	Add(alias string, script Script) MakeWith
 
-	// Alias Setting aliases for script statements.
-	Alias(alias string) WithScript
-
-	// GetAlias Getting aliases for script statements.
-	GetAlias() string
+	// Del Remove common table expression.
+	Del(alias string) MakeWith
 }
 
-type withScript struct {
-	alias  string
-	script Script
+type makeWith struct {
+	with    []string
+	withMap map[string]Script
 }
 
-func NewWithScript() WithScript {
-	return &withScript{}
+func NewMakeWith() MakeWith {
+	return &makeWith{
+		with:    make([]string, 0, 8),
+		withMap: make(map[string]Script, 8),
+	}
 }
 
-func (s *withScript) IsEmpty() bool {
-	return s.alias == EmptyString || IsEmptyScript(s.script)
+func (s *makeWith) IsEmpty() bool {
+	return len(s.with) == 0
 }
 
-func (s *withScript) Script() (prepare string, args []interface{}) {
+func (s *makeWith) Script() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString(s.alias)
-	b.WriteString(" AS ( ")
-	prepare, args = s.script.Script()
-	b.WriteString(prepare)
-	b.WriteString(" )")
+	var param []interface{}
+	for index, alias := range s.with {
+		if index > 0 {
+			b.WriteString(", ")
+		}
+		script := s.withMap[alias]
+		b.WriteString(alias)
+		b.WriteString(" AS ( ")
+		prepare, param = script.Script()
+		b.WriteString(prepare)
+		b.WriteString(" )")
+		args = append(args, param...)
+	}
 	prepare = b.String()
 	return
 }
 
-func (s *withScript) With(alias string, script Script) WithScript {
-	if alias == EmptyString || IsEmptyScript(s.script) {
+func (s *makeWith) Add(alias string, script Script) MakeWith {
+	if alias == EmptyString || IsEmptyScript(script) {
 		return s
 	}
-	s.alias, s.script = alias, script
-	return s
-}
-
-func (s *withScript) Alias(alias string) WithScript {
-	if alias != EmptyString {
-		s.alias = alias
+	if _, ok := s.withMap[alias]; ok {
+		s.withMap[alias] = script
+		return s
 	}
+	s.with = append(s.with, alias)
+	s.withMap[alias] = script
 	return s
 }
 
-func (s *withScript) GetAlias() string {
-	return s.alias
+func (s *makeWith) Del(alias string) MakeWith {
+	if alias == EmptyString {
+		return s
+	}
+	with := make([]string, 0, len(s.with))
+	for _, tmp := range s.with {
+		if tmp != alias {
+			with = append(with, tmp)
+		}
+	}
+	delete(s.withMap, alias)
+	s.with = with
+	return s
 }
 
 // SelectColumns Used to build the list of columns to be queried.

@@ -1635,7 +1635,7 @@ type Limiter interface {
 // Get for SELECT.
 type Get struct {
 	schema        *schema
-	withScript    []WithScript
+	makeWith      MakeWith
 	selectColumns *SelectColumns
 	joinScript    JoinScript
 	where         Filter
@@ -1669,13 +1669,14 @@ func (s *Get) Context(ctx context.Context) *Get {
 }
 
 // With for with query.
-func (s *Get) With(with ...WithScript) *Get {
-	for _, tmp := range with {
-		if IsEmptyScript(tmp) {
-			continue
-		}
-		s.withScript = append(s.withScript, tmp)
+func (s *Get) With(alias string, script Script) *Get {
+	if alias == EmptyString || IsEmptyScript(script) {
+		return s
 	}
+	if s.makeWith == nil {
+		s.makeWith = NewMakeWith()
+	}
+	s.makeWith.Add(alias, script)
 	return s
 }
 
@@ -1702,7 +1703,7 @@ func (s *Get) TableScript(script Script, alias string) *Get {
 }
 
 // Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
-func (s *Get) Join(custom func(js JoinScript), master ...func(master TableScript) JoinTableScript) *Get {
+func (s *Get) Join(custom func(js JoinScript)) *Get {
 	if custom == nil {
 		return s
 	}
@@ -1710,28 +1711,16 @@ func (s *Get) Join(custom func(js JoinScript), master ...func(master TableScript
 		custom(s.joinScript)
 		return s
 	}
-	masterTable := s.schema.table
-	for i := len(master) - 1; i >= 0; i-- {
-		tmp := master[i]
-		if tmp == nil {
-			continue
-		}
-		tab := tmp(masterTable)
-		if tab != nil && !tab.IsEmpty() && tab.GetAlias() != EmptyString {
-			break
-		}
-	}
-	if masterTable == nil || masterTable.IsEmpty() {
+	master := s.schema.table
+	if IsEmptyScript(master) {
 		return s
 	}
-	aliasOrigin := masterTable.GetAlias()
-	aliasLatest := aliasOrigin
-	if aliasLatest == EmptyString {
-		aliasLatest = AliasA
+	if alias := master.GetAlias(); alias == EmptyString {
+		master.Alias(AliasA) // set master default alias name
 	}
-	table, args := masterTable.Alias(EmptyString).Script()
-	masterTable.Alias(aliasOrigin)
-	s.joinScript = NewJoinScript().SetMaster(NewJoinTableScript(table, aliasLatest, args...))
+	alias := master.GetAlias()
+	prepare, args := master.Script()
+	s.joinScript = NewJoinScript().SetMaster(NewJoinTableScript(prepare, alias, args...))
 	custom(s.joinScript)
 	return s
 }
@@ -1855,33 +1844,6 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
-// BuildWith Build SQL WITH.
-// [WITH a AS ( xxx )[, b AS ( xxx ) ]].
-func BuildWith(lists []WithScript) (prepare string, args []interface{}) {
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-	b.WriteString("WITH ")
-	num := 0
-	for _, tmp := range lists {
-		if tmp == nil || tmp.IsEmpty() {
-			continue
-		}
-		table, param := tmp.Script()
-		if num > 0 {
-			b.WriteString(", ")
-		}
-		num++
-		b.WriteString(table)
-		args = append(args, param...)
-	}
-	if num == 0 {
-		args = nil
-		return
-	}
-	prepare = b.String()
-	return
-}
-
 // BuildTable Build query table (without ORDER BY, LIMIT, OFFSET).
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
 func BuildTable(s *Get) (prepare string, args []interface{}) {
@@ -1890,9 +1852,10 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-	if s.withScript != nil {
-		prepareWith, argsWith := BuildWith(s.withScript)
+	if s.makeWith != nil {
+		prepareWith, argsWith := s.makeWith.Script()
 		if prepareWith != EmptyString {
+			b.WriteString("WITH ")
 			b.WriteString(prepareWith)
 			b.WriteString(SqlSpace)
 			if argsWith != nil {
