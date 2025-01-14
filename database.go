@@ -221,36 +221,36 @@ func NewTableScript(prepare string, args []interface{}) TableScript {
 	}
 }
 
-// MakeWith CTE: Common Table Expression.
-type MakeWith interface {
+// QueryWith CTE: Common Table Expression.
+type QueryWith interface {
 	IsEmpty
 
 	Script
 
 	// Add Set common table expression.
-	Add(alias string, script Script) MakeWith
+	Add(alias string, script Script) QueryWith
 
 	// Del Remove common table expression.
-	Del(alias string) MakeWith
+	Del(alias string) QueryWith
 }
 
-type makeWith struct {
+type queryWith struct {
 	with    []string
 	withMap map[string]Script
 }
 
-func NewMakeWith() MakeWith {
-	return &makeWith{
+func NewQueryWith() QueryWith {
+	return &queryWith{
 		with:    make([]string, 0, 8),
 		withMap: make(map[string]Script, 8),
 	}
 }
 
-func (s *makeWith) IsEmpty() bool {
+func (s *queryWith) IsEmpty() bool {
 	return len(s.with) == 0
 }
 
-func (s *makeWith) Script() (prepare string, args []interface{}) {
+func (s *queryWith) Script() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
@@ -273,7 +273,7 @@ func (s *makeWith) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *makeWith) Add(alias string, script Script) MakeWith {
+func (s *queryWith) Add(alias string, script Script) QueryWith {
 	if alias == EmptyString || IsEmptyScript(script) {
 		return s
 	}
@@ -286,7 +286,7 @@ func (s *makeWith) Add(alias string, script Script) MakeWith {
 	return s
 }
 
-func (s *makeWith) Del(alias string) MakeWith {
+func (s *queryWith) Del(alias string) QueryWith {
 	if alias == EmptyString {
 		return s
 	}
@@ -301,33 +301,61 @@ func (s *makeWith) Del(alias string) MakeWith {
 	return s
 }
 
-// SelectColumns Used to build the list of columns to be queried.
-type SelectColumns struct {
-	columns     []string
-	columnsMap  map[string]int
-	columnsArgs map[int][]interface{}
+// QueryFields Used to build the list of fields to be queried.
+type QueryFields interface {
+	IsEmpty
+
+	Script
+
+	Index(fieldOrPrepare string) int
+
+	Exists(fieldOrPrepare string) bool
+
+	Add(fieldOrPrepare string, args ...interface{}) QueryFields
+
+	AddAll(fieldOrPrepares ...string) QueryFields
+
+	Del(fieldOrPrepares ...string) QueryFields
+
+	DelAll() QueryFields
+
+	Len() int
+
+	Get() ([]string, map[int][]interface{})
+
+	Set(fields []string, fieldsArgs map[int][]interface{}) QueryFields
 }
 
-func NewSelectColumns() *SelectColumns {
-	return &SelectColumns{
-		columns:     make([]string, 0, 32),
-		columnsMap:  make(map[string]int, 32),
-		columnsArgs: make(map[int][]interface{}, 32),
+type queryFields struct {
+	fields     []string
+	fieldsMap  map[string]int
+	fieldsArgs map[int][]interface{}
+}
+
+func NewQueryFields() QueryFields {
+	return &queryFields{
+		fields:     make([]string, 0, 32),
+		fieldsMap:  make(map[string]int, 32),
+		fieldsArgs: make(map[int][]interface{}, 32),
 	}
 }
 
-func (s *SelectColumns) Script() (prepare string, args []interface{}) {
-	length := len(s.columns)
+func (s *queryFields) IsEmpty() bool {
+	return len(s.fields) == 0
+}
+
+func (s *queryFields) Script() (prepare string, args []interface{}) {
+	length := len(s.fields)
 	if length == 0 {
 		return SqlStar, nil
 	}
 	columns := make([]string, 0, length)
 	for i := 0; i < length; i++ {
-		tmpArgs, ok := s.columnsArgs[i]
+		tmpArgs, ok := s.fieldsArgs[i]
 		if !ok {
 			continue
 		}
-		columns = append(columns, s.columns[i])
+		columns = append(columns, s.fields[i])
 		if tmpArgs != nil {
 			args = append(args, tmpArgs...)
 		}
@@ -336,140 +364,140 @@ func (s *SelectColumns) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *SelectColumns) ColumnIndex(column string) int {
-	index, ok := s.columnsMap[column]
+func (s *queryFields) Index(fieldOrPrepare string) int {
+	index, ok := s.fieldsMap[fieldOrPrepare]
 	if !ok {
 		return -1
 	}
 	return index
 }
 
-func (s *SelectColumns) Exists(column string) bool {
-	return s.ColumnIndex(column) >= 0
+func (s *queryFields) Exists(fieldOrPrepare string) bool {
+	return s.Index(fieldOrPrepare) >= 0
 }
 
-func (s *SelectColumns) Add(column string, args ...interface{}) *SelectColumns {
-	if column == EmptyString {
+func (s *queryFields) Add(fieldOrPrepare string, args ...interface{}) QueryFields {
+	if fieldOrPrepare == EmptyString {
 		return s
 	}
-	index, ok := s.columnsMap[column]
+	index, ok := s.fieldsMap[fieldOrPrepare]
 	if ok {
-		s.columnsArgs[index] = args
+		s.fieldsArgs[index] = args
 		return s
 	}
-	index = len(s.columns)
-	s.columns = append(s.columns, column)
-	s.columnsMap[column] = index
-	s.columnsArgs[index] = args
+	index = len(s.fields)
+	s.fields = append(s.fields, fieldOrPrepare)
+	s.fieldsMap[fieldOrPrepare] = index
+	s.fieldsArgs[index] = args
 	return s
 }
 
-func (s *SelectColumns) AddAll(columns ...string) *SelectColumns {
-	for _, column := range columns {
-		s.Add(column)
+func (s *queryFields) AddAll(fieldOrPrepares ...string) QueryFields {
+	for _, fieldOrPrepare := range fieldOrPrepares {
+		s.Add(fieldOrPrepare)
 	}
 	return s
 }
 
-func (s *SelectColumns) Del(columns ...string) *SelectColumns {
-	deleted := make(map[int]*struct{}, len(columns))
-	for _, column := range columns {
-		if column == EmptyString {
+func (s *queryFields) Del(fieldOrPrepares ...string) QueryFields {
+	deleted := make(map[int]*struct{}, len(fieldOrPrepares))
+	for _, fieldOrPrepare := range fieldOrPrepares {
+		if fieldOrPrepare == EmptyString {
 			continue
 		}
-		index, ok := s.columnsMap[column]
+		index, ok := s.fieldsMap[fieldOrPrepare]
 		if !ok {
 			continue
 		}
 		deleted[index] = &struct{}{}
 	}
-	length := len(s.columns)
-	resultColumns := make([]string, 0, length)
-	for index, column := range s.columns {
+	length := len(s.fields)
+	result := make([]string, 0, length)
+	for index, fieldOrPrepare := range s.fields {
 		if _, ok := deleted[index]; ok {
-			delete(s.columnsMap, column)
-			delete(s.columnsArgs, index)
+			delete(s.fieldsMap, fieldOrPrepare)
+			delete(s.fieldsArgs, index)
 		} else {
-			resultColumns = append(resultColumns, column)
+			result = append(result, fieldOrPrepare)
 		}
 	}
-	s.columns = resultColumns
+	s.fields = result
 	return s
 }
 
-func (s *SelectColumns) DelAll() *SelectColumns {
-	s.columns = make([]string, 0, 32)
-	s.columnsMap = make(map[string]int, 32)
-	s.columnsArgs = make(map[int][]interface{}, 32)
+func (s *queryFields) DelAll() QueryFields {
+	s.fields = make([]string, 0, 32)
+	s.fieldsMap = make(map[string]int, 32)
+	s.fieldsArgs = make(map[int][]interface{}, 32)
 	return s
 }
 
-func (s *SelectColumns) Len() int {
-	return len(s.columns)
+func (s *queryFields) Len() int {
+	return len(s.fields)
 }
 
-func (s *SelectColumns) GetColumnsArgs() ([]string, map[int][]interface{}) {
-	return s.columns, s.columnsArgs
+func (s *queryFields) Get() ([]string, map[int][]interface{}) {
+	return s.fields, s.fieldsArgs
 }
 
-func (s *SelectColumns) SetColumnsArgs(columns []string, columnsArgs map[int][]interface{}) *SelectColumns {
-	columnsMap := make(map[string]int, 32)
-	for i, column := range columns {
-		columnsMap[column] = i
+func (s *queryFields) Set(fields []string, fieldsArgs map[int][]interface{}) QueryFields {
+	fieldsMap := make(map[string]int, 32)
+	for i, field := range fields {
+		fieldsMap[field] = i
 	}
-	s.columns, s.columnsMap, s.columnsArgs = columns, columnsMap, columnsArgs
+	s.fields, s.fieldsMap, s.fieldsArgs = fields, fieldsMap, fieldsArgs
 	return s
 }
 
 // JoinRequire Constructing conditions for join queries.
 type JoinRequire func(leftAlias string, rightAlias string) (prepare string, args []interface{})
 
-// JoinTableScript Constructing table for join queries.
-type JoinTableScript interface {
+// QueryJoinTable Constructing table for join queries.
+type QueryJoinTable interface {
 	TableScript
 
-	AddSelectColumns(columns ...string) JoinTableScript
+	/* the table used for join query only supports querying the field list without any parameters */
 
-	DelSelectColumns(columns ...string) JoinTableScript
+	AddQueryFields(fields ...string) QueryJoinTable
 
-	DelAllSelectColumns() JoinTableScript
+	DelQueryFields(fields ...string) QueryJoinTable
 
-	ExistsSelectColumns() bool
+	DelAllQueryFields() QueryJoinTable
 
-	GetSelectColumns() []string
+	ExistsQueryFields() bool
 
-	GetSelectColumnsString() string
+	GetQueryFields() []string
+
+	GetQueryFieldsString() string
 }
 
-type joinTableScript struct {
+type queryJoinTable struct {
 	TableScript
-	selectColumns *SelectColumns
+	queryFields QueryFields
 }
 
-func (s *joinTableScript) AddSelectColumns(columns ...string) JoinTableScript {
-	for _, column := range columns {
-		s.selectColumns.Add(column)
+func (s *queryJoinTable) AddQueryFields(fields ...string) QueryJoinTable {
+	for _, field := range fields {
+		s.queryFields.Add(field)
 	}
 	return s
 }
 
-func (s *joinTableScript) DelSelectColumns(columns ...string) JoinTableScript {
-	for _, column := range columns {
-		s.selectColumns.Del(column)
-	}
+func (s *queryJoinTable) DelQueryFields(fields ...string) QueryJoinTable {
+	s.queryFields.Del(fields...)
 	return s
 }
 
-func (s *joinTableScript) DelAllSelectColumns() JoinTableScript {
-	s.selectColumns.DelAll()
+func (s *queryJoinTable) DelAllQueryFields() QueryJoinTable {
+	s.queryFields.DelAll()
 	return s
 }
 
-func (s *joinTableScript) ExistsSelectColumns() bool {
-	return s.selectColumns.Len() > 0
+func (s *queryJoinTable) ExistsQueryFields() bool {
+	return s.queryFields.Len() > 0
 }
 
-func (s *joinTableScript) GetSelectColumns() []string {
+func (s *queryJoinTable) GetQueryFields() []string {
 	if s.TableScript == nil {
 		return nil
 	}
@@ -478,7 +506,7 @@ func (s *joinTableScript) GetSelectColumns() []string {
 		return nil
 	}
 	prefix := fmt.Sprintf("%s.", alias)
-	prepare, _ := s.selectColumns.Script()
+	prepare, _ := s.queryFields.Script()
 	prepare = strings.ReplaceAll(prepare, " ", "")
 	columns := strings.Split(prepare, ",")
 	result := make([]string, 0, len(columns))
@@ -494,24 +522,24 @@ func (s *joinTableScript) GetSelectColumns() []string {
 	return result
 }
 
-func (s *joinTableScript) GetSelectColumnsString() string {
-	return strings.Join(s.GetSelectColumns(), ", ")
+func (s *queryJoinTable) GetQueryFieldsString() string {
+	return strings.Join(s.GetQueryFields(), ", ")
 }
 
-func NewJoinTableScript(table string, alias string, args ...interface{}) JoinTableScript {
-	return &joinTableScript{
-		TableScript:   NewTableScript(table, args).Alias(alias),
-		selectColumns: NewSelectColumns(),
+func NewQueryJoinTable(table string, alias string, args ...interface{}) QueryJoinTable {
+	return &queryJoinTable{
+		TableScript: NewTableScript(table, args).Alias(alias),
+		queryFields: NewQueryFields(),
 	}
 }
 
-// JoinScript Constructing multi-table join queries.
-type JoinScript interface {
+// QueryJoin Constructing multi-table join queries.
+type QueryJoin interface {
 	Script() (prepare string, args []interface{})
 
-	GetMaster() JoinTableScript
+	GetMaster() QueryJoinTable
 
-	SetMaster(master JoinTableScript) JoinScript
+	SetMaster(master QueryJoinTable) QueryJoin
 
 	On(requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
 
@@ -519,71 +547,72 @@ type JoinScript interface {
 
 	OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire
 
-	Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
+	Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
 
-	InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
+	InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
 
-	LeftJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
+	LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
 
-	RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript
+	RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
 
 	// Where Don't forget to prefix the specific columns with the table name?
-	Where(where func(where Filter)) JoinScript
+	Where(where func(where Filter)) QueryJoin
 
-	// SelectExtendColumns The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
-	SelectExtendColumns(custom func(sc *SelectColumns)) JoinScript
+	// QueryExtendFields The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
+	QueryExtendFields(custom func(fields QueryFields)) QueryJoin
 }
 
-type joinTable struct {
+type joinQueryTable struct {
 	joinType    string
-	rightTable  JoinTableScript
+	rightTable  QueryJoinTable
 	joinRequire Script
 }
-type joinScript struct {
-	master JoinTableScript
-	joins  []*joinTable
+
+type queryJoin struct {
+	master QueryJoinTable
+	joins  []*joinQueryTable
 	filter Filter
-	// selectExtendColumns The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
-	selectExtendColumns *SelectColumns
+	// queryExtendFields Here you can add a list of fields that cannot be set with parameters in the join query table; the table alias prefix is not automatically added.
+	queryExtendFields QueryFields
 }
 
-func NewJoinScript() JoinScript {
-	tmp := &joinScript{
-		joins:               make([]*joinTable, 0, 8),
-		filter:              F(),
-		selectExtendColumns: NewSelectColumns(),
+func NewQueryJoin() QueryJoin {
+	tmp := &queryJoin{
+		joins:             make([]*joinQueryTable, 0, 8),
+		filter:            F(),
+		queryExtendFields: NewQueryFields(),
 	}
 	return tmp
 }
 
-func (s *joinScript) GetMaster() JoinTableScript {
+func (s *queryJoin) GetMaster() QueryJoinTable {
 	return s.master
 }
 
-func (s *joinScript) SetMaster(master JoinTableScript) JoinScript {
+func (s *queryJoin) SetMaster(master QueryJoinTable) QueryJoin {
 	if master != nil && !master.IsEmpty() {
 		s.master = master
 	}
 	return s
 }
 
-func (s *joinScript) Script() (prepare string, args []interface{}) {
-	columns := NewSelectColumns()
-	if s.master.ExistsSelectColumns() {
-		if column := s.master.GetSelectColumnsString(); column != EmptyString {
+func (s *queryJoin) Script() (prepare string, args []interface{}) {
+	columns := NewQueryFields()
+	if s.master.ExistsQueryFields() {
+		if column := s.master.GetQueryFieldsString(); column != EmptyString {
 			columns.Add(column)
 		}
 	}
 
 	for _, tmp := range s.joins {
-		if tmp.rightTable.ExistsSelectColumns() {
-			if column := tmp.rightTable.GetSelectColumnsString(); column != EmptyString {
+		if tmp.rightTable.ExistsQueryFields() {
+			if column := tmp.rightTable.GetQueryFieldsString(); column != EmptyString {
 				columns.Add(column)
 			}
 		}
 	}
-	if s.selectExtendColumns != nil && s.selectExtendColumns.Len() > 0 {
-		extendColumnsPrepare, extendColumnsArgs := s.selectExtendColumns.Script()
+	if s.queryExtendFields != nil && s.queryExtendFields.Len() > 0 {
+		extendColumnsPrepare, extendColumnsArgs := s.queryExtendFields.Script()
 		columns.Add(extendColumnsPrepare, extendColumnsArgs...)
 	}
 
@@ -630,7 +659,7 @@ func (s *joinScript) Script() (prepare string, args []interface{}) {
 }
 
 // On For `... JOIN ON ...`
-func (s *joinScript) On(requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
+func (s *queryJoin) On(requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
 	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
 		b := getStringBuilder()
 		defer putStringBuilder(b)
@@ -662,7 +691,7 @@ func (s *joinScript) On(requires ...func(leftAlias string, rightAlias string) Sc
 }
 
 // Using For `... JOIN USING ...`
-func (s *joinScript) Using(using []string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
+func (s *queryJoin) Using(using []string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
 	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
 		columns := make([]string, 0, len(using))
 		for _, column := range using {
@@ -703,7 +732,7 @@ func (s *joinScript) Using(using []string, requires ...func(leftAlias string, ri
 }
 
 // OnEqual For `... JOIN ON ... = ... [...]`
-func (s *joinScript) OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
+func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Script) JoinRequire {
 	onRequire := make([]func(leftAlias string, rightAlias string) Script, 0, len(requires)+1)
 	onEqual := func(leftAlias string, rightAlias string) Script {
 		if leftColumn == EmptyString || rightColumn == EmptyString {
@@ -716,7 +745,7 @@ func (s *joinScript) OnEqual(leftColumn string, rightColumn string, requires ...
 	return s.On(onRequire...)
 }
 
-func (s *joinScript) Join(joinTypeString string, leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
+func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
 	if joinTypeString == EmptyString {
 		joinTypeString = SqlJoinInner
 	}
@@ -726,7 +755,7 @@ func (s *joinScript) Join(joinTypeString string, leftTable JoinTableScript, righ
 	if rightTable == nil || rightTable.IsEmpty() {
 		return s
 	}
-	join := &joinTable{
+	join := &joinQueryTable{
 		joinType:   joinTypeString,
 		rightTable: rightTable,
 	}
@@ -740,19 +769,19 @@ func (s *joinScript) Join(joinTypeString string, leftTable JoinTableScript, righ
 	return s
 }
 
-func (s *joinScript) InnerJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
+func (s *queryJoin) InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
 	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
 }
 
-func (s *joinScript) LeftJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
+func (s *queryJoin) LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
 	return s.Join(SqlJoinLeft, leftTable, rightTable, joinRequire)
 }
 
-func (s *joinScript) RightJoin(leftTable JoinTableScript, rightTable JoinTableScript, joinRequire JoinRequire) JoinScript {
+func (s *queryJoin) RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
 	return s.Join(SqlJoinRight, leftTable, rightTable, joinRequire)
 }
 
-func (s *joinScript) Where(where func(where Filter)) JoinScript {
+func (s *queryJoin) Where(where func(where Filter)) QueryJoin {
 	if where == nil {
 		return s
 	}
@@ -760,38 +789,38 @@ func (s *joinScript) Where(where func(where Filter)) JoinScript {
 	return s
 }
 
-func (s *joinScript) SelectExtendColumns(custom func(sc *SelectColumns)) JoinScript {
-	if s.selectExtendColumns == nil {
-		s.selectExtendColumns = NewSelectColumns()
+func (s *queryJoin) QueryExtendFields(custom func(fields QueryFields)) QueryJoin {
+	if s.queryExtendFields == nil {
+		s.queryExtendFields = NewQueryFields()
 	}
 	if custom != nil {
-		custom(s.selectExtendColumns)
+		custom(s.queryExtendFields)
 	}
 	return s
 }
 
-// GroupScript Constructing query groups.
-type GroupScript interface {
+// QueryGroup Constructing query groups.
+type QueryGroup interface {
 	IsEmpty
 
 	Script
 
-	Group(columns ...string) GroupScript
+	Group(columns ...string) QueryGroup
 
-	Having(having func(having Filter)) GroupScript
+	Having(having func(having Filter)) QueryGroup
 }
 
-type groupScript struct {
+type queryGroup struct {
 	group    []string
 	groupMap map[string]int
 	having   Filter
 }
 
-func (s *groupScript) IsEmpty() bool {
+func (s *queryGroup) IsEmpty() bool {
 	return len(s.group) == 0
 }
 
-func (s *groupScript) Script() (prepare string, args []interface{}) {
+func (s *queryGroup) Script() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
@@ -811,7 +840,7 @@ func (s *groupScript) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *groupScript) Group(columns ...string) GroupScript {
+func (s *queryGroup) Group(columns ...string) QueryGroup {
 	for _, column := range columns {
 		if column == EmptyString {
 			continue
@@ -825,42 +854,42 @@ func (s *groupScript) Group(columns ...string) GroupScript {
 	return s
 }
 
-func (s *groupScript) Having(having func(having Filter)) GroupScript {
+func (s *queryGroup) Having(having func(having Filter)) QueryGroup {
 	if having != nil {
 		having(s.having)
 	}
 	return s
 }
 
-func NewGroupScript() GroupScript {
-	return &groupScript{
+func NewQueryGroup() QueryGroup {
+	return &queryGroup{
 		group:    make([]string, 0, 8),
 		groupMap: make(map[string]int, 8),
 		having:   F(),
 	}
 }
 
-// OrderScript Constructing query orders.
-type OrderScript interface {
+// QueryOrder Constructing query orders.
+type QueryOrder interface {
 	IsEmpty
 
 	Script
 
-	Asc(columns ...string) OrderScript
+	Asc(columns ...string) QueryOrder
 
-	Desc(columns ...string) OrderScript
+	Desc(columns ...string) QueryOrder
 }
 
-type orderScript struct {
+type queryOrder struct {
 	orderBy  []string
 	orderMap map[string]int
 }
 
-func (s *orderScript) IsEmpty() bool {
+func (s *queryOrder) IsEmpty() bool {
 	return len(s.orderBy) == 0
 }
 
-func (s *orderScript) Script() (prepare string, args []interface{}) {
+func (s *queryOrder) Script() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
@@ -872,7 +901,7 @@ func (s *orderScript) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *orderScript) Asc(columns ...string) OrderScript {
+func (s *queryOrder) Asc(columns ...string) QueryOrder {
 	index := len(s.orderBy)
 	for _, column := range columns {
 		if column == EmptyString {
@@ -889,7 +918,7 @@ func (s *orderScript) Asc(columns ...string) OrderScript {
 	return s
 }
 
-func (s *orderScript) Desc(columns ...string) OrderScript {
+func (s *queryOrder) Desc(columns ...string) QueryOrder {
 	index := len(s.orderBy)
 	for _, column := range columns {
 		if column == EmptyString {
@@ -906,36 +935,36 @@ func (s *orderScript) Desc(columns ...string) OrderScript {
 	return s
 }
 
-func NewOrderScript() OrderScript {
-	return &orderScript{
+func NewQueryOrder() QueryOrder {
+	return &queryOrder{
 		orderBy:  make([]string, 0, 8),
 		orderMap: make(map[string]int, 8),
 	}
 }
 
-// LimitScript Constructing query limits.
-type LimitScript interface {
+// QueryLimit Constructing query limits.
+type QueryLimit interface {
 	IsEmpty
 
 	Script
 
-	Limit(limit int64) LimitScript
+	Limit(limit int64) QueryLimit
 
-	Offset(offset int64) LimitScript
+	Offset(offset int64) QueryLimit
 
-	Page(page int64, limit ...int64) LimitScript
+	Page(page int64, limit ...int64) QueryLimit
 }
 
-type limitScript struct {
+type queryLimit struct {
 	limit  *int64
 	offset *int64
 }
 
-func (s *limitScript) IsEmpty() bool {
+func (s *queryLimit) IsEmpty() bool {
 	return s.limit == nil
 }
 
-func (s *limitScript) Script() (prepare string, args []interface{}) {
+func (s *queryLimit) Script() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
@@ -949,21 +978,21 @@ func (s *limitScript) Script() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *limitScript) Limit(limit int64) LimitScript {
+func (s *queryLimit) Limit(limit int64) QueryLimit {
 	if limit > 0 {
 		s.limit = &limit
 	}
 	return s
 }
 
-func (s *limitScript) Offset(offset int64) LimitScript {
+func (s *queryLimit) Offset(offset int64) QueryLimit {
 	if offset > 0 {
 		s.offset = &offset
 	}
 	return s
 }
 
-func (s *limitScript) Page(page int64, limit ...int64) LimitScript {
+func (s *queryLimit) Page(page int64, limit ...int64) QueryLimit {
 	if page <= 0 {
 		return s
 	}
@@ -976,103 +1005,71 @@ func (s *limitScript) Page(page int64, limit ...int64) LimitScript {
 	return s
 }
 
-func NewLimitScript() LimitScript {
-	return &limitScript{}
+func NewQueryLimit() QueryLimit {
+	return &queryLimit{}
 }
 
 // ConcatScript Concat multiple scripts.
-func ConcatScript(custom func(index int, script Script) Script, scripts ...Script) Script {
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-	args := make([]interface{}, 0, 32)
+func ConcatScript(concat string, custom func(index int, script Script) Script, scripts ...Script) Script {
+	length := len(scripts)
+	lists := make([]Script, 0, length)
 	index := 0
 	for _, script := range scripts {
-		if script == nil || IsEmptyScript(script) {
-			continue
-		}
 		if custom != nil {
 			script = custom(index, script)
 		}
-		if script == nil || IsEmptyScript(script) {
+		if IsEmptyScript(script) {
 			continue
 		}
-		prepare, param := script.Script()
-		if index > 0 {
-			b.WriteString(SqlSpace)
-		}
-		b.WriteString(prepare)
-		args = append(args, param...)
+		lists = append(lists, script)
 		index++
+	}
+	if index == 0 {
+		return nil
+	}
+	if index < 2 {
+		return lists[0]
+	}
+
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	args := make([]interface{}, 0, 32)
+	concat = strings.TrimSpace(concat)
+	for i := 0; i < index; i++ {
+		prepare, param := lists[i].Script()
+		if i > 0 {
+			b.WriteString(SqlSpace)
+			if concat != EmptyString {
+				b.WriteString(concat)
+				b.WriteString(SqlSpace)
+			}
+		}
+		b.WriteString("( ")
+		b.WriteString(prepare)
+		b.WriteString(" )")
+		args = append(args, param...)
 	}
 	return NewScript(b.String(), args)
 }
 
 // UnionScript ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...
 func UnionScript(scripts ...Script) Script {
-	return ConcatScript(func(index int, script Script) Script {
-		if index == 0 {
-			return script
-		}
-		prepare, args := script.Script()
-		b := getStringBuilder()
-		defer putStringBuilder(b)
-		b.WriteString("UNION ( ")
-		b.WriteString(prepare)
-		b.WriteString(" )")
-		return NewScript(b.String(), args)
-	}, scripts...)
+	return ConcatScript(SqlUnion, nil, scripts...)
 }
 
 // UnionAllScript ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )...
 func UnionAllScript(scripts ...Script) Script {
-	return ConcatScript(func(index int, script Script) Script {
-		if index == 0 {
-			return script
-		}
-		prepare, args := script.Script()
-		b := getStringBuilder()
-		defer putStringBuilder(b)
-		b.WriteString("UNION ALL ( ")
-		b.WriteString(prepare)
-		b.WriteString(" )")
-		return NewScript(b.String(), args)
-	}, scripts...)
+	return ConcatScript(SqlUnionAll, nil, scripts...)
 }
 
 // ExceptScript ( QUERY_A ) EXCEPT ( QUERY_B )...
 func ExceptScript(scripts ...Script) Script {
-	return ConcatScript(func(index int, script Script) Script {
-		prepare, args := script.Script()
-		if index == 0 {
-			prepare = fmt.Sprintf("( %s )", prepare)
-			return NewScript(prepare, args)
-		}
-		b := getStringBuilder()
-		defer putStringBuilder(b)
-		b.WriteString(SqlExpect)
-		b.WriteString(" ( ")
-		b.WriteString(prepare)
-		b.WriteString(" )")
-		return NewScript(b.String(), args)
-	}, scripts...)
+	return ConcatScript(SqlExpect, nil, scripts...)
 }
 
 // IntersectScript ( QUERY_A ) INTERSECT ( QUERY_B )...
 func IntersectScript(scripts ...Script) Script {
-	return ConcatScript(func(index int, script Script) Script {
-		prepare, args := script.Script()
-		if index == 0 {
-			prepare = fmt.Sprintf("( %s )", prepare)
-			return NewScript(prepare, args)
-		}
-		b := getStringBuilder()
-		defer putStringBuilder(b)
-		b.WriteString(SqlIntersect)
-		b.WriteString(" ( ")
-		b.WriteString(prepare)
-		b.WriteString(" )")
-		return NewScript(b.String(), args)
-	}, scripts...)
+	return ConcatScript(SqlIntersect, nil, scripts...)
 }
 
 // InsertFieldsScript Constructing insert fields.

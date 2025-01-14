@@ -1634,25 +1634,25 @@ type Limiter interface {
 
 // Get for SELECT.
 type Get struct {
-	schema        *schema
-	makeWith      MakeWith
-	selectColumns *SelectColumns
-	joinScript    JoinScript
-	where         Filter
-	group         GroupScript
-	order         OrderScript
-	limit         LimitScript
+	schema  *schema
+	with    QueryWith
+	columns QueryFields
+	join    QueryJoin
+	where   Filter
+	group   QueryGroup
+	order   QueryOrder
+	limit   QueryLimit
 }
 
 // NewGet for SELECT.
 func NewGet(way *Way) *Get {
 	return &Get{
-		schema:        newSchema(way),
-		selectColumns: NewSelectColumns(),
-		where:         F(),
-		group:         NewGroupScript(),
-		order:         NewOrderScript(),
-		limit:         NewLimitScript(),
+		schema:  newSchema(way),
+		columns: NewQueryFields(),
+		where:   F(),
+		group:   NewQueryGroup(),
+		order:   NewQueryOrder(),
+		limit:   NewQueryLimit(),
 	}
 }
 
@@ -1673,10 +1673,10 @@ func (s *Get) With(alias string, script Script) *Get {
 	if alias == EmptyString || IsEmptyScript(script) {
 		return s
 	}
-	if s.makeWith == nil {
-		s.makeWith = NewMakeWith()
+	if s.with == nil {
+		s.with = NewQueryWith()
 	}
-	s.makeWith.Add(alias, script)
+	s.with.Add(alias, script)
 	return s
 }
 
@@ -1703,12 +1703,12 @@ func (s *Get) TableScript(script Script, alias string) *Get {
 }
 
 // Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
-func (s *Get) Join(custom func(js JoinScript)) *Get {
+func (s *Get) Join(custom func(js QueryJoin)) *Get {
 	if custom == nil {
 		return s
 	}
-	if s.joinScript != nil {
-		custom(s.joinScript)
+	if s.join != nil {
+		custom(s.join)
 		return s
 	}
 	master := s.schema.table
@@ -1720,8 +1720,8 @@ func (s *Get) Join(custom func(js JoinScript)) *Get {
 	}
 	alias := master.GetAlias()
 	prepare, args := master.Script()
-	s.joinScript = NewJoinScript().SetMaster(NewJoinTableScript(prepare, alias, args...))
-	custom(s.joinScript)
+	s.join = NewQueryJoin().SetMaster(NewQueryJoinTable(prepare, alias, args...))
+	custom(s.join)
 	return s
 }
 
@@ -1751,14 +1751,14 @@ func (s *Get) Having(having func(having Filter)) *Get {
 }
 
 // Select set the columns list of query.
-func (s *Get) Select(selects func(cols *SelectColumns)) *Get {
+func (s *Get) Select(selects func(cols QueryFields)) *Get {
 	if selects == nil {
 		return s
 	}
-	tmp := NewSelectColumns()
+	tmp := NewQueryFields()
 	selects(tmp)
 	if tmp.Len() > 0 {
-		s.selectColumns = tmp
+		s.columns = tmp
 	}
 	return s
 }
@@ -1852,8 +1852,8 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-	if s.makeWith != nil {
-		prepareWith, argsWith := s.makeWith.Script()
+	if s.with != nil {
+		prepareWith, argsWith := s.with.Script()
 		if prepareWith != EmptyString {
 			b.WriteString("WITH ")
 			b.WriteString(prepareWith)
@@ -1863,8 +1863,8 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 			}
 		}
 	}
-	if s.joinScript != nil {
-		joinPrepare, joinArgs := s.joinScript.Script()
+	if s.join != nil {
+		joinPrepare, joinArgs := s.join.Script()
 		if joinPrepare != EmptyString {
 			b.WriteString(joinPrepare)
 			if joinArgs != nil {
@@ -1873,7 +1873,7 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 		}
 	} else {
 		b.WriteString("SELECT ")
-		selectColumns, selectColumnsArgs := s.selectColumns.Script()
+		selectColumns, selectColumnsArgs := s.columns.Script()
 		b.WriteString(selectColumns)
 		if selectColumnsArgs != nil {
 			args = append(args, selectColumnsArgs...)
@@ -1965,7 +1965,7 @@ func BuildCount(s *Get, countColumns ...string) (prepare string, args []interfac
 		return
 	}
 	return NewGet(s.schema.way).
-		Select(func(cols *SelectColumns) { cols.AddAll(countColumns...) }).
+		Select(func(cols QueryFields) { cols.AddAll(countColumns...) }).
 		TableScript(s, AliasA).
 		Script()
 }
