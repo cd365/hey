@@ -41,13 +41,6 @@ var (
 			return &insertByStruct{}
 		},
 	}
-
-	// casePool case pool.
-	casePool = &sync.Pool{
-		New: func() interface{} {
-			return newCase()
-		},
-	}
 )
 
 // getInsertByStruct get *insertByStruct from pool.
@@ -67,20 +60,6 @@ func putInsertByStruct(b *insertByStruct) {
 	b.used = nil
 	b.structReflectType = nil
 	insertByStructPool.Put(b)
-}
-
-// GetCase get *Case from pool.
-func GetCase() *Case {
-	return casePool.Get().(*Case)
-}
-
-// PutCase put *Case in the pool.
-func PutCase(i *Case) {
-	i.alias = EmptyString
-	i.when = nil
-	i.then = nil
-	i.others = nil
-	casePool.Put(i)
 }
 
 // MustAffectedRows at least one row is affected.
@@ -923,90 +902,6 @@ func MergeSlice[V interface{}](elems ...[]V) []V {
 		result = append(result, elems[i]...)
 	}
 	return result
-}
-
-// Case Implementing SQL CASE.
-type Case struct {
-	alias  string
-	when   []*PrepareArgs
-	then   []*PrepareArgs
-	others *PrepareArgs
-}
-
-func newCase() *Case {
-	return &Case{}
-}
-
-// If CASE WHEN condition THEN expressions.
-func (s *Case) If(when func(f Filter), then string, thenArgs ...interface{}) *Case {
-	if when == nil || then == EmptyString {
-		return s
-	}
-	w := GetFilter()
-	defer PutFilter(w)
-	when(w)
-	if w.IsEmpty() {
-		return s
-	}
-	prepare, args := w.Script()
-	s.when = append(s.when, &PrepareArgs{
-		Prepare: prepare,
-		Args:    args,
-	})
-	s.then = append(s.then, &PrepareArgs{
-		Prepare: then,
-		Args:    thenArgs,
-	})
-	return s
-}
-
-// Else Expressions of else.
-func (s *Case) Else(elseExpr string, elseArgs ...interface{}) *Case {
-	if elseExpr == EmptyString {
-		return s
-	}
-	s.others = &PrepareArgs{
-		Prepare: elseExpr,
-		Args:    elseArgs,
-	}
-	return s
-}
-
-// Alias AS alias .
-func (s *Case) Alias(alias string) *Case {
-	s.alias = alias
-	return s
-}
-
-// Script Make SQL expr: CASE WHEN condition1 THEN result1 WHEN condition2 THEN result2 ... ELSE else_result END [AS alias_name] .
-func (s *Case) Script() (prepare string, args []interface{}) {
-	lenWhen, lenThen := len(s.when), len(s.then)
-	if lenWhen == 0 || lenWhen != lenThen || s.others == nil {
-		return
-	}
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-	b.WriteString("CASE")
-	for i := 0; i < lenWhen; i++ {
-		b.WriteString(" WHEN ")
-		b.WriteString(s.when[i].Prepare)
-		args = append(args, s.when[i].Args...)
-		b.WriteString(" THEN ")
-		b.WriteString(s.then[i].Prepare)
-		args = append(args, s.then[i].Args...)
-	}
-	b.WriteString(SqlSpace)
-	b.WriteString("ELSE ")
-	b.WriteString(s.others.Prepare)
-	args = append(args, s.others.Args...)
-	b.WriteString(" END")
-	if s.alias != EmptyString {
-		b.WriteString(SqlSpace)
-		b.WriteString("AS ")
-		b.WriteString(s.alias)
-	}
-	prepare = b.String()
-	return
 }
 
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.
