@@ -1692,12 +1692,33 @@ func (s *Get) Alias(alias string) *Get {
 	return s
 }
 
-// TableScript table is a query SQL statement.
-func (s *Get) TableScript(script Script, alias string) *Get {
-	if alias == EmptyString || script == nil || IsEmptyScript(script) {
+// Subquery table is a subquery.
+func (s *Get) Subquery(subquery Script, alias string) *Get {
+	if IsEmptyScript(subquery) {
 		return s
 	}
-	prepare, args := script.Script()
+	if alias == EmptyString {
+		if tab, ok := subquery.(*Get); ok && tab != nil {
+			alias = tab.schema.table.GetAlias()
+			if alias != EmptyString {
+				tab.Alias(EmptyString)
+				defer tab.Alias(alias)
+			}
+		}
+		if alias == EmptyString {
+			if tab, ok := subquery.(TableScript); ok && tab != nil {
+				alias = tab.GetAlias()
+				if alias != EmptyString {
+					tab.Alias(EmptyString)
+					defer tab.Alias(alias)
+				}
+			}
+		}
+	}
+	if alias == EmptyString {
+		return s
+	}
+	prepare, args := subquery.Script()
 	s.schema.table = NewTableScript(ConcatString("( ", prepare, " )"), args).Alias(alias)
 	return s
 }
@@ -1844,9 +1865,9 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
-// BuildTable Build query table (without ORDER BY, LIMIT, OFFSET).
+// ScriptGetTable Build query table (without ORDER BY, LIMIT, OFFSET).
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
-func BuildTable(s *Get) (prepare string, args []interface{}) {
+func ScriptGetTable(s *Get) (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
@@ -1903,9 +1924,9 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// BuildOrderByLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
+// ScriptGetOrderLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func BuildOrderByLimitOffset(s *Get) (prepare string, args []interface{}) {
+func ScriptGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	if !s.order.IsEmpty() {
@@ -1932,17 +1953,17 @@ func BuildOrderByLimitOffset(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// BuildGet Build a complete query.
+// ScriptGetScript Build a complete query.
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func BuildGet(s *Get) (prepare string, args []interface{}) {
-	prepare, args = BuildTable(s)
+func ScriptGetScript(s *Get) (prepare string, args []interface{}) {
+	prepare, args = ScriptGetTable(s)
 	if prepare == EmptyString {
 		return
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString(prepare)
-	if tmp, param := BuildOrderByLimitOffset(s); tmp != EmptyString {
+	if tmp, param := ScriptGetOrderLimitOffset(s); tmp != EmptyString {
 		b.WriteString(tmp)
 		if param != nil {
 			args = append(args, param...)
@@ -1952,10 +1973,10 @@ func BuildGet(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// BuildCount Build count query.
+// ScriptGetCount Build count query.
 // SELECT COUNT(*) AS count FROM ( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] ) AS a
 // SELECT COUNT(*) AS count FROM ( query1 UNION [ALL] query2 [UNION [ALL] ...] ) AS a
-func BuildCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
+func ScriptGetCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
 	if countColumns == nil {
 		countColumns = []string{
 			SqlAlias("COUNT(*)", s.schema.way.cfg.Helper.SymbolAddOne(DefaultAliasNameCount)),
@@ -1966,23 +1987,23 @@ func BuildCount(s *Get, countColumns ...string) (prepare string, args []interfac
 	}
 	return NewGet(s.schema.way).
 		Fields(func(fields QueryFields) { fields.AddAll(countColumns...) }).
-		TableScript(s, AliasA).
+		Subquery(s, AliasA).
 		Script()
 }
 
 // Script build SQL statement.
 func (s *Get) Script() (prepare string, args []interface{}) {
-	return BuildGet(s)
+	return ScriptGetScript(s)
 }
 
 // CountScript build SQL statement for count.
 func (s *Get) CountScript(columns ...string) (string, []interface{}) {
-	return BuildCount(s, columns...)
+	return ScriptGetCount(s, columns...)
 }
 
 // GetCount execute the built SQL statement and scan query result for count.
 func GetCount(get *Get, countColumns ...string) (count int64, err error) {
-	prepare, args := BuildCount(get, countColumns...)
+	prepare, args := ScriptGetCount(get, countColumns...)
 	err = get.schema.way.QueryContext(get.schema.ctx, func(rows *sql.Rows) (err error) {
 		if rows.Next() {
 			err = rows.Scan(&count)
@@ -1994,13 +2015,13 @@ func GetCount(get *Get, countColumns ...string) (count int64, err error) {
 
 // GetQuery execute the built SQL statement and scan query result.
 func GetQuery(get *Get, query func(rows *sql.Rows) (err error)) error {
-	prepare, args := BuildGet(get)
+	prepare, args := ScriptGetScript(get)
 	return get.schema.way.QueryContext(get.schema.ctx, query, prepare, args...)
 }
 
 // GetGet execute the built SQL statement and scan query result.
 func GetGet(get *Get, result interface{}) error {
-	prepare, args := BuildGet(get)
+	prepare, args := ScriptGetScript(get)
 	return get.schema.way.TakeAllContext(get.schema.ctx, result, prepare, args...)
 }
 
