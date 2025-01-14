@@ -1703,7 +1703,7 @@ func (s *Get) TableScript(script Script, alias string) *Get {
 }
 
 // Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
-func (s *Get) Join(custom func(js QueryJoin)) *Get {
+func (s *Get) Join(custom func(query QueryJoin)) *Get {
 	if custom == nil {
 		return s
 	}
@@ -1750,13 +1750,13 @@ func (s *Get) Having(having func(having Filter)) *Get {
 	return s
 }
 
-// Select set the columns list of query.
-func (s *Get) Select(selects func(cols QueryFields)) *Get {
-	if selects == nil {
+// Fields set the fields list of query.
+func (s *Get) Fields(custom func(fields QueryFields)) *Get {
+	if custom == nil {
 		return s
 	}
 	tmp := NewQueryFields()
-	selects(tmp)
+	custom(tmp)
 	if tmp.Len() > 0 {
 		s.columns = tmp
 	}
@@ -1965,7 +1965,7 @@ func BuildCount(s *Get, countColumns ...string) (prepare string, args []interfac
 		return
 	}
 	return NewGet(s.schema.way).
-		Select(func(cols QueryFields) { cols.AddAll(countColumns...) }).
+		Fields(func(fields QueryFields) { fields.AddAll(countColumns...) }).
 		TableScript(s, AliasA).
 		Script()
 }
