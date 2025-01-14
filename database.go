@@ -477,9 +477,7 @@ type queryJoinTable struct {
 }
 
 func (s *queryJoinTable) AddQueryFields(fields ...string) QueryJoinTable {
-	for _, field := range fields {
-		s.queryFields.Add(field)
-	}
+	s.queryFields.AddAll(fields...)
 	return s
 }
 

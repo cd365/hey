@@ -1634,25 +1634,25 @@ type Limiter interface {
 
 // Get for SELECT.
 type Get struct {
-	schema  *schema
-	with    QueryWith
-	columns QueryFields
-	join    QueryJoin
-	where   Filter
-	group   QueryGroup
-	order   QueryOrder
-	limit   QueryLimit
+	schema *schema
+	with   QueryWith
+	fields QueryFields
+	join   QueryJoin
+	where  Filter
+	group  QueryGroup
+	order  QueryOrder
+	limit  QueryLimit
 }
 
 // NewGet for SELECT.
 func NewGet(way *Way) *Get {
 	return &Get{
-		schema:  newSchema(way),
-		columns: NewQueryFields(),
-		where:   F(),
-		group:   NewQueryGroup(),
-		order:   NewQueryOrder(),
-		limit:   NewQueryLimit(),
+		schema: newSchema(way),
+		fields: NewQueryFields(),
+		where:  F(),
+		group:  NewQueryGroup(),
+		order:  NewQueryOrder(),
+		limit:  NewQueryLimit(),
 	}
 }
 
@@ -1758,7 +1758,7 @@ func (s *Get) Fields(custom func(fields QueryFields)) *Get {
 	tmp := NewQueryFields()
 	custom(tmp)
 	if tmp.Len() > 0 {
-		s.columns = tmp
+		s.fields = tmp
 	}
 	return s
 }
@@ -1873,10 +1873,10 @@ func BuildTable(s *Get) (prepare string, args []interface{}) {
 		}
 	} else {
 		b.WriteString("SELECT ")
-		selectColumns, selectColumnsArgs := s.columns.Script()
-		b.WriteString(selectColumns)
-		if selectColumnsArgs != nil {
-			args = append(args, selectColumnsArgs...)
+		fields, fieldsArgs := s.fields.Script()
+		b.WriteString(fields)
+		if fieldsArgs != nil {
+			args = append(args, fieldsArgs...)
 		}
 		b.WriteString(" FROM ")
 		table, param := s.schema.table.Script()
