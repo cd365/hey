@@ -1612,9 +1612,11 @@ func (s *MysqlHelper) BinaryDataToHexString(binaryData []byte) string {
 	return fmt.Sprintf("UNHEX('%s')", hex.EncodeToString(binaryData))
 }
 
-func NewMysqlHelper() *MysqlHelper {
+func NewMysqlHelper(driverName string, dataSourceName string) *MysqlHelper {
 	return &MysqlHelper{
-		Identifier: NewIdentifier("`"),
+		driverName:     []byte(driverName),
+		dataSourceName: []byte(dataSourceName),
+		Identifier:     NewIdentifier("`"),
 	}
 }
 
@@ -1703,9 +1705,11 @@ func (s *PostgresHelper) BinaryDataToHexString(binaryData []byte) string {
 	return fmt.Sprintf(`E'\\x%s'`, hex.EncodeToString(binaryData))
 }
 
-func NewPostgresHelper() *PostgresHelper {
+func NewPostgresHelper(driverName string, dataSourceName string) *PostgresHelper {
 	return &PostgresHelper{
-		Identifier: NewIdentifier(`"`),
+		driverName:     []byte(driverName),
+		dataSourceName: []byte(dataSourceName),
+		Identifier:     NewIdentifier(`"`),
 	}
 }
 
@@ -1778,9 +1782,11 @@ func (s *Sqlite3Helper) BinaryDataToHexString(binaryData []byte) string {
 	return fmt.Sprintf(`X'%s'`, hex.EncodeToString(binaryData))
 }
 
-func NewSqlite3Helper() *Sqlite3Helper {
+func NewSqlite3Helper(driverName string, dataSourceName string) *Sqlite3Helper {
 	return &Sqlite3Helper{
-		Identifier: NewIdentifier("`"),
+		driverName:     []byte(driverName),
+		dataSourceName: []byte(dataSourceName),
+		Identifier:     NewIdentifier("`"),
 	}
 }
 

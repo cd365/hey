@@ -85,8 +85,8 @@ const (
 	DefaultAliasNameCount = "counts"
 )
 
-// Config Configure of Way.
-type Config struct {
+// Cfg Configure of Way.
+type Cfg struct {
 	// Scan Scan data into structure.
 	Scan func(rows *sql.Rows, result interface{}, tag string) error
 
@@ -112,8 +112,9 @@ type Config struct {
 	WarnDuration time.Duration
 }
 
-var (
-	DefaultConfig = Config{
+// DefaultCfg default configure value.
+func DefaultCfg() Cfg {
+	return Cfg{
 		Scan:                   ScanSliceStruct,
 		ScanTag:                DefaultTag,
 		DeleteMustUseWhere:     true,
@@ -121,7 +122,7 @@ var (
 		TransactionMaxDuration: time.Second * 5,
 		WarnDuration:           time.Millisecond * 200,
 	}
-)
+}
 
 // LogSql Record executed prepare args.
 type LogSql struct {
@@ -205,7 +206,7 @@ type Reader interface {
 
 // Way Quick insert, delete, update, select helper.
 type Way struct {
-	cfg *Config
+	cfg *Cfg
 
 	db *sql.DB
 
@@ -218,11 +219,11 @@ type Way struct {
 	isRead bool
 }
 
-func (s *Way) GetConfig() *Config {
+func (s *Way) GetConfig() *Cfg {
 	return s.cfg
 }
 
-func (s *Way) SetConfig(cfg Config) *Way {
+func (s *Way) SetConfig(cfg Cfg) *Way {
 	if cfg.Scan == nil || cfg.ScanTag == "" || cfg.Helper == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
 	}
@@ -262,42 +263,19 @@ func (s *Way) IsRead() bool {
 	return s.isRead
 }
 
-func (s *Way) DB() *sql.DB {
+func (s *Way) GetDatabase() *sql.DB {
 	return s.db
 }
 
-func NewWay(driverName string, dataSourceName string) (*Way, error) {
-	db, err := sql.Open(driverName, dataSourceName)
-	if err != nil {
-		return nil, err
+func (s *Way) SetDatabase(db *sql.DB) *Way {
+	s.db = db
+	return s
+}
+
+func NewWay(db *sql.DB) *Way {
+	return &Way{
+		db: db,
 	}
-	if err = db.Ping(); err != nil {
-		return nil, err
-	}
-	way := &Way{}
-	way.db = db
-	cfg := DefaultConfig
-	switch driverName {
-	case DriverNameMysql:
-		helper := NewMysqlHelper()
-		helper.driverName = []byte(driverName)
-		helper.dataSourceName = []byte(dataSourceName)
-		cfg.Helper = helper
-	case DriverNameSqlite3:
-		helper := NewSqlite3Helper()
-		helper.driverName = []byte(driverName)
-		helper.dataSourceName = []byte(dataSourceName)
-		cfg.Helper = helper
-	case DriverNamePostgres, "pgsql", "postgresql":
-		helper := NewPostgresHelper()
-		helper.driverName = []byte(driverName)
-		helper.dataSourceName = []byte(dataSourceName)
-		cfg.Helper = helper
-	default:
-		// set up *Way.cfg.Helper yourself
-	}
-	way.SetConfig(cfg)
-	return way, nil
 }
 
 // begin -> Open transaction.
