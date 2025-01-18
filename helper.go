@@ -1634,7 +1634,7 @@ func (s *Get) Join(custom func(query QueryJoin)) *Get {
 	alias := master.GetAlias()
 	prepare, args := master.Alias(EmptyString).Script()
 	if alias == EmptyString {
-		alias = "m" // set master default alias name.
+		alias = AliasA // set master default alias name.
 	} else {
 		master.Alias(alias) // restore master default alias name.
 	}
