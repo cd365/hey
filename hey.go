@@ -219,15 +219,24 @@ type Way struct {
 	isRead bool
 }
 
-func (s *Way) GetConfig() *Cfg {
+func (s *Way) GetCfg() *Cfg {
 	return s.cfg
 }
 
-func (s *Way) SetConfig(cfg Cfg) *Way {
+func (s *Way) SetCfg(cfg Cfg) *Way {
 	if cfg.Scan == nil || cfg.ScanTag == "" || cfg.Helper == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
 	}
 	s.cfg = &cfg
+	return s
+}
+
+func (s *Way) GetDatabase() *sql.DB {
+	return s.db
+}
+
+func (s *Way) SetDatabase(db *sql.DB) *Way {
+	s.db = db
 	return s
 }
 
@@ -261,15 +270,6 @@ func (s *Way) Read() *Way {
 // IsRead -> Is an object for read?
 func (s *Way) IsRead() bool {
 	return s.isRead
-}
-
-func (s *Way) GetDatabase() *sql.DB {
-	return s.db
-}
-
-func (s *Way) SetDatabase(db *sql.DB) *Way {
-	s.db = db
-	return s
 }
 
 func NewWay(db *sql.DB) *Way {
