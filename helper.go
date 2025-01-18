@@ -1631,11 +1631,13 @@ func (s *Get) Join(custom func(query QueryJoin)) *Get {
 	if IsEmptyScript(master) {
 		return s
 	}
-	if alias := master.GetAlias(); alias == EmptyString {
-		master.Alias(AliasA) // set master default alias name
-	}
 	alias := master.GetAlias()
-	prepare, args := master.Script()
+	prepare, args := master.Alias(EmptyString).Script()
+	if alias == EmptyString {
+		alias = "m" // set master default alias name.
+	} else {
+		master.Alias(alias) // restore master default alias name.
+	}
 	s.join = NewQueryJoin().SetMaster(NewQueryJoinTable(prepare, alias, args...))
 	custom(s.join)
 	return s
@@ -1808,7 +1810,7 @@ func ScriptGetTable(s *Get) (prepare string, args []interface{}) {
 		args = append(args, whereArgs...)
 	}
 	if s.group != nil && !s.group.IsEmpty() {
-		b.WriteString(" GROUP BY ")
+		b.WriteString(SqlSpace)
 		group, groupArgs := s.group.Script()
 		b.WriteString(group)
 		if groupArgs != nil {
@@ -1853,6 +1855,9 @@ func ScriptGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
 func ScriptGetScript(s *Get) (prepare string, args []interface{}) {
 	prepare, args = ScriptGetTable(s)
 	if prepare == EmptyString {
+		return
+	}
+	if s.group != nil && !s.group.IsEmpty() {
 		return
 	}
 	b := getStringBuilder()
