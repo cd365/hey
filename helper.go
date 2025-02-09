@@ -909,7 +909,7 @@ type schema struct {
 	ctx     context.Context
 	way     *Way
 	comment string
-	table   TableScript
+	table   CmdTable
 }
 
 // newSchema new schema with *Way.
@@ -962,16 +962,16 @@ func (s *Del) Context(ctx context.Context) *Del {
 
 // Table set table name.
 func (s *Del) Table(table string, args ...interface{}) *Del {
-	s.schema.table = NewTableScript(table, args)
+	s.schema.table = NewCmdTable(table, args)
 	return s
 }
 
-// TableScript Set table script.
-func (s *Del) TableScript(tableScript TableScript) *Del {
-	if tableScript == nil || IsEmptyScript(tableScript) {
+// CmdTable Set table script.
+func (s *Del) CmdTable(cmdTable CmdTable) *Del {
+	if cmdTable == nil || IsEmptyCmd(cmdTable) {
 		return s
 	}
-	s.schema.table = tableScript
+	s.schema.table = cmdTable
 	return s
 }
 
@@ -981,14 +981,14 @@ func (s *Del) Where(where func(where Filter)) *Del {
 		return s
 	}
 	if s.where == nil {
-		s.where = F()
+		s.where = s.schema.way.F()
 	}
 	where(s.where)
 	return s
 }
 
-// Script build SQL statement.
-func (s *Del) Script() (prepare string, args []interface{}) {
+// Cmd build SQL statement.
+func (s *Del) Cmd() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
@@ -998,8 +998,8 @@ func (s *Del) Script() (prepare string, args []interface{}) {
 	b.WriteString("DELETE ")
 	b.WriteString("FROM ")
 
-	table, param := s.schema.table.Script()
-	b.WriteString(table)
+	table, param := s.schema.table.Cmd()
+	b.WriteString(s.schema.way.NameReplace(table))
 	if param != nil {
 		args = append(args, param...)
 	}
@@ -1011,7 +1011,7 @@ func (s *Del) Script() (prepare string, args []interface{}) {
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.Script()
+		where, whereArgs := s.where.Cmd()
 		b.WriteString(" WHERE ")
 		b.WriteString(where)
 		if whereArgs != nil {
@@ -1025,7 +1025,7 @@ func (s *Del) Script() (prepare string, args []interface{}) {
 
 // Del execute the built SQL statement.
 func (s *Del) Del() (int64, error) {
-	prepare, args := s.Script()
+	prepare, args := s.Cmd()
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
@@ -1036,22 +1036,22 @@ func (s *Del) Way() *Way {
 
 // Add for INSERT.
 type Add struct {
-	schema              *schema
-	except              InsertFieldsScript
-	permit              InsertFieldsScript
-	fieldsScript        InsertFieldsScript
-	valuesScript        InsertValuesScript
-	fieldsScriptDefault InsertFieldsScript
-	valuesScriptDefault InsertValuesScript
-	fromScript          Script
+	schema           *schema
+	except           InsertField
+	permit           InsertField
+	fieldsCmd        InsertField
+	valuesCmd        InsertValue
+	fieldsCmdDefault InsertField
+	valuesCmdDefault InsertValue
+	fromCmd          Cmd
 }
 
 // NewAdd for INSERT.
 func NewAdd(way *Way) *Add {
 	add := &Add{
-		schema:       newSchema(way),
-		fieldsScript: NewInsertFieldScript(),
-		valuesScript: NewInsertValuesScript(),
+		schema:    newSchema(way),
+		fieldsCmd: way.InsertFieldCmd(),
+		valuesCmd: NewInsertValue(),
 	}
 	return add
 }
@@ -1070,18 +1070,18 @@ func (s *Add) Context(ctx context.Context) *Add {
 
 // Table set table name.
 func (s *Add) Table(table string) *Add {
-	s.schema.table = NewTableScript(table, nil)
+	s.schema.table = NewCmdTable(table, nil)
 	return s
 }
 
 // ExceptPermit Set a list of fields that are not allowed to be inserted and a list of fields that are only allowed to be inserted.
-func (s *Add) ExceptPermit(custom func(except InsertFieldsScript, permit InsertFieldsScript)) *Add {
+func (s *Add) ExceptPermit(custom func(except InsertField, permit InsertField)) *Add {
 	if custom != nil {
 		if s.except == nil {
-			s.except = NewInsertFieldScript()
+			s.except = s.schema.way.InsertFieldCmd()
 		}
 		if s.permit == nil {
-			s.permit = NewInsertFieldScript()
+			s.permit = s.schema.way.InsertFieldCmd()
 		}
 		custom(s.except, s.permit)
 	}
@@ -1099,33 +1099,33 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 			return s
 		}
 	}
-	fields = s.schema.way.cfg.Helper.SymbolAddAll(fields)
-	s.fieldsScript.SetFields(fields)
-	s.valuesScript.SetValues(values...)
+	s.fieldsCmd.SetFields(fields)
+	s.valuesCmd.SetValues(values...)
 	if s.permit != nil {
-		s.fieldsScript.Range(func(index int, field string) (toBreak bool) {
-			if !s.permit.FieldExists(field) {
-				s.fieldsScript.DelUseIndex(index)
-				s.valuesScript.Del(index)
+		columns := s.permit.GetFieldsMap()
+		deletes := make([]string, 0, 32)
+		for _, field := range s.fieldsCmd.GetFields() {
+			if _, ok := columns[field]; !ok {
+				deletes = append(deletes, field)
 			}
-			return false
-		})
+		}
+		s.fieldsCmd.Del(deletes...)
 	}
 	if s.except != nil {
-		s.fieldsScript.Range(func(index int, field string) (toBreak bool) {
-			if s.except.FieldExists(field) {
-				s.fieldsScript.DelUseIndex(index)
-				s.valuesScript.Del(index)
+		columns := s.except.GetFieldsMap()
+		deletes := make([]string, 0, 32)
+		for _, field := range s.fieldsCmd.GetFields() {
+			if _, ok := columns[field]; ok {
+				deletes = append(deletes, field)
 			}
-			return false
-		})
+		}
+		s.fieldsCmd.Del(deletes...)
 	}
 	return s
 }
 
 // FieldValue append field-value for insert one or more rows.
 func (s *Add) FieldValue(field string, value interface{}) *Add {
-	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1136,8 +1136,8 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 			return s
 		}
 	}
-	s.fieldsScript.Add(field)
-	s.valuesScript.Set(s.fieldsScript.FieldIndex(field), value)
+	s.fieldsCmd.Add(field)
+	s.valuesCmd.Set(s.fieldsCmd.FieldIndex(field), value)
 	return s
 }
 
@@ -1148,19 +1148,19 @@ func (s *Add) Default(add func(add *Add)) *Add {
 	}
 	v := *s
 	tmp := &v
-	tmp.fieldsScript, tmp.valuesScript = NewInsertFieldScript(), NewInsertValuesScript()
+	tmp.fieldsCmd, tmp.valuesCmd = s.schema.way.InsertFieldCmd(), NewInsertValue()
 	add(tmp)
-	if !tmp.fieldsScript.IsEmpty() && !tmp.valuesScript.IsEmpty() {
-		if s.fieldsScriptDefault == nil {
-			s.fieldsScriptDefault = NewInsertFieldScript()
+	if !tmp.fieldsCmd.IsEmpty() && !tmp.valuesCmd.IsEmpty() {
+		if s.fieldsCmdDefault == nil {
+			s.fieldsCmdDefault = s.schema.way.InsertFieldCmd()
 		}
-		if tmp.valuesScriptDefault == nil {
-			s.valuesScriptDefault = NewInsertValuesScript()
+		if tmp.valuesCmdDefault == nil {
+			s.valuesCmdDefault = NewInsertValue()
 		}
-		fields, values := tmp.fieldsScript.GetFields(), tmp.valuesScript.GetValues()
+		fields, values := tmp.fieldsCmd.GetFields(), tmp.valuesCmd.GetValues()
 		for index, field := range fields {
-			s.fieldsScriptDefault.Add(field)
-			s.valuesScriptDefault.Set(s.fieldsScriptDefault.FieldIndex(field), values[0][index])
+			s.fieldsCmdDefault.Add(field)
+			s.valuesCmdDefault.Set(s.fieldsCmdDefault.FieldIndex(field), values[0][index])
 		}
 	}
 	return s
@@ -1174,38 +1174,38 @@ func (s *Add) Create(create interface{}) *Add {
 		}
 		return s
 	}
-	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, nil, s.schema.way.cfg.Helper.SymbolDelAll(s.permit.GetFields())))
+	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, s.except.GetFields(), s.permit.GetFields()))
 }
 
-// ValuesScript values is a query SQL statement.
-func (s *Add) ValuesScript(script Script, fields []string) *Add {
-	if script == nil || IsEmptyScript(script) {
+// CmdValues values is a query SQL statement.
+func (s *Add) CmdValues(cmdValues Cmd, fields []string) *Add {
+	if cmdValues == nil || IsEmptyCmd(cmdValues) {
 		return s
 	}
-	s.fieldsScript = NewInsertFieldScript().SetFields(fields)
-	s.fromScript = script
+	s.fieldsCmd = s.schema.way.InsertFieldCmd().SetFields(fields)
+	s.fromCmd = cmdValues
 	return s
 }
 
-// Script build SQL statement.
-func (s *Add) Script() (prepare string, args []interface{}) {
+// Cmd build SQL statement.
+func (s *Add) Cmd() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-	if s.fromScript != nil {
+	if s.fromCmd != nil {
 		b.WriteString("INSERT ")
 		b.WriteString("INTO ")
-		table, _ := s.schema.table.Script()
-		b.WriteString(table)
-		if !IsEmptyScript(s.fieldsScript) {
+		table, _ := s.schema.table.Cmd()
+		b.WriteString(s.schema.way.NameReplace(table))
+		if !IsEmptyCmd(s.fieldsCmd) {
 			b.WriteString(SqlSpace)
-			fields, _ := s.fieldsScript.Script()
+			fields, _ := s.fieldsCmd.Cmd()
 			b.WriteString(fields)
 		}
 		b.WriteString(SqlSpace)
-		fromPrepare, fromArgs := s.fromScript.Script()
+		fromPrepare, fromArgs := s.fromCmd.Cmd()
 		b.WriteString(fromPrepare)
 		if fromArgs != nil {
 			args = append(args, fromArgs...)
@@ -1213,30 +1213,30 @@ func (s *Add) Script() (prepare string, args []interface{}) {
 		prepare = b.String()
 		return
 	}
-	if IsEmptyScript(s.fieldsScript) || IsEmptyScript(s.valuesScript) {
+	if IsEmptyCmd(s.fieldsCmd) || IsEmptyCmd(s.valuesCmd) {
 		return
 	}
 	b.WriteString("INSERT ")
 	b.WriteString("INTO ")
-	table, _ := s.schema.table.Script()
-	b.WriteString(table)
+	table, _ := s.schema.table.Cmd()
+	b.WriteString(s.schema.way.NameReplace(table))
 	b.WriteString(SqlSpace)
 	// add default field-value
-	if s.fieldsScriptDefault != nil {
-		fields, values := s.fieldsScriptDefault.GetFields(), s.valuesScriptDefault.GetValues()
+	if s.fieldsCmdDefault != nil {
+		fields, values := s.fieldsCmdDefault.GetFields(), s.valuesCmdDefault.GetValues()
 		if len(values) > 0 && len(fields) == len(values[0]) {
 			for index, field := range fields {
-				if s.fieldsScript.FieldExists(field) {
+				if s.fieldsCmd.FieldExists(field) {
 					continue
 				}
 				s.FieldValue(field, values[0][index])
 			}
 		}
 	}
-	fields, _ := s.fieldsScript.Script()
+	fields, _ := s.fieldsCmd.Cmd()
 	b.WriteString(fields)
 	b.WriteString(SqlSpace)
-	values, param := s.valuesScript.Script()
+	values, param := s.valuesCmd.Cmd()
 	b.WriteString("VALUES ")
 	b.WriteString(values)
 	if param != nil {
@@ -1248,7 +1248,7 @@ func (s *Add) Script() (prepare string, args []interface{}) {
 
 // Add execute the built SQL statement.
 func (s *Add) Add() (int64, error) {
-	prepare, args := s.Script()
+	prepare, args := s.Cmd()
 	if prepare == EmptyString {
 		return 0, nil
 	}
@@ -1263,7 +1263,7 @@ func (s *Add) AddGetId(
 	if custom == nil {
 		return 0, nil
 	}
-	prepare, args := s.Script()
+	prepare, args := s.Cmd()
 	if prepare == EmptyString {
 		return 0, nil
 	}
@@ -1286,10 +1286,10 @@ func (s *Add) Way() *Way {
 // Mod for UPDATE.
 type Mod struct {
 	schema        *schema
-	except        InsertFieldsScript
-	permit        InsertFieldsScript
-	update        UpdateSetScript
-	updateDefault UpdateSetScript
+	except        InsertField
+	permit        InsertField
+	update        UpdateSet
+	updateDefault UpdateSet
 	where         Filter
 }
 
@@ -1297,7 +1297,7 @@ type Mod struct {
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema: newSchema(way),
-		update: NewUpdateSetScript().Identifier(way.cfg.Helper),
+		update: way.UpdateSet(),
 	}
 }
 
@@ -1315,18 +1315,18 @@ func (s *Mod) Context(ctx context.Context) *Mod {
 
 // Table set table name.
 func (s *Mod) Table(table string, args ...interface{}) *Mod {
-	s.schema.table = NewTableScript(table, args)
+	s.schema.table = NewCmdTable(table, args)
 	return s
 }
 
 // ExceptPermit Set a list of fields that are not allowed to be updated and a list of fields that are only allowed to be updated.
-func (s *Mod) ExceptPermit(custom func(except InsertFieldsScript, permit InsertFieldsScript)) *Mod {
+func (s *Mod) ExceptPermit(custom func(except InsertField, permit InsertField)) *Mod {
 	if custom != nil {
 		if s.except == nil {
-			s.except = NewInsertFieldScript()
+			s.except = s.schema.way.InsertFieldCmd()
 		}
 		if s.permit == nil {
-			s.permit = NewInsertFieldScript()
+			s.permit = s.schema.way.InsertFieldCmd()
 		}
 		custom(s.except, s.permit)
 	}
@@ -1340,11 +1340,11 @@ func (s *Mod) Default(custom func(mod *Mod)) *Mod {
 	}
 	tmp := *s
 	mod := &tmp
-	mod.update = NewUpdateSetScript()
+	mod.update = s.schema.way.UpdateSet()
 	custom(mod)
 	if !mod.update.IsEmpty() {
 		if s.updateDefault == nil {
-			s.updateDefault = NewUpdateSetScript()
+			s.updateDefault = s.schema.way.UpdateSet()
 		}
 		prepares, args := mod.update.GetUpdate()
 		for index, prepare := range prepares {
@@ -1365,7 +1365,6 @@ func (s *Mod) Expr(expr string, args ...interface{}) *Mod {
 
 // Set field = value.
 func (s *Mod) Set(field string, value interface{}) *Mod {
-	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1382,7 +1381,6 @@ func (s *Mod) Set(field string, value interface{}) *Mod {
 
 // Incr SET field = field + value.
 func (s *Mod) Incr(field string, value interface{}) *Mod {
-	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1399,7 +1397,6 @@ func (s *Mod) Incr(field string, value interface{}) *Mod {
 
 // Decr SET field = field - value.
 func (s *Mod) Decr(field string, value interface{}) *Mod {
-	field = s.schema.way.cfg.Helper.SymbolAddOne(field)
 	if s.permit != nil {
 		if !s.permit.FieldExists(field) {
 			return s
@@ -1439,7 +1436,6 @@ func (s *Mod) Update(update interface{}) *Mod {
 
 // Contrast Compare old and new to automatically calculate need to update fields.
 func (s *Mod) Contrast(old, new interface{}, except ...string) *Mod {
-	except = s.schema.way.cfg.Helper.SymbolDelAll(except)
 	return s.FieldsValues(StructUpdate(old, new, s.schema.way.cfg.ScanTag, except...))
 }
 
@@ -1449,26 +1445,26 @@ func (s *Mod) Where(where func(where Filter)) *Mod {
 		return s
 	}
 	if s.where == nil {
-		s.where = F()
+		s.where = s.schema.way.F()
 	}
 	where(s.where)
 	return s
 }
 
-// GetUpdateSetScript prepare args of SET.
-func (s *Mod) GetUpdateSetScript() (prepare string, args []interface{}) {
+// GetUpdateSet prepare args of SET.
+func (s *Mod) GetUpdateSet() (prepare string, args []interface{}) {
 	if s.update.IsEmpty() {
 		return
 	}
-	return s.update.Script()
+	return s.update.Cmd()
 }
 
-// Script build SQL statement.
-func (s *Mod) Script() (prepare string, args []interface{}) {
+// Cmd build SQL statement.
+func (s *Mod) Cmd() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
-	update, updateArgs := s.GetUpdateSetScript()
+	update, updateArgs := s.GetUpdateSet()
 	if update == EmptyString {
 		return
 	}
@@ -1476,8 +1472,8 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 	defer putStringBuilder(b)
 	b.WriteString("UPDATE ")
 
-	table, param := s.schema.table.Script()
-	b.WriteString(table)
+	table, param := s.schema.table.Cmd()
+	b.WriteString(s.schema.way.NameReplace(table))
 	if param != nil {
 		args = append(args, param...)
 	}
@@ -1495,7 +1491,7 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.Script()
+		where, whereArgs := s.where.Cmd()
 		b.WriteString(" WHERE ")
 		b.WriteString(where)
 		if whereArgs != nil {
@@ -1509,7 +1505,7 @@ func (s *Mod) Script() (prepare string, args []interface{}) {
 
 // Mod execute the built SQL statement.
 func (s *Mod) Mod() (int64, error) {
-	prepare, args := s.Script()
+	prepare, args := s.Cmd()
 	if prepare == EmptyString {
 		return 0, nil
 	}
@@ -1531,7 +1527,7 @@ type Limiter interface {
 type Get struct {
 	schema *schema
 	with   QueryWith
-	fields QueryFields
+	fields QueryField
 	join   QueryJoin
 	where  Filter
 	group  QueryGroup
@@ -1543,10 +1539,10 @@ type Get struct {
 func NewGet(way *Way) *Get {
 	return &Get{
 		schema: newSchema(way),
-		fields: NewQueryFields(),
-		where:  F(),
-		group:  NewQueryGroup(),
-		order:  NewQueryOrder(),
+		fields: way.QueryField(),
+		where:  way.F(),
+		group:  way.QueryGroup(),
+		order:  way.QueryOrder(),
 		limit:  NewQueryLimit(),
 	}
 }
@@ -1564,8 +1560,8 @@ func (s *Get) Context(ctx context.Context) *Get {
 }
 
 // With for with query.
-func (s *Get) With(alias string, script Script) *Get {
-	if alias == EmptyString || IsEmptyScript(script) {
+func (s *Get) With(alias string, script Cmd) *Get {
+	if alias == EmptyString || IsEmptyCmd(script) {
 		return s
 	}
 	if s.with == nil {
@@ -1577,7 +1573,7 @@ func (s *Get) With(alias string, script Script) *Get {
 
 // Table set table name.
 func (s *Get) Table(table string) *Get {
-	s.schema.table = NewTableScript(table, nil)
+	s.schema.table = NewCmdTable(table, nil)
 	return s
 }
 
@@ -1588,8 +1584,8 @@ func (s *Get) Alias(alias string) *Get {
 }
 
 // Subquery table is a subquery.
-func (s *Get) Subquery(subquery Script, alias string) *Get {
-	if IsEmptyScript(subquery) {
+func (s *Get) Subquery(subquery Cmd, alias string) *Get {
+	if IsEmptyCmd(subquery) {
 		return s
 	}
 	if alias == EmptyString {
@@ -1601,7 +1597,7 @@ func (s *Get) Subquery(subquery Script, alias string) *Get {
 			}
 		}
 		if alias == EmptyString {
-			if tab, ok := subquery.(TableScript); ok && tab != nil {
+			if tab, ok := subquery.(CmdTable); ok && tab != nil {
 				alias = tab.GetAlias()
 				if alias != EmptyString {
 					tab.Alias(EmptyString)
@@ -1613,13 +1609,13 @@ func (s *Get) Subquery(subquery Script, alias string) *Get {
 	if alias == EmptyString {
 		return s
 	}
-	prepare, args := subquery.Script()
-	s.schema.table = NewTableScript(ConcatString("( ", prepare, " )"), args).Alias(alias)
+	prepare, args := subquery.Cmd()
+	s.schema.table = NewCmdTable(ConcatString("( ", prepare, " )"), args).Alias(alias)
 	return s
 }
 
 // Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
-func (s *Get) Join(custom func(query QueryJoin)) *Get {
+func (s *Get) Join(custom func(join QueryJoin)) *Get {
 	if custom == nil {
 		return s
 	}
@@ -1628,17 +1624,17 @@ func (s *Get) Join(custom func(query QueryJoin)) *Get {
 		return s
 	}
 	master := s.schema.table
-	if IsEmptyScript(master) {
+	if IsEmptyCmd(master) {
 		return s
 	}
 	alias := master.GetAlias()
-	prepare, args := master.Alias(EmptyString).Script()
+	prepare, args := master.Alias(EmptyString).Cmd()
 	if alias == EmptyString {
 		alias = AliasA // set master default alias name.
 	} else {
 		master.Alias(alias) // restore master default alias name.
 	}
-	s.join = NewQueryJoin().SetMaster(NewQueryJoinTable(prepare, alias, args...))
+	s.join = s.schema.way.QueryJoin().SetMaster(s.schema.way.QueryJoinTable(prepare, alias, args...))
 	custom(s.join)
 	return s
 }
@@ -1649,7 +1645,7 @@ func (s *Get) Where(where func(where Filter)) *Get {
 		return s
 	}
 	if s.where == nil {
-		s.where = F()
+		s.where = s.schema.way.F()
 	}
 	where(s.where)
 	return s
@@ -1657,7 +1653,6 @@ func (s *Get) Where(where func(where Filter)) *Get {
 
 // Group set group columns.
 func (s *Get) Group(group ...string) *Get {
-	group = s.schema.way.cfg.Helper.SymbolAddAll(group)
 	s.group.Group(group...)
 	return s
 }
@@ -1669,11 +1664,11 @@ func (s *Get) Having(having func(having Filter)) *Get {
 }
 
 // Fields set the fields list of query.
-func (s *Get) Fields(custom func(fields QueryFields)) *Get {
+func (s *Get) Fields(custom func(fields QueryField)) *Get {
 	if custom == nil {
 		return s
 	}
-	tmp := NewQueryFields()
+	tmp := s.schema.way.QueryField()
 	custom(tmp)
 	if tmp.Len() > 0 {
 		s.fields = tmp
@@ -1706,7 +1701,6 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 			if k == EmptyString || v == EmptyString {
 				continue
 			}
-			k, v = s.schema.way.cfg.Helper.SymbolDelOne(k), s.schema.way.cfg.Helper.SymbolDelOne(v)
 			fieldMap[k] = v
 		}
 	}
@@ -1762,18 +1756,17 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
-// ScriptGetTable Build query table (without ORDER BY, LIMIT, OFFSET).
+// CmdGetTable Build query table (without ORDER BY, LIMIT, OFFSET).
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
-func ScriptGetTable(s *Get) (prepare string, args []interface{}) {
+func CmdGetTable(s *Get) (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
 	if s.with != nil {
-		prepareWith, argsWith := s.with.Script()
+		prepareWith, argsWith := s.with.Cmd()
 		if prepareWith != EmptyString {
-			b.WriteString("WITH ")
 			b.WriteString(prepareWith)
 			b.WriteString(SqlSpace)
 			if argsWith != nil {
@@ -1782,7 +1775,7 @@ func ScriptGetTable(s *Get) (prepare string, args []interface{}) {
 		}
 	}
 	if s.join != nil {
-		joinPrepare, joinArgs := s.join.Script()
+		joinPrepare, joinArgs := s.join.Cmd()
 		if joinPrepare != EmptyString {
 			b.WriteString(joinPrepare)
 			if joinArgs != nil {
@@ -1791,27 +1784,27 @@ func ScriptGetTable(s *Get) (prepare string, args []interface{}) {
 		}
 	} else {
 		b.WriteString("SELECT ")
-		fields, fieldsArgs := s.fields.Script()
+		fields, fieldsArgs := s.fields.Cmd()
 		b.WriteString(fields)
 		if fieldsArgs != nil {
 			args = append(args, fieldsArgs...)
 		}
 		b.WriteString(" FROM ")
-		table, param := s.schema.table.Script()
-		b.WriteString(table)
+		table, param := s.schema.table.Cmd()
+		b.WriteString(s.schema.way.NameReplace(table))
 		if param != nil {
 			args = append(args, param...)
 		}
 	}
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.Script()
+		where, whereArgs := s.where.Cmd()
 		b.WriteString(" WHERE ")
 		b.WriteString(where)
 		args = append(args, whereArgs...)
 	}
 	if s.group != nil && !s.group.IsEmpty() {
 		b.WriteString(SqlSpace)
-		group, groupArgs := s.group.Script()
+		group, groupArgs := s.group.Cmd()
 		b.WriteString(group)
 		if groupArgs != nil {
 			args = append(args, groupArgs...)
@@ -1821,13 +1814,13 @@ func ScriptGetTable(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// ScriptGetOrderLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
+// CmdGetOrderLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func ScriptGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
+func CmdGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	if !s.order.IsEmpty() {
-		order, orderArgs := s.order.Script()
+		order, orderArgs := s.order.Cmd()
 		if order != EmptyString {
 			b.WriteString(SqlSpace)
 			b.WriteString(order)
@@ -1837,7 +1830,7 @@ func ScriptGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
 		}
 	}
 	if !s.limit.IsEmpty() {
-		limit, limitArgs := s.limit.Script()
+		limit, limitArgs := s.limit.Cmd()
 		if limit != EmptyString {
 			b.WriteString(SqlSpace)
 			b.WriteString(limit)
@@ -1850,10 +1843,10 @@ func ScriptGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// ScriptGetScript Build a complete query.
+// CmdGetCmd Build a complete query.
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func ScriptGetScript(s *Get) (prepare string, args []interface{}) {
-	prepare, args = ScriptGetTable(s)
+func CmdGetCmd(s *Get) (prepare string, args []interface{}) {
+	prepare, args = CmdGetTable(s)
 	if prepare == EmptyString {
 		return
 	}
@@ -1863,7 +1856,7 @@ func ScriptGetScript(s *Get) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString(prepare)
-	if tmp, param := ScriptGetOrderLimitOffset(s); tmp != EmptyString {
+	if tmp, param := CmdGetOrderLimitOffset(s); tmp != EmptyString {
 		b.WriteString(tmp)
 		if param != nil {
 			args = append(args, param...)
@@ -1873,37 +1866,37 @@ func ScriptGetScript(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// ScriptGetCount Build count query.
+// CmdGetCount Build count query.
 // SELECT COUNT(*) AS count FROM ( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] ) AS a
 // SELECT COUNT(*) AS count FROM ( query1 UNION [ALL] query2 [UNION [ALL] ...] ) AS a
-func ScriptGetCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
+func CmdGetCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
 	if countColumns == nil {
 		countColumns = []string{
-			SqlAlias("COUNT(*)", s.schema.way.cfg.Helper.SymbolAddOne(DefaultAliasNameCount)),
+			SqlAlias("COUNT(*)", s.schema.way.NameReplace(DefaultAliasNameCount)),
 		}
 	}
-	if IsEmptyScript(s) {
+	if IsEmptyCmd(s) {
 		return
 	}
 	return NewGet(s.schema.way).
-		Fields(func(fields QueryFields) { fields.AddAll(countColumns...) }).
+		Fields(func(fields QueryField) { fields.AddFields(countColumns...) }).
 		Subquery(s, AliasA).
-		Script()
+		Cmd()
 }
 
-// Script build SQL statement.
-func (s *Get) Script() (prepare string, args []interface{}) {
-	return ScriptGetScript(s)
+// Cmd build SQL statement.
+func (s *Get) Cmd() (prepare string, args []interface{}) {
+	return CmdGetCmd(s)
 }
 
-// CountScript build SQL statement for count.
-func (s *Get) CountScript(columns ...string) (string, []interface{}) {
-	return ScriptGetCount(s, columns...)
+// CountCmd build SQL statement for count.
+func (s *Get) CountCmd(columns ...string) (string, []interface{}) {
+	return CmdGetCount(s, columns...)
 }
 
 // GetCount execute the built SQL statement and scan query result for count.
 func GetCount(get *Get, countColumns ...string) (count int64, err error) {
-	prepare, args := ScriptGetCount(get, countColumns...)
+	prepare, args := CmdGetCount(get, countColumns...)
 	err = get.schema.way.QueryContext(get.schema.ctx, func(rows *sql.Rows) (err error) {
 		if rows.Next() {
 			err = rows.Scan(&count)
@@ -1915,13 +1908,13 @@ func GetCount(get *Get, countColumns ...string) (count int64, err error) {
 
 // GetQuery execute the built SQL statement and scan query result.
 func GetQuery(get *Get, query func(rows *sql.Rows) (err error)) error {
-	prepare, args := ScriptGetScript(get)
+	prepare, args := CmdGetCmd(get)
 	return get.schema.way.QueryContext(get.schema.ctx, query, prepare, args...)
 }
 
 // GetGet execute the built SQL statement and scan query result.
 func GetGet(get *Get, result interface{}) error {
-	prepare, args := ScriptGetScript(get)
+	prepare, args := CmdGetCmd(get)
 	return get.schema.way.TakeAllContext(get.schema.ctx, result, prepare, args...)
 }
 

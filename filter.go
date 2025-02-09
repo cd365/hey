@@ -304,7 +304,7 @@ func filterUseValue(value interface{}) interface{} {
 
 // Filter Implement SQL statement condition filtering.
 type Filter interface {
-	Script
+	Cmd
 
 	// Clean Clear the existing conditional filtering of the current object.
 	Clean() Filter
@@ -372,14 +372,14 @@ type Filter interface {
 	// IsNull Implement conditional filtering: column IS NULL .
 	IsNull(column string) Filter
 
-	// InGet Implement conditional filtering: column IN ( subquery ) .
-	InGet(column string, get Script) Filter
+	// InQuery Implement conditional filtering: column IN ( subquery ) .
+	InQuery(column string, subquery Cmd) Filter
 
-	// InColsGet Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
-	InColsGet(columns []string, get Script) Filter
+	// InColsQuery Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
+	InColsQuery(columns []string, subquery Cmd) Filter
 
-	// ExistsGet Implement conditional filtering: EXISTS ( subquery ) .
-	ExistsGet(get Script) Filter
+	// ExistsQuery Implement conditional filtering: EXISTS ( subquery ) .
+	ExistsQuery(subquery Cmd) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
 	NotEqual(column string, value interface{}) Filter
@@ -399,6 +399,9 @@ type Filter interface {
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
 	IsNotNull(column string) Filter
 
+	// Way For set *Way .
+	Way(way *Way) Filter
+
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that most of the OR is not used frequently in the business development process.
 	// 2. If the business really needs to use it, you can use the OrGroup method: OrGroup(func(g Filter) { g.Equal("column", 1) }) .
@@ -410,6 +413,7 @@ type filter struct {
 	num     int
 	prepare *strings.Builder
 	args    []interface{}
+	way     *Way
 }
 
 // filterNew New a Filter.
@@ -440,7 +444,7 @@ func PutFilter(f Filter) {
 	poolFilter.Put(f)
 }
 
-func (s *filter) Script() (string, []interface{}) {
+func (s *filter) Cmd() (string, []interface{}) {
 	if s.num == 0 {
 		return EmptyString, nil
 	}
@@ -509,7 +513,7 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if tmp.IsEmpty() {
 		return s
 	}
-	prepare, args := tmp.Script()
+	prepare, args := tmp.Cmd()
 	s.add(logic, prepare, args...)
 	return s
 }
@@ -537,10 +541,10 @@ func (s *filter) Use(filters ...Filter) Filter {
 		if tmp == nil || tmp.IsEmpty() {
 			continue
 		}
-		prepare, args := tmp.Script()
+		prepare, args := tmp.Cmd()
 		groups.And(prepare, args...)
 	}
-	prepare, args := groups.Script()
+	prepare, args := groups.Cmd()
 	return s.And(prepare, args...)
 }
 
@@ -548,68 +552,82 @@ func (s *filter) New(filters ...Filter) Filter {
 	return filterNew().Use(filters...)
 }
 
+func (s *filter) nameReplace(name string) string {
+	if s.way == nil {
+		return name
+	}
+	return s.way.NameReplace(name)
+}
+
+func (s *filter) nameReplaceAll(names []string) []string {
+	if s.way == nil {
+		return names
+	}
+	return s.way.NameReplaces(names)
+}
+
 func (s *filter) GreaterThan(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterGreaterThan(column), value)
+		s.add(SqlAnd, filterGreaterThan(s.nameReplace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) GreaterThanEqual(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterGreaterThanEqual(column), value)
+		s.add(SqlAnd, filterGreaterThanEqual(s.nameReplace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) LessThan(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterLessThan(column), value)
+		s.add(SqlAnd, filterLessThan(s.nameReplace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) LessThanEqual(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterLessThanEqual(column), value)
+		s.add(SqlAnd, filterLessThanEqual(s.nameReplace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) Equal(column string, value interface{}) Filter {
 	if value == nil {
-		return s.IsNull(column)
+		return s.IsNull(s.nameReplace(column))
 	}
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterEqual(column), value)
+		s.add(SqlAnd, filterEqual(s.nameReplace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
 	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
-		s.add(SqlAnd, filterBetween(column, false), start, end)
+		s.add(SqlAnd, filterBetween(s.nameReplace(column), false), start, end)
 	}
 	return s
 }
 
 func (s *filter) In(column string, values ...interface{}) Filter {
-	prepare, args := filterIn(column, values, false)
+	prepare, args := filterIn(s.nameReplace(column), values, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InSql(column string, prepare string, args ...interface{}) Filter {
-	prepare, args = filterInSql(column, prepare, args, false)
+	prepare, args = filterInSql(s.nameReplace(column), prepare, args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
-	prepare, args := filterInCols(columns, values, false)
+	prepare, args := filterInCols(s.nameReplaceAll(columns), values, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InColsSql(columns []string, prepare string, args ...interface{}) Filter {
-	prepare, args = filterInColsSql(columns, prepare, args, false)
+	prepare, args = filterInColsSql(s.nameReplaceAll(columns), prepare, args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
@@ -632,42 +650,42 @@ func (s *filter) Like(column string, value interface{}) Filter {
 		like = tmp
 	}
 	if like != EmptyString {
-		s.add(SqlAnd, filterLike(column, false), like)
+		s.add(SqlAnd, filterLike(s.nameReplace(column), false), like)
 	}
 	return s
 }
 
 func (s *filter) IsNull(column string) Filter {
-	return s.add(SqlAnd, filterIsNull(column, false))
+	return s.add(SqlAnd, filterIsNull(s.nameReplace(column), false))
 }
 
-func (s *filter) InGet(column string, get Script) Filter {
-	if get == nil {
+func (s *filter) InQuery(column string, subquery Cmd) Filter {
+	if subquery == nil {
 		return s
 	}
-	prepare, args := get.Script()
+	prepare, args := subquery.Cmd()
 	if prepare == EmptyString {
 		return s
 	}
-	return s.InSql(column, prepare, args...)
+	return s.InSql(s.nameReplace(column), prepare, args...)
 }
 
-func (s *filter) InColsGet(columns []string, get Script) Filter {
-	if get == nil {
+func (s *filter) InColsQuery(columns []string, subquery Cmd) Filter {
+	if subquery == nil {
 		return s
 	}
-	prepare, args := get.Script()
+	prepare, args := subquery.Cmd()
 	if prepare == EmptyString {
 		return s
 	}
-	return s.InColsSql(columns, prepare, args...)
+	return s.InColsSql(s.nameReplaceAll(columns), prepare, args...)
 }
 
-func (s *filter) ExistsGet(get Script) Filter {
-	if get == nil {
+func (s *filter) ExistsQuery(subquery Cmd) Filter {
+	if subquery == nil {
 		return s
 	}
-	prepare, args := get.Script()
+	prepare, args := subquery.Cmd()
 	if prepare == EmptyString {
 		return s
 	}
@@ -676,28 +694,28 @@ func (s *filter) ExistsGet(get Script) Filter {
 
 func (s *filter) NotEqual(column string, value interface{}) Filter {
 	if value == nil {
-		return s.IsNotNull(column)
+		return s.IsNotNull(s.nameReplace(column))
 	}
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterNotEqual(column), value)
+		s.add(SqlAnd, filterNotEqual(s.nameReplace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
 	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
-		s.add(SqlAnd, filterBetween(column, true), start, end)
+		s.add(SqlAnd, filterBetween(s.nameReplace(column), true), start, end)
 	}
 	return s
 }
 
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
-	prepare, args := filterIn(column, values, true)
+	prepare, args := filterIn(s.nameReplace(column), values, true)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
-	prepare, args := filterInCols(columns, values, true)
+	prepare, args := filterInCols(s.nameReplaceAll(columns), values, true)
 	return s.add(SqlAnd, prepare, args...)
 }
 
@@ -715,20 +733,25 @@ func (s *filter) NotLike(column string, value interface{}) Filter {
 		like = tmp
 	}
 	if like != EmptyString {
-		s.add(SqlAnd, filterLike(column, true), like)
+		s.add(SqlAnd, filterLike(s.nameReplace(column), true), like)
 	}
 	return s
 }
 
 func (s *filter) IsNotNull(column string) Filter {
-	return s.add(SqlAnd, filterIsNull(column, true))
+	return s.add(SqlAnd, filterIsNull(s.nameReplace(column), true))
+}
+
+func (s *filter) Way(way *Way) Filter {
+	s.way = way
+	return s
 }
 
 func buildFilterAll(f Filter, column string, logic string, subquery *Get) {
 	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
 		return
 	}
-	prepare, args := subquery.Script()
+	prepare, args := subquery.Cmd()
 	if prepare == EmptyString {
 		return
 	}
@@ -770,7 +793,7 @@ func buildFilterAny(f Filter, column string, logic string, subquery *Get) {
 	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
 		return
 	}
-	prepare, args := subquery.Script()
+	prepare, args := subquery.Cmd()
 	if prepare == EmptyString {
 		return
 	}

@@ -96,6 +96,9 @@ type Cfg struct {
 	// Helper Helpers for handling different types of databases.
 	Helper Helper
 
+	// Replace Helpers for handling different types of databases.
+	Replace *Replace
+
 	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
 	DeleteMustUseWhere bool
 
@@ -117,6 +120,7 @@ func DefaultCfg() Cfg {
 	return Cfg{
 		Scan:                   ScanSliceStruct,
 		ScanTag:                DefaultTag,
+		Replace:                NewReplace(),
 		DeleteMustUseWhere:     true,
 		UpdateMustUseWhere:     true,
 		TransactionMaxDuration: time.Second * 5,
@@ -124,22 +128,22 @@ func DefaultCfg() Cfg {
 	}
 }
 
-// LogSql Record executed prepare args.
-type LogSql struct {
+// CmdLog Record executed prepare args.
+type CmdLog struct {
 	way *Way
 
 	// prepare Preprocess the SQL statements that are executed.
 	prepare string
 
 	// args SQL parameter list.
-	args *LogSqlArgs
+	args *CmdLogRun
 
 	// err An error encountered when executing SQL.
 	err error
 }
 
-// LogSqlArgs Record executed args of prepare.
-type LogSqlArgs struct {
+// CmdLogRun Record executed args of prepare.
+type CmdLogRun struct {
 	// args SQL parameter list.
 	args []interface{}
 
@@ -150,18 +154,18 @@ type LogSqlArgs struct {
 	endAt time.Time
 }
 
-func (s *Way) LogSql(prepare string, args []interface{}) *LogSql {
-	return &LogSql{
+func (s *Way) CmdLog(prepare string, args []interface{}) *CmdLog {
+	return &CmdLog{
 		way:     s,
 		prepare: prepare,
-		args: &LogSqlArgs{
+		args: &CmdLogRun{
 			startAt: time.Now(),
 			args:    args,
 		},
 	}
 }
 
-func (s *LogSql) Write() {
+func (s *CmdLog) Write() {
 	if s.way.log == nil {
 		return
 	}
@@ -169,7 +173,7 @@ func (s *LogSql) Write() {
 		s.args.endAt = time.Now()
 	}
 	if s.way.transaction != nil {
-		s.way.transaction.logSql = append(s.way.transaction.logSql, s)
+		s.way.transaction.logCmd = append(s.way.transaction.logCmd, s)
 		return
 	}
 	lg := s.way.log.Info()
@@ -224,7 +228,7 @@ func (s *Way) GetCfg() *Cfg {
 }
 
 func (s *Way) SetCfg(cfg Cfg) *Way {
-	if cfg.Scan == nil || cfg.ScanTag == "" || cfg.Helper == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
+	if cfg.Scan == nil || cfg.ScanTag == "" || cfg.Helper == nil || cfg.Replace == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
 	}
 	s.cfg = &cfg
@@ -273,8 +277,10 @@ func (s *Way) IsRead() bool {
 }
 
 func NewWay(db *sql.DB) *Way {
+	cfg := DefaultCfg()
 	return &Way{
-		db: db,
+		db:  db,
+		cfg: &cfg,
 	}
 }
 
@@ -487,7 +493,7 @@ func (s *Stmt) Close() (err error) {
 
 // QueryContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
-	lg := s.way.LogSql(s.prepare, args)
+	lg := s.way.CmdLog(s.prepare, args)
 	defer lg.Write()
 	rows, err := s.stmt.QueryContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -507,7 +513,7 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) error {
-	lg := s.way.LogSql(s.prepare, args)
+	lg := s.way.CmdLog(s.prepare, args)
 	defer lg.Write()
 	row := s.stmt.QueryRowContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -522,7 +528,7 @@ func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (e
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
-	lg := s.way.LogSql(s.prepare, args)
+	lg := s.way.CmdLog(s.prepare, args)
 	defer lg.Write()
 	result, err := s.stmt.ExecContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -653,7 +659,7 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
-	lg := s.LogSql(prepare, args)
+	lg := s.CmdLog(prepare, args)
 	defer lg.Write()
 	rows, err := s.caller(caller).QueryContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
@@ -672,7 +678,7 @@ func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ..
 	if prepare == "" {
 		return
 	}
-	lg := s.LogSql(prepare, args)
+	lg := s.CmdLog(prepare, args)
 	defer lg.Write()
 	result, rer := s.caller(caller).ExecContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
@@ -707,27 +713,27 @@ func (s *Way) Setter(caller Caller, prepare string, args ...interface{}) (int64,
 
 // F -> Quickly initialize a filter.
 func (s *Way) F(fs ...Filter) Filter {
-	return F().New(fs...)
+	return F().New(fs...).Way(s)
 }
 
 // Add -> Create an instance that executes the INSERT sql statement.
 func (s *Way) Add(table string) *Add {
-	return NewAdd(s).Table(table)
+	return NewAdd(s).Table(s.NameReplace(table))
 }
 
 // Del -> Create an instance that executes the DELETE sql statement.
 func (s *Way) Del(table string) *Del {
-	return NewDel(s).Table(table)
+	return NewDel(s).Table(s.NameReplace(table))
 }
 
 // Mod -> Create an instance that executes the UPDATE sql statement.
 func (s *Way) Mod(table string) *Mod {
-	return NewMod(s).Table(table)
+	return NewMod(s).Table(s.NameReplace(table))
 }
 
 // Get -> Create an instance that executes the SELECT sql statement.
 func (s *Way) Get(table ...string) *Get {
-	return NewGet(s).Table(LastNotEmptyString(table))
+	return NewGet(s).Table(s.NameReplace(LastNotEmptyString(table)))
 }
 
 // T Table empty alias
@@ -768,6 +774,22 @@ func (s *Way) TF() *AdjustColumn {
 // TG Table alias `g`
 func (s *Way) TG() *AdjustColumn {
 	return NewAdjustColumn(s, AliasG)
+}
+
+// NameReplace Replace name.
+func (s *Way) NameReplace(name string) string {
+	if s.cfg.Replace != nil {
+		return s.cfg.Replace.Get(name)
+	}
+	return name
+}
+
+// NameReplaces Replace names.
+func (s *Way) NameReplaces(names []string) []string {
+	if s.cfg.Replace != nil {
+		return s.cfg.Replace.GetAll(names)
+	}
+	return names
 }
 
 // WindowFunc New a window function object.
