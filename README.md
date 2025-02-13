@@ -5,5 +5,5 @@ For example: INSERT, DELETE, UPDATE, SELECT ...
 
 ## INSTALL
 ```shell
-go get github.com/cd365/hey/v2@latest
+go get github.com/cd365/hey/v3@latest
 ```
