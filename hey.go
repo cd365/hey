@@ -6,7 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/cd365/hey/v2/logger"
+	"github.com/cd365/hey/v3/logger"
 	"os"
 	"reflect"
 	"strconv"

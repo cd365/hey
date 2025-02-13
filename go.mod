@@ -1,4 +1,4 @@
-module github.com/cd365/hey/v2
+module github.com/cd365/hey/v3
 
 go 1.18
 
