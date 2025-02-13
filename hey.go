@@ -113,6 +113,9 @@ type Cfg struct {
 
 	// WarnDuration SQL execution time warning threshold.
 	WarnDuration time.Duration
+
+	// Debugger Debug output SQL script.
+	Debugger Debugger
 }
 
 // DefaultCfg default configure value.
@@ -278,10 +281,20 @@ func (s *Way) IsRead() bool {
 
 func NewWay(db *sql.DB) *Way {
 	cfg := DefaultCfg()
-	return &Way{
+
+	debug := &debugger{}
+	debug.SetLog(logger.NewLogger(os.Stdout))
+
+	cfg.Debugger = debug
+
+	way := &Way{
 		db:  db,
 		cfg: &cfg,
 	}
+
+	debug.SetWay(way)
+
+	return way
 }
 
 // begin -> Open transaction.
@@ -797,6 +810,14 @@ func (s *Way) WindowFunc(alias ...string) *WindowFunc {
 	return NewWindowFunc(s, alias...)
 }
 
+// Debugger Debug output SQL script.
+func (s *Way) Debugger(cmd Cmd) *Way {
+	if s.cfg.Debugger != nil {
+		s.cfg.Debugger.Debugger(cmd)
+	}
+	return s
+}
+
 // read Implement Reader.
 type read struct {
 	// reads Read list.
@@ -998,4 +1019,48 @@ func PrepareString(helper Helper, prepare string, args []interface{}) string {
 		}
 	}
 	return latest.String()
+}
+
+// Debugger Debug output SQL script.
+type Debugger interface {
+	// GetLog Get *logger.Logger
+	GetLog() *logger.Logger
+
+	// SetLog Set *logger.Logger
+	SetLog(log *logger.Logger) Debugger
+
+	// SetWay Set *Way
+	SetWay(way *Way) Debugger
+
+	// Debugger Debug output SQL script
+	Debugger(cmd Cmd) Debugger
+}
+
+type debugger struct {
+	log *logger.Logger
+	way *Way
+}
+
+func (s *debugger) GetLog() *logger.Logger {
+	return s.log
+}
+
+func (s *debugger) SetLog(log *logger.Logger) Debugger {
+	s.log = log
+	return s
+}
+
+func (s *debugger) SetWay(way *Way) Debugger {
+	s.way = way
+	return s
+}
+
+func (s *debugger) Debugger(cmd Cmd) Debugger {
+	if cmd == nil || s.log == nil || s.way == nil {
+		return s
+	}
+	prepare, args := cmd.Cmd()
+	script := PrepareString(s.way.cfg.Helper, prepare, args)
+	s.log.Debug().Str("script", script).Str("prepare", prepare).Any("args", args).Send()
+	return s
 }
