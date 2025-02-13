@@ -1,3 +1,5 @@
+// Implementing SQL filter
+
 package hey
 
 import (
@@ -829,4 +831,20 @@ func LessThanAny(f Filter, column string, subquery *Get) {
 // LessThanEqualAny Implement the filter condition: column <= ANY ( subquery ) .
 func LessThanEqualAny(f Filter, column string, subquery *Get) {
 	buildFilterAny(f, column, SqlLessThanEqual, subquery)
+}
+
+// InItems Build column IN ( items[0].attributeN, items[1].attributeN, items[2].attributeN ... )
+func InItems[T interface{}](items []T, getItem func(item T) interface{}) []interface{} {
+	if getItem == nil {
+		return nil
+	}
+	length := len(items)
+	if length == 0 {
+		return nil
+	}
+	result := make([]interface{}, length)
+	for index, item := range items {
+		result[index] = getItem(item)
+	}
+	return result
 }
