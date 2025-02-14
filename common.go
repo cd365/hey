@@ -73,26 +73,26 @@ func NewReplace() *Replace {
 	}
 }
 
-// Cmd Used to build a SQL expression and its corresponding parameter list.
-type Cmd interface {
+// Cmder Used to build a SQL expression and its corresponding parameter list.
+type Cmder interface {
 	// Cmd Get a list of script statements and their corresponding parameters.
 	Cmd() (prepare string, args []interface{})
 }
 
-type sqlCmd struct {
+type cmdSql struct {
 	prepare string
 	args    []interface{}
 }
 
-func (s *sqlCmd) Cmd() (prepare string, args []interface{}) {
+func (s *cmdSql) Cmd() (prepare string, args []interface{}) {
 	if s.prepare != EmptyString {
 		prepare, args = s.prepare, s.args
 	}
 	return
 }
 
-func NewCmd(prepare string, args []interface{}) Cmd {
-	return &sqlCmd{
+func NewCmder(prepare string, args []interface{}) Cmder {
+	return &cmdSql{
 		prepare: prepare,
 		args:    args,
 	}
@@ -103,24 +103,24 @@ type IsEmpty interface {
 	IsEmpty() bool
 }
 
-func IsEmptyCmd(cmd Cmd) bool {
-	if cmd == nil {
+func IsEmptyCmder(cmder Cmder) bool {
+	if cmder == nil {
 		return true
 	}
-	prepare, _ := cmd.Cmd()
+	prepare, _ := cmder.Cmd()
 	return prepare == EmptyString
 }
 
-// ConcatCmd Concat multiple queries.
-func ConcatCmd(concat string, custom func(index int, cmd Cmd) Cmd, items ...Cmd) Cmd {
+// ConcatCmder Concat multiple queries.
+func ConcatCmder(concat string, custom func(index int, cmder Cmder) Cmder, items ...Cmder) Cmder {
 	length := len(items)
-	lists := make([]Cmd, 0, length)
+	lists := make([]Cmder, 0, length)
 	index := 0
 	for _, script := range items {
 		if custom != nil {
 			script = custom(index, script)
 		}
-		if IsEmptyCmd(script) {
+		if IsEmptyCmder(script) {
 			continue
 		}
 		lists = append(lists, script)
@@ -151,25 +151,25 @@ func ConcatCmd(concat string, custom func(index int, cmd Cmd) Cmd, items ...Cmd)
 		b.WriteString(" )")
 		args = append(args, param...)
 	}
-	return NewCmd(b.String(), args)
+	return NewCmder(b.String(), args)
 }
 
-// UnionCmd ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...
-func UnionCmd(items ...Cmd) Cmd {
-	return ConcatCmd(SqlUnion, nil, items...)
+// UnionCmder ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...
+func UnionCmder(items ...Cmder) Cmder {
+	return ConcatCmder(SqlUnion, nil, items...)
 }
 
-// UnionAllCmd ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )...
-func UnionAllCmd(items ...Cmd) Cmd {
-	return ConcatCmd(SqlUnionAll, nil, items...)
+// UnionAllCmder ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )...
+func UnionAllCmder(items ...Cmder) Cmder {
+	return ConcatCmder(SqlUnionAll, nil, items...)
 }
 
-// ExceptCmd ( QUERY_A ) EXCEPT ( QUERY_B )...
-func ExceptCmd(items ...Cmd) Cmd {
-	return ConcatCmd(SqlExpect, nil, items...)
+// ExceptCmder ( QUERY_A ) EXCEPT ( QUERY_B )...
+func ExceptCmder(items ...Cmder) Cmder {
+	return ConcatCmder(SqlExpect, nil, items...)
 }
 
-// IntersectCmd ( QUERY_A ) INTERSECT ( QUERY_B )...
-func IntersectCmd(items ...Cmd) Cmd {
-	return ConcatCmd(SqlIntersect, nil, items...)
+// IntersectCmder ( QUERY_A ) INTERSECT ( QUERY_B )...
+func IntersectCmder(items ...Cmder) Cmder {
+	return ConcatCmder(SqlIntersect, nil, items...)
 }

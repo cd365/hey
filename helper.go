@@ -909,7 +909,7 @@ type schema struct {
 	ctx     context.Context
 	way     *Way
 	comment string
-	table   CmdTable
+	table   TableCmder
 }
 
 // newSchema new schema with *Way.
@@ -962,16 +962,16 @@ func (s *Del) Context(ctx context.Context) *Del {
 
 // Table set table name.
 func (s *Del) Table(table string, args ...interface{}) *Del {
-	s.schema.table = NewCmdTable(table, args)
+	s.schema.table = NewTableCmder(table, args)
 	return s
 }
 
-// CmdTable Set table script.
-func (s *Del) CmdTable(cmdTable CmdTable) *Del {
-	if cmdTable == nil || IsEmptyCmd(cmdTable) {
+// TableCmder Set table script.
+func (s *Del) TableCmder(cmder TableCmder) *Del {
+	if cmder == nil || IsEmptyCmder(cmder) {
 		return s
 	}
-	s.schema.table = cmdTable
+	s.schema.table = cmder
 	return s
 }
 
@@ -1036,22 +1036,22 @@ func (s *Del) Way() *Way {
 
 // Add for INSERT.
 type Add struct {
-	schema           *schema
-	except           InsertField
-	permit           InsertField
-	fieldsCmd        InsertField
-	valuesCmd        InsertValue
-	fieldsCmdDefault InsertField
-	valuesCmdDefault InsertValue
-	fromCmd          Cmd
+	schema        *schema
+	except        InsertField
+	permit        InsertField
+	fields        InsertField
+	values        InsertValue
+	fieldsDefault InsertField
+	valuesDefault InsertValue
+	fromCmder     Cmder
 }
 
 // NewAdd for INSERT.
 func NewAdd(way *Way) *Add {
 	add := &Add{
-		schema:    newSchema(way),
-		fieldsCmd: way.InsertFieldCmd(),
-		valuesCmd: NewInsertValue(),
+		schema: newSchema(way),
+		fields: way.InsertFieldCmd(),
+		values: NewInsertValue(),
 	}
 	return add
 }
@@ -1070,7 +1070,7 @@ func (s *Add) Context(ctx context.Context) *Add {
 
 // Table set table name.
 func (s *Add) Table(table string) *Add {
-	s.schema.table = NewCmdTable(table, nil)
+	s.schema.table = NewTableCmder(table, nil)
 	return s
 }
 
@@ -1099,27 +1099,27 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 			return s
 		}
 	}
-	s.fieldsCmd.SetFields(fields)
-	s.valuesCmd.SetValues(values...)
+	s.fields.SetFields(fields)
+	s.values.SetValues(values...)
 	if s.permit != nil {
 		columns := s.permit.GetFieldsMap()
 		deletes := make([]string, 0, 32)
-		for _, field := range s.fieldsCmd.GetFields() {
+		for _, field := range s.fields.GetFields() {
 			if _, ok := columns[field]; !ok {
 				deletes = append(deletes, field)
 			}
 		}
-		s.fieldsCmd.Del(deletes...)
+		s.fields.Del(deletes...)
 	}
 	if s.except != nil {
 		columns := s.except.GetFieldsMap()
 		deletes := make([]string, 0, 32)
-		for _, field := range s.fieldsCmd.GetFields() {
+		for _, field := range s.fields.GetFields() {
 			if _, ok := columns[field]; ok {
 				deletes = append(deletes, field)
 			}
 		}
-		s.fieldsCmd.Del(deletes...)
+		s.fields.Del(deletes...)
 	}
 	return s
 }
@@ -1136,8 +1136,8 @@ func (s *Add) FieldValue(field string, value interface{}) *Add {
 			return s
 		}
 	}
-	s.fieldsCmd.Add(field)
-	s.valuesCmd.Set(s.fieldsCmd.FieldIndex(field), value)
+	s.fields.Add(field)
+	s.values.Set(s.fields.FieldIndex(field), value)
 	return s
 }
 
@@ -1148,19 +1148,19 @@ func (s *Add) Default(add func(add *Add)) *Add {
 	}
 	v := *s
 	tmp := &v
-	tmp.fieldsCmd, tmp.valuesCmd = s.schema.way.InsertFieldCmd(), NewInsertValue()
+	tmp.fields, tmp.values = s.schema.way.InsertFieldCmd(), NewInsertValue()
 	add(tmp)
-	if !tmp.fieldsCmd.IsEmpty() && !tmp.valuesCmd.IsEmpty() {
-		if s.fieldsCmdDefault == nil {
-			s.fieldsCmdDefault = s.schema.way.InsertFieldCmd()
+	if !tmp.fields.IsEmpty() && !tmp.values.IsEmpty() {
+		if s.fieldsDefault == nil {
+			s.fieldsDefault = s.schema.way.InsertFieldCmd()
 		}
-		if tmp.valuesCmdDefault == nil {
-			s.valuesCmdDefault = NewInsertValue()
+		if tmp.valuesDefault == nil {
+			s.valuesDefault = NewInsertValue()
 		}
-		fields, values := tmp.fieldsCmd.GetFields(), tmp.valuesCmd.GetValues()
+		fields, values := tmp.fields.GetFields(), tmp.values.GetValues()
 		for index, field := range fields {
-			s.fieldsCmdDefault.Add(field)
-			s.valuesCmdDefault.Set(s.fieldsCmdDefault.FieldIndex(field), values[0][index])
+			s.fieldsDefault.Add(field)
+			s.valuesDefault.Set(s.fieldsDefault.FieldIndex(field), values[0][index])
 		}
 	}
 	return s
@@ -1177,13 +1177,13 @@ func (s *Add) Create(create interface{}) *Add {
 	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, s.except.GetFields(), s.permit.GetFields()))
 }
 
-// CmdValues values is a query SQL statement.
-func (s *Add) CmdValues(cmdValues Cmd, fields []string) *Add {
-	if cmdValues == nil || IsEmptyCmd(cmdValues) {
+// CmderValues values is a query SQL statement.
+func (s *Add) CmderValues(cmdValues Cmder, fields []string) *Add {
+	if cmdValues == nil || IsEmptyCmder(cmdValues) {
 		return s
 	}
-	s.fieldsCmd = s.schema.way.InsertFieldCmd().SetFields(fields)
-	s.fromCmd = cmdValues
+	s.fields = s.schema.way.InsertFieldCmd().SetFields(fields)
+	s.fromCmder = cmdValues
 	return s
 }
 
@@ -1194,18 +1194,18 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-	if s.fromCmd != nil {
+	if s.fromCmder != nil {
 		b.WriteString("INSERT ")
 		b.WriteString("INTO ")
 		table, _ := s.schema.table.Cmd()
 		b.WriteString(s.schema.way.NameReplace(table))
-		if !IsEmptyCmd(s.fieldsCmd) {
+		if !IsEmptyCmder(s.fields) {
 			b.WriteString(SqlSpace)
-			fields, _ := s.fieldsCmd.Cmd()
+			fields, _ := s.fields.Cmd()
 			b.WriteString(fields)
 		}
 		b.WriteString(SqlSpace)
-		fromPrepare, fromArgs := s.fromCmd.Cmd()
+		fromPrepare, fromArgs := s.fromCmder.Cmd()
 		b.WriteString(fromPrepare)
 		if fromArgs != nil {
 			args = append(args, fromArgs...)
@@ -1213,7 +1213,7 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 		prepare = b.String()
 		return
 	}
-	if IsEmptyCmd(s.fieldsCmd) || IsEmptyCmd(s.valuesCmd) {
+	if IsEmptyCmder(s.fields) || IsEmptyCmder(s.values) {
 		return
 	}
 	b.WriteString("INSERT ")
@@ -1222,21 +1222,21 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 	b.WriteString(s.schema.way.NameReplace(table))
 	b.WriteString(SqlSpace)
 	// add default field-value
-	if s.fieldsCmdDefault != nil {
-		fields, values := s.fieldsCmdDefault.GetFields(), s.valuesCmdDefault.GetValues()
+	if s.fieldsDefault != nil {
+		fields, values := s.fieldsDefault.GetFields(), s.valuesDefault.GetValues()
 		if len(values) > 0 && len(fields) == len(values[0]) {
 			for index, field := range fields {
-				if s.fieldsCmd.FieldExists(field) {
+				if s.fields.FieldExists(field) {
 					continue
 				}
 				s.FieldValue(field, values[0][index])
 			}
 		}
 	}
-	fields, _ := s.fieldsCmd.Cmd()
+	fields, _ := s.fields.Cmd()
 	b.WriteString(fields)
 	b.WriteString(SqlSpace)
-	values, param := s.valuesCmd.Cmd()
+	values, param := s.values.Cmd()
 	b.WriteString("VALUES ")
 	b.WriteString(values)
 	if param != nil {
@@ -1315,7 +1315,7 @@ func (s *Mod) Context(ctx context.Context) *Mod {
 
 // Table set table name.
 func (s *Mod) Table(table string, args ...interface{}) *Mod {
-	s.schema.table = NewCmdTable(table, args)
+	s.schema.table = NewTableCmder(table, args)
 	return s
 }
 
@@ -1560,8 +1560,8 @@ func (s *Get) Context(ctx context.Context) *Get {
 }
 
 // With for with query.
-func (s *Get) With(alias string, script Cmd) *Get {
-	if alias == EmptyString || IsEmptyCmd(script) {
+func (s *Get) With(alias string, script Cmder) *Get {
+	if alias == EmptyString || IsEmptyCmder(script) {
 		return s
 	}
 	if s.with == nil {
@@ -1573,7 +1573,7 @@ func (s *Get) With(alias string, script Cmd) *Get {
 
 // Table set table name.
 func (s *Get) Table(table string) *Get {
-	s.schema.table = NewCmdTable(table, nil)
+	s.schema.table = NewTableCmder(table, nil)
 	return s
 }
 
@@ -1584,8 +1584,8 @@ func (s *Get) Alias(alias string) *Get {
 }
 
 // Subquery table is a subquery.
-func (s *Get) Subquery(subquery Cmd, alias string) *Get {
-	if IsEmptyCmd(subquery) {
+func (s *Get) Subquery(subquery Cmder, alias string) *Get {
+	if IsEmptyCmder(subquery) {
 		return s
 	}
 	if alias == EmptyString {
@@ -1597,7 +1597,7 @@ func (s *Get) Subquery(subquery Cmd, alias string) *Get {
 			}
 		}
 		if alias == EmptyString {
-			if tab, ok := subquery.(CmdTable); ok && tab != nil {
+			if tab, ok := subquery.(TableCmder); ok && tab != nil {
 				alias = tab.GetAlias()
 				if alias != EmptyString {
 					tab.Alias(EmptyString)
@@ -1610,7 +1610,7 @@ func (s *Get) Subquery(subquery Cmd, alias string) *Get {
 		return s
 	}
 	prepare, args := subquery.Cmd()
-	s.schema.table = NewCmdTable(ConcatString("( ", prepare, " )"), args).Alias(alias)
+	s.schema.table = NewTableCmder(ConcatString("( ", prepare, " )"), args).Alias(alias)
 	return s
 }
 
@@ -1624,7 +1624,7 @@ func (s *Get) Join(custom func(join QueryJoin)) *Get {
 		return s
 	}
 	master := s.schema.table
-	if IsEmptyCmd(master) {
+	if IsEmptyCmder(master) {
 		return s
 	}
 	alias := master.GetAlias()
@@ -1756,9 +1756,9 @@ func (s *Get) Limiter(limiter Limiter) *Get {
 	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 }
 
-// CmdGetTable Build query table (without ORDER BY, LIMIT, OFFSET).
+// CmderGetTable Build query table (without ORDER BY, LIMIT, OFFSET).
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]]
-func CmdGetTable(s *Get) (prepare string, args []interface{}) {
+func CmderGetTable(s *Get) (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
 		return
 	}
@@ -1814,9 +1814,9 @@ func CmdGetTable(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// CmdGetOrderLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
+// CmderGetOrderLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
 // [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func CmdGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
+func CmderGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	if !s.order.IsEmpty() {
@@ -1843,10 +1843,10 @@ func CmdGetOrderLimitOffset(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// CmdGetCmd Build a complete query.
+// CmderGetCmd Build a complete query.
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func CmdGetCmd(s *Get) (prepare string, args []interface{}) {
-	prepare, args = CmdGetTable(s)
+func CmderGetCmd(s *Get) (prepare string, args []interface{}) {
+	prepare, args = CmderGetTable(s)
 	if prepare == EmptyString {
 		return
 	}
@@ -1856,7 +1856,7 @@ func CmdGetCmd(s *Get) (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString(prepare)
-	if tmp, param := CmdGetOrderLimitOffset(s); tmp != EmptyString {
+	if tmp, param := CmderGetOrderLimitOffset(s); tmp != EmptyString {
 		b.WriteString(tmp)
 		if param != nil {
 			args = append(args, param...)
@@ -1866,16 +1866,16 @@ func CmdGetCmd(s *Get) (prepare string, args []interface{}) {
 	return
 }
 
-// CmdGetCount Build count query.
+// CmderGetCount Build count query.
 // SELECT COUNT(*) AS count FROM ( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] ) AS a
 // SELECT COUNT(*) AS count FROM ( query1 UNION [ALL] query2 [UNION [ALL] ...] ) AS a
-func CmdGetCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
+func CmderGetCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
 	if countColumns == nil {
 		countColumns = []string{
 			SqlAlias("COUNT(*)", s.schema.way.NameReplace(DefaultAliasNameCount)),
 		}
 	}
-	if IsEmptyCmd(s) {
+	if IsEmptyCmder(s) {
 		return
 	}
 	return NewGet(s.schema.way).
@@ -1886,17 +1886,17 @@ func CmdGetCount(s *Get, countColumns ...string) (prepare string, args []interfa
 
 // Cmd build SQL statement.
 func (s *Get) Cmd() (prepare string, args []interface{}) {
-	return CmdGetCmd(s)
+	return CmderGetCmd(s)
 }
 
 // CountCmd build SQL statement for count.
 func (s *Get) CountCmd(columns ...string) (string, []interface{}) {
-	return CmdGetCount(s, columns...)
+	return CmderGetCount(s, columns...)
 }
 
 // GetCount execute the built SQL statement and scan query result for count.
 func GetCount(get *Get, countColumns ...string) (count int64, err error) {
-	prepare, args := CmdGetCount(get, countColumns...)
+	prepare, args := CmderGetCount(get, countColumns...)
 	err = get.schema.way.QueryContext(get.schema.ctx, func(rows *sql.Rows) (err error) {
 		if rows.Next() {
 			err = rows.Scan(&count)
@@ -1908,13 +1908,13 @@ func GetCount(get *Get, countColumns ...string) (count int64, err error) {
 
 // GetQuery execute the built SQL statement and scan query result.
 func GetQuery(get *Get, query func(rows *sql.Rows) (err error)) error {
-	prepare, args := CmdGetCmd(get)
+	prepare, args := CmderGetCmd(get)
 	return get.schema.way.QueryContext(get.schema.ctx, query, prepare, args...)
 }
 
 // GetGet execute the built SQL statement and scan query result.
 func GetGet(get *Get, result interface{}) error {
-	prepare, args := CmdGetCmd(get)
+	prepare, args := CmderGetCmd(get)
 	return get.schema.way.TakeAllContext(get.schema.ctx, result, prepare, args...)
 }
 

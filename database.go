@@ -9,66 +9,66 @@ import (
 	"strings"
 )
 
-// CmdTable Used to construct expressions that can use table aliases and their corresponding parameter lists.
-type CmdTable interface {
+// TableCmder Used to construct expressions that can use table aliases and their corresponding parameter lists.
+type TableCmder interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	// Alias Setting aliases for script statements.
-	Alias(alias string) CmdTable
+	Alias(alias string) TableCmder
 
 	// GetAlias Getting aliases for script statements.
 	GetAlias() string
 }
 
-type cmdTable struct {
-	cmd   Cmd
+type tableCmder struct {
+	cmder Cmder
 	alias string
 }
 
-func (s *cmdTable) IsEmpty() bool {
-	return IsEmptyCmd(s.cmd)
+func (s *tableCmder) IsEmpty() bool {
+	return IsEmptyCmder(s.cmder)
 }
 
-func (s *cmdTable) Cmd() (prepare string, args []interface{}) {
+func (s *tableCmder) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	prepare, args = s.cmd.Cmd()
+	prepare, args = s.cmder.Cmd()
 	if s.alias != EmptyString {
 		prepare = ConcatString(prepare, SqlSpace, s.alias)
 	}
 	return
 }
 
-func (s *cmdTable) Alias(alias string) CmdTable {
+func (s *tableCmder) Alias(alias string) TableCmder {
 	s.alias = alias // allow setting empty values
 	return s
 }
 
-func (s *cmdTable) GetAlias() string {
+func (s *tableCmder) GetAlias() string {
 	return s.alias
 }
 
-func NewCmdTable(prepare string, args []interface{}) CmdTable {
-	return &cmdTable{
-		cmd: NewCmd(prepare, args),
+func NewTableCmder(prepare string, args []interface{}) TableCmder {
+	return &tableCmder{
+		cmder: NewCmder(prepare, args),
 	}
 }
 
-func NewCmdGet(alias string, get *Get) CmdTable {
-	return NewCmdTable(get.Cmd()).Alias(alias)
+func NewCmderGet(alias string, get *Get) TableCmder {
+	return NewTableCmder(get.Cmd()).Alias(alias)
 }
 
 // QueryWith CTE: Common Table Expression.
 type QueryWith interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	// Add Set common table expression.
-	Add(alias string, cmd Cmd) QueryWith
+	Add(alias string, cmder Cmder) QueryWith
 
 	// Del Remove common table expression.
 	Del(alias string) QueryWith
@@ -76,13 +76,13 @@ type QueryWith interface {
 
 type queryWith struct {
 	with    []string
-	withMap map[string]Cmd
+	withMap map[string]Cmder
 }
 
 func NewQueryWith() QueryWith {
 	return &queryWith{
 		with:    make([]string, 0, 1<<3),
-		withMap: make(map[string]Cmd, 1<<3),
+		withMap: make(map[string]Cmder, 1<<3),
 	}
 }
 
@@ -115,16 +115,16 @@ func (s *queryWith) Cmd() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *queryWith) Add(alias string, cmd Cmd) QueryWith {
-	if alias == EmptyString || IsEmptyCmd(cmd) {
+func (s *queryWith) Add(alias string, cmder Cmder) QueryWith {
+	if alias == EmptyString || IsEmptyCmder(cmder) {
 		return s
 	}
 	if _, ok := s.withMap[alias]; ok {
-		s.withMap[alias] = cmd
+		s.withMap[alias] = cmder
 		return s
 	}
 	s.with = append(s.with, alias)
-	s.withMap[alias] = cmd
+	s.withMap[alias] = cmder
 	return s
 }
 
@@ -147,7 +147,7 @@ func (s *queryWith) Del(alias string) QueryWith {
 type QueryField interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	Index(field string) int
 
@@ -299,7 +299,7 @@ type JoinRequire func(leftAlias string, rightAlias string) (prepare string, args
 
 // QueryJoinTable Constructing table for join queries.
 type QueryJoinTable interface {
-	CmdTable
+	TableCmder
 
 	/* the table used for join query only supports querying the field list without any parameters */
 
@@ -317,7 +317,7 @@ type QueryJoinTable interface {
 }
 
 type queryJoinTable struct {
-	CmdTable
+	TableCmder
 	queryField QueryField
 }
 
@@ -341,7 +341,7 @@ func (s *queryJoinTable) ExistsQueryField() bool {
 }
 
 func (s *queryJoinTable) GetQueryField() []string {
-	if s.CmdTable == nil {
+	if s.TableCmder == nil {
 		return nil
 	}
 	alias := s.GetAlias()
@@ -369,14 +369,14 @@ func (s *queryJoinTable) GetQueryFieldString() string {
 
 func (s *Way) QueryJoinTable(table string, alias string, args ...interface{}) QueryJoinTable {
 	return &queryJoinTable{
-		CmdTable:   NewCmdTable(table, args).Alias(alias),
+		TableCmder: NewTableCmder(table, args).Alias(alias),
 		queryField: s.QueryField(),
 	}
 }
 
 // QueryJoin Constructing multi-table join queries.
 type QueryJoin interface {
-	Cmd
+	Cmder
 
 	GetMaster() QueryJoinTable
 
@@ -384,13 +384,13 @@ type QueryJoin interface {
 
 	NewTable(table string, alias string, args ...interface{}) QueryJoinTable
 
-	NewSubquery(subquery Cmd, alias string) QueryJoinTable
+	NewSubquery(subquery Cmder, alias string) QueryJoinTable
 
-	On(requires ...func(leftAlias string, rightAlias string) Cmd) JoinRequire
+	On(requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire
 
-	Using(using []string, requires ...func(leftAlias string, rightAlias string) Cmd) JoinRequire
+	Using(using []string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire
 
-	OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Cmd) JoinRequire
+	OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire
 
 	Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
 
@@ -410,7 +410,7 @@ type QueryJoin interface {
 type joinQueryTable struct {
 	joinType    string
 	rightTable  QueryJoinTable
-	joinRequire Cmd
+	joinRequire Cmder
 }
 
 type queryJoin struct {
@@ -510,13 +510,13 @@ func (s *queryJoin) NewTable(table string, alias string, args ...interface{}) Qu
 	return s.way.QueryJoinTable(table, alias, args...)
 }
 
-func (s *queryJoin) NewSubquery(subquery Cmd, alias string) QueryJoinTable {
+func (s *queryJoin) NewSubquery(subquery Cmder, alias string) QueryJoinTable {
 	prepare, args := subquery.Cmd()
 	return s.NewTable(prepare, alias, args...)
 }
 
 // On For `... JOIN ON ...`
-func (s *queryJoin) On(requires ...func(leftAlias string, rightAlias string) Cmd) JoinRequire {
+func (s *queryJoin) On(requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire {
 	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
 		b := getStringBuilder()
 		defer putStringBuilder(b)
@@ -548,7 +548,7 @@ func (s *queryJoin) On(requires ...func(leftAlias string, rightAlias string) Cmd
 }
 
 // Using For `... JOIN USING ...`
-func (s *queryJoin) Using(using []string, requires ...func(leftAlias string, rightAlias string) Cmd) JoinRequire {
+func (s *queryJoin) Using(using []string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire {
 	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
 		columns := make([]string, 0, len(using))
 		for _, column := range using {
@@ -589,13 +589,13 @@ func (s *queryJoin) Using(using []string, requires ...func(leftAlias string, rig
 }
 
 // OnEqual For `... JOIN ON ... = ... [...]`
-func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Cmd) JoinRequire {
-	onRequire := make([]func(leftAlias string, rightAlias string) Cmd, 0, len(requires)+1)
-	onEqual := func(leftAlias string, rightAlias string) Cmd {
+func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire {
+	onRequire := make([]func(leftAlias string, rightAlias string) Cmder, 0, len(requires)+1)
+	onEqual := func(leftAlias string, rightAlias string) Cmder {
 		if leftColumn == EmptyString || rightColumn == EmptyString {
 			return nil
 		}
-		return NewCmd(fmt.Sprintf("%s = %s", SqlPrefix(leftAlias, leftColumn), SqlPrefix(rightAlias, rightColumn)), nil)
+		return NewCmder(fmt.Sprintf("%s = %s", SqlPrefix(leftAlias, leftColumn), SqlPrefix(rightAlias, rightColumn)), nil)
 	}
 	onRequire = append(onRequire, onEqual)
 	onRequire = append(onRequire, requires...)
@@ -619,7 +619,7 @@ func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightT
 	if joinRequire != nil {
 		joinRequirePrepare, joinRequireArgs := joinRequire(leftTable.GetAlias(), rightTable.GetAlias())
 		if joinRequirePrepare != EmptyString {
-			join.joinRequire = NewCmd(joinRequirePrepare, joinRequireArgs)
+			join.joinRequire = NewCmder(joinRequirePrepare, joinRequireArgs)
 		}
 	}
 	s.joins = append(s.joins, join)
@@ -660,7 +660,7 @@ func (s *queryJoin) QueryExtendFields(custom func(fields QueryField)) QueryJoin 
 type QueryGroup interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	Group(columns ...string) QueryGroup
 
@@ -732,7 +732,7 @@ func (s *Way) QueryGroup() QueryGroup {
 type QueryOrder interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	Asc(columns ...string) QueryOrder
 
@@ -809,7 +809,7 @@ func (s *Way) QueryOrder() QueryOrder {
 type QueryLimit interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	Limit(limit int64) QueryLimit
 
@@ -876,7 +876,7 @@ func NewQueryLimit() QueryLimit {
 type InsertField interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	Add(fields ...string) InsertField
 
@@ -1032,9 +1032,9 @@ func (s *insertField) Len() int {
 type InsertValue interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
-	SetSubquery(subquery Cmd) InsertValue
+	SetSubquery(subquery Cmder) InsertValue
 
 	SetValues(values ...[]interface{}) InsertValue
 
@@ -1048,7 +1048,7 @@ type InsertValue interface {
 }
 
 type insertValue struct {
-	subquery Cmd
+	subquery Cmder
 	values   [][]interface{}
 }
 
@@ -1057,14 +1057,14 @@ func NewInsertValue() InsertValue {
 }
 
 func (s *insertValue) IsEmpty() bool {
-	return IsEmptyCmd(s.subquery) && (len(s.values) == 0 || len(s.values[0]) == 0)
+	return IsEmptyCmder(s.subquery) && (len(s.values) == 0 || len(s.values[0]) == 0)
 }
 
 func (s *insertValue) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	if !IsEmptyCmd(s.subquery) {
+	if !IsEmptyCmder(s.subquery) {
 		prepare, args = s.subquery.Cmd()
 		return
 	}
@@ -1084,7 +1084,7 @@ func (s *insertValue) Cmd() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *insertValue) SetSubquery(subquery Cmd) InsertValue {
+func (s *insertValue) SetSubquery(subquery Cmder) InsertValue {
 	s.subquery = subquery
 	return s
 }
@@ -1160,7 +1160,7 @@ func (s *insertValue) GetValues() [][]interface{} {
 type UpdateSet interface {
 	IsEmpty
 
-	Cmd
+	Cmder
 
 	Update(update string, args ...interface{}) UpdateSet
 
@@ -1829,35 +1829,35 @@ func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 	}
 }
 
-// CmdQuery execute the built SQL statement and scan query result.
-func CmdQuery(ctx context.Context, way *Way, cmd Cmd, query func(rows *sql.Rows) (err error)) error {
-	prepare, args := cmd.Cmd()
+// CmderQuery execute the built SQL statement and scan query result.
+func CmderQuery(ctx context.Context, way *Way, cmder Cmder, query func(rows *sql.Rows) (err error)) error {
+	prepare, args := cmder.Cmd()
 	return way.QueryContext(ctx, query, prepare, args...)
 }
 
-// CmdGet execute the built SQL statement and scan query result.
-func CmdGet(ctx context.Context, way *Way, cmd Cmd, result interface{}) error {
-	prepare, args := cmd.Cmd()
+// CmderGet execute the built SQL statement and scan query result.
+func CmderGet(ctx context.Context, way *Way, cmder Cmder, result interface{}) error {
+	prepare, args := cmder.Cmd()
 	return way.TakeAllContext(ctx, result, prepare, args...)
 }
 
-// CmdScanAll execute the built SQL statement and scan all from the query results.
-func CmdScanAll(ctx context.Context, way *Way, cmd Cmd, custom func(rows *sql.Rows) error) error {
-	return CmdQuery(ctx, way, cmd, func(rows *sql.Rows) error {
+// CmderScanAll execute the built SQL statement and scan all from the query results.
+func CmderScanAll(ctx context.Context, way *Way, cmder Cmder, custom func(rows *sql.Rows) error) error {
+	return CmderQuery(ctx, way, cmder, func(rows *sql.Rows) error {
 		return way.ScanAll(rows, custom)
 	})
 }
 
-// CmdScanOne execute the built SQL statement and scan at most once from the query results.
-func CmdScanOne(ctx context.Context, way *Way, cmd Cmd, dest ...interface{}) error {
-	return CmdQuery(ctx, way, cmd, func(rows *sql.Rows) error {
+// CmderScanOne execute the built SQL statement and scan at most once from the query results.
+func CmderScanOne(ctx context.Context, way *Way, cmder Cmder, dest ...interface{}) error {
+	return CmderQuery(ctx, way, cmder, func(rows *sql.Rows) error {
 		return way.ScanOne(rows, dest...)
 	})
 }
 
-// CmdViewMap execute the built SQL statement and scan all from the query results.
-func CmdViewMap(ctx context.Context, way *Way, cmd Cmd) (result []map[string]interface{}, err error) {
-	err = CmdQuery(ctx, way, cmd, func(rows *sql.Rows) (err error) {
+// CmderViewMap execute the built SQL statement and scan all from the query results.
+func CmderViewMap(ctx context.Context, way *Way, cmder Cmder) (result []map[string]interface{}, err error) {
+	err = CmderQuery(ctx, way, cmder, func(rows *sql.Rows) (err error) {
 		result, err = ScanViewMap(rows)
 		return
 	})

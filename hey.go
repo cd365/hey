@@ -811,9 +811,9 @@ func (s *Way) WindowFunc(alias ...string) *WindowFunc {
 }
 
 // Debugger Debug output SQL script.
-func (s *Way) Debugger(cmd Cmd) *Way {
+func (s *Way) Debugger(cmder Cmder) *Way {
 	if s.cfg.Debugger != nil {
-		s.cfg.Debugger.Debugger(cmd)
+		s.cfg.Debugger.Debugger(cmder)
 	}
 	return s
 }
@@ -1033,7 +1033,7 @@ type Debugger interface {
 	SetWay(way *Way) Debugger
 
 	// Debugger Debug output SQL script
-	Debugger(cmd Cmd) Debugger
+	Debugger(cmder Cmder) Debugger
 }
 
 type debugger struct {
@@ -1055,11 +1055,11 @@ func (s *debugger) SetWay(way *Way) Debugger {
 	return s
 }
 
-func (s *debugger) Debugger(cmd Cmd) Debugger {
-	if cmd == nil || s.log == nil || s.way == nil {
+func (s *debugger) Debugger(cmder Cmder) Debugger {
+	if cmder == nil || s.log == nil || s.way == nil {
 		return s
 	}
-	prepare, args := cmd.Cmd()
+	prepare, args := cmder.Cmd()
 	script := PrepareString(s.way.cfg.Helper, prepare, args)
 	s.log.Debug().Str("script", script).Str("prepare", prepare).Any("args", args).Send()
 	return s

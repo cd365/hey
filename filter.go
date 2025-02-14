@@ -306,7 +306,7 @@ func filterUseValue(value interface{}) interface{} {
 
 // Filter Implement SQL statement condition filtering.
 type Filter interface {
-	Cmd
+	Cmder
 
 	// Clean Clear the existing conditional filtering of the current object.
 	Clean() Filter
@@ -375,13 +375,13 @@ type Filter interface {
 	IsNull(column string) Filter
 
 	// InQuery Implement conditional filtering: column IN ( subquery ) .
-	InQuery(column string, subquery Cmd) Filter
+	InQuery(column string, subquery Cmder) Filter
 
 	// InColsQuery Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
-	InColsQuery(columns []string, subquery Cmd) Filter
+	InColsQuery(columns []string, subquery Cmder) Filter
 
 	// ExistsQuery Implement conditional filtering: EXISTS ( subquery ) .
-	ExistsQuery(subquery Cmd) Filter
+	ExistsQuery(subquery Cmder) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
 	NotEqual(column string, value interface{}) Filter
@@ -661,7 +661,7 @@ func (s *filter) IsNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(s.nameReplace(column), false))
 }
 
-func (s *filter) InQuery(column string, subquery Cmd) Filter {
+func (s *filter) InQuery(column string, subquery Cmder) Filter {
 	if subquery == nil {
 		return s
 	}
@@ -672,7 +672,7 @@ func (s *filter) InQuery(column string, subquery Cmd) Filter {
 	return s.InSql(s.nameReplace(column), prepare, args...)
 }
 
-func (s *filter) InColsQuery(columns []string, subquery Cmd) Filter {
+func (s *filter) InColsQuery(columns []string, subquery Cmder) Filter {
 	if subquery == nil {
 		return s
 	}
@@ -683,7 +683,7 @@ func (s *filter) InColsQuery(columns []string, subquery Cmd) Filter {
 	return s.InColsSql(s.nameReplaceAll(columns), prepare, args...)
 }
 
-func (s *filter) ExistsQuery(subquery Cmd) Filter {
+func (s *filter) ExistsQuery(subquery Cmder) Filter {
 	if subquery == nil {
 		return s
 	}
