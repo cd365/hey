@@ -1174,7 +1174,14 @@ func (s *Add) Create(create interface{}) *Add {
 		}
 		return s
 	}
-	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, s.except.GetFields(), s.permit.GetFields()))
+	var except, permit []string
+	if s.except != nil {
+		except = s.except.GetFields()
+	}
+	if s.permit != nil {
+		permit = s.permit.GetFields()
+	}
+	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, except, permit))
 }
 
 // CmderValues values is a query SQL statement.
