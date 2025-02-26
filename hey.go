@@ -6,7 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/cd365/hey/v3/logger"
+	"github.com/cd365/logger/v8"
 	"os"
 	"reflect"
 	"strconv"
@@ -667,6 +667,142 @@ func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
+/* Using Cmder */
+
+func (s *Way) CmderQueryContext(ctx context.Context, cmder Cmder, query func(rows *sql.Rows) error) error {
+	if cmder == nil {
+		return nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil
+	}
+	return s.QueryContext(ctx, query, prepare, args...)
+}
+
+func (s *Way) CmderQuery(cmder Cmder, query func(rows *sql.Rows) error) error {
+	if cmder == nil {
+		return nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil
+	}
+	return s.Query(query, prepare, args...)
+}
+
+func (s *Way) CmderQueryRowContext(ctx context.Context, cmder Cmder, query func(row *sql.Row) error) error {
+	if cmder == nil {
+		return nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil
+	}
+	return s.QueryRowContext(ctx, query, prepare, args...)
+}
+
+func (s *Way) CmderQueryRow(cmder Cmder, query func(row *sql.Row) error) error {
+	if cmder == nil {
+		return nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil
+	}
+	return s.QueryRow(query, prepare, args...)
+}
+
+func (s *Way) CmderTakeAllContext(ctx context.Context, cmder Cmder, result interface{}) error {
+	if cmder == nil {
+		return nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil
+	}
+	return s.TakeAllContext(ctx, result, prepare, args...)
+}
+
+func (s *Way) CmderTakeAll(cmder Cmder, result interface{}) error {
+	if cmder == nil {
+		return nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil
+	}
+	return s.TakeAll(result, prepare, args...)
+}
+
+func (s *Way) CmderExecuteContext(ctx context.Context, cmder Cmder) (sql.Result, error) {
+	if cmder == nil {
+		return nil, nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil, nil
+	}
+	return s.ExecuteContext(ctx, prepare, args...)
+}
+
+func (s *Way) CmderExecute(cmder Cmder) (sql.Result, error) {
+	if cmder == nil {
+		return nil, nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return nil, nil
+	}
+	return s.Execute(prepare, args...)
+}
+
+func (s *Way) CmderExecContext(ctx context.Context, cmder Cmder) (int64, error) {
+	if cmder == nil {
+		return 0, nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return 0, nil
+	}
+	return s.ExecContext(ctx, prepare, args...)
+}
+
+func (s *Way) CmderExec(cmder Cmder) (int64, error) {
+	if cmder == nil {
+		return 0, nil
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return 0, nil
+	}
+	return s.Exec(prepare, args...)
+}
+
+/* Batch Update */
+
+func (s *Way) BatchUpdateContext(ctx context.Context, prepare string, argsList [][]interface{}) (affectedRows int64, err error) {
+	var stmt *Stmt
+	stmt, err = s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return affectedRows, err
+	}
+	defer func() { _ = stmt.Close() }()
+	var rows int64
+	for _, args := range argsList {
+		if rows, err = stmt.Exec(args...); err != nil {
+			return affectedRows, err
+		} else {
+			affectedRows += rows
+		}
+	}
+	return affectedRows, nil
+}
+
+func (s *Way) BatchUpdate(prepare string, argsList [][]interface{}) (affectedRows int64, err error) {
+	return s.BatchUpdateContext(context.Background(), prepare, argsList)
+}
+
 // getter -> Query, execute the query sql statement with args, no prepared is used.
 func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	if query == nil || prepare == EmptyString {
@@ -747,6 +883,36 @@ func (s *Way) Mod(table string) *Mod {
 // Get -> Create an instance that executes the SELECT sql statement.
 func (s *Way) Get(table ...string) *Get {
 	return NewGet(s).Table(s.NameReplace(LastNotEmptyString(table)))
+}
+
+// AddOne Add one and get last insert id.
+func (s *Way) AddOne(
+	ctx context.Context,
+	cmder Cmder,
+	adjust func(cmder Cmder) Cmder,
+	custom func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error),
+) (id int64, err error) {
+	if cmder == nil || custom == nil {
+		return 0, nil
+	}
+	if adjust != nil {
+		cmder = adjust(cmder)
+	}
+	prepare, args := cmder.Cmd()
+	if prepare == EmptyString {
+		return 0, nil
+	}
+	if ctx == nil {
+		ctxTmp, cancel := context.WithTimeout(context.Background(), DefaultCfg().TransactionMaxDuration)
+		defer cancel()
+		ctx = ctxTmp
+	}
+	stmt, err := s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = stmt.Close() }()
+	return custom(ctx, stmt, args)
 }
 
 // T Table empty alias

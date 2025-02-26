@@ -1262,27 +1262,9 @@ func (s *Add) Add() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// AddGetId execute the built SQL statement, returning auto-increment field value.
-func (s *Add) AddGetId(
-	adjust func(prepare string, args []interface{}) (string, []interface{}),
-	custom func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error),
-) (id int64, err error) {
-	if custom == nil {
-		return 0, nil
-	}
-	prepare, args := s.Cmd()
-	if prepare == EmptyString {
-		return 0, nil
-	}
-	if adjust != nil {
-		prepare, args = adjust(prepare, args)
-	}
-	stmt, err := s.schema.way.PrepareContext(s.schema.ctx, prepare)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = stmt.Close() }()
-	return custom(s.schema.ctx, stmt, args)
+// AddOne execute the built SQL statement, returning last insert id.
+func (s *Add) AddOne(adjust func(cmder Cmder) Cmder, custom func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error)) (id int64, err error) {
+	return s.schema.way.AddOne(s.schema.ctx, s, adjust, custom)
 }
 
 // Way get current *Way.
