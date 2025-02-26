@@ -1036,22 +1036,22 @@ func (s *Del) Way() *Way {
 
 // Add for INSERT.
 type Add struct {
-	schema        *schema
-	except        InsertField
-	permit        InsertField
-	fields        InsertField
-	values        InsertValue
-	fieldsDefault InsertField
-	valuesDefault InsertValue
-	fromCmder     Cmder
+	schema         *schema
+	except         InsertColumns
+	permit         InsertColumns
+	columns        InsertColumns
+	values         InsertValue
+	columnsDefault InsertColumns
+	valuesDefault  InsertValue
+	fromCmder      Cmder
 }
 
 // NewAdd for INSERT.
 func NewAdd(way *Way) *Add {
 	add := &Add{
-		schema: newSchema(way),
-		fields: way.InsertFieldCmd(),
-		values: NewInsertValue(),
+		schema:  newSchema(way),
+		columns: way.InsertColumnsCmd(),
+		values:  NewInsertValue(),
 	}
 	return add
 }
@@ -1074,23 +1074,23 @@ func (s *Add) Table(table string) *Add {
 	return s
 }
 
-// ExceptPermit Set a list of fields that are not allowed to be inserted and a list of fields that are only allowed to be inserted.
-func (s *Add) ExceptPermit(custom func(except InsertField, permit InsertField)) *Add {
+// ExceptPermit Set a list of columns that are not allowed to be inserted and a list of columns that are only allowed to be inserted.
+func (s *Add) ExceptPermit(custom func(except InsertColumns, permit InsertColumns)) *Add {
 	if custom != nil {
 		if s.except == nil {
-			s.except = s.schema.way.InsertFieldCmd()
+			s.except = s.schema.way.InsertColumnsCmd()
 		}
 		if s.permit == nil {
-			s.permit = s.schema.way.InsertFieldCmd()
+			s.permit = s.schema.way.InsertColumnsCmd()
 		}
 		custom(s.except, s.permit)
 	}
 	return s
 }
 
-// FieldsValues set fields and values.
-func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
-	length1, length2 := len(fields), len(values)
+// ColumnsValues set columns and values.
+func (s *Add) ColumnsValues(columns []string, values [][]interface{}) *Add {
+	length1, length2 := len(columns), len(values)
 	if length1 == 0 || length2 == 0 {
 		return s
 	}
@@ -1099,68 +1099,68 @@ func (s *Add) FieldsValues(fields []string, values [][]interface{}) *Add {
 			return s
 		}
 	}
-	s.fields.SetFields(fields)
+	s.columns.SetColumns(columns)
 	s.values.SetValues(values...)
 	if s.permit != nil {
-		columns := s.permit.GetFieldsMap()
+		columns1 := s.permit.GetColumnsMap()
 		deletes := make([]string, 0, 32)
-		for _, field := range s.fields.GetFields() {
-			if _, ok := columns[field]; !ok {
-				deletes = append(deletes, field)
+		for _, column := range s.columns.GetColumns() {
+			if _, ok := columns1[column]; !ok {
+				deletes = append(deletes, column)
 			}
 		}
-		s.fields.Del(deletes...)
+		s.columns.Del(deletes...)
 	}
 	if s.except != nil {
-		columns := s.except.GetFieldsMap()
+		columns1 := s.except.GetColumnsMap()
 		deletes := make([]string, 0, 32)
-		for _, field := range s.fields.GetFields() {
-			if _, ok := columns[field]; ok {
-				deletes = append(deletes, field)
+		for _, column := range s.columns.GetColumns() {
+			if _, ok := columns1[column]; ok {
+				deletes = append(deletes, column)
 			}
 		}
-		s.fields.Del(deletes...)
+		s.columns.Del(deletes...)
 	}
 	return s
 }
 
-// FieldValue append field-value for insert one or more rows.
-func (s *Add) FieldValue(field string, value interface{}) *Add {
+// ColumnValue append column-value for insert one or more rows.
+func (s *Add) ColumnValue(column string, value interface{}) *Add {
 	if s.permit != nil {
-		if !s.permit.FieldExists(field) {
+		if !s.permit.ColumnExists(column) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldExists(field) {
+		if s.except.ColumnExists(column) {
 			return s
 		}
 	}
-	s.fields.Add(field)
-	s.values.Set(s.fields.FieldIndex(field), value)
+	s.columns.Add(column)
+	s.values.Set(s.columns.ColumnIndex(column), value)
 	return s
 }
 
-// Default Add field = value .
+// Default Add column = value .
 func (s *Add) Default(add func(add *Add)) *Add {
 	if add == nil {
 		return s
 	}
 	v := *s
 	tmp := &v
-	tmp.fields, tmp.values = s.schema.way.InsertFieldCmd(), NewInsertValue()
+	tmp.columns, tmp.values = s.schema.way.InsertColumnsCmd(), NewInsertValue()
 	add(tmp)
-	if !tmp.fields.IsEmpty() && !tmp.values.IsEmpty() {
-		if s.fieldsDefault == nil {
-			s.fieldsDefault = s.schema.way.InsertFieldCmd()
+	if !tmp.columns.IsEmpty() && !tmp.values.IsEmpty() {
+		if s.columnsDefault == nil {
+			s.columnsDefault = s.schema.way.InsertColumnsCmd()
 		}
 		if tmp.valuesDefault == nil {
 			s.valuesDefault = NewInsertValue()
 		}
-		fields, values := tmp.fields.GetFields(), tmp.values.GetValues()
-		for index, field := range fields {
-			s.fieldsDefault.Add(field)
-			s.valuesDefault.Set(s.fieldsDefault.FieldIndex(field), values[0][index])
+		columns, values := tmp.columns.GetColumns(), tmp.values.GetValues()
+		for index, column := range columns {
+			s.columnsDefault.Add(column)
+			s.valuesDefault.Set(s.columnsDefault.ColumnIndex(column), values[0][index])
 		}
 	}
 	return s
@@ -1168,28 +1168,28 @@ func (s *Add) Default(add func(add *Add)) *Add {
 
 // Create value of create should be one of struct{}, *struct{}, map[string]interface{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *Add) Create(create interface{}) *Add {
-	if fieldValue, ok := create.(map[string]interface{}); ok {
-		for field, value := range fieldValue {
-			s.FieldValue(field, value)
+	if columnValue, ok := create.(map[string]interface{}); ok {
+		for column, value := range columnValue {
+			s.ColumnValue(column, value)
 		}
 		return s
 	}
 	var except, permit []string
 	if s.except != nil {
-		except = s.except.GetFields()
+		except = s.except.GetColumns()
 	}
 	if s.permit != nil {
-		permit = s.permit.GetFields()
+		permit = s.permit.GetColumns()
 	}
-	return s.FieldsValues(StructInsert(create, s.schema.way.cfg.ScanTag, except, permit))
+	return s.ColumnsValues(StructInsert(create, s.schema.way.cfg.ScanTag, except, permit))
 }
 
 // CmderValues values is a query SQL statement.
-func (s *Add) CmderValues(cmdValues Cmder, fields []string) *Add {
+func (s *Add) CmderValues(cmdValues Cmder, columns []string) *Add {
 	if cmdValues == nil || IsEmptyCmder(cmdValues) {
 		return s
 	}
-	s.fields = s.schema.way.InsertFieldCmd().SetFields(fields)
+	s.columns = s.schema.way.InsertColumnsCmd().SetColumns(columns)
 	s.fromCmder = cmdValues
 	return s
 }
@@ -1206,10 +1206,10 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 		b.WriteString("INTO ")
 		table, _ := s.schema.table.Cmd()
 		b.WriteString(s.schema.way.NameReplace(table))
-		if !IsEmptyCmder(s.fields) {
+		if !IsEmptyCmder(s.columns) {
 			b.WriteString(SqlSpace)
-			fields, _ := s.fields.Cmd()
-			b.WriteString(fields)
+			columns, _ := s.columns.Cmd()
+			b.WriteString(columns)
 		}
 		b.WriteString(SqlSpace)
 		fromPrepare, fromArgs := s.fromCmder.Cmd()
@@ -1220,7 +1220,7 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 		prepare = b.String()
 		return
 	}
-	if IsEmptyCmder(s.fields) || IsEmptyCmder(s.values) {
+	if IsEmptyCmder(s.columns) || IsEmptyCmder(s.values) {
 		return
 	}
 	b.WriteString("INSERT ")
@@ -1228,20 +1228,20 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 	table, _ := s.schema.table.Cmd()
 	b.WriteString(s.schema.way.NameReplace(table))
 	b.WriteString(SqlSpace)
-	// add default field-value
-	if s.fieldsDefault != nil {
-		fields, values := s.fieldsDefault.GetFields(), s.valuesDefault.GetValues()
-		if len(values) > 0 && len(fields) == len(values[0]) {
-			for index, field := range fields {
-				if s.fields.FieldExists(field) {
+	// add default column-value
+	if s.columnsDefault != nil {
+		columns, values := s.columnsDefault.GetColumns(), s.valuesDefault.GetValues()
+		if len(values) > 0 && len(columns) == len(values[0]) {
+			for index, column := range columns {
+				if s.columns.ColumnExists(column) {
 					continue
 				}
-				s.FieldValue(field, values[0][index])
+				s.ColumnValue(column, values[0][index])
 			}
 		}
 	}
-	fields, _ := s.fields.Cmd()
-	b.WriteString(fields)
+	columns, _ := s.columns.Cmd()
+	b.WriteString(columns)
 	b.WriteString(SqlSpace)
 	values, param := s.values.Cmd()
 	b.WriteString("VALUES ")
@@ -1275,8 +1275,8 @@ func (s *Add) Way() *Way {
 // Mod for UPDATE.
 type Mod struct {
 	schema        *schema
-	except        InsertField
-	permit        InsertField
+	except        InsertColumns
+	permit        InsertColumns
 	update        UpdateSet
 	updateDefault UpdateSet
 	where         Filter
@@ -1308,21 +1308,21 @@ func (s *Mod) Table(table string, args ...interface{}) *Mod {
 	return s
 }
 
-// ExceptPermit Set a list of fields that are not allowed to be updated and a list of fields that are only allowed to be updated.
-func (s *Mod) ExceptPermit(custom func(except InsertField, permit InsertField)) *Mod {
+// ExceptPermit Set a list of columns that are not allowed to be updated and a list of columns that are only allowed to be updated.
+func (s *Mod) ExceptPermit(custom func(except InsertColumns, permit InsertColumns)) *Mod {
 	if custom != nil {
 		if s.except == nil {
-			s.except = s.schema.way.InsertFieldCmd()
+			s.except = s.schema.way.InsertColumnsCmd()
 		}
 		if s.permit == nil {
-			s.permit = s.schema.way.InsertFieldCmd()
+			s.permit = s.schema.way.InsertColumnsCmd()
 		}
 		custom(s.except, s.permit)
 	}
 	return s
 }
 
-// Default SET field = expr .
+// Default SET column = expr .
 func (s *Mod) Default(custom func(mod *Mod)) *Mod {
 	if custom == nil {
 		return s
@@ -1346,86 +1346,86 @@ func (s *Mod) Default(custom func(mod *Mod)) *Mod {
 	return s
 }
 
-// Expr update field using custom expression.
+// Expr update column using custom expression.
 func (s *Mod) Expr(expr string, args ...interface{}) *Mod {
 	s.update.Update(expr, args...)
 	return s
 }
 
-// Set field = value.
-func (s *Mod) Set(field string, value interface{}) *Mod {
+// Set column = value.
+func (s *Mod) Set(column string, value interface{}) *Mod {
 	if s.permit != nil {
-		if !s.permit.FieldExists(field) {
+		if !s.permit.ColumnExists(column) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldExists(field) {
+		if s.except.ColumnExists(column) {
 			return s
 		}
 	}
-	s.update.Set(field, value)
+	s.update.Set(column, value)
 	return s
 }
 
-// Incr SET field = field + value.
-func (s *Mod) Incr(field string, value interface{}) *Mod {
+// Incr SET column = column + value.
+func (s *Mod) Incr(column string, value interface{}) *Mod {
 	if s.permit != nil {
-		if !s.permit.FieldExists(field) {
+		if !s.permit.ColumnExists(column) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldExists(field) {
+		if s.except.ColumnExists(column) {
 			return s
 		}
 	}
-	s.update.Incr(field, value)
+	s.update.Incr(column, value)
 	return s
 }
 
-// Decr SET field = field - value.
-func (s *Mod) Decr(field string, value interface{}) *Mod {
+// Decr SET column = column - value.
+func (s *Mod) Decr(column string, value interface{}) *Mod {
 	if s.permit != nil {
-		if !s.permit.FieldExists(field) {
+		if !s.permit.ColumnExists(column) {
 			return s
 		}
 	}
 	if s.except != nil {
-		if s.except.FieldExists(field) {
+		if s.except.ColumnExists(column) {
 			return s
 		}
 	}
-	s.update.Decr(field, value)
+	s.update.Decr(column, value)
 	return s
 }
 
-// FieldsValues SET field = value by slice, require len(fields) == len(values).
-func (s *Mod) FieldsValues(fields []string, values []interface{}) *Mod {
-	len1, len2 := len(fields), len(values)
+// ColumnsValues SET column = value by slice, require len(columns) == len(values).
+func (s *Mod) ColumnsValues(columns []string, values []interface{}) *Mod {
+	len1, len2 := len(columns), len(values)
 	if len1 != len2 {
 		return s
 	}
 	for i := 0; i < len1; i++ {
-		s.Set(fields[i], values[i])
+		s.Set(columns[i], values[i])
 	}
 	return s
 }
 
 // Update Value of update should be one of struct{}, *struct{}, map[string]interface{}.
 func (s *Mod) Update(update interface{}) *Mod {
-	if fieldValue, ok := update.(map[string]interface{}); ok {
-		for field, value := range fieldValue {
-			s.Set(field, value)
+	if columnValue, ok := update.(map[string]interface{}); ok {
+		for column, value := range columnValue {
+			s.Set(column, value)
 		}
 		return s
 	}
-	return s.FieldsValues(StructModify(update, s.schema.way.cfg.ScanTag))
+	return s.ColumnsValues(StructModify(update, s.schema.way.cfg.ScanTag))
 }
 
-// Contrast Compare old and new to automatically calculate need to update fields.
+// Contrast Compare old and new to automatically calculate need to update columns.
 func (s *Mod) Contrast(old, new interface{}, except ...string) *Mod {
-	return s.FieldsValues(StructUpdate(old, new, s.schema.way.cfg.ScanTag, except...))
+	return s.ColumnsValues(StructUpdate(old, new, s.schema.way.cfg.ScanTag, except...))
 }
 
 // Where set where.
@@ -1514,25 +1514,25 @@ type Limiter interface {
 
 // Get for SELECT.
 type Get struct {
-	schema *schema
-	with   QueryWith
-	fields QueryField
-	join   QueryJoin
-	where  Filter
-	group  QueryGroup
-	order  QueryOrder
-	limit  QueryLimit
+	schema  *schema
+	with    QueryWith
+	columns QueryColumns
+	join    QueryJoin
+	where   Filter
+	group   QueryGroup
+	order   QueryOrder
+	limit   QueryLimit
 }
 
 // NewGet for SELECT.
 func NewGet(way *Way) *Get {
 	return &Get{
-		schema: newSchema(way),
-		fields: way.QueryField(),
-		where:  way.F(),
-		group:  way.QueryGroup(),
-		order:  way.QueryOrder(),
-		limit:  NewQueryLimit(),
+		schema:  newSchema(way),
+		columns: way.QueryColumns(),
+		where:   way.F(),
+		group:   way.QueryGroup(),
+		order:   way.QueryOrder(),
+		limit:   NewQueryLimit(),
 	}
 }
 
@@ -1652,15 +1652,15 @@ func (s *Get) Having(having func(having Filter)) *Get {
 	return s
 }
 
-// Fields set the fields list of query.
-func (s *Get) Fields(custom func(fields QueryField)) *Get {
+// Columns set the columns list of query.
+func (s *Get) Columns(custom func(columns QueryColumns)) *Get {
 	if custom == nil {
 		return s
 	}
-	tmp := s.schema.way.QueryField()
+	tmp := s.schema.way.QueryColumns()
 	custom(tmp)
 	if tmp.Len() > 0 {
-		s.fields = tmp
+		s.columns = tmp
 	}
 	return s
 }
@@ -1684,13 +1684,13 @@ var (
 
 // Order set the column sorting list in batches through regular expressions according to the request parameter value.
 func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
-	fieldMap := make(map[string]string, 8)
+	columnMap := make(map[string]string, 8)
 	for _, m := range orderMap {
 		for k, v := range m {
 			if k == EmptyString || v == EmptyString {
 				continue
 			}
-			fieldMap[k] = v
+			columnMap[k] = v
 		}
 	}
 
@@ -1709,16 +1709,16 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 		if length < 4 || matched[3] == "" {
 			continue
 		}
-		field := matched[1]
-		if val, ok := fieldMap[field]; ok && val != "" {
-			field = val
+		column := matched[1]
+		if val, ok := columnMap[column]; ok && val != "" {
+			column = val
 		}
 		if matched[3][0] == 97 {
-			s.Asc(field)
+			s.Asc(column)
 			continue
 		}
 		if matched[3][0] == 100 {
-			s.Desc(field)
+			s.Desc(column)
 			continue
 		}
 	}
@@ -1773,10 +1773,10 @@ func CmderGetTable(s *Get) (prepare string, args []interface{}) {
 		}
 	} else {
 		b.WriteString("SELECT ")
-		fields, fieldsArgs := s.fields.Cmd()
-		b.WriteString(fields)
-		if fieldsArgs != nil {
-			args = append(args, fieldsArgs...)
+		columns, columnsArgs := s.columns.Cmd()
+		b.WriteString(columns)
+		if columnsArgs != nil {
+			args = append(args, columnsArgs...)
 		}
 		b.WriteString(" FROM ")
 		table, param := s.schema.table.Cmd()
@@ -1868,7 +1868,7 @@ func CmderGetCount(s *Get, countColumns ...string) (prepare string, args []inter
 		return
 	}
 	return NewGet(s.schema.way).
-		Fields(func(fields QueryField) { fields.AddFields(countColumns...) }).
+		Columns(func(columns QueryColumns) { columns.AddAll(countColumns...) }).
 		Subquery(s, AliasA).
 		Cmd()
 }

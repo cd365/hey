@@ -143,64 +143,62 @@ func (s *queryWith) Del(alias string) QueryWith {
 	return s
 }
 
-// QueryField Used to build the list of fields to be queried.
-type QueryField interface {
+// QueryColumns Used to build the list of columns to be queried.
+type QueryColumns interface {
 	IsEmpty
 
 	Cmder
 
-	Index(field string) int
+	Index(column string) int
 
-	Exists(field string) bool
+	Exists(column string) bool
 
-	Add(field string, args ...interface{}) QueryField
+	Add(column string, args ...interface{}) QueryColumns
 
-	AddFields(fields ...string) QueryField
+	AddAll(columns ...string) QueryColumns
 
-	DelFields(fields ...string) QueryField
-
-	DelAll() QueryField
+	DelAll(columns ...string) QueryColumns
 
 	Len() int
 
 	Get() ([]string, map[int][]interface{})
 
-	Set(fields []string, fieldsArgs map[int][]interface{}) QueryField
+	Set(columns []string, columnsArgs map[int][]interface{}) QueryColumns
 }
 
-type queryField struct {
-	fields     []string
-	fieldsMap  map[string]int
-	fieldsArgs map[int][]interface{}
+type queryColumns struct {
+	columns     []string
+	columnsMap  map[string]int
+	columnsArgs map[int][]interface{}
 
 	way *Way
 }
 
-func (s *Way) QueryField() QueryField {
-	return &queryField{
-		fields:     make([]string, 0, 1<<5),
-		fieldsMap:  make(map[string]int, 1<<5),
-		fieldsArgs: make(map[int][]interface{}, 1<<5),
-		way:        s,
+func (s *Way) QueryColumns() QueryColumns {
+	return &queryColumns{
+		columns:     make([]string, 0, 1<<5),
+		columnsMap:  make(map[string]int, 1<<5),
+		columnsArgs: make(map[int][]interface{}, 1<<5),
+		way:         s,
 	}
 }
 
-func (s *queryField) IsEmpty() bool {
-	return len(s.fields) == 0
+func (s *queryColumns) IsEmpty() bool {
+	return len(s.columns) == 0
 }
 
-func (s *queryField) Cmd() (prepare string, args []interface{}) {
-	length := len(s.fields)
+func (s *queryColumns) Cmd() (prepare string, args []interface{}) {
+	length := len(s.columns)
 	if length == 0 {
 		return SqlStar, nil
 	}
 	columns := make([]string, 0, length)
 	for i := 0; i < length; i++ {
-		tmpArgs, ok := s.fieldsArgs[i]
+		tmpArgs, ok := s.columnsArgs[i]
 		if !ok {
 			continue
 		}
-		columns = append(columns, s.fields[i])
+		columns = append(columns, s.columns[i])
 		if tmpArgs != nil {
 			args = append(args, tmpArgs...)
 		}
@@ -209,88 +207,87 @@ func (s *queryField) Cmd() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *queryField) Index(field string) int {
-	index, ok := s.fieldsMap[field]
+func (s *queryColumns) Index(column string) int {
+	index, ok := s.columnsMap[column]
 	if !ok {
 		return -1
 	}
 	return index
 }
 
-func (s *queryField) Exists(field string) bool {
-	return s.Index(field) >= 0
+func (s *queryColumns) Exists(column string) bool {
+	return s.Index(column) >= 0
 }
 
-func (s *queryField) Add(field string, args ...interface{}) QueryField {
-	if field == EmptyString {
+func (s *queryColumns) Add(column string, args ...interface{}) QueryColumns {
+	if column == EmptyString {
 		return s
 	}
-	index, ok := s.fieldsMap[field]
+	index, ok := s.columnsMap[column]
 	if ok {
-		s.fieldsArgs[index] = args
+		s.columnsArgs[index] = args
 		return s
 	}
-	index = len(s.fields)
-	s.fields = append(s.fields, field)
-	s.fieldsMap[field] = index
-	s.fieldsArgs[index] = args
+	index = len(s.columns)
+	s.columns = append(s.columns, column)
+	s.columnsMap[column] = index
+	s.columnsArgs[index] = args
 	return s
 }
 
-func (s *queryField) AddFields(fields ...string) QueryField {
-	for _, field := range fields {
-		s.Add(field)
+func (s *queryColumns) AddAll(columns ...string) QueryColumns {
+	for _, column := range columns {
+		s.Add(column)
 	}
 	return s
 }
 
-func (s *queryField) DelFields(fields ...string) QueryField {
-	deleted := make(map[int]*struct{}, len(fields))
-	for _, field := range fields {
-		if field == EmptyString {
+func (s *queryColumns) DelAll(columns ...string) QueryColumns {
+	if columns == nil {
+		s.columns = make([]string, 0, 1<<5)
+		s.columnsMap = make(map[string]int, 1<<5)
+		s.columnsArgs = make(map[int][]interface{}, 1<<5)
+		return s
+	}
+	deleted := make(map[int]*struct{}, len(columns))
+	for _, column := range columns {
+		if column == EmptyString {
 			continue
 		}
-		index, ok := s.fieldsMap[field]
+		index, ok := s.columnsMap[column]
 		if !ok {
 			continue
 		}
 		deleted[index] = &struct{}{}
 	}
-	length := len(s.fields)
+	length := len(s.columns)
 	result := make([]string, 0, length)
-	for index, field := range s.fields {
+	for index, column := range s.columns {
 		if _, ok := deleted[index]; ok {
-			delete(s.fieldsMap, field)
-			delete(s.fieldsArgs, index)
+			delete(s.columnsMap, column)
+			delete(s.columnsArgs, index)
 		} else {
-			result = append(result, field)
+			result = append(result, column)
 		}
 	}
-	s.fields = result
+	s.columns = result
 	return s
 }
 
-func (s *queryField) DelAll() QueryField {
-	s.fields = make([]string, 0, 1<<5)
-	s.fieldsMap = make(map[string]int, 1<<5)
-	s.fieldsArgs = make(map[int][]interface{}, 1<<5)
-	return s
+func (s *queryColumns) Len() int {
+	return len(s.columns)
 }
 
-func (s *queryField) Len() int {
-	return len(s.fields)
+func (s *queryColumns) Get() ([]string, map[int][]interface{}) {
+	return s.columns, s.columnsArgs
 }
 
-func (s *queryField) Get() ([]string, map[int][]interface{}) {
-	return s.fields, s.fieldsArgs
-}
-
-func (s *queryField) Set(fields []string, fieldsArgs map[int][]interface{}) QueryField {
-	fieldsMap := make(map[string]int, 1<<5)
-	for i, field := range fields {
-		fieldsMap[field] = i
+func (s *queryColumns) Set(columns []string, columnsArgs map[int][]interface{}) QueryColumns {
+	columnsMap := make(map[string]int, 1<<5)
+	for i, column := range columns {
+		columnsMap[column] = i
 	}
-	s.fields, s.fieldsMap, s.fieldsArgs = fields, fieldsMap, fieldsArgs
+	s.columns, s.columnsMap, s.columnsArgs = columns, columnsMap, columnsArgs
 	return s
 }
 
@@ -301,46 +298,46 @@ type JoinRequire func(leftAlias string, rightAlias string) (prepare string, args
 type QueryJoinTable interface {
 	TableCmder
 
-	/* the table used for join query only supports querying the field list without any parameters */
+	/* the table used for join query only supports querying the column list without any parameters */
 
-	AddQueryField(fields ...string) QueryJoinTable
+	AddQueryColumns(columns ...string) QueryJoinTable
 
-	DelQueryField(fields ...string) QueryJoinTable
+	DelQueryColumns(columns ...string) QueryJoinTable
 
-	DelAllQueryField() QueryJoinTable
+	DelAllQueryColumns() QueryJoinTable
 
-	ExistsQueryField() bool
+	ExistsQueryColumns() bool
 
-	GetQueryField() []string
+	GetQueryColumns() []string
 
-	GetQueryFieldString() string
+	GetQueryColumnsString() string
 }
 
 type queryJoinTable struct {
 	TableCmder
-	queryField QueryField
+	queryColumns QueryColumns
 }
 
-func (s *queryJoinTable) AddQueryField(fields ...string) QueryJoinTable {
-	s.queryField.AddFields(fields...)
+func (s *queryJoinTable) AddQueryColumns(columns ...string) QueryJoinTable {
+	s.queryColumns.AddAll(columns...)
 	return s
 }
 
-func (s *queryJoinTable) DelQueryField(fields ...string) QueryJoinTable {
-	s.queryField.DelFields(fields...)
+func (s *queryJoinTable) DelQueryColumns(columns ...string) QueryJoinTable {
+	s.queryColumns.DelAll(columns...)
 	return s
 }
 
-func (s *queryJoinTable) DelAllQueryField() QueryJoinTable {
-	s.queryField.DelAll()
+func (s *queryJoinTable) DelAllQueryColumns() QueryJoinTable {
+	s.queryColumns.DelAll()
 	return s
 }
 
-func (s *queryJoinTable) ExistsQueryField() bool {
-	return s.queryField.Len() > 0
+func (s *queryJoinTable) ExistsQueryColumns() bool {
+	return s.queryColumns.Len() > 0
 }
 
-func (s *queryJoinTable) GetQueryField() []string {
+func (s *queryJoinTable) GetQueryColumns() []string {
 	if s.TableCmder == nil {
 		return nil
 	}
@@ -349,7 +346,7 @@ func (s *queryJoinTable) GetQueryField() []string {
 		return nil
 	}
 	prefix := fmt.Sprintf("%s.", alias)
-	columns, _ := s.queryField.Get()
+	columns, _ := s.queryColumns.Get()
 	result := make([]string, 0, len(columns))
 	for _, column := range columns {
 		if column == EmptyString {
@@ -363,14 +360,14 @@ func (s *queryJoinTable) GetQueryField() []string {
 	return result
 }
 
-func (s *queryJoinTable) GetQueryFieldString() string {
-	return strings.Join(s.GetQueryField(), ", ")
+func (s *queryJoinTable) GetQueryColumnsString() string {
+	return strings.Join(s.GetQueryColumns(), ", ")
 }
 
 func (s *Way) QueryJoinTable(table string, alias string, args ...interface{}) QueryJoinTable {
 	return &queryJoinTable{
-		TableCmder: NewTableCmder(table, args).Alias(alias),
-		queryField: s.QueryField(),
+		TableCmder:   NewTableCmder(table, args).Alias(alias),
+		queryColumns: s.QueryColumns(),
 	}
 }
 
@@ -403,8 +400,8 @@ type QueryJoin interface {
 	// Where Don't forget to prefix the specific columns with the table name?
 	Where(where func(where Filter)) QueryJoin
 
-	// QueryExtendFields The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
-	QueryExtendFields(custom func(fields QueryField)) QueryJoin
+	// QueryExtendColumns The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
+	QueryExtendColumns(custom func(columns QueryColumns)) QueryJoin
 }
 
 type joinQueryTable struct {
@@ -417,18 +414,18 @@ type queryJoin struct {
 	master QueryJoinTable
 	joins  []*joinQueryTable
 	filter Filter
-	// queryExtendFields Here you can add a list of fields that cannot be set with parameters in the join query table; the table alias prefix is not automatically added.
-	queryExtendFields QueryField
+	// queryExtendColumns Here you can add a list of columns that cannot be set with parameters in the join query table; the table alias prefix is not automatically added.
+	queryExtendColumns QueryColumns
 
 	way *Way
 }
 
 func (s *Way) QueryJoin() QueryJoin {
 	tmp := &queryJoin{
-		joins:             make([]*joinQueryTable, 0, 1<<3),
-		filter:            F(),
-		queryExtendFields: s.QueryField(),
-		way:               s,
+		joins:              make([]*joinQueryTable, 0, 1<<3),
+		filter:             F(),
+		queryExtendColumns: s.QueryColumns(),
+		way:                s,
 	}
 	return tmp
 }
@@ -445,22 +442,22 @@ func (s *queryJoin) SetMaster(master QueryJoinTable) QueryJoin {
 }
 
 func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
-	columns := s.way.QueryField()
-	if s.master.ExistsQueryField() {
-		if column := s.master.GetQueryFieldString(); column != EmptyString {
+	columns := s.way.QueryColumns()
+	if s.master.ExistsQueryColumns() {
+		if column := s.master.GetQueryColumnsString(); column != EmptyString {
 			columns.Add(column)
 		}
 	}
 
 	for _, tmp := range s.joins {
-		if tmp.rightTable.ExistsQueryField() {
-			if column := tmp.rightTable.GetQueryFieldString(); column != EmptyString {
+		if tmp.rightTable.ExistsQueryColumns() {
+			if column := tmp.rightTable.GetQueryColumnsString(); column != EmptyString {
 				columns.Add(column)
 			}
 		}
 	}
-	if s.queryExtendFields != nil && s.queryExtendFields.Len() > 0 {
-		extendColumnsPrepare, extendColumnsArgs := s.queryExtendFields.Cmd()
+	if s.queryExtendColumns != nil && s.queryExtendColumns.Len() > 0 {
+		extendColumnsPrepare, extendColumnsArgs := s.queryExtendColumns.Cmd()
 		columns.Add(extendColumnsPrepare, extendColumnsArgs...)
 	}
 
@@ -646,12 +643,12 @@ func (s *queryJoin) Where(where func(where Filter)) QueryJoin {
 	return s
 }
 
-func (s *queryJoin) QueryExtendFields(custom func(fields QueryField)) QueryJoin {
-	if s.queryExtendFields == nil {
-		s.queryExtendFields = s.way.QueryField()
+func (s *queryJoin) QueryExtendColumns(custom func(columns QueryColumns)) QueryJoin {
+	if s.queryExtendColumns == nil {
+		s.queryExtendColumns = s.way.QueryColumns()
 	}
 	if custom != nil {
-		custom(s.queryExtendFields)
+		custom(s.queryExtendColumns)
 	}
 	return s
 }
@@ -872,109 +869,109 @@ func NewQueryLimit() QueryLimit {
 	return &queryLimit{}
 }
 
-// InsertField Constructing insert fields.
-type InsertField interface {
+// InsertColumns Constructing insert columns.
+type InsertColumns interface {
 	IsEmpty
 
 	Cmder
 
-	Add(fields ...string) InsertField
+	Add(columns ...string) InsertColumns
 
-	Del(fields ...string) InsertField
+	Del(columns ...string) InsertColumns
 
-	DelAll() InsertField
+	DelAll() InsertColumns
 
-	DelUseIndex(indexes ...int) InsertField
+	DelUseIndex(indexes ...int) InsertColumns
 
-	FieldIndex(field string) int
+	ColumnIndex(column string) int
 
-	FieldExists(field string) bool
+	ColumnExists(column string) bool
 
 	Len() int
 
-	SetFields(fields []string) InsertField
+	SetColumns(columns []string) InsertColumns
 
-	GetFields() []string
+	GetColumns() []string
 
-	GetFieldsMap() map[string]*struct{}
+	GetColumnsMap() map[string]*struct{}
 }
 
-type insertField struct {
-	fields    []string
-	fieldsMap map[string]int
-	way       *Way
+type insertColumns struct {
+	columns    []string
+	columnsMap map[string]int
+	way        *Way
 }
 
-func (s *Way) InsertFieldCmd() InsertField {
-	return &insertField{
-		fields:    make([]string, 0, 1<<5),
-		fieldsMap: make(map[string]int, 1<<5),
-		way:       s,
+func (s *Way) InsertColumnsCmd() InsertColumns {
+	return &insertColumns{
+		columns:    make([]string, 0, 1<<5),
+		columnsMap: make(map[string]int, 1<<5),
+		way:        s,
 	}
 }
 
-func (s *insertField) IsEmpty() bool {
-	return len(s.fields) == 0
+func (s *insertColumns) IsEmpty() bool {
+	return len(s.columns) == 0
 }
 
-func (s *insertField) Cmd() (prepare string, args []interface{}) {
+func (s *insertColumns) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	return ConcatString("( ", strings.Join(s.way.NameReplaces(s.fields), ", "), " )"), nil
+	return ConcatString("( ", strings.Join(s.way.NameReplaces(s.columns), ", "), " )"), nil
 }
 
-func (s *insertField) Add(fields ...string) InsertField {
-	num := len(s.fields)
-	for _, column := range fields {
+func (s *insertColumns) Add(columns ...string) InsertColumns {
+	num := len(s.columns)
+	for _, column := range columns {
 		if column == EmptyString {
 			continue
 		}
-		if _, ok := s.fieldsMap[column]; ok {
+		if _, ok := s.columnsMap[column]; ok {
 			continue
 		}
-		s.fields = append(s.fields, column)
-		s.fieldsMap[column] = num
+		s.columns = append(s.columns, column)
+		s.columnsMap[column] = num
 		num++
 	}
 	return s
 }
 
-func (s *insertField) Del(fields ...string) InsertField {
-	deleted := make(map[int]*struct{}, len(fields))
-	for _, column := range fields {
+func (s *insertColumns) Del(columns ...string) InsertColumns {
+	deleted := make(map[int]*struct{}, len(columns))
+	for _, column := range columns {
 		if column == EmptyString {
 			continue
 		}
-		index, ok := s.fieldsMap[column]
+		index, ok := s.columnsMap[column]
 		if !ok {
 			continue
 		}
 		deleted[index] = &struct{}{}
 	}
-	length := len(s.fields)
-	fields = make([]string, 0, length)
+	length := len(s.columns)
+	columns = make([]string, 0, length)
 	columnsMap := make(map[string]int, length)
 	num := 0
-	for index, column := range s.fields {
+	for index, column := range s.columns {
 		if _, ok := deleted[index]; !ok {
-			fields = append(fields, column)
+			columns = append(columns, column)
 			columnsMap[column] = num
 			num++
 		}
 	}
-	s.fields, s.fieldsMap = fields, columnsMap
+	s.columns, s.columnsMap = columns, columnsMap
 	return s
 }
 
-func (s *insertField) DelAll() InsertField {
-	s.fields = make([]string, 0, 1<<5)
-	s.fieldsMap = make(map[string]int, 1<<5)
+func (s *insertColumns) DelAll() InsertColumns {
+	s.columns = make([]string, 0, 1<<5)
+	s.columnsMap = make(map[string]int, 1<<5)
 	return s
 }
 
-func (s *insertField) DelUseIndex(indexes ...int) InsertField {
-	length := len(s.fields)
+func (s *insertColumns) DelUseIndex(indexes ...int) InsertColumns {
+	length := len(s.columns)
 	minIndex, maxIndex := 0, length
 	if maxIndex == minIndex {
 		return s
@@ -985,47 +982,47 @@ func (s *insertField) DelUseIndex(indexes ...int) InsertField {
 			deleted[index] = &struct{}{}
 		}
 	}
-	fields := make([]string, 0, length)
-	for index := range s.fields {
+	columns := make([]string, 0, length)
+	for index := range s.columns {
 		if _, ok := deleted[index]; ok {
 			continue
 		}
-		fields = append(fields, s.fields[index])
+		columns = append(columns, s.columns[index])
 	}
-	s.fields = fields
+	s.columns = columns
 	return s
 }
 
-func (s *insertField) FieldIndex(field string) int {
-	index, ok := s.fieldsMap[field]
+func (s *insertColumns) ColumnIndex(column string) int {
+	index, ok := s.columnsMap[column]
 	if !ok {
 		return -1
 	}
 	return index
 }
 
-func (s *insertField) FieldExists(field string) bool {
-	return s.FieldIndex(field) >= 0
+func (s *insertColumns) ColumnExists(column string) bool {
+	return s.ColumnIndex(column) >= 0
 }
 
-func (s *insertField) SetFields(fields []string) InsertField {
-	return s.DelAll().Add(fields...)
+func (s *insertColumns) SetColumns(columns []string) InsertColumns {
+	return s.DelAll().Add(columns...)
 }
 
-func (s *insertField) GetFields() []string {
-	return s.fields[:]
+func (s *insertColumns) GetColumns() []string {
+	return s.columns[:]
 }
 
-func (s *insertField) GetFieldsMap() map[string]*struct{} {
-	result := make(map[string]*struct{}, len(s.fields))
-	for _, field := range s.GetFields() {
-		result[field] = &struct{}{}
+func (s *insertColumns) GetColumnsMap() map[string]*struct{} {
+	result := make(map[string]*struct{}, len(s.columns))
+	for _, column := range s.GetColumns() {
+		result[column] = &struct{}{}
 	}
 	return result
 }
 
-func (s *insertField) Len() int {
-	return len(s.fields)
+func (s *insertColumns) Len() int {
+	return len(s.columns)
 }
 
 // InsertValue Constructing insert values.
@@ -1307,7 +1304,7 @@ type Helper interface {
 	// SetIfNull Custom method.
 	SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper
 
-	// IfNull Set a default value when the query field value is NULL.
+	// IfNull Set a default value when the query column value is NULL.
 	IfNull(columnName string, columnDefaultValue string) string
 
 	// SetBinaryDataToHexString Custom method.
@@ -1621,16 +1618,16 @@ func (s *AdjustColumn) Count(counts ...string) string {
 	}
 	// set COUNT function parameters and alias name
 	countAlias := s.way.cfg.Replace.Get(DefaultAliasNameCount)
-	field := false
+	column := false
 	for i := 0; i < length; i++ {
 		if counts[i] == EmptyString {
 			continue
 		}
-		if field {
+		if column {
 			countAlias = counts[i]
 			break
 		}
-		count, field = fmt.Sprintf("COUNT(%s)", counts[i]), true
+		count, column = fmt.Sprintf("COUNT(%s)", counts[i]), true
 	}
 	return SqlAlias(count, countAlias)
 }
@@ -1794,7 +1791,7 @@ func (s *WindowFunc) WindowFrame(windowFrame string) *WindowFunc {
 	return s
 }
 
-// Alias Set the alias of the field that uses the window function.
+// Alias Set the alias of the column that uses the window function.
 func (s *WindowFunc) Alias(alias string) *WindowFunc {
 	s.alias = alias
 	return s
