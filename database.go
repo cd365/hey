@@ -966,21 +966,23 @@ func (s *insertColumns) DelUseIndex(indexes ...int) InsertColumns {
 	if maxIndex == minIndex {
 		return s
 	}
-	deleted := make(map[int]*struct{}, len(indexes))
+	count := len(indexes)
+	deleted := make(map[int]*struct{}, count)
 	for _, index := range indexes {
 		if index >= minIndex && index < maxIndex {
 			deleted[index] = &struct{}{}
 		}
 	}
-	columns := make([]string, 0, length)
-	for index := range s.columns {
-		if _, ok := deleted[index]; ok {
-			continue
-		}
-		columns = append(columns, s.columns[index])
+	if len(deleted) == 0 {
+		return s
 	}
-	s.columns = columns
-	return s
+	columns := make([]string, 0, length)
+	for index, column := range s.columns {
+		if _, ok := deleted[index]; ok {
+			columns = append(columns, column)
+		}
+	}
+	return s.Del(columns...)
 }
 
 func (s *insertColumns) ColumnIndex(column string) int {

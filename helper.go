@@ -1194,6 +1194,16 @@ func (s *Add) CmderValues(cmdValues Cmder, columns []string) *Add {
 	return s
 }
 
+// GetColumns list of columns to insert.
+func (s *Add) GetColumns() []string {
+	return s.columns.GetColumns()
+}
+
+// GetValues list of values to insert.
+func (s *Add) GetValues() [][]interface{} {
+	return s.values.GetValues()
+}
+
 // Cmd build SQL statement.
 func (s *Add) Cmd() (prepare string, args []interface{}) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
