@@ -1109,7 +1109,10 @@ func (s *Add) ColumnsValues(columns []string, values [][]interface{}) *Add {
 				deletes = append(deletes, column)
 			}
 		}
-		s.columns.Del(deletes...)
+		for _, column := range deletes {
+			s.values.Del(s.columns.ColumnIndex(column))
+			s.columns.Del(column)
+		}
 	}
 	if s.except != nil {
 		columns1 := s.except.GetColumnsMap()
@@ -1119,7 +1122,10 @@ func (s *Add) ColumnsValues(columns []string, values [][]interface{}) *Add {
 				deletes = append(deletes, column)
 			}
 		}
-		s.columns.Del(deletes...)
+		for _, column := range deletes {
+			s.values.Del(s.columns.ColumnIndex(column))
+			s.columns.Del(column)
+		}
 	}
 	return s
 }
