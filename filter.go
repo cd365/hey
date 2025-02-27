@@ -669,7 +669,7 @@ func (s *filter) InQuery(column string, subquery Cmder) Filter {
 	if prepare == EmptyString {
 		return s
 	}
-	return s.InSql(s.nameReplace(column), prepare, args...)
+	return s.InSql(column, prepare, args...)
 }
 
 func (s *filter) InColsQuery(columns []string, subquery Cmder) Filter {
@@ -680,7 +680,7 @@ func (s *filter) InColsQuery(columns []string, subquery Cmder) Filter {
 	if prepare == EmptyString {
 		return s
 	}
-	return s.InColsSql(s.nameReplaceAll(columns), prepare, args...)
+	return s.InColsSql(columns, prepare, args...)
 }
 
 func (s *filter) ExistsQuery(subquery Cmder) Filter {
@@ -696,7 +696,7 @@ func (s *filter) ExistsQuery(subquery Cmder) Filter {
 
 func (s *filter) NotEqual(column string, value interface{}) Filter {
 	if value == nil {
-		return s.IsNotNull(s.nameReplace(column))
+		return s.IsNotNull(column)
 	}
 	if value = filterUseValue(value); value != nil {
 		s.add(SqlAnd, filterNotEqual(s.nameReplace(column)), value)

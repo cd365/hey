@@ -1623,7 +1623,8 @@ func (s *Get) Join(custom func(join QueryJoin)) *Get {
 	} else {
 		master.Alias(alias) // restore master default alias name.
 	}
-	s.join = s.schema.way.QueryJoin().SetMaster(s.schema.way.QueryJoinTable(prepare, alias, args...))
+	way := s.schema.way
+	s.join = way.QueryJoin().SetMaster(way.QueryJoinTable(prepare, alias, args...))
 	custom(s.join)
 	return s
 }

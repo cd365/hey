@@ -304,8 +304,6 @@ type QueryJoinTable interface {
 
 	DelQueryColumns(columns ...string) QueryJoinTable
 
-	DelAllQueryColumns() QueryJoinTable
-
 	ExistsQueryColumns() bool
 
 	GetQueryColumns() []string
@@ -325,11 +323,6 @@ func (s *queryJoinTable) AddQueryColumns(columns ...string) QueryJoinTable {
 
 func (s *queryJoinTable) DelQueryColumns(columns ...string) QueryJoinTable {
 	s.queryColumns.DelAll(columns...)
-	return s
-}
-
-func (s *queryJoinTable) DelAllQueryColumns() QueryJoinTable {
-	s.queryColumns.DelAll()
 	return s
 }
 
@@ -879,8 +872,6 @@ type InsertColumns interface {
 
 	Del(columns ...string) InsertColumns
 
-	DelAll() InsertColumns
-
 	DelUseIndex(indexes ...int) InsertColumns
 
 	ColumnIndex(column string) int
@@ -938,6 +929,11 @@ func (s *insertColumns) Add(columns ...string) InsertColumns {
 }
 
 func (s *insertColumns) Del(columns ...string) InsertColumns {
+	if columns == nil {
+		s.columns = make([]string, 0, 1<<5)
+		s.columnsMap = make(map[string]int, 1<<5)
+		return s
+	}
 	deleted := make(map[int]*struct{}, len(columns))
 	for _, column := range columns {
 		if column == EmptyString {
@@ -961,12 +957,6 @@ func (s *insertColumns) Del(columns ...string) InsertColumns {
 		}
 	}
 	s.columns, s.columnsMap = columns, columnsMap
-	return s
-}
-
-func (s *insertColumns) DelAll() InsertColumns {
-	s.columns = make([]string, 0, 1<<5)
-	s.columnsMap = make(map[string]int, 1<<5)
 	return s
 }
 
@@ -1006,7 +996,7 @@ func (s *insertColumns) ColumnExists(column string) bool {
 }
 
 func (s *insertColumns) SetColumns(columns []string) InsertColumns {
-	return s.DelAll().Add(columns...)
+	return s.Del().Add(columns...)
 }
 
 func (s *insertColumns) GetColumns() []string {
