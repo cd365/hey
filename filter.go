@@ -159,7 +159,7 @@ func filterIn(column string, values []interface{}, not bool) (prepare string, ar
 			result = append(result, SqlPlaceholder)
 			continue
 		}
-		result = append(result, ", ", SqlPlaceholder)
+		result = append(result, SqlConcat, SqlPlaceholder)
 	}
 	tmp := make([]string, 0, len(result)+7)
 	tmp = append(tmp, column)
@@ -186,7 +186,7 @@ func filterInSql(column string, prepare string, args []interface{}, not bool) (s
 }
 
 func filterInColsFields(columns ...string) string {
-	return ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(columns, ", "), SqlSpace, SqlRightSmallBracket)
+	return ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(columns, SqlConcat), SqlSpace, SqlRightSmallBracket)
 }
 
 func filterInCols(columns []string, values [][]interface{}, not bool) (prepare string, args []interface{}) {
@@ -209,7 +209,7 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (prepare s
 	for i := 0; i < count; i++ {
 		oneGroup[i] = SqlPlaceholder
 	}
-	oneGroupString := ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(oneGroup, ", "), SqlSpace, SqlRightSmallBracket)
+	oneGroupString := ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(oneGroup, SqlConcat), SqlSpace, SqlRightSmallBracket)
 	valueGroup := make([]string, length)
 	for i := 0; i < length; i++ {
 		valueGroup[i] = oneGroupString
@@ -220,7 +220,7 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (prepare s
 		tmp = append(tmp, " NOT")
 	}
 	tmp = append(tmp, " IN ", SqlLeftSmallBracket, SqlSpace)
-	tmp = append(tmp, strings.Join(valueGroup, ", "))
+	tmp = append(tmp, strings.Join(valueGroup, SqlConcat))
 	tmp = append(tmp, SqlSpace, SqlRightSmallBracket)
 	prepare = ConcatString(tmp...)
 	return

@@ -101,7 +101,7 @@ func (s *queryWith) Cmd() (prepare string, args []interface{}) {
 	var param []interface{}
 	for index, alias := range s.with {
 		if index > 0 {
-			b.WriteString(", ")
+			b.WriteString(SqlConcat)
 		}
 		script := s.withMap[alias]
 		b.WriteString(alias)
@@ -203,7 +203,7 @@ func (s *queryColumns) Cmd() (prepare string, args []interface{}) {
 			args = append(args, tmpArgs...)
 		}
 	}
-	prepare = strings.Join(s.way.NameReplaces(columns), ", ")
+	prepare = strings.Join(s.way.NameReplaces(columns), SqlConcat)
 	return
 }
 
@@ -236,8 +236,18 @@ func (s *queryColumns) Add(column string, args ...interface{}) QueryColumns {
 }
 
 func (s *queryColumns) AddAll(columns ...string) QueryColumns {
+	index := len(s.columns)
 	for _, column := range columns {
-		s.Add(column)
+		if column == EmptyString {
+			continue
+		}
+		if _, ok := s.columnsMap[column]; ok {
+			continue
+		}
+		s.columns = append(s.columns, column)
+		s.columnsMap[column] = index
+		s.columnsArgs[index] = nil
+		index++
 	}
 	return s
 }
@@ -249,7 +259,7 @@ func (s *queryColumns) DelAll(columns ...string) QueryColumns {
 		s.columnsArgs = make(map[int][]interface{}, 1<<5)
 		return s
 	}
-	deleted := make(map[int]*struct{}, len(columns))
+	deleteIndex := make(map[int]*struct{}, len(columns))
 	for _, column := range columns {
 		if column == EmptyString {
 			continue
@@ -258,12 +268,12 @@ func (s *queryColumns) DelAll(columns ...string) QueryColumns {
 		if !ok {
 			continue
 		}
-		deleted[index] = &struct{}{}
+		deleteIndex[index] = &struct{}{}
 	}
 	length := len(s.columns)
 	result := make([]string, 0, length)
 	for index, column := range s.columns {
-		if _, ok := deleted[index]; ok {
+		if _, ok := deleteIndex[index]; ok {
 			delete(s.columnsMap, column)
 			delete(s.columnsArgs, index)
 		} else {
@@ -286,13 +296,16 @@ func (s *queryColumns) Set(columns []string, columnsArgs map[int][]interface{}) 
 	columnsMap := make(map[string]int, 1<<5)
 	for i, column := range columns {
 		columnsMap[column] = i
+		if _, ok := columnsArgs[i]; !ok {
+			columnsArgs[i] = nil
+		}
 	}
 	s.columns, s.columnsMap, s.columnsArgs = columns, columnsMap, columnsArgs
 	return s
 }
 
-// JoinRequire Constructing conditions for join queries.
-type JoinRequire func(leftAlias string, rightAlias string) (prepare string, args []interface{})
+// JoinCondition Constructing conditions for join queries.
+type JoinCondition func(leftAlias string, rightAlias string) Cmder
 
 // QueryJoinTable Constructing table for join queries.
 type QueryJoinTable interface {
@@ -300,8 +313,10 @@ type QueryJoinTable interface {
 
 	/* the table used for join query only supports querying the column list without any parameters */
 
+	// AddQueryColumns Only column names can be used, not expressions.
 	AddQueryColumns(columns ...string) QueryJoinTable
 
+	// DelQueryColumns Only column names can be used, not expressions.
 	DelQueryColumns(columns ...string) QueryJoinTable
 
 	ExistsQueryColumns() bool
@@ -336,25 +351,21 @@ func (s *queryJoinTable) GetQueryColumns() []string {
 	}
 	alias := s.GetAlias()
 	if alias == EmptyString {
-		return nil
+		if table, args := s.Cmd(); !strings.Contains(table, SqlSpace) && args == nil {
+			alias = table
+		}
 	}
-	prefix := fmt.Sprintf("%s.", alias)
 	columns, _ := s.queryColumns.Get()
-	result := make([]string, 0, len(columns))
-	for _, column := range columns {
-		if column == EmptyString {
-			continue
+	if alias != EmptyString {
+		for index, column := range columns {
+			columns[index] = SqlPrefix(alias, column)
 		}
-		if !strings.HasPrefix(column, prefix) {
-			column = fmt.Sprintf("%s%s", prefix, column)
-		}
-		result = append(result, column)
 	}
-	return result
+	return columns
 }
 
 func (s *queryJoinTable) GetQueryColumnsString() string {
-	return strings.Join(s.GetQueryColumns(), ", ")
+	return strings.Join(s.GetQueryColumns(), SqlConcat)
 }
 
 func (s *Way) QueryJoinTable(table string, alias string, args ...interface{}) QueryJoinTable {
@@ -376,37 +387,38 @@ type QueryJoin interface {
 
 	NewSubquery(subquery Cmder, alias string) QueryJoinTable
 
-	On(requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire
+	On(conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition
 
-	Using(using []string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire
+	Using(columns ...string) JoinCondition
 
-	OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire
+	OnEqual(leftColumn string, rightColumn string, conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition
 
-	Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
+	Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
 
-	InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
+	InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
 
-	LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
+	LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
 
-	RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin
+	RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
 
 	// Where Don't forget to prefix the specific columns with the table name?
 	Where(where func(where Filter)) QueryJoin
 
-	// QueryExtendColumns The queried column uses a conditional statement or calls a function (not the direct column name of the table); the table alias prefix is not automatically added.
+	// QueryExtendColumns Column names and expressions are allowed here. It is strongly recommended to specify the table name prefix when using column names.
 	QueryExtendColumns(custom func(columns QueryColumns)) QueryJoin
 }
 
 type joinQueryTable struct {
-	joinType    string
-	rightTable  QueryJoinTable
-	joinRequire Cmder
+	joinType   string
+	rightTable QueryJoinTable
+	condition  Cmder
 }
 
 type queryJoin struct {
 	master QueryJoinTable
 	joins  []*joinQueryTable
 	filter Filter
+
 	// queryExtendColumns Here you can add a list of columns that cannot be set with parameters in the join query table; the table alias prefix is not automatically added.
 	queryExtendColumns QueryColumns
 
@@ -416,7 +428,7 @@ type queryJoin struct {
 func (s *Way) QueryJoin() QueryJoin {
 	tmp := &queryJoin{
 		joins:              make([]*joinQueryTable, 0, 1<<3),
-		filter:             F(),
+		filter:             s.F(),
 		queryExtendColumns: s.QueryColumns(),
 		way:                s,
 	}
@@ -482,12 +494,12 @@ func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
 		b.WriteString(joinPrepare)
 		b.WriteString(SqlSpace)
 		args = append(args, joinArgs...)
-		if tmp.joinRequire != nil {
-			joinRequirePrepare, joinRequireArgs := tmp.joinRequire.Cmd()
-			if joinRequirePrepare != EmptyString {
-				b.WriteString(joinRequirePrepare)
-				if joinRequireArgs != nil {
-					args = append(args, joinRequireArgs...)
+		if tmp.condition != nil {
+			conditionPrepare, conditionArgs := tmp.condition.Cmd()
+			if conditionPrepare != EmptyString {
+				b.WriteString(conditionPrepare)
+				if conditionArgs != nil {
+					args = append(args, conditionArgs...)
 				}
 			}
 		}
@@ -506,18 +518,18 @@ func (s *queryJoin) NewSubquery(subquery Cmder, alias string) QueryJoinTable {
 }
 
 // On For `... JOIN ON ...`
-func (s *queryJoin) On(requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire {
-	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
+func (s *queryJoin) On(conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition {
+	return func(leftAlias string, rightAlias string) Cmder {
 		b := getStringBuilder()
 		defer putStringBuilder(b)
 		added := false
-		var param []interface{}
-		for _, require := range requires {
-			script := require(leftAlias, rightAlias)
+		params := make([]interface{}, 0, 1<<5)
+		for _, condition := range conditions {
+			script := condition(leftAlias, rightAlias)
 			if script == nil {
 				continue
 			}
-			prepare, param = script.Cmd()
+			prepare, args := script.Cmd()
 			if prepare == EmptyString {
 				continue
 			}
@@ -528,71 +540,53 @@ func (s *queryJoin) On(requires ...func(leftAlias string, rightAlias string) Cmd
 				b.WriteString(" AND ")
 			}
 			b.WriteString(prepare)
-			if param != nil {
-				args = append(args, param...)
+			if args != nil {
+				params = append(params, args...)
 			}
 		}
-		prepare = b.String()
-		return
+		return NewCmder(b.String(), params)
 	}
 }
 
 // Using For `... JOIN USING ...`
-func (s *queryJoin) Using(using []string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire {
-	return func(leftAlias string, rightAlias string) (prepare string, args []interface{}) {
-		columns := make([]string, 0, len(using))
-		for _, column := range using {
-			if column == EmptyString {
-				continue
+func (s *queryJoin) Using(columns ...string) JoinCondition {
+	return func(leftAlias string, rightAlias string) Cmder {
+		columnsUsed := make([]string, 0, len(columns))
+		for _, column := range columns {
+			if column != EmptyString {
+				columnsUsed = append(columnsUsed, column)
 			}
-			columns = append(columns, column)
 		}
-		if len(columns) == 0 {
-			return
+		if len(columnsUsed) == 0 {
+			return nil
 		}
+		columnsUsed = s.way.NameReplaces(columnsUsed)
 		b := getStringBuilder()
 		defer putStringBuilder(b)
 		b.WriteString("USING ( ")
-		b.WriteString(strings.Join(using, ", "))
+		b.WriteString(strings.Join(columnsUsed, SqlConcat))
 		b.WriteString(" )")
-		var param []interface{}
-		for _, require := range requires {
-			if require == nil {
-				continue
-			}
-			script := require(leftAlias, rightAlias)
-			if script == nil {
-				continue
-			}
-			prepare, param = script.Cmd()
-			if prepare != EmptyString {
-				b.WriteString(" AND ")
-				b.WriteString(prepare)
-				if param != nil {
-					args = append(args, param...)
-				}
-			}
-		}
-		prepare = b.String()
-		return
+		return NewCmder(b.String(), nil)
 	}
 }
 
 // OnEqual For `... JOIN ON ... = ... [...]`
-func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, requires ...func(leftAlias string, rightAlias string) Cmder) JoinRequire {
-	onRequire := make([]func(leftAlias string, rightAlias string) Cmder, 0, len(requires)+1)
-	onEqual := func(leftAlias string, rightAlias string) Cmder {
+func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition {
+	lists := make([]func(leftAlias string, rightAlias string) Cmder, 0, len(conditions)+1)
+	equal := func(leftAlias string, rightAlias string) Cmder {
 		if leftColumn == EmptyString || rightColumn == EmptyString {
 			return nil
 		}
 		return NewCmder(fmt.Sprintf("%s = %s", SqlPrefix(leftAlias, leftColumn), SqlPrefix(rightAlias, rightColumn)), nil)
 	}
-	onRequire = append(onRequire, onEqual)
-	onRequire = append(onRequire, requires...)
-	return s.On(onRequire...)
+	if equal != nil {
+		lists = append(lists, equal)
+	}
+	lists = append(lists, conditions...)
+	return s.On(lists...)
 }
 
-func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
+func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
 	if joinTypeString == EmptyString {
 		joinTypeString = SqlJoinInner
 	}
@@ -606,26 +600,23 @@ func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightT
 		joinType:   joinTypeString,
 		rightTable: rightTable,
 	}
-	if joinRequire != nil {
-		joinRequirePrepare, joinRequireArgs := joinRequire(leftTable.GetAlias(), rightTable.GetAlias())
-		if joinRequirePrepare != EmptyString {
-			join.joinRequire = NewCmder(joinRequirePrepare, joinRequireArgs)
-		}
+	if condition != nil {
+		join.condition = condition(leftTable.GetAlias(), rightTable.GetAlias())
 	}
 	s.joins = append(s.joins, join)
 	return s
 }
 
-func (s *queryJoin) InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
-	return s.Join(SqlJoinInner, leftTable, rightTable, joinRequire)
+func (s *queryJoin) InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
+	return s.Join(SqlJoinInner, leftTable, rightTable, condition)
 }
 
-func (s *queryJoin) LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
-	return s.Join(SqlJoinLeft, leftTable, rightTable, joinRequire)
+func (s *queryJoin) LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
+	return s.Join(SqlJoinLeft, leftTable, rightTable, condition)
 }
 
-func (s *queryJoin) RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, joinRequire JoinRequire) QueryJoin {
-	return s.Join(SqlJoinRight, leftTable, rightTable, joinRequire)
+func (s *queryJoin) RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
+	return s.Join(SqlJoinRight, leftTable, rightTable, condition)
 }
 
 func (s *queryJoin) Where(where func(where Filter)) QueryJoin {
@@ -675,7 +666,7 @@ func (s *queryGroup) Cmd() (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString("GROUP BY ")
-	b.WriteString(strings.Join(s.way.NameReplaces(s.group), ", "))
+	b.WriteString(strings.Join(s.way.NameReplaces(s.group), SqlConcat))
 	if !s.having.IsEmpty() {
 		b.WriteString(" HAVING ")
 		having, havingArgs := s.having.Cmd()
@@ -713,7 +704,7 @@ func (s *Way) QueryGroup() QueryGroup {
 	return &queryGroup{
 		group:    make([]string, 0, 1<<3),
 		groupMap: make(map[string]int, 1<<3),
-		having:   F(),
+		having:   s.F(),
 		way:      s,
 	}
 }
@@ -746,7 +737,7 @@ func (s *queryOrder) Cmd() (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString("ORDER BY ")
-	b.WriteString(strings.Join(s.orderBy, ", "))
+	b.WriteString(strings.Join(s.orderBy, SqlConcat))
 	prepare = b.String()
 	return
 }
@@ -909,7 +900,7 @@ func (s *insertColumns) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	return ConcatString("( ", strings.Join(s.way.NameReplaces(s.columns), ", "), " )"), nil
+	return ConcatString("( ", strings.Join(s.way.NameReplaces(s.columns), SqlConcat), " )"), nil
 }
 
 func (s *insertColumns) Add(columns ...string) InsertColumns {
@@ -934,7 +925,7 @@ func (s *insertColumns) Del(columns ...string) InsertColumns {
 		s.columnsMap = make(map[string]int, 1<<5)
 		return s
 	}
-	deleted := make(map[int]*struct{}, len(columns))
+	deletedIndex := make(map[int]*struct{}, len(columns))
 	for _, column := range columns {
 		if column == EmptyString {
 			continue
@@ -943,14 +934,14 @@ func (s *insertColumns) Del(columns ...string) InsertColumns {
 		if !ok {
 			continue
 		}
-		deleted[index] = &struct{}{}
+		deletedIndex[index] = &struct{}{}
 	}
 	length := len(s.columns)
 	columns = make([]string, 0, length)
 	columnsMap := make(map[string]int, length)
 	num := 0
 	for index, column := range s.columns {
-		if _, ok := deleted[index]; !ok {
+		if _, ok := deletedIndex[index]; !ok {
 			columns = append(columns, column)
 			columnsMap[column] = num
 			num++
@@ -967,18 +958,18 @@ func (s *insertColumns) DelUseIndex(indexes ...int) InsertColumns {
 		return s
 	}
 	count := len(indexes)
-	deleted := make(map[int]*struct{}, count)
+	deletedIndex := make(map[int]*struct{}, count)
 	for _, index := range indexes {
 		if index >= minIndex && index < maxIndex {
-			deleted[index] = &struct{}{}
+			deletedIndex[index] = &struct{}{}
 		}
 	}
-	if len(deleted) == 0 {
+	if len(deletedIndex) == 0 {
 		return s
 	}
 	columns := make([]string, 0, length)
 	for index, column := range s.columns {
-		if _, ok := deleted[index]; ok {
+		if _, ok := deletedIndex[index]; ok {
 			columns = append(columns, column)
 		}
 	}
@@ -1046,34 +1037,46 @@ func NewInsertValue() InsertValue {
 }
 
 func (s *insertValue) IsEmpty() bool {
-	return IsEmptyCmder(s.subquery) && (len(s.values) == 0 || len(s.values[0]) == 0)
+	return s.subquery == nil && (len(s.values) == 0 || len(s.values[0]) == 0)
 }
 
 func (s *insertValue) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	if !IsEmptyCmder(s.subquery) {
+	if s.subquery != nil {
 		prepare, args = s.subquery.Cmd()
 		return
 	}
 	count := len(s.values)
+	if count == 0 {
+		return
+	}
 	length := len(s.values[0])
+	if length == 0 {
+		return
+	}
 	line := make([]string, length)
 	args = make([]interface{}, 0, count*length)
 	for i := 0; i < length; i++ {
 		line[i] = SqlPlaceholder
 	}
+	value := ConcatString("( ", strings.Join(line, SqlConcat), " )")
 	rows := make([]string, count)
 	for i := 0; i < count; i++ {
-		rows[i] = ConcatString("( ", strings.Join(line, ", "), " )")
 		args = append(args, s.values[i]...)
+		rows[i] = value
 	}
-	prepare = strings.Join(rows, ", ")
+	prepare = strings.Join(rows, SqlConcat)
 	return
 }
 
 func (s *insertValue) SetSubquery(subquery Cmder) InsertValue {
+	if subquery != nil {
+		if prepare, _ := subquery.Cmd(); prepare == EmptyString {
+			return s
+		}
+	}
 	s.subquery = subquery
 	return s
 }
@@ -1112,14 +1115,14 @@ func (s *insertValue) Del(indexes ...int) InsertValue {
 	if length == 0 {
 		return s
 	}
-	deleted := make(map[int]*struct{}, length)
+	deletedIndex := make(map[int]*struct{}, length)
 	for _, index := range indexes {
 		if index < 0 {
 			continue
 		}
-		deleted[index] = &struct{}{}
+		deletedIndex[index] = &struct{}{}
 	}
-	length = len(deleted)
+	length = len(deletedIndex)
 	if length == 0 {
 		return s
 	}
@@ -1127,10 +1130,9 @@ func (s *insertValue) Del(indexes ...int) InsertValue {
 	for index, value := range s.values {
 		values[index] = make([]interface{}, 0, len(value))
 		for num, tmp := range value {
-			if _, ok := deleted[num]; ok {
-				continue
+			if _, ok := deletedIndex[num]; !ok {
+				values[index] = append(values[index], tmp)
 			}
-			values[index] = append(values[index], tmp)
 		}
 	}
 	s.values = values
@@ -1196,7 +1198,7 @@ func (s *updateSet) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	prepare = strings.Join(s.updateExpr, ", ")
+	prepare = strings.Join(s.updateExpr, SqlConcat)
 	for _, tmp := range s.updateArgs {
 		args = append(args, tmp...)
 	}
@@ -1206,7 +1208,7 @@ func (s *updateSet) Cmd() (prepare string, args []interface{}) {
 func (s *updateSet) beautifyUpdate(update string) string {
 	update = strings.TrimSpace(update)
 	for strings.Contains(update, "  ") {
-		update = strings.ReplaceAll(update, "  ", " ")
+		update = strings.ReplaceAll(update, "  ", SqlSpace)
 	}
 	return update
 }
@@ -1798,11 +1800,11 @@ func (s *WindowFunc) Result() string {
 	defer putStringBuilder(b)
 	b.WriteString(s.withFunc)
 	b.WriteString(" OVER ( PARTITION BY ")
-	b.WriteString(strings.Join(s.partition, ", "))
+	b.WriteString(strings.Join(s.partition, SqlConcat))
 	b.WriteString(" ORDER BY ")
-	b.WriteString(strings.Join(s.order, ", "))
+	b.WriteString(strings.Join(s.order, SqlConcat))
 	if s.windowFrame != "" {
-		b.WriteString(" ")
+		b.WriteString(SqlSpace)
 		b.WriteString(s.windowFrame)
 	}
 	b.WriteString(" ) AS ")

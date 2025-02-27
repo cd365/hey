@@ -29,9 +29,10 @@ const (
 )
 
 const (
-	SqlPoint = "."
-	SqlSpace = " "
-	SqlStar  = "*"
+	SqlConcat = ", "
+	SqlPoint  = "."
+	SqlSpace  = " "
+	SqlStar   = "*"
 
 	SqlAs       = "AS"
 	SqlAsc      = "ASC"
@@ -887,9 +888,7 @@ func (s *Way) Get(table ...string) *Get {
 
 // AddOne Add one and get last insert id.
 func (s *Way) AddOne(
-	ctx context.Context,
-	cmder Cmder,
-	adjust func(cmder Cmder) Cmder,
+	ctx context.Context, cmder Cmder, adjust func(cmder Cmder) Cmder,
 	custom func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error),
 ) (id int64, err error) {
 	if cmder == nil || custom == nil {
