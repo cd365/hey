@@ -306,7 +306,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	return nil
 }
 
-func BasicTypeValue(value interface{}) interface{} {
+func basicTypeValue(value interface{}) interface{} {
 	t, v := reflect.TypeOf(value), reflect.ValueOf(value)
 	k := t.Kind()
 	for k == reflect.Ptr {
@@ -419,7 +419,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 		s.used[valueIndexFieldTag] = &struct{}{}
 
 		fields = append(fields, valueIndexFieldTag)
-		values = append(values, BasicTypeValue(valueIndexField.Interface()))
+		values = append(values, basicTypeValue(valueIndexField.Interface()))
 	}
 	return
 }
@@ -464,7 +464,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 			}
 		}
 
-		values = append(values, BasicTypeValue(valueIndexField.Interface()))
+		values = append(values, basicTypeValue(valueIndexField.Interface()))
 	}
 	return
 }
@@ -766,7 +766,7 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 		if latestValues[k] == nil {
 			continue
 		}
-		bvo, bvl := BasicTypeValue(storage[v]), BasicTypeValue(latestValues[k])
+		bvo, bvl := basicTypeValue(storage[v]), basicTypeValue(latestValues[k])
 		if reflect.DeepEqual(bvo, bvl) {
 			continue
 		}
@@ -1037,11 +1037,11 @@ func (s *Del) Way() *Way {
 // Add for INSERT.
 type Add struct {
 	schema         *schema
-	except         InsertColumns
-	permit         InsertColumns
-	columns        InsertColumns
+	except         UpsertColumns
+	permit         UpsertColumns
+	columns        UpsertColumns
 	values         InsertValue
-	columnsDefault InsertColumns
+	columnsDefault UpsertColumns
 	valuesDefault  InsertValue
 	fromCmder      Cmder
 }
@@ -1050,7 +1050,7 @@ type Add struct {
 func NewAdd(way *Way) *Add {
 	add := &Add{
 		schema:  newSchema(way),
-		columns: way.InsertColumnsCmd(),
+		columns: NewUpsertColumns(way),
 		values:  NewInsertValue(),
 	}
 	return add
@@ -1075,15 +1075,24 @@ func (s *Add) Table(table string) *Add {
 }
 
 // ExceptPermit Set a list of columns that are not allowed to be inserted and a list of columns that are only allowed to be inserted.
-func (s *Add) ExceptPermit(custom func(except InsertColumns, permit InsertColumns)) *Add {
-	if custom != nil {
-		if s.except == nil {
-			s.except = s.schema.way.InsertColumnsCmd()
-		}
-		if s.permit == nil {
-			s.permit = s.schema.way.InsertColumnsCmd()
-		}
-		custom(s.except, s.permit)
+func (s *Add) ExceptPermit(custom func(except UpsertColumns, permit UpsertColumns)) *Add {
+	if custom == nil {
+		return s
+	}
+	except, permit := s.except, s.permit
+	if except == nil {
+		except = NewUpsertColumns(s.schema.way)
+	}
+	if permit == nil {
+		permit = NewUpsertColumns(s.schema.way)
+	}
+	custom(except, permit)
+	s.except, s.permit = except, permit
+	if s.except.IsEmpty() {
+		s.except = nil
+	}
+	if s.permit.IsEmpty() {
+		s.permit = nil
 	}
 	return s
 }
@@ -1154,11 +1163,11 @@ func (s *Add) Default(add func(add *Add)) *Add {
 	}
 	v := *s
 	tmp := &v
-	tmp.columns, tmp.values = s.schema.way.InsertColumnsCmd(), NewInsertValue()
+	tmp.columns, tmp.values = NewUpsertColumns(s.schema.way), NewInsertValue()
 	add(tmp)
 	if !tmp.columns.IsEmpty() && !tmp.values.IsEmpty() {
 		if s.columnsDefault == nil {
-			s.columnsDefault = s.schema.way.InsertColumnsCmd()
+			s.columnsDefault = NewUpsertColumns(s.schema.way)
 		}
 		if tmp.valuesDefault == nil {
 			s.valuesDefault = NewInsertValue()
@@ -1195,7 +1204,7 @@ func (s *Add) CmderValues(cmdValues Cmder, columns []string) *Add {
 	if cmdValues == nil || IsEmptyCmder(cmdValues) {
 		return s
 	}
-	s.columns = s.schema.way.InsertColumnsCmd().SetColumns(columns)
+	s.columns = NewUpsertColumns(s.schema.way).SetColumns(columns)
 	s.fromCmder = cmdValues
 	return s
 }
@@ -1291,8 +1300,8 @@ func (s *Add) Way() *Way {
 // Mod for UPDATE.
 type Mod struct {
 	schema        *schema
-	except        InsertColumns
-	permit        InsertColumns
+	except        UpsertColumns
+	permit        UpsertColumns
 	update        UpdateSet
 	updateDefault UpdateSet
 	where         Filter
@@ -1302,7 +1311,7 @@ type Mod struct {
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema: newSchema(way),
-		update: way.UpdateSet(),
+		update: NewUpdateSet(way),
 	}
 }
 
@@ -1325,15 +1334,24 @@ func (s *Mod) Table(table string, args ...interface{}) *Mod {
 }
 
 // ExceptPermit Set a list of columns that are not allowed to be updated and a list of columns that are only allowed to be updated.
-func (s *Mod) ExceptPermit(custom func(except InsertColumns, permit InsertColumns)) *Mod {
-	if custom != nil {
-		if s.except == nil {
-			s.except = s.schema.way.InsertColumnsCmd()
-		}
-		if s.permit == nil {
-			s.permit = s.schema.way.InsertColumnsCmd()
-		}
-		custom(s.except, s.permit)
+func (s *Mod) ExceptPermit(custom func(except UpsertColumns, permit UpsertColumns)) *Mod {
+	if custom == nil {
+		return s
+	}
+	except, permit := s.except, s.permit
+	if except == nil {
+		except = NewUpsertColumns(s.schema.way)
+	}
+	if permit == nil {
+		permit = NewUpsertColumns(s.schema.way)
+	}
+	custom(except, permit)
+	s.except, s.permit = except, permit
+	if s.except.IsEmpty() {
+		s.except = nil
+	}
+	if s.permit.IsEmpty() {
+		s.permit = nil
 	}
 	return s
 }
@@ -1345,11 +1363,11 @@ func (s *Mod) Default(custom func(mod *Mod)) *Mod {
 	}
 	tmp := *s
 	mod := &tmp
-	mod.update = s.schema.way.UpdateSet()
+	mod.update = NewUpdateSet(s.schema.way)
 	custom(mod)
 	if !mod.update.IsEmpty() {
 		if s.updateDefault == nil {
-			s.updateDefault = s.schema.way.UpdateSet()
+			s.updateDefault = NewUpdateSet(s.schema.way)
 		}
 		prepares, args := mod.update.GetUpdate()
 		for index, prepare := range prepares {
@@ -1544,10 +1562,10 @@ type Get struct {
 func NewGet(way *Way) *Get {
 	return &Get{
 		schema:  newSchema(way),
-		columns: way.QueryColumns(),
+		columns: NewQueryColumns(way),
 		where:   way.F(),
-		group:   way.QueryGroup(),
-		order:   way.QueryOrder(),
+		group:   NewQueryGroup(way),
+		order:   NewQueryOrder(way),
 		limit:   NewQueryLimit(),
 	}
 }
@@ -1640,7 +1658,7 @@ func (s *Get) Join(custom func(join QueryJoin)) *Get {
 		master.Alias(alias) // restore master default alias name.
 	}
 	way := s.schema.way
-	s.join = way.QueryJoin().SetMaster(way.QueryJoinTable(prepare, alias, args...))
+	s.join = NewQueryJoin(way).SetMaster(NewQueryJoinTable(way, prepare, alias, args...))
 	custom(s.join)
 	return s
 }
@@ -1674,7 +1692,7 @@ func (s *Get) Columns(custom func(columns QueryColumns)) *Get {
 	if custom == nil {
 		return s
 	}
-	tmp := s.schema.way.QueryColumns()
+	tmp := NewQueryColumns(s.schema.way)
 	custom(tmp)
 	if tmp.Len() > 0 {
 		s.columns = tmp

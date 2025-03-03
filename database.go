@@ -174,12 +174,12 @@ type queryColumns struct {
 	way *Way
 }
 
-func (s *Way) QueryColumns() QueryColumns {
+func NewQueryColumns(way *Way) QueryColumns {
 	return &queryColumns{
 		columns:     make([]string, 0, 1<<5),
 		columnsMap:  make(map[string]int, 1<<5),
 		columnsArgs: make(map[int][]interface{}, 1<<5),
-		way:         s,
+		way:         way,
 	}
 }
 
@@ -368,11 +368,17 @@ func (s *queryJoinTable) GetQueryColumnsString() string {
 	return strings.Join(s.GetQueryColumns(), SqlConcat)
 }
 
-func (s *Way) QueryJoinTable(table string, alias string, args ...interface{}) QueryJoinTable {
+func NewQueryJoinTable(way *Way, table string, alias string, args ...interface{}) QueryJoinTable {
 	return &queryJoinTable{
 		TableCmder:   NewTableCmder(table, args).Alias(alias),
-		queryColumns: s.QueryColumns(),
+		queryColumns: NewQueryColumns(way),
 	}
+}
+
+type queryJoinSchema struct {
+	joinType   string
+	rightTable QueryJoinTable
+	condition  Cmder
 }
 
 // QueryJoin Constructing multi-table join queries.
@@ -408,15 +414,9 @@ type QueryJoin interface {
 	QueryExtendColumns(custom func(columns QueryColumns)) QueryJoin
 }
 
-type joinQueryTable struct {
-	joinType   string
-	rightTable QueryJoinTable
-	condition  Cmder
-}
-
 type queryJoin struct {
 	master QueryJoinTable
-	joins  []*joinQueryTable
+	joins  []*queryJoinSchema
 	filter Filter
 
 	// queryExtendColumns Here you can add a list of columns that cannot be set with parameters in the join query table; the table alias prefix is not automatically added.
@@ -425,12 +425,12 @@ type queryJoin struct {
 	way *Way
 }
 
-func (s *Way) QueryJoin() QueryJoin {
+func NewQueryJoin(way *Way) QueryJoin {
 	tmp := &queryJoin{
-		joins:              make([]*joinQueryTable, 0, 1<<3),
-		filter:             s.F(),
-		queryExtendColumns: s.QueryColumns(),
-		way:                s,
+		joins:              make([]*queryJoinSchema, 0, 1<<3),
+		filter:             way.F(),
+		queryExtendColumns: NewQueryColumns(way),
+		way:                way,
 	}
 	return tmp
 }
@@ -447,7 +447,7 @@ func (s *queryJoin) SetMaster(master QueryJoinTable) QueryJoin {
 }
 
 func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
-	columns := s.way.QueryColumns()
+	columns := NewQueryColumns(s.way)
 	if s.master.ExistsQueryColumns() {
 		if column := s.master.GetQueryColumnsString(); column != EmptyString {
 			columns.Add(column)
@@ -509,7 +509,7 @@ func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
 }
 
 func (s *queryJoin) NewTable(table string, alias string, args ...interface{}) QueryJoinTable {
-	return s.way.QueryJoinTable(table, alias, args...)
+	return NewQueryJoinTable(s.way, table, alias, args...)
 }
 
 func (s *queryJoin) NewSubquery(subquery Cmder, alias string) QueryJoinTable {
@@ -596,7 +596,7 @@ func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightT
 	if rightTable == nil || rightTable.IsEmpty() {
 		return s
 	}
-	join := &joinQueryTable{
+	join := &queryJoinSchema{
 		joinType:   joinTypeString,
 		rightTable: rightTable,
 	}
@@ -629,7 +629,7 @@ func (s *queryJoin) Where(where func(where Filter)) QueryJoin {
 
 func (s *queryJoin) QueryExtendColumns(custom func(columns QueryColumns)) QueryJoin {
 	if s.queryExtendColumns == nil {
-		s.queryExtendColumns = s.way.QueryColumns()
+		s.queryExtendColumns = NewQueryColumns(s.way)
 	}
 	if custom != nil {
 		custom(s.queryExtendColumns)
@@ -700,12 +700,12 @@ func (s *queryGroup) Having(having func(having Filter)) QueryGroup {
 	return s
 }
 
-func (s *Way) QueryGroup() QueryGroup {
+func NewQueryGroup(way *Way) QueryGroup {
 	return &queryGroup{
 		group:    make([]string, 0, 1<<3),
 		groupMap: make(map[string]int, 1<<3),
-		having:   s.F(),
-		way:      s,
+		having:   way.F(),
+		way:      way,
 	}
 }
 
@@ -778,11 +778,11 @@ func (s *queryOrder) Desc(columns ...string) QueryOrder {
 	return s
 }
 
-func (s *Way) QueryOrder() QueryOrder {
+func NewQueryOrder(way *Way) QueryOrder {
 	return &queryOrder{
 		orderBy:  make([]string, 0, 1<<3),
 		orderMap: make(map[string]int, 1<<3),
-		way:      s,
+		way:      way,
 	}
 }
 
@@ -853,17 +853,17 @@ func NewQueryLimit() QueryLimit {
 	return &queryLimit{}
 }
 
-// InsertColumns Constructing insert columns.
-type InsertColumns interface {
+// UpsertColumns Constructing insert columns.
+type UpsertColumns interface {
 	IsEmpty
 
 	Cmder
 
-	Add(columns ...string) InsertColumns
+	Add(columns ...string) UpsertColumns
 
-	Del(columns ...string) InsertColumns
+	Del(columns ...string) UpsertColumns
 
-	DelUseIndex(indexes ...int) InsertColumns
+	DelUseIndex(indexes ...int) UpsertColumns
 
 	ColumnIndex(column string) int
 
@@ -871,39 +871,39 @@ type InsertColumns interface {
 
 	Len() int
 
-	SetColumns(columns []string) InsertColumns
+	SetColumns(columns []string) UpsertColumns
 
 	GetColumns() []string
 
 	GetColumnsMap() map[string]*struct{}
 }
 
-type insertColumns struct {
+type upsertColumns struct {
 	columns    []string
 	columnsMap map[string]int
 	way        *Way
 }
 
-func (s *Way) InsertColumnsCmd() InsertColumns {
-	return &insertColumns{
+func NewUpsertColumns(way *Way) UpsertColumns {
+	return &upsertColumns{
 		columns:    make([]string, 0, 1<<5),
 		columnsMap: make(map[string]int, 1<<5),
-		way:        s,
+		way:        way,
 	}
 }
 
-func (s *insertColumns) IsEmpty() bool {
+func (s *upsertColumns) IsEmpty() bool {
 	return len(s.columns) == 0
 }
 
-func (s *insertColumns) Cmd() (prepare string, args []interface{}) {
+func (s *upsertColumns) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
 	return ConcatString("( ", strings.Join(s.way.NameReplaces(s.columns), SqlConcat), " )"), nil
 }
 
-func (s *insertColumns) Add(columns ...string) InsertColumns {
+func (s *upsertColumns) Add(columns ...string) UpsertColumns {
 	num := len(s.columns)
 	for _, column := range columns {
 		if column == EmptyString {
@@ -919,7 +919,7 @@ func (s *insertColumns) Add(columns ...string) InsertColumns {
 	return s
 }
 
-func (s *insertColumns) Del(columns ...string) InsertColumns {
+func (s *upsertColumns) Del(columns ...string) UpsertColumns {
 	if columns == nil {
 		s.columns = make([]string, 0, 1<<5)
 		s.columnsMap = make(map[string]int, 1<<5)
@@ -951,7 +951,7 @@ func (s *insertColumns) Del(columns ...string) InsertColumns {
 	return s
 }
 
-func (s *insertColumns) DelUseIndex(indexes ...int) InsertColumns {
+func (s *upsertColumns) DelUseIndex(indexes ...int) UpsertColumns {
 	length := len(s.columns)
 	minIndex, maxIndex := 0, length
 	if maxIndex == minIndex {
@@ -976,7 +976,7 @@ func (s *insertColumns) DelUseIndex(indexes ...int) InsertColumns {
 	return s.Del(columns...)
 }
 
-func (s *insertColumns) ColumnIndex(column string) int {
+func (s *upsertColumns) ColumnIndex(column string) int {
 	index, ok := s.columnsMap[column]
 	if !ok {
 		return -1
@@ -984,19 +984,19 @@ func (s *insertColumns) ColumnIndex(column string) int {
 	return index
 }
 
-func (s *insertColumns) ColumnExists(column string) bool {
+func (s *upsertColumns) ColumnExists(column string) bool {
 	return s.ColumnIndex(column) >= 0
 }
 
-func (s *insertColumns) SetColumns(columns []string) InsertColumns {
+func (s *upsertColumns) SetColumns(columns []string) UpsertColumns {
 	return s.Del().Add(columns...)
 }
 
-func (s *insertColumns) GetColumns() []string {
+func (s *upsertColumns) GetColumns() []string {
 	return s.columns[:]
 }
 
-func (s *insertColumns) GetColumnsMap() map[string]*struct{} {
+func (s *upsertColumns) GetColumnsMap() map[string]*struct{} {
 	result := make(map[string]*struct{}, len(s.columns))
 	for _, column := range s.GetColumns() {
 		result[column] = &struct{}{}
@@ -1004,7 +1004,7 @@ func (s *insertColumns) GetColumnsMap() map[string]*struct{} {
 	return result
 }
 
-func (s *insertColumns) Len() int {
+func (s *upsertColumns) Len() int {
 	return len(s.columns)
 }
 
@@ -1181,12 +1181,12 @@ type updateSet struct {
 	way        *Way
 }
 
-func (s *Way) UpdateSet() UpdateSet {
+func NewUpdateSet(way *Way) UpdateSet {
 	return &updateSet{
 		updateExpr: make([]string, 0, 1<<3),
 		updateArgs: make([][]interface{}, 0, 1<<3),
 		updateMap:  make(map[string]int, 1<<3),
-		way:        s,
+		way:        way,
 	}
 }
 
@@ -1529,24 +1529,24 @@ func NewSqlite3Helper(driverName string, dataSourceName string) *Sqlite3Helper {
  * sql identifier.
  **/
 
-type AdjustColumn struct {
+type TableColumn struct {
 	alias string
 	way   *Way
 }
 
 // Alias Get the alias name value.
-func (s *AdjustColumn) Alias() string {
+func (s *TableColumn) Alias() string {
 	return s.alias
 }
 
 // SetAlias Set the alias name value.
-func (s *AdjustColumn) SetAlias(alias string) *AdjustColumn {
+func (s *TableColumn) SetAlias(alias string) *TableColumn {
 	s.alias = alias
 	return s
 }
 
 // Adjust Batch adjust columns.
-func (s *AdjustColumn) Adjust(adjust func(column string) string, columns ...string) []string {
+func (s *TableColumn) Adjust(adjust func(column string) string, columns ...string) []string {
 	if adjust != nil {
 		for index, column := range columns {
 			columns[index] = s.way.NameReplace(adjust(column))
@@ -1556,7 +1556,7 @@ func (s *AdjustColumn) Adjust(adjust func(column string) string, columns ...stri
 }
 
 // ColumnAll Add table name prefix to column names in batches.
-func (s *AdjustColumn) ColumnAll(columns ...string) []string {
+func (s *TableColumn) ColumnAll(columns ...string) []string {
 	if s.alias == EmptyString {
 		return s.way.NameReplaces(columns)
 	}
@@ -1570,27 +1570,27 @@ func (s *AdjustColumn) ColumnAll(columns ...string) []string {
 }
 
 // Column Add table name prefix to single column name, allowing column alias to be set.
-func (s *AdjustColumn) Column(column string, aliases ...string) string {
+func (s *TableColumn) Column(column string, aliases ...string) string {
 	return SqlAlias(s.ColumnAll(column)[0], LastNotEmptyString(aliases))
 }
 
 // Sum SUM(column[, alias])
-func (s *AdjustColumn) Sum(column string, aliases ...string) string {
+func (s *TableColumn) Sum(column string, aliases ...string) string {
 	return SqlAlias(fmt.Sprintf("SUM(%s)", s.Column(column)), LastNotEmptyString(aliases))
 }
 
 // Max MAX(column[, alias])
-func (s *AdjustColumn) Max(column string, aliases ...string) string {
+func (s *TableColumn) Max(column string, aliases ...string) string {
 	return SqlAlias(fmt.Sprintf("MAX(%s)", s.Column(column)), LastNotEmptyString(aliases))
 }
 
 // Min MIN(column[, alias])
-func (s *AdjustColumn) Min(column string, aliases ...string) string {
+func (s *TableColumn) Min(column string, aliases ...string) string {
 	return SqlAlias(fmt.Sprintf("MIN(%s)", s.Column(column)), LastNotEmptyString(aliases))
 }
 
 // Avg AVG(column[, alias])
-func (s *AdjustColumn) Avg(column string, aliases ...string) string {
+func (s *TableColumn) Avg(column string, aliases ...string) string {
 	return SqlAlias(fmt.Sprintf("AVG(%s)", s.Column(column)), LastNotEmptyString(aliases))
 }
 
@@ -1599,7 +1599,7 @@ func (s *AdjustColumn) Avg(column string, aliases ...string) string {
 // Count("total"): `COUNT(*) AS total`
 // Count("1", "total"): `COUNT(1) AS total`
 // Count("id", "counts"): `COUNT(id) AS counts`
-func (s *AdjustColumn) Count(counts ...string) string {
+func (s *TableColumn) Count(counts ...string) string {
 	count := "COUNT(*)"
 	length := len(counts)
 	if length == 0 {
@@ -1627,32 +1627,32 @@ func (s *AdjustColumn) Count(counts ...string) string {
 }
 
 // IfNull If the value is NULL, set the default value.
-func (s *AdjustColumn) IfNull(column string, defaultValue string, aliases ...string) string {
+func (s *TableColumn) IfNull(column string, defaultValue string, aliases ...string) string {
 	return SqlAlias(s.way.cfg.Helper.IfNull(s.Column(column), defaultValue), LastNotEmptyString(aliases))
 }
 
 // IfNullSum IF_NULL(SUM(column),0)[ AS column_name]
-func (s *AdjustColumn) IfNullSum(column string, aliases ...string) string {
+func (s *TableColumn) IfNullSum(column string, aliases ...string) string {
 	return SqlAlias(s.IfNull(s.Sum(column), "0"), LastNotEmptyString(aliases))
 }
 
 // IfNullMax IF_NULL(MAX(column),0)[ AS column_name]
-func (s *AdjustColumn) IfNullMax(column string, aliases ...string) string {
+func (s *TableColumn) IfNullMax(column string, aliases ...string) string {
 	return SqlAlias(s.IfNull(s.Max(column), "0"), LastNotEmptyString(aliases))
 }
 
 // IfNullMin IF_NULL(MIN(column),0)[ AS column_name]
-func (s *AdjustColumn) IfNullMin(column string, aliases ...string) string {
+func (s *TableColumn) IfNullMin(column string, aliases ...string) string {
 	return SqlAlias(s.IfNull(s.Min(column), "0"), LastNotEmptyString(aliases))
 }
 
 // IfNullAvg IF_NULL(AVG(column),0)[ AS column_name]
-func (s *AdjustColumn) IfNullAvg(column string, aliases ...string) string {
+func (s *TableColumn) IfNullAvg(column string, aliases ...string) string {
 	return SqlAlias(s.IfNull(s.Avg(column), "0"), LastNotEmptyString(aliases))
 }
 
-func NewAdjustColumn(way *Way, aliases ...string) *AdjustColumn {
-	return &AdjustColumn{
+func NewTableColumn(way *Way, aliases ...string) *TableColumn {
+	return &TableColumn{
 		alias: LastNotEmptyString(aliases),
 		way:   way,
 	}
@@ -1738,12 +1738,12 @@ func (s *WindowFunc) Count(column string) *WindowFunc {
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", s.way.NameReplace(column), offset, ArgString(s.Helper, defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(s.Helper, defaultValue)))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.NameReplace(column), offset, ArgString(s.Helper, defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(s.Helper, defaultValue)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.

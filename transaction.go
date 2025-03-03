@@ -17,7 +17,7 @@ type transaction struct {
 
 	err error
 
-	logCmd []*CmdLog
+	logCmd []*cmdLog
 
 	endAt time.Time
 
@@ -49,11 +49,11 @@ func (s *transaction) write() {
 		if v.err != nil {
 			lg = s.way.log.Error()
 			lg.Str("error", v.err.Error())
-			lg.Str("script", PrepareString(s.way.cfg.Helper, v.prepare, v.args.args))
+			lg.Str("script", prepareArgsToString(s.way.cfg.Helper, v.prepare, v.args.args))
 		} else {
 			if v.args.endAt.Sub(v.args.startAt) > s.way.cfg.WarnDuration {
 				lg = s.way.log.Warn()
-				lg.Str("script", PrepareString(s.way.cfg.Helper, v.prepare, v.args.args))
+				lg.Str("script", prepareArgsToString(s.way.cfg.Helper, v.prepare, v.args.args))
 			}
 		}
 		lg.Str("id", s.id).Str("msg", s.message)

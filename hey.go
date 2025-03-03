@@ -88,6 +88,15 @@ const (
 
 // Cfg Configure of Way.
 type Cfg struct {
+	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
+	DeleteMustUseWhere bool
+
+	// UpdateMustUseWhere Updated data must be filtered using conditions.
+	UpdateMustUseWhere bool
+
+	// _ Memory alignment padding.
+	_ [6]byte
+
 	// Scan Scan data into structure.
 	Scan func(rows *sql.Rows, result interface{}, tag string) error
 
@@ -99,12 +108,6 @@ type Cfg struct {
 
 	// Replace Helpers for handling different types of databases.
 	Replace *Replace
-
-	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
-	DeleteMustUseWhere bool
-
-	// UpdateMustUseWhere Updated data must be filtered using conditions.
-	UpdateMustUseWhere bool
 
 	// TransactionOptions Start transaction.
 	TransactionOptions *sql.TxOptions
@@ -132,22 +135,22 @@ func DefaultCfg() Cfg {
 	}
 }
 
-// CmdLog Record executed prepare args.
-type CmdLog struct {
+// cmdLog Record executed prepare args.
+type cmdLog struct {
 	way *Way
 
 	// prepare Preprocess the SQL statements that are executed.
 	prepare string
 
 	// args SQL parameter list.
-	args *CmdLogRun
+	args *cmdLogRun
 
 	// err An error encountered when executing SQL.
 	err error
 }
 
-// CmdLogRun Record executed args of prepare.
-type CmdLogRun struct {
+// cmdLogRun Record executed args of prepare.
+type cmdLogRun struct {
 	// args SQL parameter list.
 	args []interface{}
 
@@ -158,18 +161,18 @@ type CmdLogRun struct {
 	endAt time.Time
 }
 
-func (s *Way) CmdLog(prepare string, args []interface{}) *CmdLog {
-	return &CmdLog{
+func (s *Way) cmdLog(prepare string, args []interface{}) *cmdLog {
+	return &cmdLog{
 		way:     s,
 		prepare: prepare,
-		args: &CmdLogRun{
+		args: &cmdLogRun{
 			startAt: time.Now(),
 			args:    args,
 		},
 	}
 }
 
-func (s *CmdLog) Write() {
+func (s *cmdLog) Write() {
 	if s.way.log == nil {
 		return
 	}
@@ -184,11 +187,11 @@ func (s *CmdLog) Write() {
 	if s.err != nil {
 		lg = s.way.log.Error()
 		lg.Str("error", s.err.Error())
-		lg.Str("script", PrepareString(s.way.cfg.Helper, s.prepare, s.args.args))
+		lg.Str("script", prepareArgsToString(s.way.cfg.Helper, s.prepare, s.args.args))
 	} else {
 		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.WarnDuration {
 			lg = s.way.log.Warn()
-			lg.Str("script", PrepareString(s.way.cfg.Helper, s.prepare, s.args.args))
+			lg.Str("script", prepareArgsToString(s.way.cfg.Helper, s.prepare, s.args.args))
 		}
 	}
 	lg.Str("prepare", s.prepare)
@@ -197,13 +200,6 @@ func (s *CmdLog) Write() {
 	lg.Int64("end_at", s.args.endAt.UnixMilli())
 	lg.Str("cost", s.args.endAt.Sub(s.args.startAt).String())
 	lg.Send()
-}
-
-// PrepareArgs Statements to be executed and corresponding parameter list.
-type PrepareArgs struct {
-	Prepare string
-
-	Args []interface{}
 }
 
 // Reader Separate read and write, when you distinguish between reading and writing, please do not use the same object for both reading and writing.
@@ -225,6 +221,7 @@ type Way struct {
 	reader Reader
 
 	isRead bool
+	_      [7]byte // memory alignment padding
 }
 
 func (s *Way) GetCfg() *Cfg {
@@ -507,7 +504,7 @@ func (s *Stmt) Close() (err error) {
 
 // QueryContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
-	lg := s.way.CmdLog(s.prepare, args)
+	lg := s.way.cmdLog(s.prepare, args)
 	defer lg.Write()
 	rows, err := s.stmt.QueryContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -527,7 +524,7 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) erro
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) error {
-	lg := s.way.CmdLog(s.prepare, args)
+	lg := s.way.cmdLog(s.prepare, args)
 	defer lg.Write()
 	row := s.stmt.QueryRowContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -542,7 +539,7 @@ func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (e
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
-	lg := s.way.CmdLog(s.prepare, args)
+	lg := s.way.cmdLog(s.prepare, args)
 	defer lg.Write()
 	result, err := s.stmt.ExecContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -809,7 +806,7 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
-	lg := s.CmdLog(prepare, args)
+	lg := s.cmdLog(prepare, args)
 	defer lg.Write()
 	rows, err := s.caller(caller).QueryContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
@@ -828,7 +825,7 @@ func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ..
 	if prepare == "" {
 		return
 	}
-	lg := s.CmdLog(prepare, args)
+	lg := s.cmdLog(prepare, args)
 	defer lg.Write()
 	result, rer := s.caller(caller).ExecContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
@@ -915,43 +912,43 @@ func (s *Way) AddOne(
 }
 
 // T Table empty alias
-func (s *Way) T() *AdjustColumn {
-	return NewAdjustColumn(s)
+func (s *Way) T() *TableColumn {
+	return NewTableColumn(s)
 }
 
 // TA Table alias `a`
-func (s *Way) TA() *AdjustColumn {
-	return NewAdjustColumn(s, AliasA)
+func (s *Way) TA() *TableColumn {
+	return NewTableColumn(s, AliasA)
 }
 
 // TB Table alias `b`
-func (s *Way) TB() *AdjustColumn {
-	return NewAdjustColumn(s, AliasB)
+func (s *Way) TB() *TableColumn {
+	return NewTableColumn(s, AliasB)
 }
 
 // TC Table alias `c`
-func (s *Way) TC() *AdjustColumn {
-	return NewAdjustColumn(s, AliasC)
+func (s *Way) TC() *TableColumn {
+	return NewTableColumn(s, AliasC)
 }
 
 // TD Table alias `d`
-func (s *Way) TD() *AdjustColumn {
-	return NewAdjustColumn(s, AliasD)
+func (s *Way) TD() *TableColumn {
+	return NewTableColumn(s, AliasD)
 }
 
 // TE Table alias `e`
-func (s *Way) TE() *AdjustColumn {
-	return NewAdjustColumn(s, AliasE)
+func (s *Way) TE() *TableColumn {
+	return NewTableColumn(s, AliasE)
 }
 
 // TF Table alias `f`
-func (s *Way) TF() *AdjustColumn {
-	return NewAdjustColumn(s, AliasF)
+func (s *Way) TF() *TableColumn {
+	return NewTableColumn(s, AliasF)
 }
 
 // TG Table alias `g`
-func (s *Way) TG() *AdjustColumn {
-	return NewAdjustColumn(s, AliasG)
+func (s *Way) TG() *TableColumn {
+	return NewTableColumn(s, AliasG)
 }
 
 // NameReplace Replace name.
@@ -1126,8 +1123,8 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 	return slices, nil
 }
 
-// ArgString Convert SQL statement parameters into text strings.
-func ArgString(helper Helper, i interface{}) string {
+// argValueToString Convert SQL statement parameters into text strings.
+func argValueToString(helper Helper, i interface{}) string {
 	if i == nil {
 		return SqlNull
 	}
@@ -1163,8 +1160,8 @@ func ArgString(helper Helper, i interface{}) string {
 	}
 }
 
-// PrepareString Merge executed SQL statements and parameters.
-func PrepareString(helper Helper, prepare string, args []interface{}) string {
+// prepareArgsToString Merge executed SQL statements and parameters.
+func prepareArgsToString(helper Helper, prepare string, args []interface{}) string {
 	count := len(args)
 	if count == 0 {
 		return prepare
@@ -1177,7 +1174,7 @@ func PrepareString(helper Helper, prepare string, args []interface{}) string {
 	questionMark := byte('?')
 	for i := 0; i < length; i++ {
 		if origin[i] == questionMark && index < count {
-			latest.WriteString(ArgString(helper, args[index]))
+			latest.WriteString(argValueToString(helper, args[index]))
 			index++
 		} else {
 			latest.WriteByte(origin[i])
@@ -1225,7 +1222,7 @@ func (s *debugger) Debugger(cmder Cmder) Debugger {
 		return s
 	}
 	prepare, args := cmder.Cmd()
-	script := PrepareString(s.way.cfg.Helper, prepare, args)
+	script := prepareArgsToString(s.way.cfg.Helper, prepare, args)
 	s.log.Debug().Str("script", script).Str("prepare", prepare).Any("args", args).Send()
 	return s
 }
