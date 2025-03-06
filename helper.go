@@ -1632,8 +1632,8 @@ func (s *Get) Subquery(subquery Cmder, alias string) *Get {
 	if alias == EmptyString {
 		return s
 	}
-	prepare, args := subquery.Cmd()
-	s.schema.table = NewTableCmder(ConcatString("( ", prepare, " )"), args).Alias(alias)
+	prepare, args := ParcelCmder(subquery).Cmd()
+	s.schema.table = NewTableCmder(prepare, args).Alias(alias)
 	return s
 }
 

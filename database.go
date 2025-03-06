@@ -9,6 +9,27 @@ import (
 	"strings"
 )
 
+// ParcelPrepare Parcel the SQL statement. `subquery` => ( `subquery` )
+func ParcelPrepare(prepare string) string {
+	if prepare == EmptyString {
+		return prepare
+	}
+	return ConcatString(SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
+}
+
+// ParcelCmder Parcel the SQL statement. `subquery` => ( `subquery` )
+func ParcelCmder(cmder Cmder) Cmder {
+	if IsEmptyCmder(cmder) {
+		return cmder
+	}
+	prepare, args := cmder.Cmd()
+	prepare = strings.TrimSpace(prepare)
+	if prepare[0] != SqlLeftSmallBracket[0] {
+		prepare = ParcelPrepare(prepare)
+	}
+	return NewCmder(prepare, args)
+}
+
 // TableCmder Used to construct expressions that can use table aliases and their corresponding parameter lists.
 type TableCmder interface {
 	IsEmpty
@@ -58,7 +79,7 @@ func NewTableCmder(prepare string, args []interface{}) TableCmder {
 }
 
 func NewCmderGet(alias string, get *Get) TableCmder {
-	return NewTableCmder(get.Cmd()).Alias(alias)
+	return NewTableCmder(ParcelCmder(get).Cmd()).Alias(alias)
 }
 
 // QueryWith CTE: Common Table Expression.
@@ -513,7 +534,7 @@ func (s *queryJoin) NewTable(table string, alias string, args ...interface{}) Qu
 }
 
 func (s *queryJoin) NewSubquery(subquery Cmder, alias string) QueryJoinTable {
-	prepare, args := subquery.Cmd()
+	prepare, args := ParcelCmder(subquery).Cmd()
 	return s.NewTable(prepare, alias, args...)
 }
 
