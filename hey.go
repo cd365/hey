@@ -229,7 +229,7 @@ func (s *Way) GetCfg() *Cfg {
 }
 
 func (s *Way) SetCfg(cfg Cfg) *Way {
-	if cfg.Scan == nil || cfg.ScanTag == "" || cfg.Helper == nil || cfg.Replace == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
+	if cfg.Scan == nil || cfg.ScanTag == EmptyString || cfg.Helper == nil || cfg.Replace == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
 	}
 	s.cfg = &cfg
@@ -822,7 +822,7 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 
 // setter -> Execute, execute the execute sql statement with args, no prepared is used.
 func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ...interface{}) (rowsAffected int64, err error) {
-	if prepare == "" {
+	if prepare == EmptyString {
 		return
 	}
 	lg := s.cmdLog(prepare, args)

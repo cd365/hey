@@ -598,7 +598,7 @@ func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, conditions ..
 		if leftColumn == EmptyString || rightColumn == EmptyString {
 			return nil
 		}
-		return NewCmder(fmt.Sprintf("%s = %s", SqlPrefix(leftAlias, leftColumn), SqlPrefix(rightAlias, rightColumn)), nil)
+		return NewCmder(fmt.Sprintf("%s %s %s", SqlPrefix(leftAlias, leftColumn), SqlEqual, SqlPrefix(rightAlias, rightColumn)), nil)
 	}
 	if equal != nil {
 		lists = append(lists, equal)
@@ -921,7 +921,7 @@ func (s *upsertColumns) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	return ConcatString("( ", strings.Join(s.way.NameReplaces(s.columns), SqlConcat), " )"), nil
+	return ParcelPrepare(strings.Join(s.way.NameReplaces(s.columns), SqlConcat)), nil
 }
 
 func (s *upsertColumns) Add(columns ...string) UpsertColumns {
@@ -1082,7 +1082,7 @@ func (s *insertValue) Cmd() (prepare string, args []interface{}) {
 	for i := 0; i < length; i++ {
 		line[i] = SqlPlaceholder
 	}
-	value := ConcatString("( ", strings.Join(line, SqlConcat), " )")
+	value := ParcelPrepare(strings.Join(line, SqlConcat))
 	rows := make([]string, count)
 	for i := 0; i < count; i++ {
 		args = append(args, s.values[i]...)
@@ -1824,7 +1824,7 @@ func (s *WindowFunc) Result() string {
 	b.WriteString(strings.Join(s.partition, SqlConcat))
 	b.WriteString(" ORDER BY ")
 	b.WriteString(strings.Join(s.order, SqlConcat))
-	if s.windowFrame != "" {
+	if s.windowFrame != EmptyString {
 		b.WriteString(SqlSpace)
 		b.WriteString(s.windowFrame)
 	}

@@ -91,6 +91,7 @@ func (s *cmdSql) Cmd() (prepare string, args []interface{}) {
 	return
 }
 
+// NewCmder Construct a Cmder using SQL statements and parameter lists.
 func NewCmder(prepare string, args []interface{}) Cmder {
 	return &cmdSql{
 		prepare: prepare,
@@ -103,6 +104,7 @@ type IsEmpty interface {
 	IsEmpty() bool
 }
 
+// IsEmptyCmder Check whether the result (SQL statement) of Cmder is empty.
 func IsEmptyCmder(cmder Cmder) bool {
 	if cmder == nil {
 		return true
@@ -111,7 +113,7 @@ func IsEmptyCmder(cmder Cmder) bool {
 	return prepare == EmptyString
 }
 
-// ConcatCmder Concat multiple queries.
+// ConcatCmder Concat multiple Cmder.
 func ConcatCmder(concat string, custom func(index int, cmder Cmder) Cmder, items ...Cmder) Cmder {
 	length := len(items)
 	lists := make([]Cmder, 0, length)
@@ -146,9 +148,7 @@ func ConcatCmder(concat string, custom func(index int, cmder Cmder) Cmder, items
 				b.WriteString(SqlSpace)
 			}
 		}
-		b.WriteString("( ")
-		b.WriteString(prepare)
-		b.WriteString(" )")
+		b.WriteString(ParcelPrepare(prepare))
 		args = append(args, param...)
 	}
 	return NewCmder(b.String(), args)

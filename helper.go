@@ -816,7 +816,7 @@ func SqlAlias(name string, alias string) string {
 	return fmt.Sprintf("%s %s %s", name, SqlAs, alias)
 }
 
-// SqlPrefix sql prefix name.
+// SqlPrefix add sql prefix name; if the prefix exists, it will not be added.
 func SqlPrefix(prefix string, name string) string {
 	if prefix == EmptyString || strings.HasPrefix(name, fmt.Sprintf("%s%s", prefix, SqlPoint)) {
 		return name
@@ -1741,11 +1741,11 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 		}
 		matched := match[0]
 		length = len(matched) // the length should be 4.
-		if length < 4 || matched[3] == "" {
+		if length < 4 || matched[3] == EmptyString {
 			continue
 		}
 		column := matched[1]
-		if val, ok := columnMap[column]; ok && val != "" {
+		if val, ok := columnMap[column]; ok && val != EmptyString {
 			column = val
 		}
 		if matched[3][0] == 97 {
