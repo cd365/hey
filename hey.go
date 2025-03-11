@@ -106,8 +106,8 @@ type Cfg struct {
 	// Helper Helpers for handling different types of databases.
 	Helper Helper
 
-	// Replace Helpers for handling different types of databases.
-	Replace *Replace
+	// Replacer Helpers for handling different types of databases.
+	Replacer Replacer
 
 	// TransactionOptions Start transaction.
 	TransactionOptions *sql.TxOptions
@@ -127,7 +127,7 @@ func DefaultCfg() Cfg {
 	return Cfg{
 		Scan:                   ScanSliceStruct,
 		ScanTag:                DefaultTag,
-		Replace:                NewReplace(),
+		Replacer:               NewReplacer(),
 		DeleteMustUseWhere:     true,
 		UpdateMustUseWhere:     true,
 		TransactionMaxDuration: time.Second * 5,
@@ -229,7 +229,7 @@ func (s *Way) GetCfg() *Cfg {
 }
 
 func (s *Way) SetCfg(cfg Cfg) *Way {
-	if cfg.Scan == nil || cfg.ScanTag == EmptyString || cfg.Helper == nil || cfg.Replace == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
+	if cfg.Scan == nil || cfg.ScanTag == EmptyString || cfg.Helper == nil || cfg.Replacer == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
 	}
 	s.cfg = &cfg
@@ -953,16 +953,16 @@ func (s *Way) TG() *TableColumn {
 
 // NameReplace Replace name.
 func (s *Way) NameReplace(name string) string {
-	if s.cfg.Replace != nil {
-		return s.cfg.Replace.Get(name)
+	if s.cfg.Replacer != nil {
+		return s.cfg.Replacer.Get(name)
 	}
 	return name
 }
 
 // NameReplaces Replace names.
 func (s *Way) NameReplaces(names []string) []string {
-	if s.cfg.Replace != nil {
-		return s.cfg.Replace.GetAll(names)
+	if s.cfg.Replacer != nil {
+		return s.cfg.Replacer.GetAll(names)
 	}
 	return names
 }

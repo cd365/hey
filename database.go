@@ -1553,6 +1553,8 @@ func NewSqlite3Helper(driverName string, dataSourceName string) *Sqlite3Helper {
 type TableColumn struct {
 	alias string
 	way   *Way
+
+	empty *TableColumn
 }
 
 // Alias Get the alias name value.
@@ -1560,9 +1562,19 @@ func (s *TableColumn) Alias() string {
 	return s.alias
 }
 
+// aliasesName Adjust alias name.
+func (s *TableColumn) aliasName(alias ...string) string {
+	if s.empty == nil {
+		tmp := *s
+		tmp.alias = EmptyString
+		s.empty = &tmp
+	}
+	return s.empty.ColumnAll(LastNotEmptyString(alias))[0]
+}
+
 // SetAlias Set the alias name value.
 func (s *TableColumn) SetAlias(alias string) *TableColumn {
-	s.alias = alias
+	s.alias = s.aliasName(alias)
 	return s
 }
 
@@ -1592,91 +1604,92 @@ func (s *TableColumn) ColumnAll(columns ...string) []string {
 
 // Column Add table name prefix to single column name, allowing column alias to be set.
 func (s *TableColumn) Column(column string, aliases ...string) string {
-	return SqlAlias(s.ColumnAll(column)[0], LastNotEmptyString(aliases))
+	return SqlAlias(s.ColumnAll(column)[0], s.aliasName(aliases...))
 }
 
 // Sum SUM(column[, alias])
 func (s *TableColumn) Sum(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("SUM(%s)", s.Column(column)), LastNotEmptyString(aliases))
+	return SqlAlias(fmt.Sprintf("SUM(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Max MAX(column[, alias])
 func (s *TableColumn) Max(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("MAX(%s)", s.Column(column)), LastNotEmptyString(aliases))
+	return SqlAlias(fmt.Sprintf("MAX(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Min MIN(column[, alias])
 func (s *TableColumn) Min(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("MIN(%s)", s.Column(column)), LastNotEmptyString(aliases))
+	return SqlAlias(fmt.Sprintf("MIN(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Avg AVG(column[, alias])
 func (s *TableColumn) Avg(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("AVG(%s)", s.Column(column)), LastNotEmptyString(aliases))
+	return SqlAlias(fmt.Sprintf("AVG(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Count Example
-// Count(): `COUNT(*) AS counts`
-// Count("total"): `COUNT(*) AS total`
-// Count("1", "total"): `COUNT(1) AS total`
-// Count("id", "counts"): `COUNT(id) AS counts`
+// Count(): COUNT(*) AS `counts`
+// Count("total"): COUNT(*) AS `total`
+// Count("1", "total"): COUNT(1) AS `total`
+// Count("id", "counts"): COUNT(`id`) AS `counts`
 func (s *TableColumn) Count(counts ...string) string {
 	count := "COUNT(*)"
 	length := len(counts)
 	if length == 0 {
-		// using default expression: `COUNT(*) AS counts`
-		return SqlAlias(count, s.way.cfg.Replace.Get(DefaultAliasNameCount))
+		// using default expression: COUNT(*) AS `counts`
+		return SqlAlias(count, s.way.NameReplace(DefaultAliasNameCount))
 	}
 	if length == 1 && counts[0] != EmptyString {
 		// only set alias name
-		return SqlAlias(count, counts[0])
+		return SqlAlias(count, s.way.NameReplace(counts[0]))
 	}
 	// set COUNT function parameters and alias name
-	countAlias := s.way.cfg.Replace.Get(DefaultAliasNameCount)
+	countAlias := s.way.NameReplace(DefaultAliasNameCount)
 	column := false
 	for i := 0; i < length; i++ {
 		if counts[i] == EmptyString {
 			continue
 		}
 		if column {
-			countAlias = counts[i]
+			countAlias = s.way.NameReplace(counts[i])
 			break
 		}
-		count, column = fmt.Sprintf("COUNT(%s)", counts[i]), true
+		count, column = fmt.Sprintf("COUNT(%s)", s.Column(counts[i])), true
 	}
 	return SqlAlias(count, countAlias)
 }
 
 // IfNull If the value is NULL, set the default value.
 func (s *TableColumn) IfNull(column string, defaultValue string, aliases ...string) string {
-	return SqlAlias(s.way.cfg.Helper.IfNull(s.Column(column), defaultValue), LastNotEmptyString(aliases))
+	return SqlAlias(s.way.cfg.Helper.IfNull(s.Column(column), defaultValue), s.aliasName(aliases...))
 }
 
 // IfNullSum IF_NULL(SUM(column),0)[ AS column_name]
 func (s *TableColumn) IfNullSum(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Sum(column), "0"), LastNotEmptyString(aliases))
+	return SqlAlias(s.IfNull(s.Sum(column), "0"), s.aliasName(aliases...))
 }
 
 // IfNullMax IF_NULL(MAX(column),0)[ AS column_name]
 func (s *TableColumn) IfNullMax(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Max(column), "0"), LastNotEmptyString(aliases))
+	return SqlAlias(s.IfNull(s.Max(column), "0"), s.aliasName(aliases...))
 }
 
 // IfNullMin IF_NULL(MIN(column),0)[ AS column_name]
 func (s *TableColumn) IfNullMin(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Min(column), "0"), LastNotEmptyString(aliases))
+	return SqlAlias(s.IfNull(s.Min(column), "0"), s.aliasName(aliases...))
 }
 
 // IfNullAvg IF_NULL(AVG(column),0)[ AS column_name]
 func (s *TableColumn) IfNullAvg(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Avg(column), "0"), LastNotEmptyString(aliases))
+	return SqlAlias(s.IfNull(s.Avg(column), "0"), s.aliasName(aliases...))
 }
 
 func NewTableColumn(way *Way, aliases ...string) *TableColumn {
-	return &TableColumn{
-		alias: LastNotEmptyString(aliases),
-		way:   way,
+	tmp := &TableColumn{
+		way: way,
 	}
+	tmp.alias = tmp.aliasName(aliases...)
+	return tmp
 }
 
 /**

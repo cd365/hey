@@ -20,26 +20,42 @@ func putStringBuilder(b *strings.Builder) {
 	stringBuilder.Put(b)
 }
 
-type Replace struct {
+// Replacer Replace identifiers in sql statements.
+type Replacer interface {
+	Add(originalName string, useName string) Replacer
+
+	Del(originalName string) Replacer
+
+	DelAll() Replacer
+
+	Get(originalName string) string
+
+	GetAll(originalNames []string) []string
+
+	// Replace map[original-name]used-name
+	Replace() map[string]string
+}
+
+type replace struct {
 	replace map[string]string
 }
 
-func (s *Replace) Add(oldName string, newName string) *Replace {
+func (s *replace) Add(oldName string, newName string) Replacer {
 	s.replace[oldName] = newName
 	return s
 }
 
-func (s *Replace) Del(name string) *Replace {
+func (s *replace) Del(name string) Replacer {
 	delete(s.replace, name)
 	return s
 }
 
-func (s *Replace) DelAll() *Replace {
+func (s *replace) DelAll() Replacer {
 	s.replace = make(map[string]string, 1<<9)
 	return s
 }
 
-func (s *Replace) Get(name string) string {
+func (s *replace) Get(name string) string {
 	if value, ok := s.replace[name]; ok {
 		return value
 	} else {
@@ -47,7 +63,7 @@ func (s *Replace) Get(name string) string {
 	}
 }
 
-func (s *Replace) GetAll(names []string) []string {
+func (s *replace) GetAll(names []string) []string {
 	length := len(names)
 	if length == 0 {
 		return names
@@ -63,12 +79,12 @@ func (s *Replace) GetAll(names []string) []string {
 	return replaced
 }
 
-func (s *Replace) Replace() map[string]string {
+func (s *replace) Replace() map[string]string {
 	return s.replace
 }
 
-func NewReplace() *Replace {
-	return &Replace{
+func NewReplacer() Replacer {
+	return &replace{
 		replace: make(map[string]string, 1<<9),
 	}
 }

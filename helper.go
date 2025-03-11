@@ -962,7 +962,7 @@ func (s *Del) Context(ctx context.Context) *Del {
 
 // Table set table name.
 func (s *Del) Table(table string, args ...interface{}) *Del {
-	s.schema.table = NewTableCmder(table, args)
+	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), args)
 	return s
 }
 
@@ -1070,7 +1070,7 @@ func (s *Add) Context(ctx context.Context) *Add {
 
 // Table set table name.
 func (s *Add) Table(table string) *Add {
-	s.schema.table = NewTableCmder(table, nil)
+	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), nil)
 	return s
 }
 
@@ -1329,7 +1329,7 @@ func (s *Mod) Context(ctx context.Context) *Mod {
 
 // Table set table name.
 func (s *Mod) Table(table string, args ...interface{}) *Mod {
-	s.schema.table = NewTableCmder(table, args)
+	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), args)
 	return s
 }
 
@@ -1596,13 +1596,13 @@ func (s *Get) With(alias string, script Cmder) *Get {
 
 // Table set table name.
 func (s *Get) Table(table string) *Get {
-	s.schema.table = NewTableCmder(table, nil)
+	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), nil)
 	return s
 }
 
 // Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
 func (s *Get) Alias(alias string) *Get {
-	s.schema.table.Alias(alias)
+	s.schema.table.Alias(s.schema.way.NameReplace(alias))
 	return s
 }
 
