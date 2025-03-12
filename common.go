@@ -7,7 +7,9 @@ import (
 
 var (
 	stringBuilder = &sync.Pool{
-		New: func() interface{} { return &strings.Builder{} },
+		New: func() interface{} {
+			return &strings.Builder{}
+		},
 	}
 )
 
@@ -18,6 +20,27 @@ func getStringBuilder() *strings.Builder {
 func putStringBuilder(b *strings.Builder) {
 	b.Reset()
 	stringBuilder.Put(b)
+}
+
+// ParcelPrepare Parcel the SQL statement. `subquery` => ( `subquery` )
+func ParcelPrepare(prepare string) string {
+	if prepare == EmptyString {
+		return prepare
+	}
+	return ConcatString(SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
+}
+
+// ParcelCmder Parcel the SQL statement. `subquery` => ( `subquery` )
+func ParcelCmder(cmder Cmder) Cmder {
+	if IsEmptyCmder(cmder) {
+		return cmder
+	}
+	prepare, args := cmder.Cmd()
+	prepare = strings.TrimSpace(prepare)
+	if prepare[0] != SqlLeftSmallBracket[0] {
+		prepare = ParcelPrepare(prepare)
+	}
+	return NewCmder(prepare, args)
 }
 
 // Replacer Replace identifiers in sql statements.
@@ -167,7 +190,9 @@ func ConcatCmder(concat string, custom func(index int, cmder Cmder) Cmder, items
 		b.WriteString(ParcelPrepare(prepare))
 		args = append(args, param...)
 	}
-	return NewCmder(b.String(), args)
+	prepare := b.String()
+	prepare = ParcelPrepare(prepare)
+	return NewCmder(prepare, args)
 }
 
 // UnionCmder ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...

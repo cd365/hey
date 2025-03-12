@@ -9,27 +9,6 @@ import (
 	"strings"
 )
 
-// ParcelPrepare Parcel the SQL statement. `subquery` => ( `subquery` )
-func ParcelPrepare(prepare string) string {
-	if prepare == EmptyString {
-		return prepare
-	}
-	return ConcatString(SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
-}
-
-// ParcelCmder Parcel the SQL statement. `subquery` => ( `subquery` )
-func ParcelCmder(cmder Cmder) Cmder {
-	if IsEmptyCmder(cmder) {
-		return cmder
-	}
-	prepare, args := cmder.Cmd()
-	prepare = strings.TrimSpace(prepare)
-	if prepare[0] != SqlLeftSmallBracket[0] {
-		prepare = ParcelPrepare(prepare)
-	}
-	return NewCmder(prepare, args)
-}
-
 // TableCmder Used to construct expressions that can use table aliases and their corresponding parameter lists.
 type TableCmder interface {
 	IsEmpty
