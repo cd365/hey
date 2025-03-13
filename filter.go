@@ -348,7 +348,7 @@ type Filter interface {
 	LessThanEqual(column string, value interface{}) Filter
 
 	// Equal Implement conditional filtering: column = value .
-	Equal(column string, value interface{}) Filter
+	Equal(column string, value interface{}, useNull ...bool) Filter
 
 	// Between Implement conditional filtering: column BETWEEN value1 AND value2 .
 	Between(column string, start interface{}, end interface{}) Filter
@@ -384,7 +384,7 @@ type Filter interface {
 	ExistsQuery(subquery Cmder) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
-	NotEqual(column string, value interface{}) Filter
+	NotEqual(column string, value interface{}, useNotNull ...bool) Filter
 
 	// NotBetween Implement conditional filtering: column NOT BETWEEN value1 AND value2 .
 	NotBetween(column string, start interface{}, end interface{}) Filter
@@ -596,9 +596,12 @@ func (s *filter) LessThanEqual(column string, value interface{}) Filter {
 	return s
 }
 
-func (s *filter) Equal(column string, value interface{}) Filter {
+func (s *filter) Equal(column string, value interface{}, useNull ...bool) Filter {
 	if value == nil {
-		return s.IsNull(s.nameReplace(column))
+		if length := len(useNull); length > 0 && useNull[length-1] {
+			return s.IsNull(s.nameReplace(column))
+		}
+		return s
 	}
 	if value = filterUseValue(value); value != nil {
 		s.add(SqlAnd, filterEqual(s.nameReplace(column)), value)
@@ -694,9 +697,12 @@ func (s *filter) ExistsQuery(subquery Cmder) Filter {
 	return s.Exists(prepare, args...)
 }
 
-func (s *filter) NotEqual(column string, value interface{}) Filter {
+func (s *filter) NotEqual(column string, value interface{}, useNotNull ...bool) Filter {
 	if value == nil {
-		return s.IsNotNull(column)
+		if length := len(useNotNull); length > 0 && useNotNull[length-1] {
+			return s.IsNotNull(s.nameReplace(column))
+		}
+		return s
 	}
 	if value = filterUseValue(value); value != nil {
 		s.add(SqlAnd, filterNotEqual(s.nameReplace(column)), value)
