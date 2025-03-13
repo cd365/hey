@@ -43,6 +43,22 @@ func ParcelCmder(cmder Cmder) Cmder {
 	return NewCmder(prepare, args)
 }
 
+// ParcelCancelPrepare Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
+func ParcelCancelPrepare(prepare string) string {
+	prepare = strings.TrimSpace(prepare)
+	prepare = strings.TrimPrefix(prepare, ConcatString(SqlLeftSmallBracket, SqlSpace))
+	return strings.TrimSuffix(prepare, ConcatString(SqlSpace, SqlRightSmallBracket))
+}
+
+// ParcelCancelCmder Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
+func ParcelCancelCmder(cmder Cmder) Cmder {
+	if IsEmptyCmder(cmder) {
+		return cmder
+	}
+	prepare, args := cmder.Cmd()
+	return NewCmder(ParcelCancelPrepare(prepare), args)
+}
+
 // Replacer Replace identifiers in sql statements.
 type Replacer interface {
 	Add(originalName string, useName string) Replacer
@@ -195,22 +211,22 @@ func ConcatCmder(concat string, custom func(index int, cmder Cmder) Cmder, items
 	return NewCmder(prepare, args)
 }
 
-// UnionCmder ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...
+// UnionCmder CmderA, CmderB, CmderC ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C ) ... )
 func UnionCmder(items ...Cmder) Cmder {
 	return ConcatCmder(SqlUnion, nil, items...)
 }
 
-// UnionAllCmder ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )...
+// UnionAllCmder CmderA, CmderB, CmderC ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C ) ... )
 func UnionAllCmder(items ...Cmder) Cmder {
 	return ConcatCmder(SqlUnionAll, nil, items...)
 }
 
-// ExceptCmder ( QUERY_A ) EXCEPT ( QUERY_B )...
+// ExceptCmder CmderA, CmderB ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) ... )
 func ExceptCmder(items ...Cmder) Cmder {
 	return ConcatCmder(SqlExpect, nil, items...)
 }
 
-// IntersectCmder ( QUERY_A ) INTERSECT ( QUERY_B )...
+// IntersectCmder CmderA, CmderB ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) ... )
 func IntersectCmder(items ...Cmder) Cmder {
 	return ConcatCmder(SqlIntersect, nil, items...)
 }
