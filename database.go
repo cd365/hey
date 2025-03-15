@@ -579,9 +579,7 @@ func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, conditions ..
 		}
 		return NewCmder(fmt.Sprintf("%s %s %s", SqlPrefix(leftAlias, leftColumn), SqlEqual, SqlPrefix(rightAlias, rightColumn)), nil)
 	}
-	if equal != nil {
-		lists = append(lists, equal)
-	}
+	lists = append(lists, equal)
 	lists = append(lists, conditions...)
 	return s.On(lists...)
 }
