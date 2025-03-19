@@ -473,6 +473,7 @@ func (s *filter) clean() {
 	s.num = 0
 	s.prepare.Reset()
 	s.args = nil
+	s.way = nil
 }
 
 func (s *filter) Clean() Filter {
@@ -509,7 +510,7 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if group == nil {
 		return s
 	}
-	tmp := GetFilter()
+	tmp := GetFilter().Way(s.way)
 	defer PutFilter(tmp)
 	group(tmp)
 	if tmp.IsEmpty() {
@@ -537,7 +538,7 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 }
 
 func (s *filter) Use(filters ...Filter) Filter {
-	groups := GetFilter()
+	groups := GetFilter().Way(s.way)
 	defer PutFilter(groups)
 	for _, tmp := range filters {
 		if tmp == nil || tmp.IsEmpty() {
