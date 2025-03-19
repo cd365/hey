@@ -164,6 +164,9 @@ type QueryColumns interface {
 	Get() ([]string, map[int][]interface{})
 
 	Set(columns []string, columnsArgs map[int][]interface{}) QueryColumns
+
+	// Queried Get all columns of the query result.
+	Queried(excepts ...string) []string
 }
 
 type queryColumns struct {
@@ -304,80 +307,62 @@ func (s *queryColumns) Set(columns []string, columnsArgs map[int][]interface{}) 
 	return s
 }
 
+// Queried Get all columns of the query result.
+func (s *queryColumns) Queried(excepts ...string) []string {
+	star := []string{SqlStar}
+	cols := s.columns[:]
+	length := len(cols)
+	if length == 0 {
+		return star
+	}
+	lists := make([]string, 0, length)
+	for i := 0; i < length; i++ {
+		column := strings.TrimSpace(cols[i])
+		index := strings.LastIndex(column, SqlSpace)
+		if index >= 0 {
+			column = column[index+1:]
+			if strings.Contains(column, SqlRightSmallBracket) {
+				return star
+			}
+			lists = append(lists, column)
+		} else {
+			column = strings.TrimSuffix(column, SqlPoint)
+			index = strings.LastIndex(column, SqlPoint)
+			if index >= 0 {
+				lists = append(lists, column[index+1:])
+			} else {
+				lists = append(lists, column)
+			}
+		}
+	}
+	totals := len(excepts)
+	if totals == 0 {
+		return lists
+	}
+	result := make([]string, 0, length)
+	exists := make(map[string]*struct{}, totals)
+	for _, except := range excepts {
+		except = strings.TrimSpace(except)
+		except = strings.TrimSuffix(except, SqlPoint)
+		if index := strings.LastIndex(except, SqlPoint); index >= 0 {
+			except = except[index+1:]
+		}
+		exists[except] = &struct{}{}
+	}
+	for _, column := range lists {
+		if _, ok := exists[column]; !ok {
+			result = append(result, column)
+		}
+	}
+	return result
+}
+
 // JoinCondition Constructing conditions for join queries.
 type JoinCondition func(leftAlias string, rightAlias string) Cmder
 
-// QueryJoinTable Constructing table for join queries.
-type QueryJoinTable interface {
-	TableCmder
-
-	/* the table used for join query only supports querying the column list without any parameters */
-
-	// AddQueryColumns Only column names can be used, not expressions.
-	AddQueryColumns(columns ...string) QueryJoinTable
-
-	// DelQueryColumns Only column names can be used, not expressions.
-	DelQueryColumns(columns ...string) QueryJoinTable
-
-	ExistsQueryColumns() bool
-
-	GetQueryColumns() []string
-
-	GetQueryColumnsString() string
-}
-
-type queryJoinTable struct {
-	TableCmder
-	queryColumns QueryColumns
-}
-
-func (s *queryJoinTable) AddQueryColumns(columns ...string) QueryJoinTable {
-	s.queryColumns.AddAll(columns...)
-	return s
-}
-
-func (s *queryJoinTable) DelQueryColumns(columns ...string) QueryJoinTable {
-	s.queryColumns.DelAll(columns...)
-	return s
-}
-
-func (s *queryJoinTable) ExistsQueryColumns() bool {
-	return s.queryColumns.Len() > 0
-}
-
-func (s *queryJoinTable) GetQueryColumns() []string {
-	if s.TableCmder == nil {
-		return nil
-	}
-	alias := s.GetAlias()
-	if alias == EmptyString {
-		if table, args := s.Cmd(); !strings.Contains(table, SqlSpace) && args == nil {
-			alias = table
-		}
-	}
-	columns, _ := s.queryColumns.Get()
-	if alias != EmptyString {
-		for index, column := range columns {
-			columns[index] = SqlPrefix(alias, column)
-		}
-	}
-	return columns
-}
-
-func (s *queryJoinTable) GetQueryColumnsString() string {
-	return strings.Join(s.GetQueryColumns(), SqlConcat)
-}
-
-func NewQueryJoinTable(way *Way, table string, alias string, args ...interface{}) QueryJoinTable {
-	return &queryJoinTable{
-		TableCmder:   NewTableCmder(table, args).Alias(alias),
-		queryColumns: NewQueryColumns(way),
-	}
-}
-
 type queryJoinSchema struct {
 	joinType   string
-	rightTable QueryJoinTable
+	rightTable TableCmder
 	condition  Cmder
 }
 
@@ -385,13 +370,13 @@ type queryJoinSchema struct {
 type QueryJoin interface {
 	Cmder
 
-	GetMaster() QueryJoinTable
+	GetMaster() TableCmder
 
-	SetMaster(master QueryJoinTable) QueryJoin
+	SetMaster(master TableCmder) QueryJoin
 
-	NewTable(table string, alias string, args ...interface{}) QueryJoinTable
+	NewTable(table string, alias string, args ...interface{}) TableCmder
 
-	NewSubquery(subquery Cmder, alias string) QueryJoinTable
+	NewSubquery(subquery Cmder, alias string) TableCmder
 
 	On(conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition
 
@@ -399,47 +384,45 @@ type QueryJoin interface {
 
 	OnEqual(leftColumn string, rightColumn string, conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition
 
-	Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
+	Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
 
-	InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
+	InnerJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
 
-	LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
+	LeftJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
 
-	RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin
+	RightJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
 
 	// Where Don't forget to prefix the specific columns with the table name?
 	Where(where func(where Filter)) QueryJoin
 
-	// QueryExtendColumns Column names and expressions are allowed here. It is strongly recommended to specify the table name prefix when using column names.
-	QueryExtendColumns(custom func(columns QueryColumns)) QueryJoin
+	// Queries Get query columns.
+	Queries() QueryColumns
 }
 
 type queryJoin struct {
-	master QueryJoinTable
-	joins  []*queryJoinSchema
-	filter Filter
-
-	// queryExtendColumns Here you can add a list of columns that cannot be set with parameters in the join query table; the table alias prefix is not automatically added.
-	queryExtendColumns QueryColumns
+	master       TableCmder
+	joins        []*queryJoinSchema
+	filter       Filter
+	queryColumns QueryColumns
 
 	way *Way
 }
 
 func NewQueryJoin(way *Way) QueryJoin {
 	tmp := &queryJoin{
-		joins:              make([]*queryJoinSchema, 0, 1<<3),
-		filter:             way.F(),
-		queryExtendColumns: NewQueryColumns(way),
-		way:                way,
+		joins:        make([]*queryJoinSchema, 0, 1<<3),
+		filter:       way.F(),
+		queryColumns: NewQueryColumns(way),
+		way:          way,
 	}
 	return tmp
 }
 
-func (s *queryJoin) GetMaster() QueryJoinTable {
+func (s *queryJoin) GetMaster() TableCmder {
 	return s.master
 }
 
-func (s *queryJoin) SetMaster(master QueryJoinTable) QueryJoin {
+func (s *queryJoin) SetMaster(master TableCmder) QueryJoin {
 	if master != nil && !master.IsEmpty() {
 		s.master = master
 	}
@@ -447,40 +430,19 @@ func (s *queryJoin) SetMaster(master QueryJoinTable) QueryJoin {
 }
 
 func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
-	columns := NewQueryColumns(s.way)
-	if s.master.ExistsQueryColumns() {
-		if column := s.master.GetQueryColumnsString(); column != EmptyString {
-			columns.Add(column)
-		}
+	columns, params := s.Queries().Cmd()
+	if params != nil {
+		args = append(args, params...)
 	}
-
-	for _, tmp := range s.joins {
-		if tmp.rightTable.ExistsQueryColumns() {
-			if column := tmp.rightTable.GetQueryColumnsString(); column != EmptyString {
-				columns.Add(column)
-			}
-		}
-	}
-	if s.queryExtendColumns != nil && s.queryExtendColumns.Len() > 0 {
-		extendColumnsPrepare, extendColumnsArgs := s.queryExtendColumns.Cmd()
-		columns.Add(extendColumnsPrepare, extendColumnsArgs...)
-	}
-
-	selectColumnsPrepare, selectColumnsArgs := columns.Cmd()
-	if selectColumnsArgs != nil {
-		args = append(args, selectColumnsArgs...)
-	}
-
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-
 	b.WriteString("SELECT ")
-	b.WriteString(selectColumnsPrepare)
+	b.WriteString(columns)
 	b.WriteString(" FROM ")
-	masterPrepare, masterArgs := s.master.Cmd()
-	b.WriteString(masterPrepare)
+	prepare, params = s.master.Cmd()
+	b.WriteString(prepare)
 	b.WriteString(SqlSpace)
-	args = append(args, masterArgs...)
+	args = append(args, params...)
 	for index, tmp := range s.joins {
 		if tmp == nil {
 			continue
@@ -490,16 +452,16 @@ func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
 		}
 		b.WriteString(tmp.joinType)
 		b.WriteString(SqlSpace)
-		joinPrepare, joinArgs := tmp.rightTable.Cmd()
-		b.WriteString(joinPrepare)
+		prepare, params = tmp.rightTable.Cmd()
+		b.WriteString(prepare)
 		b.WriteString(SqlSpace)
-		args = append(args, joinArgs...)
+		args = append(args, params...)
 		if tmp.condition != nil {
-			conditionPrepare, conditionArgs := tmp.condition.Cmd()
-			if conditionPrepare != EmptyString {
-				b.WriteString(conditionPrepare)
-				if conditionArgs != nil {
-					args = append(args, conditionArgs...)
+			prepare, params = tmp.condition.Cmd()
+			if prepare != EmptyString {
+				b.WriteString(prepare)
+				if params != nil {
+					args = append(args, params...)
 				}
 			}
 		}
@@ -508,11 +470,11 @@ func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *queryJoin) NewTable(table string, alias string, args ...interface{}) QueryJoinTable {
-	return NewQueryJoinTable(s.way, table, alias, args...)
+func (s *queryJoin) NewTable(table string, alias string, args ...interface{}) TableCmder {
+	return NewTableCmder(table, args).Alias(alias)
 }
 
-func (s *queryJoin) NewSubquery(subquery Cmder, alias string) QueryJoinTable {
+func (s *queryJoin) NewSubquery(subquery Cmder, alias string) TableCmder {
 	prepare, args := ParcelCmder(subquery).Cmd()
 	return s.NewTable(prepare, alias, args...)
 }
@@ -584,7 +546,7 @@ func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, conditions ..
 	return s.On(lists...)
 }
 
-func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
+func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
 	if joinTypeString == EmptyString {
 		joinTypeString = SqlJoinInner
 	}
@@ -605,15 +567,15 @@ func (s *queryJoin) Join(joinTypeString string, leftTable QueryJoinTable, rightT
 	return s
 }
 
-func (s *queryJoin) InnerJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
+func (s *queryJoin) InnerJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
 	return s.Join(SqlJoinInner, leftTable, rightTable, condition)
 }
 
-func (s *queryJoin) LeftJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
+func (s *queryJoin) LeftJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
 	return s.Join(SqlJoinLeft, leftTable, rightTable, condition)
 }
 
-func (s *queryJoin) RightJoin(leftTable QueryJoinTable, rightTable QueryJoinTable, condition JoinCondition) QueryJoin {
+func (s *queryJoin) RightJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
 	return s.Join(SqlJoinRight, leftTable, rightTable, condition)
 }
 
@@ -625,14 +587,8 @@ func (s *queryJoin) Where(where func(where Filter)) QueryJoin {
 	return s
 }
 
-func (s *queryJoin) QueryExtendColumns(custom func(columns QueryColumns)) QueryJoin {
-	if s.queryExtendColumns == nil {
-		s.queryExtendColumns = NewQueryColumns(s.way)
-	}
-	if custom != nil {
-		custom(s.queryExtendColumns)
-	}
-	return s
+func (s *queryJoin) Queries() QueryColumns {
+	return s.queryColumns
 }
 
 // QueryGroup Constructing query groups.
@@ -1570,11 +1526,8 @@ func (s *TableColumn) ColumnAll(columns ...string) []string {
 	if s.alias == EmptyString {
 		return s.way.NameReplaces(columns)
 	}
-	prefix := fmt.Sprintf("%s%s", s.alias, SqlPoint)
 	for index, column := range columns {
-		if !strings.HasPrefix(column, prefix) {
-			columns[index] = fmt.Sprintf("%s%s", prefix, s.way.NameReplace(column))
-		}
+		columns[index] = SqlPrefix(s.alias, s.way.NameReplace(column))
 	}
 	return columns
 }

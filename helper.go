@@ -818,7 +818,7 @@ func SqlAlias(name string, alias string) string {
 
 // SqlPrefix add sql prefix name; if the prefix exists, it will not be added.
 func SqlPrefix(prefix string, name string) string {
-	if prefix == EmptyString || strings.HasPrefix(name, fmt.Sprintf("%s%s", prefix, SqlPoint)) {
+	if prefix == EmptyString || strings.Contains(name, SqlPoint) {
 		return name
 	}
 	return fmt.Sprintf("%s%s%s", prefix, SqlPoint, name)
@@ -1658,7 +1658,7 @@ func (s *Get) Join(custom func(join QueryJoin)) *Get {
 		master.Alias(alias) // restore master default alias name.
 	}
 	way := s.schema.way
-	s.join = NewQueryJoin(way).SetMaster(NewQueryJoinTable(way, prepare, alias, args...))
+	s.join = NewQueryJoin(way).SetMaster(NewTableCmder(prepare, args).Alias(alias))
 	custom(s.join)
 	return s
 }
@@ -1698,6 +1698,21 @@ func (s *Get) Columns(custom func(columns QueryColumns)) *Get {
 		s.columns = tmp
 	}
 	return s
+}
+
+// Queries Get QueryColumns object.
+func (s *Get) Queries() QueryColumns {
+	if s.join != nil {
+		return s.join.Queries()
+	}
+	return s.columns
+}
+
+// Select Set the columns list for select.
+func (s *Get) Select(columns ...string) *Get {
+	return s.Columns(func(cols QueryColumns) {
+		cols.AddAll(columns...)
+	})
 }
 
 // Asc set order by column ASC.
