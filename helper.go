@@ -253,9 +253,44 @@ func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect 
 func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	typeOf, valueOf := reflect.TypeOf(result), reflect.ValueOf(result)
 	typeOfKind := typeOf.Kind()
-	if typeOfKind != reflect.Ptr || typeOf.Elem().Kind() != reflect.Slice {
-		return fmt.Errorf("hey: the receiving parameter needs to be a slice pointer, yours is `%s`", typeOf.String())
+	if typeOfKind != reflect.Ptr {
+		return fmt.Errorf("hey: the receiving parameter needs to be a pointer, yours is `%s`", typeOf.String())
 	}
+	typeOfKind1 := typeOf.Elem().Kind()
+	switch typeOfKind1 {
+	case reflect.Slice, reflect.Struct:
+	default:
+		return fmt.Errorf("hey: the receiving parameter needs to be a slice pointer or struct pointer, yours is `%s`", typeOf.String())
+	}
+
+	// Query one, don't forget to use LIMIT 1 in your SQL statement.
+	if typeOfKind1 == reflect.Struct {
+		if rows.Next() {
+			elemType := typeOf.Elem()
+			b := bindStructInit()
+			// elemType => struct{}
+			b.binding(elemType, nil, tag)
+			columns, err := rows.Columns()
+			if err != nil {
+				return err
+			}
+			length := len(columns)
+			rowsScan := make([]interface{}, length)
+			object := reflect.New(elemType)
+			indirect := reflect.Indirect(object)
+			if err = b.prepare(columns, rowsScan, indirect, length); err != nil {
+				return err
+			}
+			if err = rows.Scan(rowsScan...); err != nil {
+				return err
+			}
+			valueOf.Elem().Set(indirect)
+			return nil
+		}
+		return Nil
+	}
+
+	// Query multiple items
 	var elemType reflect.Type
 	setValues := valueOf.Elem()
 	elemTypeIsPtr := false

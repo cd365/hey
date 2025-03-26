@@ -86,6 +86,16 @@ const (
 	DefaultAliasNameCount = "counts"
 )
 
+const (
+	Nil = RecordDoesNotExists("database: record does not exist")
+)
+
+type RecordDoesNotExists string
+
+func (s RecordDoesNotExists) Error() string {
+	return string(s)
+}
+
 // Cfg Configure of Way.
 type Cfg struct {
 	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
