@@ -86,15 +86,27 @@ const (
 	DefaultAliasNameCount = "counts"
 )
 
-const (
-	Nil = RecordDoesNotExists("database: record does not exist")
-)
+// ErrorRecordDoesNotExists Report query record does not exist.
+type ErrorRecordDoesNotExists string
 
-type RecordDoesNotExists string
-
-func (s RecordDoesNotExists) Error() string {
+func (s ErrorRecordDoesNotExists) Error() string {
 	return string(s)
 }
+
+// ErrorNoRowsAffected Report no affected rows.
+type ErrorNoRowsAffected string
+
+func (s ErrorNoRowsAffected) Error() string {
+	return string(s)
+}
+
+const (
+	// RecordDoesNotExists record does not exist.
+	RecordDoesNotExists = ErrorRecordDoesNotExists("database: record does not exist")
+
+	// NoRowsAffected no rows affected.
+	NoRowsAffected = ErrorNoRowsAffected("database: no rows affected")
+)
 
 // Cfg Configure of Way.
 type Cfg struct {

@@ -6,7 +6,6 @@ package hey
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -27,11 +26,6 @@ const (
 
 	StateOn  = "ON"
 	StateOff = "OFF"
-)
-
-var (
-	// ErrNoAffectedRows No rows are affected when execute SQL.
-	ErrNoAffectedRows = errors.New("database: there are no affected rows")
 )
 
 var (
@@ -68,7 +62,7 @@ func MustAffectedRows(affectedRows int64, err error) error {
 		return err
 	}
 	if affectedRows <= 0 {
-		return ErrNoAffectedRows
+		return NoRowsAffected
 	}
 	return nil
 }
@@ -249,95 +243,151 @@ func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect 
 	return nil
 }
 
-// ScanSliceStruct Scan the query result set into the receiving object the receiving object type is *[]AnyStruct or *[]*AnyStruct.
+// ScanSliceStruct Scan the query result set into the receiving object. Support type *AnyStruct, **AnyStruct, *[]AnyStruct, *[]*AnyStruct, **[]AnyStruct, **[]*AnyStruct ...
 func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
-	typeOf, valueOf := reflect.TypeOf(result), reflect.ValueOf(result)
-	typeOfKind := typeOf.Kind()
-	if typeOfKind != reflect.Ptr {
-		return fmt.Errorf("hey: the receiving parameter needs to be a pointer, yours is `%s`", typeOf.String())
+	refType, refValue := reflect.TypeOf(result), reflect.ValueOf(result)
+
+	depth1 := 0
+	refType1 := refType
+	kind1 := refType1.Kind()
+	for kind1 == reflect.Ptr {
+		depth1++
+		refType1 = refType1.Elem()
+		kind1 = refType1.Kind()
 	}
-	typeOfKind1 := typeOf.Elem().Kind()
-	switch typeOfKind1 {
-	case reflect.Slice, reflect.Struct:
+
+	if depth1 == 0 {
+		return fmt.Errorf("hey: the receiving parameter needs to be pointer, yours is `%s`", refType.String())
+	}
+
+	// Is the value a nil pointer?
+	if refValue.IsNil() {
+		return fmt.Errorf("hey: the receiving parameter value is nil")
+	}
+
+	switch kind1 {
+	case reflect.Slice:
+	case reflect.Struct:
 	default:
-		return fmt.Errorf("hey: the receiving parameter needs to be a slice pointer or struct pointer, yours is `%s`", typeOf.String())
+		return fmt.Errorf("hey: the receiving parameter type needs to be slice or struct, yours is `%s`", refType.String())
 	}
 
 	// Query one, don't forget to use LIMIT 1 in your SQL statement.
-	if typeOfKind1 == reflect.Struct {
+	if kind1 == reflect.Struct {
+		refStructType := refType1
 		if rows.Next() {
-			elemType := typeOf.Elem()
 			b := bindStructInit()
-			// elemType => struct{}
-			b.binding(elemType, nil, tag)
+			b.binding(refStructType, nil, tag)
 			columns, err := rows.Columns()
 			if err != nil {
 				return err
 			}
 			length := len(columns)
 			rowsScan := make([]interface{}, length)
-			object := reflect.New(elemType)
-			indirect := reflect.Indirect(object)
-			if err = b.prepare(columns, rowsScan, indirect, length); err != nil {
+			refStructPtr := reflect.New(refStructType)
+			refStructVal := reflect.Indirect(refStructPtr)
+			if err = b.prepare(columns, rowsScan, refStructVal, length); err != nil {
 				return err
 			}
 			if err = rows.Scan(rowsScan...); err != nil {
 				return err
 			}
-			valueOf.Elem().Set(indirect)
+			switch depth1 {
+			case 1:
+				refValue.Elem().Set(refStructVal)
+				return nil
+			default:
+				current := refValue.Elem()
+				for current.Kind() == reflect.Ptr {
+					if current.IsNil() {
+						tmp := reflect.New(current.Type().Elem())
+						current.Set(tmp)
+					}
+					current = current.Elem()
+				}
+				if !refStructVal.Type().AssignableTo(current.Type()) {
+					return fmt.Errorf("`%s` cannot assign to `%s`", refStructVal.Type().String(), current.Type().String())
+				}
+				current.Set(refStructVal)
+			}
 			return nil
 		}
-		return Nil
+		return RecordDoesNotExists
 	}
 
-	// Query multiple items
-	var elemType reflect.Type
-	setValues := valueOf.Elem()
-	elemTypeIsPtr := false
-	elem := typeOf.Elem().Elem()
-	elemKind := elem.Kind()
-	if elemKind == reflect.Struct {
-		// *[]AnyStruct
-		elemType = elem
+	// Query multiple items.
+	depth2 := 0
+
+	// the type of slice elements.
+	sliceItemType := refType1.Elem()
+
+	// slice element struct type.
+	refStructType := sliceItemType
+
+	kind2 := refStructType.Kind()
+	for kind2 == reflect.Ptr {
+		depth2++
+		refStructType = refStructType.Elem()
+		kind2 = refStructType.Kind()
 	}
-	if elemKind == reflect.Ptr {
-		if elem.Elem().Kind() == reflect.Struct {
-			// *[]*AnyStruct
-			elemType = elem.Elem()
-			elemTypeIsPtr = true
-		}
+
+	if kind2 != reflect.Struct {
+		return fmt.Errorf("hey: the basic type of slice elements must be a struct, yours is `%s`", refStructType.String())
 	}
-	if elemType == nil {
-		return fmt.Errorf(
-			"hey: slice elements need to be structures or pointers to structures, yours is `%s`",
-			elem.String(),
-		)
+
+	// initialize slice object.
+	refValueSlice := refValue
+	for i := 0; i < depth1; i++ {
+		refValueSlice = refValueSlice.Elem()
 	}
+
 	b := bindStructInit()
 	columns, err := rows.Columns()
 	if err != nil {
 		return err
 	}
-	// elemType => struct{}
-	b.binding(elemType, nil, tag)
+	b.binding(refStructType, nil, tag)
 	length := len(columns)
 	rowsScan := make([]interface{}, length)
+
 	for rows.Next() {
-		object := reflect.New(elemType)
-		indirect := reflect.Indirect(object)
-		if err = b.prepare(columns, rowsScan, indirect, length); err != nil {
+		refStructPtr := reflect.New(refStructType)
+		refStructVal := reflect.Indirect(refStructPtr)
+		if err = b.prepare(columns, rowsScan, refStructVal, length); err != nil {
 			return err
 		}
 		if err = rows.Scan(rowsScan...); err != nil {
 			return err
 		}
-		if elemTypeIsPtr {
-			setValues = reflect.Append(setValues, object)
-			continue
+		switch depth2 {
+		case 0:
+			refValueSlice = reflect.Append(refValueSlice, refStructVal)
+		case 1:
+			refValueSlice = reflect.Append(refValueSlice, refStructPtr)
+		default:
+			leap := refStructPtr
+			for i := 1; i < depth2; i++ {
+				tmp := reflect.New(leap.Type()) // creates a pointer to the current type
+				tmp.Elem().Set(leap)            // assign the current value to the new pointer
+				leap = tmp                      // update to new pointer
+			}
+			refValueSlice = reflect.Append(refValueSlice, leap)
 		}
-		setValues = reflect.Append(setValues, object.Elem())
 	}
-	valueOf.Elem().Set(setValues)
+
+	current := refValue.Elem()
+	for current.Kind() == reflect.Ptr {
+		if current.IsNil() {
+			tmp := reflect.New(current.Type().Elem())
+			current.Set(tmp)
+		}
+		current = current.Elem()
+	}
+	if !refValueSlice.Type().AssignableTo(current.Type()) {
+		return fmt.Errorf("`%s` cannot assign to `%s`", refValueSlice.Type().String(), current.Type().String())
+	}
+	current.Set(refValueSlice)
+
 	return nil
 }
 
