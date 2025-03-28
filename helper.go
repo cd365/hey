@@ -338,15 +338,20 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	// initialize slice object.
 	refValueSlice := refValue
 	for i := 0; i < depth1; i++ {
+		if refValueSlice.IsNil() {
+			tmp := reflect.New(refValueSlice.Type().Elem())
+			refValueSlice.Set(tmp)
+		}
 		refValueSlice = refValueSlice.Elem()
 	}
 
 	b := bindStructInit()
+	b.binding(refStructType, nil, tag)
+
 	columns, err := rows.Columns()
 	if err != nil {
 		return err
 	}
-	b.binding(refStructType, nil, tag)
 	length := len(columns)
 	rowsScan := make([]interface{}, length)
 
