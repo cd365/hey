@@ -552,7 +552,9 @@ func (s *filter) Use(filters ...Filter) Filter {
 }
 
 func (s *filter) New(filters ...Filter) Filter {
-	return filterNew().Use(filters...)
+	object := filterNew()
+	object.way = s.way
+	return object.Use(filters...)
 }
 
 func (s *filter) nameReplace(name string) string {
@@ -840,18 +842,34 @@ func LessThanEqualAny(f Filter, column string, subquery *Get) {
 	buildFilterAny(f, column, SqlLessThanEqual, subquery)
 }
 
-// InItems Build column IN ( items[0].attributeN, items[1].attributeN, items[2].attributeN ... )
-func InItems[T interface{}](items []T, getItem func(item T) interface{}) []interface{} {
-	if getItem == nil {
+// ColumnInValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
+func ColumnInValues[T interface{}](values []T, fc func(tmp T) interface{}) []interface{} {
+	if fc == nil {
 		return nil
 	}
-	length := len(items)
+	length := len(values)
 	if length == 0 {
 		return nil
 	}
 	result := make([]interface{}, length)
-	for index, item := range items {
-		result[index] = getItem(item)
+	for index, tmp := range values {
+		result[index] = fc(tmp)
+	}
+	return result
+}
+
+// ColumnsInValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )
+func ColumnsInValues[T interface{}](values []T, fc func(tmp T) []interface{}) [][]interface{} {
+	if fc == nil {
+		return nil
+	}
+	length := len(values)
+	if length == 0 {
+		return nil
+	}
+	result := make([][]interface{}, length)
+	for index, tmp := range values {
+		result[index] = fc(tmp)
 	}
 	return result
 }
