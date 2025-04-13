@@ -60,8 +60,9 @@ const (
 	SqlLessThan         = "<"
 	SqlLessThanEqual    = "<="
 
-	SqlAll = "ALL"
-	SqlAny = "ANY"
+	SqlAll  = "ALL"
+	SqlAny  = "ANY"
+	SqlSome = "SOME"
 
 	SqlLeftSmallBracket  = "("
 	SqlRightSmallBracket = ")"
@@ -882,7 +883,7 @@ func (s *Way) Setter(caller Caller, prepare string, args ...interface{}) (int64,
 
 // F -> Quickly initialize a filter.
 func (s *Way) F(fs ...Filter) Filter {
-	return F().New(fs...).Way(s)
+	return F().New(fs...).SetWay(s)
 }
 
 // Add -> Create an instance that executes the INSERT sql statement.

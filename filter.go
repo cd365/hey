@@ -401,8 +401,41 @@ type Filter interface {
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
 	IsNotNull(column string) Filter
 
-	// Way For set *Way .
-	Way(way *Way) Filter
+	// AllQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
+	AllQuantifier(fc func(tmp Quantifier)) Filter
+
+	// AnyQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
+	AnyQuantifier(fc func(tmp Quantifier)) Filter
+
+	// SomeQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} SOME ( subquery ) .
+	SomeQuantifier(fc func(tmp Quantifier)) Filter
+
+	// GetWay For get *Way .
+	GetWay() *Way
+
+	// SetWay For set *Way .
+	SetWay(way *Way) Filter
+
+	// Compare Implement conditional filtering: column1 {=||<>||>||>=||<||<=} column2 .
+	Compare(column1 string, compare string, column2 string, args ...interface{}) Filter
+
+	// CompareEqual Implement conditional filtering: column1 = column2 .
+	CompareEqual(column1 string, column2 string, args ...interface{}) Filter
+
+	// CompareNotEqual Implement conditional filtering: column1 <> column2 .
+	CompareNotEqual(column1 string, column2 string, args ...interface{}) Filter
+
+	// CompareGreaterThan Implement conditional filtering: column1 > column2 .
+	CompareGreaterThan(column1 string, column2 string, args ...interface{}) Filter
+
+	// CompareGreaterThanEqual Implement conditional filtering: column1 >= column2 .
+	CompareGreaterThanEqual(column1 string, column2 string, args ...interface{}) Filter
+
+	// CompareLessThan Implement conditional filtering: column1 < column2 .
+	CompareLessThan(column1 string, column2 string, args ...interface{}) Filter
+
+	// CompareLessThanEqual Implement conditional filtering: column1 <= column2 .
+	CompareLessThanEqual(column1 string, column2 string, args ...interface{}) Filter
 
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that most of the OR is not used frequently in the business development process.
@@ -510,7 +543,7 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if group == nil {
 		return s
 	}
-	tmp := GetFilter().Way(s.way)
+	tmp := GetFilter().SetWay(s.way)
 	defer PutFilter(tmp)
 	group(tmp)
 	if tmp.IsEmpty() {
@@ -538,7 +571,7 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 }
 
 func (s *filter) Use(filters ...Filter) Filter {
-	groups := GetFilter().Way(s.way)
+	groups := GetFilter().SetWay(s.way)
 	defer PutFilter(groups)
 	for _, tmp := range filters {
 		if tmp == nil || tmp.IsEmpty() {
@@ -753,93 +786,172 @@ func (s *filter) IsNotNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(s.nameReplace(column), true))
 }
 
-func (s *filter) Way(way *Way) Filter {
+func (s *filter) AllQuantifier(fc func(tmp Quantifier)) Filter {
+	if fc == nil {
+		return s
+	}
+	tmp := &quantifier{
+		filter:     s.New(),
+		quantifier: SqlAll,
+	}
+	fc(tmp)
+	return s.Use(tmp.filter)
+}
+
+func (s *filter) AnyQuantifier(fc func(tmp Quantifier)) Filter {
+	if fc == nil {
+		return s
+	}
+	tmp := &quantifier{
+		filter:     s.New(),
+		quantifier: SqlAny,
+	}
+	fc(tmp)
+	return s.Use(tmp.filter)
+}
+
+func (s *filter) SomeQuantifier(fc func(tmp Quantifier)) Filter {
+	if fc == nil {
+		return s
+	}
+	tmp := &quantifier{
+		filter:     s.New(),
+		quantifier: SqlSome,
+	}
+	fc(tmp)
+	return s.Use(tmp.filter)
+}
+
+func (s *filter) GetWay() *Way {
+	return s.way
+}
+
+func (s *filter) SetWay(way *Way) Filter {
 	s.way = way
 	return s
 }
 
-func buildFilterAll(f Filter, column string, logic string, subquery *Get) {
-	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
-		return
+func (s *filter) Compare(column1 string, compare string, column2 string, args ...interface{}) Filter {
+	if column1 == EmptyString || compare == EmptyString || column2 == EmptyString {
+		return s
+	}
+	column1, column2 = s.nameReplace(column1), s.nameReplace(column2)
+	return s.And(ConcatString(column1, SqlSpace, compare, SqlSpace, column2), args...)
+}
+
+func (s *filter) CompareEqual(column1 string, column2 string, args ...interface{}) Filter {
+	return s.Compare(column1, SqlEqual, column2, args...)
+}
+
+func (s *filter) CompareNotEqual(column1 string, column2 string, args ...interface{}) Filter {
+	return s.Compare(column1, SqlNotEqual, column2, args...)
+}
+
+func (s *filter) CompareGreaterThan(column1 string, column2 string, args ...interface{}) Filter {
+	return s.Compare(column1, SqlGreaterThan, column2, args...)
+}
+
+func (s *filter) CompareGreaterThanEqual(column1 string, column2 string, args ...interface{}) Filter {
+	return s.Compare(column1, SqlGreaterThanEqual, column2, args...)
+}
+
+func (s *filter) CompareLessThan(column1 string, column2 string, args ...interface{}) Filter {
+	return s.Compare(column1, SqlLessThan, column2, args...)
+}
+
+func (s *filter) CompareLessThanEqual(column1 string, column2 string, args ...interface{}) Filter {
+	return s.Compare(column1, SqlLessThanEqual, column2, args...)
+}
+
+// Quantifier Implement the filter condition: column {=||<>||>||>=||<||<=} [QUANTIFIER ]( subquery ) .
+// QUANTIFIER is usually one of ALL, ANY, SOME ... or EmptyString.
+type Quantifier interface {
+	GetQuantifier() string
+	SetQuantifier(quantifierString string) Quantifier
+	Equal(column string, subquery Cmder) Quantifier
+	NotEqual(column string, subquery Cmder) Quantifier
+	GreaterThan(column string, subquery Cmder) Quantifier
+	GreaterThanEqual(column string, subquery Cmder) Quantifier
+	LessThan(column string, subquery Cmder) Quantifier
+	LessThanEqual(column string, subquery Cmder) Quantifier
+}
+
+type quantifier struct {
+	filter     Filter
+	quantifier string // The value is usually one of ALL, ANY, SOME.
+}
+
+// GetQuantifier Get quantifier value.
+func (s *quantifier) GetQuantifier() string {
+	return s.quantifier
+}
+
+// SetQuantifier Set quantifier value.
+func (s *quantifier) SetQuantifier(quantifierString string) Quantifier {
+	s.quantifier = quantifierString
+	return s
+}
+
+// build Add SQL filter statement.
+func (s *quantifier) build(column string, logic string, subquery Cmder) Quantifier {
+	if column == EmptyString || logic == EmptyString || subquery == nil {
+		return s
 	}
 	prepare, args := subquery.Cmd()
 	if prepare == EmptyString {
-		return
+		return s
 	}
-	prepare = ConcatString(column, SqlSpace, logic, SqlSpace, SqlAll, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
-	f.And(prepare, args...)
-}
-
-// EqualAll There are few practical application scenarios because all values are required to be equal.
-func EqualAll(f Filter, column string, subquery *Get) {
-	buildFilterAll(f, column, SqlEqual, subquery)
-}
-
-// NotEqualAll Implement the filter condition: column <> ALL ( subquery ) .
-func NotEqualAll(f Filter, column string, subquery *Get) {
-	buildFilterAll(f, column, SqlNotEqual, subquery)
-}
-
-// GreaterThanAll Implement the filter condition: column > ALL ( subquery ) .
-func GreaterThanAll(f Filter, column string, subquery *Get) {
-	buildFilterAll(f, column, SqlGreaterThan, subquery)
-}
-
-// GreaterThanEqualAll Implement the filter condition: column >= ALL ( subquery ) .
-func GreaterThanEqualAll(f Filter, column string, subquery *Get) {
-	buildFilterAll(f, column, SqlGreaterThanEqual, subquery)
-}
-
-// LessThanAll Implement the filter condition: column < ALL ( subquery ) .
-func LessThanAll(f Filter, column string, subquery *Get) {
-	buildFilterAll(f, column, SqlLessThan, subquery)
-}
-
-// LessThanEqualAll Implement the filter condition: column <= ALL ( subquery ) .
-func LessThanEqualAll(f Filter, column string, subquery *Get) {
-	buildFilterAll(f, column, SqlLessThanEqual, subquery)
-}
-
-func buildFilterAny(f Filter, column string, logic string, subquery *Get) {
-	if f == nil || column == EmptyString || logic == EmptyString || subquery == nil {
-		return
+	if way := s.filter.GetWay(); way != nil {
+		column = way.NameReplace(column)
 	}
-	prepare, args := subquery.Cmd()
-	if prepare == EmptyString {
-		return
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString(column)
+	b.WriteString(SqlSpace)
+	b.WriteString(logic)
+	b.WriteString(SqlSpace)
+	if s.quantifier != EmptyString {
+		b.WriteString(s.quantifier)
+		b.WriteString(SqlSpace)
 	}
-	prepare = ConcatString(column, SqlSpace, logic, SqlSpace, SqlAny, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
-	f.And(prepare, args...)
+	b.WriteString(SqlLeftSmallBracket)
+	b.WriteString(SqlSpace)
+	b.WriteString(prepare)
+	b.WriteString(SqlSpace)
+	b.WriteString(SqlRightSmallBracket)
+	prepare = b.String()
+	s.filter.And(prepare, args...)
+	return s
 }
 
-// EqualAny Implement the filter condition: column = ANY ( subquery ) .
-func EqualAny(f Filter, column string, subquery *Get) {
-	buildFilterAny(f, column, SqlEqual, subquery)
+// Equal Implement the filter condition: column = QUANTIFIER ( subquery ) .
+func (s *quantifier) Equal(column string, subquery Cmder) Quantifier {
+	return s.build(column, SqlEqual, subquery)
 }
 
-// NotEqualAny Implement the filter condition: column <> ANY ( subquery ) .
-func NotEqualAny(f Filter, column string, subquery *Get) {
-	buildFilterAny(f, column, SqlNotEqual, subquery)
+// NotEqual Implement the filter condition: column <> QUANTIFIER ( subquery ) .
+func (s *quantifier) NotEqual(column string, subquery Cmder) Quantifier {
+	return s.build(column, SqlNotEqual, subquery)
 }
 
-// GreaterThanAny Implement the filter condition: column > ANY ( subquery ) .
-func GreaterThanAny(f Filter, column string, subquery *Get) {
-	buildFilterAny(f, column, SqlGreaterThan, subquery)
+// GreaterThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
+func (s *quantifier) GreaterThan(column string, subquery Cmder) Quantifier {
+	return s.build(column, SqlGreaterThan, subquery)
 }
 
-// GreaterThanEqualAny Implement the filter condition: column >= ANY ( subquery ) .
-func GreaterThanEqualAny(f Filter, column string, subquery *Get) {
-	buildFilterAny(f, column, SqlGreaterThanEqual, subquery)
+// GreaterThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
+func (s *quantifier) GreaterThanEqual(column string, subquery Cmder) Quantifier {
+	return s.build(column, SqlGreaterThanEqual, subquery)
 }
 
-// LessThanAny Implement the filter condition: column < ANY ( subquery ) .
-func LessThanAny(f Filter, column string, subquery *Get) {
-	buildFilterAny(f, column, SqlLessThan, subquery)
+// LessThan Implement the filter condition: column < QUANTIFIER ( subquery ) .
+func (s *quantifier) LessThan(column string, subquery Cmder) Quantifier {
+	return s.build(column, SqlLessThan, subquery)
 }
 
-// LessThanEqualAny Implement the filter condition: column <= ANY ( subquery ) .
-func LessThanEqualAny(f Filter, column string, subquery *Get) {
-	buildFilterAny(f, column, SqlLessThanEqual, subquery)
+// LessThanEqual Implement the filter condition: column <= QUANTIFIER ( subquery ) .
+func (s *quantifier) LessThanEqual(column string, subquery Cmder) Quantifier {
+	return s.build(column, SqlLessThanEqual, subquery)
 }
 
 // ColumnInValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
