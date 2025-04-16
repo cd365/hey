@@ -109,8 +109,10 @@ func RemoveDuplicates[T comparable](dynamic ...T) (result []T) {
 	return
 }
 
-// bindStruct bind the receiving object with the query result.
-type bindStruct struct {
+/* Implement scanning *sql.Rows data into STRUCT or []STRUCT */
+
+// bindScanStruct bind the receiving object with the query result.
+type bindScanStruct struct {
 	// store root struct properties.
 	direct map[string]int
 
@@ -121,8 +123,8 @@ type bindStruct struct {
 	structType map[reflect.Type]*struct{}
 }
 
-func bindStructInit() *bindStruct {
-	return &bindStruct{
+func bindScanStructInit() *bindScanStruct {
+	return &bindScanStruct{
 		direct:     make(map[string]int, 32),
 		indirect:   make(map[string][]int, 32),
 		structType: make(map[reflect.Type]*struct{}, 8),
@@ -131,7 +133,7 @@ func bindStructInit() *bindStruct {
 
 // binding Match the binding according to the structure "db" tag and the query column name.
 // Please ensure that the type of refStructType must be `reflect.Struct`.
-func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string) {
+func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag string) {
 	if _, ok := s.structType[refStructType]; ok {
 		// prevent structure loop nesting.
 		return
@@ -181,7 +183,7 @@ func (s *bindStruct) binding(refStructType reflect.Type, depth []int, tag string
 // prepare The preparatory work before executing rows.Scan.
 // find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
 // When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear when the root structure accesses the properties of substructures, resulting in panic.
-func (s *bindStruct) prepare(columns []string, rowsScan []interface{}, indirect reflect.Value, length int) error {
+func (s *bindScanStruct) prepare(columns []string, rowsScan []interface{}, indirect reflect.Value, length int) error {
 	for i := 0; i < length; i++ {
 		index, ok := s.direct[columns[i]]
 		if ok {
@@ -276,7 +278,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	if kind1 == reflect.Struct {
 		refStructType := refType1
 		if rows.Next() {
-			b := bindStructInit()
+			b := bindScanStructInit()
 			b.binding(refStructType, nil, tag)
 			columns, err := rows.Columns()
 			if err != nil {
@@ -345,7 +347,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 		refValueSlice = refValueSlice.Elem()
 	}
 
-	b := bindStructInit()
+	b := bindScanStructInit()
 	b.binding(refStructType, nil, tag)
 
 	columns, err := rows.Columns()
@@ -396,7 +398,12 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 	return nil
 }
 
+/* Implement scanning *sql.Rows data into STRUCT or []STRUCT */
+
 func basicTypeValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
 	t, v := reflect.TypeOf(value), reflect.ValueOf(value)
 	k := t.Kind()
 	for k == reflect.Ptr {
