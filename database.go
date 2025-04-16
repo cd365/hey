@@ -165,6 +165,8 @@ type QueryColumns interface {
 
 	Set(columns []string, columnsArgs map[int][]interface{}) QueryColumns
 
+	Use(queryColumns ...QueryColumns) QueryColumns
+
 	// Queried Get all columns of the query result.
 	Queried(excepts ...string) []string
 }
@@ -304,6 +306,21 @@ func (s *queryColumns) Set(columns []string, columnsArgs map[int][]interface{}) 
 		}
 	}
 	s.columns, s.columnsMap, s.columnsArgs = columns, columnsMap, columnsArgs
+	return s
+}
+
+func (s *queryColumns) Use(queryColumns ...QueryColumns) QueryColumns {
+	length := len(queryColumns)
+	for i := 0; i < length; i++ {
+		tmp := queryColumns[i]
+		if tmp == nil {
+			continue
+		}
+		cols, args := tmp.Get()
+		for index, value := range cols {
+			s.Add(value, args[index]...)
+		}
+	}
 	return s
 }
 

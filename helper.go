@@ -1066,7 +1066,7 @@ func (s *Del) TableCmder(cmder TableCmder) *Del {
 }
 
 // Where set where.
-func (s *Del) Where(where func(where Filter)) *Del {
+func (s *Del) Where(where func(f Filter)) *Del {
 	if where == nil {
 		return s
 	}
@@ -1547,13 +1547,13 @@ func (s *Mod) Update(update interface{}) *Mod {
 	return s.ColumnsValues(StructModify(update, s.schema.way.cfg.ScanTag))
 }
 
-// Contrast Compare old and new to automatically calculate need to update columns.
-func (s *Mod) Contrast(old, new interface{}, except ...string) *Mod {
+// Compare Compare old and new to automatically calculate need to update columns.
+func (s *Mod) Compare(old, new interface{}, except ...string) *Mod {
 	return s.ColumnsValues(StructUpdate(old, new, s.schema.way.cfg.ScanTag, except...))
 }
 
 // Where set where.
-func (s *Mod) Where(where func(where Filter)) *Mod {
+func (s *Mod) Where(where func(f Filter)) *Mod {
 	if where == nil {
 		return s
 	}
@@ -1754,7 +1754,7 @@ func (s *Get) Join(custom func(join QueryJoin)) *Get {
 }
 
 // Where set where.
-func (s *Get) Where(where func(where Filter)) *Get {
+func (s *Get) Where(where func(f Filter)) *Get {
 	if where == nil {
 		return s
 	}
@@ -1772,37 +1772,41 @@ func (s *Get) Group(group ...string) *Get {
 }
 
 // Having set filter of group result.
-func (s *Get) Having(having func(having Filter)) *Get {
+func (s *Get) Having(having func(f Filter)) *Get {
 	s.group.Having(having)
 	return s
 }
 
-// Columns set the columns list of query.
-func (s *Get) Columns(custom func(columns QueryColumns)) *Get {
-	if custom == nil {
-		return s
-	}
-	tmp := NewQueryColumns(s.schema.way)
-	custom(tmp)
-	if tmp.Len() > 0 {
-		s.columns = tmp
-	}
-	return s
-}
-
-// Queries Get QueryColumns object.
-func (s *Get) Queries() QueryColumns {
+// GetSelect Get select object.
+func (s *Get) GetSelect() QueryColumns {
 	if s.join != nil {
 		return s.join.Queries()
 	}
 	return s.columns
 }
 
+// SetSelect Set select object.
+func (s *Get) SetSelect(queryColumns QueryColumns) *Get {
+	if queryColumns == nil {
+		return s
+	}
+	if s.join != nil {
+		s.join.Queries().Set(queryColumns.Get())
+		return s
+	}
+	s.columns.Set(queryColumns.Get())
+	return s
+}
+
 // Select Set the columns list for select.
 func (s *Get) Select(columns ...string) *Get {
-	return s.Columns(func(cols QueryColumns) {
-		cols.AddAll(columns...)
-	})
+	if length := len(columns); length == 0 {
+		return s
+	}
+	if tmp := NewQueryColumns(s.schema.way).AddAll(columns...); tmp.Len() > 0 {
+		s.SetSelect(tmp)
+	}
+	return s
 }
 
 // Asc set order by column ASC.
@@ -2008,7 +2012,7 @@ func CmderGetCount(s *Get, countColumns ...string) (prepare string, args []inter
 		return
 	}
 	return NewGet(s.schema.way).
-		Columns(func(columns QueryColumns) { columns.AddAll(countColumns...) }).
+		Select(countColumns...).
 		Subquery(s, AliasA).
 		Cmd()
 }
