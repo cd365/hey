@@ -43,6 +43,21 @@ func ParcelCmder(cmder Cmder) Cmder {
 	return NewCmder(prepare, args)
 }
 
+// ParcelFilter Parcel the SQL filter statement. `SQL_FILTER_STATEMENT` => ( `SQL_FILTER_STATEMENT` )
+func ParcelFilter(tmp Filter) Filter {
+	if tmp == nil {
+		return tmp
+	}
+	if num := tmp.Num(); num != 1 {
+		return tmp
+	}
+	prepare, args := tmp.Cmd()
+	if !strings.HasPrefix(prepare, SqlLeftSmallBracket) {
+		prepare = ParcelPrepare(prepare)
+	}
+	return tmp.New().And(prepare, args...)
+}
+
 // ParcelCancelPrepare Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
 func ParcelCancelPrepare(prepare string) string {
 	prepare = strings.TrimSpace(prepare)

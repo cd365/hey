@@ -311,6 +311,9 @@ type Filter interface {
 	// Clean Clear the existing conditional filtering of the current object.
 	Clean() Filter
 
+	// Num Number of conditions used.
+	Num() int
+
 	// IsEmpty Is the current object an empty object?
 	IsEmpty() bool
 
@@ -512,6 +515,10 @@ func (s *filter) clean() {
 func (s *filter) Clean() Filter {
 	s.clean()
 	return s
+}
+
+func (s *filter) Num() int {
+	return s.num
 }
 
 func (s *filter) IsEmpty() bool {

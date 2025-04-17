@@ -640,7 +640,7 @@ func (s *queryGroup) Cmd() (prepare string, args []interface{}) {
 	b.WriteString(strings.Join(s.way.NameReplaces(s.group), SqlConcat))
 	if !s.having.IsEmpty() {
 		b.WriteString(" HAVING ")
-		having, havingArgs := s.having.Cmd()
+		having, havingArgs := ParcelFilter(s.having).Cmd()
 		b.WriteString(having)
 		if havingArgs != nil {
 			args = append(args, havingArgs...)

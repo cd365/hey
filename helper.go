@@ -1108,7 +1108,7 @@ func (s *Del) Cmd() (prepare string, args []interface{}) {
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.Cmd()
+		where, whereArgs := ParcelFilter(s.where).Cmd()
 		b.WriteString(" WHERE ")
 		b.WriteString(where)
 		if whereArgs != nil {
@@ -1611,7 +1611,7 @@ func (s *Mod) Cmd() (prepare string, args []interface{}) {
 	}
 
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.Cmd()
+		where, whereArgs := ParcelFilter(s.where).Cmd()
 		b.WriteString(" WHERE ")
 		b.WriteString(where)
 		if whereArgs != nil {
@@ -1937,7 +1937,7 @@ func CmderGetTable(s *Get) (prepare string, args []interface{}) {
 		}
 	}
 	if s.where != nil && !s.where.IsEmpty() {
-		where, whereArgs := s.where.Cmd()
+		where, whereArgs := ParcelFilter(s.where).Cmd()
 		b.WriteString(" WHERE ")
 		b.WriteString(where)
 		args = append(args, whereArgs...)
