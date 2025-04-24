@@ -873,27 +873,6 @@ func StructUpdate(origin interface{}, latest interface{}, tag string, except ...
 	return
 }
 
-// RemoveSliceMemberByIndex delete slice member by index.
-func RemoveSliceMemberByIndex[T interface{}](indexList []int, elementList []T) []T {
-	count := len(indexList)
-	if count == 0 {
-		return elementList
-	}
-	length := len(elementList)
-	mp := make(map[int]*struct{}, count)
-	for i := 0; i < count; i++ {
-		mp[indexList[i]] = &struct{}{}
-	}
-	ok := false
-	result := make([]T, 0, length)
-	for i := 0; i < length; i++ {
-		if _, ok = mp[i]; !ok {
-			result = append(result, elementList[i])
-		}
-	}
-	return result
-}
-
 // ConcatString concatenate string.
 func ConcatString(sss ...string) string {
 	b := getStringBuilder()
@@ -919,86 +898,6 @@ func SqlPrefix(prefix string, name string) string {
 		return name
 	}
 	return fmt.Sprintf("%s%s%s", prefix, SqlPoint, name)
-}
-
-// EvenSlice2Map even slice to map.
-func EvenSlice2Map[K comparable](elems ...K) map[K]K {
-	length := len(elems)
-	if length&1 == 1 {
-		return make(map[K]K)
-	}
-	result := make(map[K]K, length/2)
-	for i := 0; i < length; i += 2 {
-		elems[i] = elems[i+1]
-	}
-	return result
-}
-
-// Slice2MapNewKey make map by slice, create key.
-func Slice2MapNewKey[K comparable](elems []K, createKey func(v K) K) map[K]K {
-	length := len(elems)
-	result := make(map[K]K, length)
-	for i := 0; i < length; i++ {
-		result[createKey(elems[i])] = elems[i]
-	}
-	return result
-}
-
-// Slice2MapNewVal make map by slice, create value.
-func Slice2MapNewVal[K comparable, V interface{}](elems []K, createValue func(v K) V) map[K]V {
-	length := len(elems)
-	result := make(map[K]V, length)
-	for i := 0; i < length; i++ {
-		result[elems[i]] = createValue(elems[i])
-	}
-	return result
-}
-
-// SliceMatchMap use the `key` value of each element in `elems` to match in the map, and call `handle` if the match is successful.
-func SliceMatchMap[K comparable, X interface{}, Y interface{}](kx map[K]X, handle func(x X, y Y), key func(y Y) K, elems []Y) {
-	for i := len(elems) - 1; i >= 0; i-- {
-		if tmp, ok := kx[key(elems[i])]; ok {
-			handle(tmp, elems[i])
-		}
-	}
-}
-
-// SliceIter slice iteration.
-func SliceIter[V interface{}](iter func(v V) V, elems []V) []V {
-	for i := len(elems) - 1; i >= 0; i-- {
-		elems[i] = iter(elems[i])
-	}
-	return elems
-}
-
-// MergeMap merge multiple maps.
-func MergeMap[K comparable, V interface{}](elems ...map[K]V) map[K]V {
-	length := len(elems)
-	result := make(map[K]V)
-	for i := 0; i < length; i++ {
-		if i == 0 {
-			result = elems[i]
-			continue
-		}
-		for k, v := range elems[i] {
-			result[k] = v
-		}
-	}
-	return result
-}
-
-// MergeSlice merge multiple slices.
-func MergeSlice[V interface{}](elems ...[]V) []V {
-	length := len(elems)
-	result := make([]V, 0)
-	for i := 0; i < length; i++ {
-		if i == 0 {
-			result = elems[i]
-			continue
-		}
-		result = append(result, elems[i]...)
-	}
-	return result
 }
 
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.

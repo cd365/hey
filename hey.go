@@ -5,6 +5,7 @@ package hey
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"github.com/cd365/logger/v8"
 	"os"
@@ -12,12 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
-
-const (
-	DriverNameMysql    = "mysql"
-	DriverNamePostgres = "postgres"
-	DriverNameSqlite3  = "sqlite3"
 )
 
 const (
@@ -109,6 +104,64 @@ const (
 	NoRowsAffected = ErrorNoRowsAffected("database: no rows affected")
 )
 
+// Hands For handling different types of databases.
+type Hands struct {
+	// Prepare Adjust the SQL statement format to meet the current database SQL statement format.
+	Prepare func(prepare string) string
+
+	// Coalesce Get the first non-NULL value.
+	Coalesce func(prepare string, defaultValue string) string
+
+	/*
+	 * More custom methods can be added here to achieve the same function using different databases.
+	 */
+}
+
+func Mysql() *Hands {
+	tmp := &Hands{}
+	tmp.Coalesce = func(prepare string, defaultValue string) string {
+		return fmt.Sprintf("IFNULL(%s,%s)", prepare, defaultValue)
+	}
+	return tmp
+}
+
+func Sqlite() *Hands {
+	tmp := &Hands{}
+	tmp.Coalesce = func(prepare string, defaultValue string) string {
+		return fmt.Sprintf("COALESCE(%s,%s)", prepare, defaultValue)
+	}
+	return tmp
+}
+
+func prepare63236(prepare string) string {
+	var index int64
+	latest := getStringBuilder()
+	defer putStringBuilder(latest)
+	origin := []byte(prepare)
+	length := len(origin)
+	dollar := byte('$')       // $
+	questionMark := byte('?') // ?
+	for i := 0; i < length; i++ {
+		if origin[i] == questionMark {
+			index++
+			latest.WriteByte(dollar)
+			latest.WriteString(strconv.FormatInt(index, 10))
+		} else {
+			latest.WriteByte(origin[i])
+		}
+	}
+	return latest.String()
+}
+
+func Postgresql() *Hands {
+	tmp := &Hands{}
+	tmp.Prepare = prepare63236
+	tmp.Coalesce = func(prepare string, defaultValue string) string {
+		return fmt.Sprintf("COALESCE(%s,%s)", prepare, defaultValue)
+	}
+	return tmp
+}
+
 // Cfg Configure of Way.
 type Cfg struct {
 	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
@@ -120,14 +173,14 @@ type Cfg struct {
 	// _ Memory alignment padding.
 	_ [6]byte
 
+	// Hands For handling different types of databases.
+	Hands *Hands
+
 	// Scan Scan data into structure.
 	Scan func(rows *sql.Rows, result interface{}, tag string) error
 
 	// ScanTag Scan data to tag mapping on structure.
 	ScanTag string
-
-	// Helper Helpers for handling different types of databases.
-	Helper Helper
 
 	// Replacer Helpers for handling different types of databases.
 	Replacer Replacer
@@ -210,11 +263,11 @@ func (s *cmdLog) Write() {
 	if s.err != nil {
 		lg = s.way.log.Error()
 		lg.Str("error", s.err.Error())
-		lg.Str("script", prepareArgsToString(s.way.cfg.Helper, s.prepare, s.args.args))
+		lg.Str("script", prepareArgsToString(s.prepare, s.args.args))
 	} else {
 		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.WarnDuration {
 			lg = s.way.log.Warn()
-			lg.Str("script", prepareArgsToString(s.way.cfg.Helper, s.prepare, s.args.args))
+			lg.Str("script", prepareArgsToString(s.prepare, s.args.args))
 		}
 	}
 	lg.Str("prepare", s.prepare)
@@ -251,11 +304,11 @@ func (s *Way) GetCfg() *Cfg {
 	return s.cfg
 }
 
-func (s *Way) SetCfg(cfg Cfg) *Way {
-	if cfg.Scan == nil || cfg.ScanTag == EmptyString || cfg.Helper == nil || cfg.Replacer == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
+func (s *Way) SetCfg(cfg *Cfg) *Way {
+	if cfg == nil || cfg.Scan == nil || cfg.ScanTag == EmptyString || cfg.Hands == nil || cfg.Replacer == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
 	}
-	s.cfg = &cfg
+	s.cfg = cfg
 	return s
 }
 
@@ -302,6 +355,16 @@ func (s *Way) IsRead() bool {
 
 func NewWay(db *sql.DB) *Way {
 	cfg := DefaultCfg()
+	cfg.Hands = Postgresql()
+	if drivers := sql.Drivers(); len(drivers) == 1 {
+		switch drivers[0] {
+		case "mysql":
+			cfg.Hands = Mysql()
+		case "sqlite", "sqlite3":
+			cfg.Hands = Sqlite()
+		default:
+		}
+	}
 
 	debug := &debugger{}
 	debug.SetLog(logger.NewLogger(os.Stdout))
@@ -602,9 +665,11 @@ func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
 // PrepareContext -> Prepare sql statement, don't forget to call *Stmt.Close().
 func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (stmt *Stmt, err error) {
 	stmt = &Stmt{
-		way:     s,
-		caller:  s.caller(caller...),
-		prepare: s.cfg.Helper.Prepare(prepare),
+		way:    s,
+		caller: s.caller(caller...),
+	}
+	if tmp := s.cfg.Hands; tmp != nil && tmp.Prepare != nil {
+		stmt.prepare = tmp.Prepare(prepare)
 	}
 	stmt.stmt, err = stmt.caller.PrepareContext(ctx, stmt.prepare)
 	if err != nil {
@@ -1147,7 +1212,7 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 }
 
 // argValueToString Convert SQL statement parameters into text strings.
-func argValueToString(helper Helper, i interface{}) string {
+func argValueToString(i interface{}) string {
 	if i == nil {
 		return SqlNull
 	}
@@ -1177,14 +1242,14 @@ func argValueToString(helper Helper, i interface{}) string {
 			if bts == nil {
 				return SqlNull
 			}
-			return helper.BinaryDataToHexString(bts)
+			return hex.EncodeToString(bts)
 		}
 		return fmt.Sprintf("'%v'", tmp)
 	}
 }
 
 // prepareArgsToString Merge executed SQL statements and parameters.
-func prepareArgsToString(helper Helper, prepare string, args []interface{}) string {
+func prepareArgsToString(prepare string, args []interface{}) string {
 	count := len(args)
 	if count == 0 {
 		return prepare
@@ -1197,7 +1262,7 @@ func prepareArgsToString(helper Helper, prepare string, args []interface{}) stri
 	questionMark := byte('?')
 	for i := 0; i < length; i++ {
 		if origin[i] == questionMark && index < count {
-			latest.WriteString(argValueToString(helper, args[index]))
+			latest.WriteString(argValueToString(args[index]))
 			index++
 		} else {
 			latest.WriteByte(origin[i])
@@ -1245,7 +1310,7 @@ func (s *debugger) Debugger(cmder Cmder) Debugger {
 		return s
 	}
 	prepare, args := cmder.Cmd()
-	script := prepareArgsToString(s.way.cfg.Helper, prepare, args)
+	script := prepareArgsToString(prepare, args)
 	s.log.Debug().Str("script", script).Str("prepare", prepare).Any("args", args).Send()
 	return s
 }

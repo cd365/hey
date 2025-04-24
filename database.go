@@ -3,9 +3,7 @@ package hey
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -1253,249 +1251,6 @@ func (s *updateSet) UpdateExists(update string) bool {
 	return s.UpdateIndex(update) >= 0
 }
 
-type Helper interface {
-	// DriverName Get the driver name.
-	DriverName() []byte
-
-	// DataSourceName Get the data source name.
-	DataSourceName() []byte
-
-	// SetPrepare Custom method.
-	SetPrepare(prepare func(prepare string) string) Helper
-
-	// Prepare Before executing preprocessing, adjust the preprocessing SQL format.
-	Prepare(prepare string) string
-
-	// SetIfNull Custom method.
-	SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper
-
-	// IfNull Set a default value when the query column value is NULL.
-	IfNull(columnName string, columnDefaultValue string) string
-
-	// SetBinaryDataToHexString Custom method.
-	SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper
-
-	// BinaryDataToHexString Convert binary data to hexadecimal string.
-	BinaryDataToHexString(binaryData []byte) string
-}
-
-// MysqlHelper helper for mysql.
-type MysqlHelper struct {
-	driverName     []byte
-	dataSourceName []byte
-
-	prepare               func(prepare string) string
-	ifNull                func(columnName string, columnDefaultValue string) string
-	binaryDataToHexString func(binaryData []byte) string
-}
-
-func (s *MysqlHelper) DriverName() []byte {
-	return s.driverName
-}
-
-func (s *MysqlHelper) DataSourceName() []byte {
-	return s.dataSourceName
-}
-
-func (s *MysqlHelper) SetPrepare(prepare func(prepare string) string) Helper {
-	if prepare != nil {
-		s.prepare = prepare
-	}
-	return s
-}
-
-func (s *MysqlHelper) Prepare(prepare string) string {
-	if s.prepare != nil {
-		return s.prepare(prepare)
-	}
-	return prepare
-}
-
-func (s *MysqlHelper) SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper {
-	if ifNull != nil {
-		s.ifNull = ifNull
-	}
-	return s
-}
-
-func (s *MysqlHelper) IfNull(columnName string, columnDefaultValue string) string {
-	if s.ifNull != nil {
-		return s.ifNull(columnName, columnDefaultValue)
-	}
-	return fmt.Sprintf("IFNULL(%s,%s)", columnName, columnDefaultValue)
-}
-
-func (s *MysqlHelper) SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper {
-	if binaryDataToHexString != nil {
-		s.binaryDataToHexString = binaryDataToHexString
-	}
-	return s
-}
-
-func (s *MysqlHelper) BinaryDataToHexString(binaryData []byte) string {
-	if s.binaryDataToHexString != nil {
-		return s.binaryDataToHexString(binaryData)
-	}
-	return fmt.Sprintf("UNHEX('%s')", hex.EncodeToString(binaryData))
-}
-
-func NewMysqlHelper(driverName string, dataSourceName string) *MysqlHelper {
-	return &MysqlHelper{
-		driverName:     []byte(driverName),
-		dataSourceName: []byte(dataSourceName),
-	}
-}
-
-// PostgresHelper helper for postgresql.
-type PostgresHelper struct {
-	driverName     []byte
-	dataSourceName []byte
-
-	prepare               func(prepare string) string
-	ifNull                func(columnName string, columnDefaultValue string) string
-	binaryDataToHexString func(binaryData []byte) string
-}
-
-func (s *PostgresHelper) DriverName() []byte {
-	return s.driverName
-}
-
-func (s *PostgresHelper) DataSourceName() []byte {
-	return s.dataSourceName
-}
-
-func (s *PostgresHelper) SetPrepare(prepare func(prepare string) string) Helper {
-	if prepare != nil {
-		s.prepare = prepare
-	}
-	return s
-}
-
-func (s *PostgresHelper) Prepare(prepare string) string {
-	if s.prepare != nil {
-		return s.prepare(prepare)
-	}
-	var index int64
-	latest := getStringBuilder()
-	defer putStringBuilder(latest)
-	origin := []byte(prepare)
-	length := len(origin)
-	dollar := byte('$')       // $
-	questionMark := byte('?') // ?
-	for i := 0; i < length; i++ {
-		if origin[i] == questionMark {
-			index++
-			latest.WriteByte(dollar)
-			latest.WriteString(strconv.FormatInt(index, 10))
-		} else {
-			latest.WriteByte(origin[i])
-		}
-	}
-	return latest.String()
-}
-
-func (s *PostgresHelper) SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper {
-	if ifNull != nil {
-		s.ifNull = ifNull
-	}
-	return s
-}
-
-func (s *PostgresHelper) IfNull(columnName string, columnDefaultValue string) string {
-	if s.ifNull != nil {
-		return s.ifNull(columnName, columnDefaultValue)
-	}
-	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
-}
-
-func (s *PostgresHelper) SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper {
-	if binaryDataToHexString != nil {
-		s.binaryDataToHexString = binaryDataToHexString
-	}
-	return s
-}
-
-func (s *PostgresHelper) BinaryDataToHexString(binaryData []byte) string {
-	if s.binaryDataToHexString != nil {
-		return s.binaryDataToHexString(binaryData)
-	}
-	return fmt.Sprintf(`E'\\x%s'`, hex.EncodeToString(binaryData))
-}
-
-func NewPostgresHelper(driverName string, dataSourceName string) *PostgresHelper {
-	return &PostgresHelper{
-		driverName:     []byte(driverName),
-		dataSourceName: []byte(dataSourceName),
-	}
-}
-
-// Sqlite3Helper helper for sqlite3.
-type Sqlite3Helper struct {
-	driverName     []byte
-	dataSourceName []byte
-
-	prepare               func(prepare string) string
-	ifNull                func(columnName string, columnDefaultValue string) string
-	binaryDataToHexString func(binaryData []byte) string
-}
-
-func (s *Sqlite3Helper) DriverName() []byte {
-	return s.driverName
-}
-
-func (s *Sqlite3Helper) DataSourceName() []byte {
-	return s.dataSourceName
-}
-
-func (s *Sqlite3Helper) SetPrepare(prepare func(prepare string) string) Helper {
-	if prepare != nil {
-		s.prepare = prepare
-	}
-	return s
-}
-
-func (s *Sqlite3Helper) Prepare(prepare string) string {
-	if s.prepare != nil {
-		return s.prepare(prepare)
-	}
-	return prepare
-}
-
-func (s *Sqlite3Helper) SetIfNull(ifNull func(columnName string, columnDefaultValue string) string) Helper {
-	if ifNull != nil {
-		s.ifNull = ifNull
-	}
-	return s
-}
-
-func (s *Sqlite3Helper) IfNull(columnName string, columnDefaultValue string) string {
-	if s.ifNull != nil {
-		return s.ifNull(columnName, columnDefaultValue)
-	}
-	return fmt.Sprintf("COALESCE(%s,%s)", columnName, columnDefaultValue)
-}
-
-func (s *Sqlite3Helper) SetBinaryDataToHexString(binaryDataToHexString func(binaryData []byte) string) Helper {
-	if binaryDataToHexString != nil {
-		s.binaryDataToHexString = binaryDataToHexString
-	}
-	return s
-}
-
-func (s *Sqlite3Helper) BinaryDataToHexString(binaryData []byte) string {
-	if s.binaryDataToHexString != nil {
-		return s.binaryDataToHexString(binaryData)
-	}
-	return fmt.Sprintf(`X'%s'`, hex.EncodeToString(binaryData))
-}
-
-func NewSqlite3Helper(driverName string, dataSourceName string) *Sqlite3Helper {
-	return &Sqlite3Helper{
-		driverName:     []byte(driverName),
-		dataSourceName: []byte(dataSourceName),
-	}
-}
-
 /**
  * sql identifier.
  **/
@@ -1606,29 +1361,29 @@ func (s *TableColumn) Count(counts ...string) string {
 	return SqlAlias(count, countAlias)
 }
 
-// IfNull If the value is NULL, set the default value.
-func (s *TableColumn) IfNull(column string, defaultValue string, aliases ...string) string {
-	return SqlAlias(s.way.cfg.Helper.IfNull(s.Column(column), defaultValue), s.aliasName(aliases...))
+// Coalesce If the value is NULL, set the default value.
+func (s *TableColumn) Coalesce(column string, defaultValue string, aliases ...string) string {
+	return SqlAlias(s.way.cfg.Hands.Coalesce(s.Column(column), defaultValue), s.aliasName(aliases...))
 }
 
-// IfNullSum IF_NULL(SUM(column),0)[ AS column_name]
-func (s *TableColumn) IfNullSum(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Sum(column), "0"), s.aliasName(aliases...))
+// CoalesceSum COALESCE(SUM(column),0)[ AS column_name]
+func (s *TableColumn) CoalesceSum(column string, aliases ...string) string {
+	return SqlAlias(s.Coalesce(s.Sum(column), "0"), s.aliasName(aliases...))
 }
 
-// IfNullMax IF_NULL(MAX(column),0)[ AS column_name]
-func (s *TableColumn) IfNullMax(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Max(column), "0"), s.aliasName(aliases...))
+// CoalesceMax COALESCE(MAX(column),0)[ AS column_name]
+func (s *TableColumn) CoalesceMax(column string, aliases ...string) string {
+	return SqlAlias(s.Coalesce(s.Max(column), "0"), s.aliasName(aliases...))
 }
 
-// IfNullMin IF_NULL(MIN(column),0)[ AS column_name]
-func (s *TableColumn) IfNullMin(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Min(column), "0"), s.aliasName(aliases...))
+// CoalesceMin COALESCE(MIN(column),0)[ AS column_name]
+func (s *TableColumn) CoalesceMin(column string, aliases ...string) string {
+	return SqlAlias(s.Coalesce(s.Min(column), "0"), s.aliasName(aliases...))
 }
 
-// IfNullAvg IF_NULL(AVG(column),0)[ AS column_name]
-func (s *TableColumn) IfNullAvg(column string, aliases ...string) string {
-	return SqlAlias(s.IfNull(s.Avg(column), "0"), s.aliasName(aliases...))
+// CoalesceAvg COALESCE(AVG(column),0)[ AS column_name]
+func (s *TableColumn) CoalesceAvg(column string, aliases ...string) string {
+	return SqlAlias(s.Coalesce(s.Avg(column), "0"), s.aliasName(aliases...))
 }
 
 func NewTableColumn(way *Way, aliases ...string) *TableColumn {
@@ -1645,9 +1400,6 @@ func NewTableColumn(way *Way, aliases ...string) *TableColumn {
 
 // WindowFunc sql window function.
 type WindowFunc struct {
-	// Helper Database helper.
-	Helper Helper
-
 	way *Way
 
 	// withFunc The window function used.
@@ -1719,12 +1471,12 @@ func (s *WindowFunc) Count(column string) *WindowFunc {
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(s.Helper, defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(defaultValue)))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(s.Helper, defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(defaultValue)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
@@ -1795,9 +1547,8 @@ func (s *WindowFunc) Result() string {
 
 func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 	return &WindowFunc{
-		Helper: way.cfg.Helper,
-		way:    way,
-		alias:  LastNotEmptyString(aliases),
+		way:   way,
+		alias: LastNotEmptyString(aliases),
 	}
 }
 

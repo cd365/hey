@@ -1,6 +1,8 @@
 package hey
 
 import (
+	"context"
+	"database/sql"
 	"strings"
 	"sync"
 )
@@ -244,4 +246,143 @@ func ExceptCmder(items ...Cmder) Cmder {
 // IntersectCmder CmderA, CmderB ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) ... )
 func IntersectCmder(items ...Cmder) Cmder {
 	return ConcatCmder(SqlIntersect, nil, items...)
+}
+
+// RowsScanStructAll Rows scan to any struct, based on struct scan data.
+func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) ([]*V, error) {
+	if prepare == EmptyString {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var err error
+	result := make([]*V, 0, 1<<5)
+	err = way.QueryContext(ctx, func(rows *sql.Rows) error {
+		index := 0
+		length := 1 << 7
+		values := make([]V, length)
+		for rows.Next() {
+			if err = scan(rows, &values[index]); err != nil {
+				return err
+			} else {
+				result = append(result, &values[index])
+			}
+			index++
+			if index == length {
+				index, values = 0, make([]V, length)
+			}
+		}
+		return nil
+	}, prepare, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// RowsScanStructOne Rows scan to any struct, based on struct scan data.
+func RowsScanStructOne[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) (*V, error) {
+	values, err := RowsScanStructAll(ctx, way, scan, prepare, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(values) == 0 {
+		return nil, RecordDoesNotExists
+	}
+	return values[0], nil
+}
+
+// RowsScanStructAllCmder Rows scan to any struct, based on struct scan data.
+func RowsScanStructAllCmder[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, cmder Cmder) ([]*V, error) {
+	if IsEmptyCmder(cmder) {
+		return nil, nil
+	}
+	prepare, args := cmder.Cmd()
+	return RowsScanStructAll(ctx, way, scan, prepare, args...)
+}
+
+// RowsScanStructOneCmder Rows scan to any struct, based on struct scan data.
+func RowsScanStructOneCmder[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, cmder Cmder) (*V, error) {
+	if IsEmptyCmder(cmder) {
+		return nil, nil
+	}
+	prepare, args := cmder.Cmd()
+	return RowsScanStructOne(ctx, way, scan, prepare, args...)
+}
+
+func MergeAssoc[K comparable, V interface{}](values ...map[K]V) map[K]V {
+	length := len(values)
+	result := make(map[K]V)
+	for i := 0; i < length; i++ {
+		if i == 0 {
+			result = values[i]
+			continue
+		}
+		for k, v := range values[i] {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+func MergeArray[V interface{}](values ...[]V) []V {
+	length := len(values)
+	result := make([]V, 0)
+	for i := 0; i < length; i++ {
+		if i == 0 {
+			result = values[i]
+			continue
+		}
+		result = append(result, values[i]...)
+	}
+	return result
+}
+
+func AssocToArray[K comparable, V interface{}, W interface{}](values map[K]V, fc func(k K, v V) W) []W {
+	length := len(values)
+	result := make([]W, length)
+	for index, value := range values {
+		result = append(result, fc(index, value))
+	}
+	return result
+}
+
+func ArrayToAssoc[V interface{}, K comparable, W interface{}](values []V, fc func(v V) (K, W)) map[K]W {
+	length := len(values)
+	result := make(map[K]W, length)
+	for i := 0; i < length; i++ {
+		k, v := fc(values[i])
+		result[k] = v
+	}
+	return result
+}
+
+func ArrayToArray[V interface{}, W interface{}](values []V, fc func(v V) W) []W {
+	length := len(values)
+	result := make([]W, length)
+	for i := 0; i < length; i++ {
+		result[i] = fc(values[i])
+	}
+	return result
+}
+
+func ArrayRemoveIndex[V interface{}](values []V, indexes []int) []V {
+	count := len(indexes)
+	if count == 0 {
+		return values
+	}
+	length := len(values)
+	mp := make(map[int]*struct{}, count)
+	for i := 0; i < count; i++ {
+		mp[indexes[i]] = &struct{}{}
+	}
+	ok := false
+	result := make([]V, 0, length)
+	for i := 0; i < length; i++ {
+		if _, ok = mp[i]; !ok {
+			result = append(result, values[i])
+		}
+	}
+	return result
 }
