@@ -956,6 +956,11 @@ func (s *Del) Context(ctx context.Context) *Del {
 	return s
 }
 
+// GetContext get context.
+func (s *Del) GetContext() context.Context {
+	return s.schema.ctx
+}
+
 // Table set table name.
 func (s *Del) Table(table string, args ...interface{}) *Del {
 	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), args)
@@ -1025,8 +1030,8 @@ func (s *Del) Del() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// Way get current *Way.
-func (s *Del) Way() *Way {
+// GetWay get current *Way.
+func (s *Del) GetWay() *Way {
 	return s.schema.way
 }
 
@@ -1062,6 +1067,11 @@ func (s *Add) Comment(comment string) *Add {
 func (s *Add) Context(ctx context.Context) *Add {
 	s.schema.ctx = ctx
 	return s
+}
+
+// GetContext get context.
+func (s *Add) GetContext() context.Context {
+	return s.schema.ctx
 }
 
 // Table set table name.
@@ -1288,8 +1298,8 @@ func (s *Add) AddOne(adjust func(cmder Cmder) Cmder, custom func(ctx context.Con
 	return s.schema.way.AddOne(s.schema.ctx, s, adjust, custom)
 }
 
-// Way get current *Way.
-func (s *Add) Way() *Way {
+// GetWay get current *Way.
+func (s *Add) GetWay() *Way {
 	return s.schema.way
 }
 
@@ -1321,6 +1331,11 @@ func (s *Mod) Comment(comment string) *Mod {
 func (s *Mod) Context(ctx context.Context) *Mod {
 	s.schema.ctx = ctx
 	return s
+}
+
+// GetContext get context.
+func (s *Mod) GetContext() context.Context {
+	return s.schema.ctx
 }
 
 // Table set table name.
@@ -1531,8 +1546,8 @@ func (s *Mod) Mod() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// Way get current *Way.
-func (s *Mod) Way() *Way {
+// GetWay get current *Way.
+func (s *Mod) GetWay() *Way {
 	return s.schema.way
 }
 
@@ -1576,6 +1591,11 @@ func (s *Get) Comment(comment string) *Get {
 func (s *Get) Context(ctx context.Context) *Get {
 	s.schema.ctx = ctx
 	return s
+}
+
+// GetContext get context.
+func (s *Get) GetContext() context.Context {
+	return s.schema.ctx
 }
 
 // With for with query.
@@ -2059,7 +2079,7 @@ func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error)
 	return GetCountGet(s, result, countColumn...)
 }
 
-// Way get current *Way.
-func (s *Get) Way() *Way {
+// GetWay get current *Way.
+func (s *Get) GetWay() *Way {
 	return s.schema.way
 }

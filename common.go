@@ -257,10 +257,10 @@ func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(r
 		ctx = context.Background()
 	}
 	var err error
-	result := make([]*V, 0, 1<<5)
+	length := 1 << 5
+	result := make([]*V, 0, length)
 	err = way.QueryContext(ctx, func(rows *sql.Rows) error {
 		index := 0
-		length := 1 << 7
 		values := make([]V, length)
 		for rows.Next() {
 			if err = scan(rows, &values[index]); err != nil {
@@ -283,14 +283,35 @@ func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(r
 
 // RowsScanStructOne Rows scan to any struct, based on struct scan data.
 func RowsScanStructOne[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) (*V, error) {
-	values, err := RowsScanStructAll(ctx, way, scan, prepare, args...)
+	if prepare == EmptyString {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var (
+		err error
+		has bool
+		tmp V
+	)
+	err = way.QueryContext(ctx, func(rows *sql.Rows) error {
+		for rows.Next() {
+			if err = scan(rows, &tmp); err != nil {
+				return err
+			}
+			if !has {
+				has = !has
+			}
+		}
+		return nil
+	}, prepare, args...)
 	if err != nil {
 		return nil, err
 	}
-	if len(values) == 0 {
+	if !has {
 		return nil, RecordDoesNotExists
 	}
-	return values[0], nil
+	return &tmp, nil
 }
 
 // RowsScanStructAllCmder Rows scan to any struct, based on struct scan data.

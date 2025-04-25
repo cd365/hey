@@ -665,8 +665,9 @@ func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
 // PrepareContext -> Prepare sql statement, don't forget to call *Stmt.Close().
 func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (stmt *Stmt, err error) {
 	stmt = &Stmt{
-		way:    s,
-		caller: s.caller(caller...),
+		way:     s,
+		caller:  s.caller(caller...),
+		prepare: prepare,
 	}
 	if tmp := s.cfg.Hands; tmp != nil && tmp.Prepare != nil {
 		stmt.prepare = tmp.Prepare(prepare)
