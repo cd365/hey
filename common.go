@@ -250,9 +250,6 @@ func IntersectCmder(items ...Cmder) Cmder {
 
 // RowsScanStructAll Rows scan to any struct, based on struct scan data.
 func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) ([]*V, error) {
-	if prepare == EmptyString {
-		return nil, nil
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -283,9 +280,6 @@ func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(r
 
 // RowsScanStructOne Rows scan to any struct, based on struct scan data.
 func RowsScanStructOne[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) (*V, error) {
-	if prepare == EmptyString {
-		return nil, nil
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
