@@ -963,7 +963,7 @@ func (s *Del) GetContext() context.Context {
 
 // Table set table name.
 func (s *Del) Table(table string, args ...interface{}) *Del {
-	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), args)
+	s.schema.table = NewTableCmder(s.schema.way.Replace(table), args)
 	return s
 }
 
@@ -1000,7 +1000,7 @@ func (s *Del) Cmd() (prepare string, args []interface{}) {
 	b.WriteString("FROM ")
 
 	table, param := s.schema.table.Cmd()
-	b.WriteString(s.schema.way.NameReplace(table))
+	b.WriteString(s.schema.way.Replace(table))
 	if param != nil {
 		args = append(args, param...)
 	}
@@ -1076,7 +1076,7 @@ func (s *Add) GetContext() context.Context {
 
 // Table set table name.
 func (s *Add) Table(table string) *Add {
-	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), nil)
+	s.schema.table = NewTableCmder(s.schema.way.Replace(table), nil)
 	return s
 }
 
@@ -1236,7 +1236,7 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 		b.WriteString("INSERT ")
 		b.WriteString("INTO ")
 		table, _ := s.schema.table.Cmd()
-		b.WriteString(s.schema.way.NameReplace(table))
+		b.WriteString(s.schema.way.Replace(table))
 		if !IsEmptyCmder(s.columns) {
 			b.WriteString(SqlSpace)
 			columns, _ := s.columns.Cmd()
@@ -1257,7 +1257,7 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 	b.WriteString("INSERT ")
 	b.WriteString("INTO ")
 	table, _ := s.schema.table.Cmd()
-	b.WriteString(s.schema.way.NameReplace(table))
+	b.WriteString(s.schema.way.Replace(table))
 	b.WriteString(SqlSpace)
 	// add default column-value
 	if s.columnsDefault != nil {
@@ -1340,7 +1340,7 @@ func (s *Mod) GetContext() context.Context {
 
 // Table set table name.
 func (s *Mod) Table(table string, args ...interface{}) *Mod {
-	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), args)
+	s.schema.table = NewTableCmder(s.schema.way.Replace(table), args)
 	return s
 }
 
@@ -1468,7 +1468,7 @@ func (s *Mod) Update(update interface{}) *Mod {
 	return s.ColumnsValues(StructModify(update, s.schema.way.cfg.ScanTag))
 }
 
-// Compare Compare old and new to automatically calculate need to update columns.
+// Compare For compare old and new to automatically calculate need to update columns.
 func (s *Mod) Compare(old, new interface{}, except ...string) *Mod {
 	return s.ColumnsValues(StructUpdate(old, new, s.schema.way.cfg.ScanTag, except...))
 }
@@ -1507,7 +1507,7 @@ func (s *Mod) Cmd() (prepare string, args []interface{}) {
 	b.WriteString("UPDATE ")
 
 	table, param := s.schema.table.Cmd()
-	b.WriteString(s.schema.way.NameReplace(table))
+	b.WriteString(s.schema.way.Replace(table))
 	if param != nil {
 		args = append(args, param...)
 	}
@@ -1612,13 +1612,13 @@ func (s *Get) With(alias string, script Cmder) *Get {
 
 // Table set table name.
 func (s *Get) Table(table string) *Get {
-	s.schema.table = NewTableCmder(s.schema.way.NameReplace(table), nil)
+	s.schema.table = NewTableCmder(s.schema.way.Replace(table), nil)
 	return s
 }
 
 // Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
 func (s *Get) Alias(alias string) *Get {
-	s.schema.table.Alias(s.schema.way.NameReplace(alias))
+	s.schema.table.Alias(s.schema.way.Replace(alias))
 	return s
 }
 
@@ -1850,7 +1850,7 @@ func CmderGetTable(s *Get) (prepare string, args []interface{}) {
 		}
 		b.WriteString(" FROM ")
 		table, param := s.schema.table.Cmd()
-		b.WriteString(s.schema.way.NameReplace(table))
+		b.WriteString(s.schema.way.Replace(table))
 		if param != nil {
 			args = append(args, param...)
 		}
@@ -1931,7 +1931,7 @@ func CmderGetCmd(s *Get) (prepare string, args []interface{}) {
 func CmderGetCount(s *Get, countColumns ...string) (prepare string, args []interface{}) {
 	if countColumns == nil {
 		countColumns = []string{
-			SqlAlias("COUNT(*)", s.schema.way.NameReplace(DefaultAliasNameCount)),
+			SqlAlias("COUNT(*)", s.schema.way.Replace(DefaultAliasNameCount)),
 		}
 	}
 	if IsEmptyCmder(s) {

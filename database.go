@@ -206,7 +206,7 @@ func (s *queryColumns) Cmd() (prepare string, args []interface{}) {
 			args = append(args, tmpArgs...)
 		}
 	}
-	prepare = strings.Join(s.way.NameReplaces(columns), SqlConcat)
+	prepare = strings.Join(s.way.Replaces(columns), SqlConcat)
 	return
 }
 
@@ -537,7 +537,7 @@ func (s *queryJoin) Using(columns ...string) JoinCondition {
 		if len(columnsUsed) == 0 {
 			return nil
 		}
-		columnsUsed = s.way.NameReplaces(columnsUsed)
+		columnsUsed = s.way.Replaces(columnsUsed)
 		b := getStringBuilder()
 		defer putStringBuilder(b)
 		b.WriteString("USING ( ")
@@ -635,7 +635,7 @@ func (s *queryGroup) Cmd() (prepare string, args []interface{}) {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString("GROUP BY ")
-	b.WriteString(strings.Join(s.way.NameReplaces(s.group), SqlConcat))
+	b.WriteString(strings.Join(s.way.Replaces(s.group), SqlConcat))
 	if !s.having.IsEmpty() {
 		b.WriteString(" HAVING ")
 		having, havingArgs := ParcelFilter(s.having).Cmd()
@@ -722,7 +722,7 @@ func (s *queryOrder) Asc(columns ...string) QueryOrder {
 		}
 		s.orderMap[column] = index
 		index++
-		order := s.way.NameReplace(column)
+		order := s.way.Replace(column)
 		order = fmt.Sprintf("%s %s", order, SqlAsc)
 		s.orderBy = append(s.orderBy, order)
 	}
@@ -740,7 +740,7 @@ func (s *queryOrder) Desc(columns ...string) QueryOrder {
 		}
 		s.orderMap[column] = index
 		index++
-		order := s.way.NameReplace(column)
+		order := s.way.Replace(column)
 		order = fmt.Sprintf("%s %s", order, SqlDesc)
 		s.orderBy = append(s.orderBy, order)
 	}
@@ -869,7 +869,7 @@ func (s *upsertColumns) Cmd() (prepare string, args []interface{}) {
 	if s.IsEmpty() {
 		return
 	}
-	return ParcelPrepare(strings.Join(s.way.NameReplaces(s.columns), SqlConcat)), nil
+	return ParcelPrepare(strings.Join(s.way.Replaces(s.columns), SqlConcat)), nil
 }
 
 func (s *upsertColumns) Add(columns ...string) UpsertColumns {
@@ -1202,17 +1202,17 @@ func (s *updateSet) Update(update string, args ...interface{}) UpdateSet {
 }
 
 func (s *updateSet) Set(column string, value interface{}) UpdateSet {
-	column = s.way.NameReplace(column)
+	column = s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s", column, SqlPlaceholder), value)
 }
 
 func (s *updateSet) Decr(column string, decrement interface{}) UpdateSet {
-	column = s.way.NameReplace(column)
+	column = s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s - %s", column, column, SqlPlaceholder), decrement)
 }
 
 func (s *updateSet) Incr(column string, increment interface{}) UpdateSet {
-	s.way.NameReplace(column)
+	s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s + %s", column, column, SqlPlaceholder), increment)
 }
 
@@ -1287,19 +1287,19 @@ func (s *TableColumn) SetAlias(alias string) *TableColumn {
 func (s *TableColumn) Adjust(adjust func(column string) string, columns ...string) []string {
 	if adjust != nil {
 		for index, column := range columns {
-			columns[index] = s.way.NameReplace(adjust(column))
+			columns[index] = s.way.Replace(adjust(column))
 		}
 	}
-	return s.way.NameReplaces(columns)
+	return s.way.Replaces(columns)
 }
 
 // ColumnAll Add table name prefix to column names in batches.
 func (s *TableColumn) ColumnAll(columns ...string) []string {
 	if s.alias == EmptyString {
-		return s.way.NameReplaces(columns)
+		return s.way.Replaces(columns)
 	}
 	for index, column := range columns {
-		columns[index] = SqlPrefix(s.alias, s.way.NameReplace(column))
+		columns[index] = SqlPrefix(s.alias, s.way.Replace(column))
 	}
 	return columns
 }
@@ -1339,21 +1339,21 @@ func (s *TableColumn) Count(counts ...string) string {
 	length := len(counts)
 	if length == 0 {
 		// using default expression: COUNT(*) AS `counts`
-		return SqlAlias(count, s.way.NameReplace(DefaultAliasNameCount))
+		return SqlAlias(count, s.way.Replace(DefaultAliasNameCount))
 	}
 	if length == 1 && counts[0] != EmptyString {
 		// only set alias name
-		return SqlAlias(count, s.way.NameReplace(counts[0]))
+		return SqlAlias(count, s.way.Replace(counts[0]))
 	}
 	// set COUNT function parameters and alias name
-	countAlias := s.way.NameReplace(DefaultAliasNameCount)
+	countAlias := s.way.Replace(DefaultAliasNameCount)
 	column := false
 	for i := 0; i < length; i++ {
 		if counts[i] == EmptyString {
 			continue
 		}
 		if column {
-			countAlias = s.way.NameReplace(counts[i])
+			countAlias = s.way.Replace(counts[i])
 			break
 		}
 		count, column = fmt.Sprintf("COUNT(%s)", s.Column(counts[i])), true
@@ -1363,7 +1363,7 @@ func (s *TableColumn) Count(counts ...string) string {
 
 // Coalesce If the value is NULL, set the default value.
 func (s *TableColumn) Coalesce(column string, defaultValue string, aliases ...string) string {
-	return SqlAlias(s.way.cfg.Hands.Coalesce(s.Column(column), defaultValue), s.aliasName(aliases...))
+	return SqlAlias(s.way.cfg.Manual.Coalesce(s.Column(column), defaultValue), s.aliasName(aliases...))
 }
 
 // CoalesceSum COALESCE(SUM(column),0)[ AS column_name]
@@ -1446,69 +1446,69 @@ func (s *WindowFunc) Ntile(buckets int64) *WindowFunc {
 
 // Sum SUM() Returns the sum of all rows in the window.
 func (s *WindowFunc) Sum(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("SUM(%s)", s.way.NameReplace(column)))
+	return s.WithFunc(fmt.Sprintf("SUM(%s)", s.way.Replace(column)))
 }
 
 // Max MAX() Returns the maximum value within the window.
 func (s *WindowFunc) Max(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("MAX(%s)", s.way.NameReplace(column)))
+	return s.WithFunc(fmt.Sprintf("MAX(%s)", s.way.Replace(column)))
 }
 
 // Min MIN() Returns the minimum value within the window.
 func (s *WindowFunc) Min(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("MIN(%s)", s.way.NameReplace(column)))
+	return s.WithFunc(fmt.Sprintf("MIN(%s)", s.way.Replace(column)))
 }
 
 // Avg AVG() Returns the average of all rows in the window.
 func (s *WindowFunc) Avg(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("AVG(%s)", s.way.NameReplace(column)))
+	return s.WithFunc(fmt.Sprintf("AVG(%s)", s.way.Replace(column)))
 }
 
 // Count COUNT() Returns the number of rows in the window.
 func (s *WindowFunc) Count(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("COUNT(%s)", s.way.NameReplace(column)))
+	return s.WithFunc(fmt.Sprintf("COUNT(%s)", s.way.Replace(column)))
 }
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", s.way.Replace(column), offset, argValueToString(defaultValue)))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.NameReplace(column), offset, argValueToString(defaultValue)))
+	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.Replace(column), offset, argValueToString(defaultValue)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
 func (s *WindowFunc) NthValue(column string, LineNumber int64) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("NTH_VALUE(%s, %d)", s.way.NameReplace(column), LineNumber))
+	return s.WithFunc(fmt.Sprintf("NTH_VALUE(%s, %d)", s.way.Replace(column), LineNumber))
 }
 
 // FirstValue FIRST_VALUE() Returns the value of the first row in the window.
 func (s *WindowFunc) FirstValue(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("FIRST_VALUE(%s)", s.way.NameReplace(column)))
+	return s.WithFunc(fmt.Sprintf("FIRST_VALUE(%s)", s.way.Replace(column)))
 }
 
 // LastValue LAST_VALUE() Returns the value of the last row in the window.
 func (s *WindowFunc) LastValue(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAST_VALUE(%s)", s.way.NameReplace(column)))
+	return s.WithFunc(fmt.Sprintf("LAST_VALUE(%s)", s.way.Replace(column)))
 }
 
 // Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
 func (s *WindowFunc) Partition(column ...string) *WindowFunc {
-	s.partition = append(s.partition, s.way.NameReplaces(column)...)
+	s.partition = append(s.partition, s.way.Replaces(column)...)
 	return s
 }
 
 // Asc Define the sorting within the partition so that the window function is calculated in order.
 func (s *WindowFunc) Asc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.NameReplace(column), SqlAsc))
+	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), SqlAsc))
 	return s
 }
 
 // Desc Define the sorting within the partition so that the window function is calculated in descending order.
 func (s *WindowFunc) Desc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.NameReplace(column), SqlDesc))
+	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), SqlDesc))
 	return s
 }
 

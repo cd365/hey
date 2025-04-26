@@ -76,72 +76,84 @@ func ParcelCancelCmder(cmder Cmder) Cmder {
 	return NewCmder(ParcelCancelPrepare(prepare), args)
 }
 
-// Replacer Replace identifiers in sql statements.
-type Replacer interface {
-	Add(originalName string, useName string) Replacer
+// Replace For replace identifiers in sql statements.
+// Replace by default, concurrent reads and writes are not safe.
+// If you need concurrent read and write security, you can implement Replace by yourself.
+type Replace interface {
+	Get(key string) string
 
-	Del(originalName string) Replacer
+	Set(key string, value string) Replace
 
-	DelAll() Replacer
+	Del(key string) Replace
 
-	Get(originalName string) string
+	Map() map[string]string
 
-	GetAll(originalNames []string) []string
+	Use(mapping map[string]string) Replace
 
-	// Replace map[original-name]used-name
-	Replace() map[string]string
+	// Gets Batch getting.
+	Gets(keys []string) []string
+
+	// Sets Batch setting.
+	Sets(mapping map[string]string) Replace
 }
 
 type replace struct {
-	replace map[string]string
+	maps map[string]string
 }
 
-func (s *replace) Add(oldName string, newName string) Replacer {
-	s.replace[oldName] = newName
-	return s
-}
-
-func (s *replace) Del(name string) Replacer {
-	delete(s.replace, name)
-	return s
-}
-
-func (s *replace) DelAll() Replacer {
-	s.replace = make(map[string]string, 1<<9)
-	return s
-}
-
-func (s *replace) Get(name string) string {
-	if value, ok := s.replace[name]; ok {
+func (s *replace) Get(key string) string {
+	value, ok := s.maps[key]
+	if ok {
 		return value
-	} else {
-		return name
 	}
+	return key
 }
 
-func (s *replace) GetAll(names []string) []string {
-	length := len(names)
+func (s *replace) Set(key string, value string) Replace {
+	s.maps[key] = value
+	return s
+}
+
+func (s *replace) Del(key string) Replace {
+	delete(s.maps, key)
+	return s
+}
+
+func (s *replace) Map() map[string]string {
+	return s.maps
+}
+
+func (s *replace) Use(mapping map[string]string) Replace {
+	s.maps = mapping
+	return s
+}
+
+func (s *replace) Gets(keys []string) []string {
+	length := len(keys)
 	if length == 0 {
-		return names
+		return keys
 	}
 	replaced := make([]string, length)
 	for i := 0; i < length; i++ {
-		if value, ok := s.replace[names[i]]; ok {
+		if value, ok := s.maps[keys[i]]; ok {
 			replaced[i] = value
 		} else {
-			replaced[i] = names[i]
+			replaced[i] = keys[i]
 		}
 	}
 	return replaced
 }
 
-func (s *replace) Replace() map[string]string {
-	return s.replace
+func (s *replace) Sets(mapping map[string]string) Replace {
+	for key, value := range mapping {
+		s.Set(key, value)
+	}
+	return s
 }
 
-func NewReplacer() Replacer {
+func NewReplace() Replace {
 	return &replace{
-		replace: make(map[string]string, 1<<9),
+		maps: make(map[string]string, 1<<9),
 	}
 }
 

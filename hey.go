@@ -104,29 +104,32 @@ const (
 	NoRowsAffected = ErrorNoRowsAffected("database: no rows affected")
 )
 
-// Hands For handling different types of databases.
-type Hands struct {
+// Manual For handling different types of databases.
+type Manual struct {
 	// Prepare Adjust the SQL statement format to meet the current database SQL statement format.
 	Prepare func(prepare string) string
 
 	// Coalesce Get the first non-NULL value.
 	Coalesce func(prepare string, defaultValue string) string
 
+	// Replace Helpers for handling different types of databases.
+	Replace Replace
+
 	/*
 	 * More custom methods can be added here to achieve the same function using different databases.
 	 */
 }
 
-func Mysql() *Hands {
-	tmp := &Hands{}
+func Mysql() *Manual {
+	tmp := &Manual{}
 	tmp.Coalesce = func(prepare string, defaultValue string) string {
 		return fmt.Sprintf("IFNULL(%s,%s)", prepare, defaultValue)
 	}
 	return tmp
 }
 
-func Sqlite() *Hands {
-	tmp := &Hands{}
+func Sqlite() *Manual {
+	tmp := &Manual{}
 	tmp.Coalesce = func(prepare string, defaultValue string) string {
 		return fmt.Sprintf("COALESCE(%s,%s)", prepare, defaultValue)
 	}
@@ -153,8 +156,8 @@ func prepare63236(prepare string) string {
 	return latest.String()
 }
 
-func Postgresql() *Hands {
-	tmp := &Hands{}
+func Postgresql() *Manual {
+	tmp := &Manual{}
 	tmp.Prepare = prepare63236
 	tmp.Coalesce = func(prepare string, defaultValue string) string {
 		return fmt.Sprintf("COALESCE(%s,%s)", prepare, defaultValue)
@@ -173,17 +176,14 @@ type Cfg struct {
 	// _ Memory alignment padding.
 	_ [6]byte
 
-	// Hands For handling different types of databases.
-	Hands *Hands
+	// Manual For handling different types of databases.
+	Manual *Manual
 
 	// Scan Scan data into structure.
 	Scan func(rows *sql.Rows, result interface{}, tag string) error
 
 	// ScanTag Scan data to tag mapping on structure.
 	ScanTag string
-
-	// Replacer Helpers for handling different types of databases.
-	Replacer Replacer
 
 	// TransactionOptions Start transaction.
 	TransactionOptions *sql.TxOptions
@@ -203,7 +203,6 @@ func DefaultCfg() Cfg {
 	return Cfg{
 		Scan:                   ScanSliceStruct,
 		ScanTag:                DefaultTag,
-		Replacer:               NewReplacer(),
 		DeleteMustUseWhere:     true,
 		UpdateMustUseWhere:     true,
 		TransactionMaxDuration: time.Second * 5,
@@ -305,7 +304,7 @@ func (s *Way) GetCfg() *Cfg {
 }
 
 func (s *Way) SetCfg(cfg *Cfg) *Way {
-	if cfg == nil || cfg.Scan == nil || cfg.ScanTag == EmptyString || cfg.Hands == nil || cfg.Replacer == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
+	if cfg == nil || cfg.Scan == nil || cfg.ScanTag == EmptyString || cfg.Manual == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
 		return s
 	}
 	s.cfg = cfg
@@ -355,13 +354,13 @@ func (s *Way) IsRead() bool {
 
 func NewWay(db *sql.DB) *Way {
 	cfg := DefaultCfg()
-	cfg.Hands = Postgresql()
+	cfg.Manual = Postgresql()
 	if drivers := sql.Drivers(); len(drivers) == 1 {
 		switch drivers[0] {
 		case "mysql":
-			cfg.Hands = Mysql()
+			cfg.Manual = Mysql()
 		case "sqlite", "sqlite3":
-			cfg.Hands = Sqlite()
+			cfg.Manual = Sqlite()
 		default:
 		}
 	}
@@ -669,7 +668,7 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Call
 		caller:  s.caller(caller...),
 		prepare: prepare,
 	}
-	if tmp := s.cfg.Hands; tmp != nil && tmp.Prepare != nil {
+	if tmp := s.cfg.Manual; tmp != nil && tmp.Prepare != nil {
 		stmt.prepare = tmp.Prepare(prepare)
 	}
 	stmt.stmt, err = stmt.caller.PrepareContext(ctx, stmt.prepare)
@@ -954,22 +953,22 @@ func (s *Way) F(fs ...Filter) Filter {
 
 // Add -> Create an instance that executes the INSERT sql statement.
 func (s *Way) Add(table string) *Add {
-	return NewAdd(s).Table(s.NameReplace(table))
+	return NewAdd(s).Table(s.Replace(table))
 }
 
 // Del -> Create an instance that executes the DELETE sql statement.
 func (s *Way) Del(table string) *Del {
-	return NewDel(s).Table(s.NameReplace(table))
+	return NewDel(s).Table(s.Replace(table))
 }
 
 // Mod -> Create an instance that executes the UPDATE sql statement.
 func (s *Way) Mod(table string) *Mod {
-	return NewMod(s).Table(s.NameReplace(table))
+	return NewMod(s).Table(s.Replace(table))
 }
 
 // Get -> Create an instance that executes the SELECT sql statement.
 func (s *Way) Get(table ...string) *Get {
-	return NewGet(s).Table(s.NameReplace(LastNotEmptyString(table)))
+	return NewGet(s).Table(s.Replace(LastNotEmptyString(table)))
 }
 
 // AddOne Add one and get last insert id.
@@ -1040,20 +1039,20 @@ func (s *Way) TG() *TableColumn {
 	return NewTableColumn(s, AliasG)
 }
 
-// NameReplace Replace name.
-func (s *Way) NameReplace(name string) string {
-	if s.cfg.Replacer != nil {
-		return s.cfg.Replacer.Get(name)
+// Replace For replace key.
+func (s *Way) Replace(key string) string {
+	if tmp := s.cfg.Manual.Replace; tmp != nil {
+		return tmp.Get(key)
 	}
-	return name
+	return key
 }
 
-// NameReplaces Replace names.
-func (s *Way) NameReplaces(names []string) []string {
-	if s.cfg.Replacer != nil {
-		return s.cfg.Replacer.GetAll(names)
+// Replaces For replace keys.
+func (s *Way) Replaces(keys []string) []string {
+	if tmp := s.cfg.Manual.Replace; tmp != nil {
+		return tmp.Gets(keys)
 	}
-	return names
+	return keys
 }
 
 // WindowFunc New a window function object.

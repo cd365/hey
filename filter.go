@@ -597,44 +597,44 @@ func (s *filter) New(filters ...Filter) Filter {
 	return object.Use(filters...)
 }
 
-func (s *filter) nameReplace(name string) string {
+func (s *filter) replace(key string) string {
 	if s.way == nil {
-		return name
+		return key
 	}
-	return s.way.NameReplace(name)
+	return s.way.Replace(key)
 }
 
-func (s *filter) nameReplaceAll(names []string) []string {
+func (s *filter) replaces(keys []string) []string {
 	if s.way == nil {
-		return names
+		return keys
 	}
-	return s.way.NameReplaces(names)
+	return s.way.Replaces(keys)
 }
 
 func (s *filter) GreaterThan(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterGreaterThan(s.nameReplace(column)), value)
+		s.add(SqlAnd, filterGreaterThan(s.replace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) GreaterThanEqual(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterGreaterThanEqual(s.nameReplace(column)), value)
+		s.add(SqlAnd, filterGreaterThanEqual(s.replace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) LessThan(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterLessThan(s.nameReplace(column)), value)
+		s.add(SqlAnd, filterLessThan(s.replace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) LessThanEqual(column string, value interface{}) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterLessThanEqual(s.nameReplace(column)), value)
+		s.add(SqlAnd, filterLessThanEqual(s.replace(column)), value)
 	}
 	return s
 }
@@ -642,40 +642,40 @@ func (s *filter) LessThanEqual(column string, value interface{}) Filter {
 func (s *filter) Equal(column string, value interface{}, useNull ...bool) Filter {
 	if value == nil {
 		if length := len(useNull); length > 0 && useNull[length-1] {
-			return s.IsNull(s.nameReplace(column))
+			return s.IsNull(s.replace(column))
 		}
 		return s
 	}
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterEqual(s.nameReplace(column)), value)
+		s.add(SqlAnd, filterEqual(s.replace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
 	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
-		s.add(SqlAnd, filterBetween(s.nameReplace(column), false), start, end)
+		s.add(SqlAnd, filterBetween(s.replace(column), false), start, end)
 	}
 	return s
 }
 
 func (s *filter) In(column string, values ...interface{}) Filter {
-	prepare, args := filterIn(s.nameReplace(column), values, false)
+	prepare, args := filterIn(s.replace(column), values, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InSql(column string, prepare string, args ...interface{}) Filter {
-	prepare, args = filterInSql(s.nameReplace(column), prepare, args, false)
+	prepare, args = filterInSql(s.replace(column), prepare, args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
-	prepare, args := filterInCols(s.nameReplaceAll(columns), values, false)
+	prepare, args := filterInCols(s.replaces(columns), values, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) InColsSql(columns []string, prepare string, args ...interface{}) Filter {
-	prepare, args = filterInColsSql(s.nameReplaceAll(columns), prepare, args, false)
+	prepare, args = filterInColsSql(s.replaces(columns), prepare, args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
@@ -698,13 +698,13 @@ func (s *filter) Like(column string, value interface{}) Filter {
 		like = tmp
 	}
 	if like != EmptyString {
-		s.add(SqlAnd, filterLike(s.nameReplace(column), false), like)
+		s.add(SqlAnd, filterLike(s.replace(column), false), like)
 	}
 	return s
 }
 
 func (s *filter) IsNull(column string) Filter {
-	return s.add(SqlAnd, filterIsNull(s.nameReplace(column), false))
+	return s.add(SqlAnd, filterIsNull(s.replace(column), false))
 }
 
 func (s *filter) InQuery(column string, subquery Cmder) Filter {
@@ -743,30 +743,30 @@ func (s *filter) ExistsQuery(subquery Cmder) Filter {
 func (s *filter) NotEqual(column string, value interface{}, useNotNull ...bool) Filter {
 	if value == nil {
 		if length := len(useNotNull); length > 0 && useNotNull[length-1] {
-			return s.IsNotNull(s.nameReplace(column))
+			return s.IsNotNull(s.replace(column))
 		}
 		return s
 	}
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterNotEqual(s.nameReplace(column)), value)
+		s.add(SqlAnd, filterNotEqual(s.replace(column)), value)
 	}
 	return s
 }
 
 func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
 	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
-		s.add(SqlAnd, filterBetween(s.nameReplace(column), true), start, end)
+		s.add(SqlAnd, filterBetween(s.replace(column), true), start, end)
 	}
 	return s
 }
 
 func (s *filter) NotIn(column string, values ...interface{}) Filter {
-	prepare, args := filterIn(s.nameReplace(column), values, true)
+	prepare, args := filterIn(s.replace(column), values, true)
 	return s.add(SqlAnd, prepare, args...)
 }
 
 func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
-	prepare, args := filterInCols(s.nameReplaceAll(columns), values, true)
+	prepare, args := filterInCols(s.replaces(columns), values, true)
 	return s.add(SqlAnd, prepare, args...)
 }
 
@@ -784,13 +784,13 @@ func (s *filter) NotLike(column string, value interface{}) Filter {
 		like = tmp
 	}
 	if like != EmptyString {
-		s.add(SqlAnd, filterLike(s.nameReplace(column), true), like)
+		s.add(SqlAnd, filterLike(s.replace(column), true), like)
 	}
 	return s
 }
 
 func (s *filter) IsNotNull(column string) Filter {
-	return s.add(SqlAnd, filterIsNull(s.nameReplace(column), true))
+	return s.add(SqlAnd, filterIsNull(s.replace(column), true))
 }
 
 func (s *filter) AllQuantifier(fc func(tmp Quantifier)) Filter {
@@ -842,7 +842,7 @@ func (s *filter) Compare(column1 string, compare string, column2 string, args ..
 	if column1 == EmptyString || compare == EmptyString || column2 == EmptyString {
 		return s
 	}
-	column1, column2 = s.nameReplace(column1), s.nameReplace(column2)
+	column1, column2 = s.replace(column1), s.replace(column2)
 	return s.And(ConcatString(column1, SqlSpace, compare, SqlSpace, column2), args...)
 }
 
@@ -909,7 +909,7 @@ func (s *quantifier) build(column string, logic string, subquery Cmder) Quantifi
 		return s
 	}
 	if way := s.filter.GetWay(); way != nil {
-		column = way.NameReplace(column)
+		column = way.Replace(column)
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
