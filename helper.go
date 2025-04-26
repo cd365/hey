@@ -1293,9 +1293,11 @@ func (s *Add) Add() (int64, error) {
 	return s.schema.way.ExecContext(s.schema.ctx, prepare, args...)
 }
 
-// AddOne execute the built SQL statement, returning last insert id.
-func (s *Add) AddOne(adjust func(cmder Cmder) Cmder, custom func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error)) (id int64, err error) {
-	return s.schema.way.AddOne(s.schema.ctx, s, adjust, custom)
+// AddOne execute the built SQL statement, return the sequence value of the data.
+func (s *Add) AddOne(custom func(add AddOneReturnSequenceValue)) (int64, error) {
+	add := s.schema.way.NewAddOne(s.Cmd()).Context(s.schema.ctx)
+	custom(add)
+	return add.AddOne()
 }
 
 // GetWay get current *Way.

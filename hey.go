@@ -971,32 +971,75 @@ func (s *Way) Get(table ...string) *Get {
 	return NewGet(s).Table(s.Replace(LastNotEmptyString(table)))
 }
 
-// AddOne Add one and get last insert id.
-func (s *Way) AddOne(
-	ctx context.Context, cmder Cmder, adjust func(cmder Cmder) Cmder,
-	custom func(ctx context.Context, stmt *Stmt, args []interface{}) (id int64, err error),
-) (id int64, err error) {
-	if cmder == nil || custom == nil {
-		return 0, nil
+// AddOneReturnSequenceValue Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
+type AddOneReturnSequenceValue interface {
+	// Adjust You may need to modify the SQL statement to be executed.
+	Adjust(adjust func(prepare string, args []interface{}) (string, []interface{})) AddOneReturnSequenceValue
+
+	// Context Custom context.
+	Context(ctx context.Context) AddOneReturnSequenceValue
+
+	// Execute Customize the method to return the sequence value of inserted data.
+	Execute(execute func(ctx context.Context, stmt *Stmt, args []interface{}) (sequenceValue int64, err error)) AddOneReturnSequenceValue
+
+	// AddOne Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
+	AddOne() (int64, error)
+}
+
+type addOneReturnSequenceValue struct {
+	ctx     context.Context
+	way     *Way
+	prepare string
+	args    []interface{}
+	adjust  func(prepare string, args []interface{}) (string, []interface{})
+	execute func(ctx context.Context, stmt *Stmt, args []interface{}) (sequenceValue int64, err error)
+}
+
+// Adjust You may need to modify the SQL statement to be executed.
+func (s *addOneReturnSequenceValue) Adjust(adjust func(prepare string, args []interface{}) (string, []interface{})) AddOneReturnSequenceValue {
+	s.adjust = adjust
+	return s
+}
+
+// Context Custom context.
+func (s *addOneReturnSequenceValue) Context(ctx context.Context) AddOneReturnSequenceValue {
+	s.ctx = ctx
+	return s
+}
+
+// Execute Customize the method to return the sequence value of inserted data.
+func (s *addOneReturnSequenceValue) Execute(execute func(ctx context.Context, stmt *Stmt, args []interface{}) (sequenceValue int64, err error)) AddOneReturnSequenceValue {
+	s.execute = execute
+	return s
+}
+
+// AddOne Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
+func (s *addOneReturnSequenceValue) AddOne() (int64, error) {
+	prepare, args := s.prepare, s.args
+	if s.adjust != nil {
+		prepare, args = s.adjust(prepare, args)
 	}
-	if adjust != nil {
-		cmder = adjust(cmder)
-	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
-		return 0, nil
-	}
+	ctx := s.ctx
 	if ctx == nil {
-		ctxTmp, cancel := context.WithTimeout(context.Background(), DefaultCfg().TransactionMaxDuration)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), s.way.cfg.TransactionMaxDuration)
 		defer cancel()
-		ctx = ctxTmp
 	}
-	stmt, err := s.PrepareContext(ctx, prepare)
+	stmt, err := s.way.PrepareContext(ctx, prepare)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = stmt.Close() }()
-	return custom(ctx, stmt, args)
+	return s.execute(ctx, stmt, args)
+}
+
+// NewAddOne Insert one and get last insert sequence value.
+func (s *Way) NewAddOne(prepare string, args []interface{}) AddOneReturnSequenceValue {
+	return &addOneReturnSequenceValue{
+		way:     s,
+		prepare: prepare,
+		args:    args,
+	}
 }
 
 // T Table empty alias
