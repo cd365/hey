@@ -65,6 +65,8 @@ const (
 	SqlExpect    = "EXCEPT"
 	SqlIntersect = "INTERSECT"
 
+	SqlCoalesce = "COALESCE"
+
 	SqlDistinct = "DISTINCT"
 )
 
@@ -109,31 +111,25 @@ type Manual struct {
 	// Prepare Adjust the SQL statement format to meet the current database SQL statement format.
 	Prepare func(prepare string) string
 
-	// Coalesce Get the first non-NULL value.
-	Coalesce func(prepare string, defaultValue string) string
-
 	// Replace Helpers for handling different types of databases.
 	Replace Replace
 
-	/*
-	 * More custom methods can be added here to achieve the same function using different databases.
-	 */
+	// More custom methods can be added here to achieve the same function using different databases.
+}
+
+// NullDefaultValue Use defaultValue to replace NULL values.
+func NullDefaultValue(prepare string, defaultValue string) string {
+	return ConcatString(SqlCoalesce, SqlLeftSmallBracket, prepare, SqlConcat, defaultValue, SqlRightSmallBracket)
 }
 
 func Mysql() *Manual {
-	tmp := &Manual{}
-	tmp.Coalesce = func(prepare string, defaultValue string) string {
-		return fmt.Sprintf("IFNULL(%s,%s)", prepare, defaultValue)
-	}
-	return tmp
+	manual := &Manual{}
+	return manual
 }
 
 func Sqlite() *Manual {
-	tmp := &Manual{}
-	tmp.Coalesce = func(prepare string, defaultValue string) string {
-		return fmt.Sprintf("COALESCE(%s,%s)", prepare, defaultValue)
-	}
-	return tmp
+	manual := &Manual{}
+	return manual
 }
 
 func prepare63236(prepare string) string {
@@ -157,12 +153,9 @@ func prepare63236(prepare string) string {
 }
 
 func Postgresql() *Manual {
-	tmp := &Manual{}
-	tmp.Prepare = prepare63236
-	tmp.Coalesce = func(prepare string, defaultValue string) string {
-		return fmt.Sprintf("COALESCE(%s,%s)", prepare, defaultValue)
-	}
-	return tmp
+	manual := &Manual{}
+	manual.Prepare = prepare63236
+	return manual
 }
 
 // Cfg Configure of Way.

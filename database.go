@@ -1258,8 +1258,6 @@ func (s *updateSet) UpdateExists(update string) bool {
 type TableColumn struct {
 	alias string
 	way   *Way
-
-	empty *TableColumn
 }
 
 // Alias Get the alias name value.
@@ -1269,17 +1267,12 @@ func (s *TableColumn) Alias() string {
 
 // aliasesName Adjust alias name.
 func (s *TableColumn) aliasName(alias ...string) string {
-	if s.empty == nil {
-		tmp := *s
-		tmp.alias = EmptyString
-		s.empty = &tmp
-	}
-	return s.empty.ColumnAll(LastNotEmptyString(alias))[0]
+	return s.way.Replace(LastNotEmptyString(alias))
 }
 
 // SetAlias Set the alias name value.
 func (s *TableColumn) SetAlias(alias string) *TableColumn {
-	s.alias = s.aliasName(alias)
+	s.alias = alias
 	return s
 }
 
@@ -1290,7 +1283,7 @@ func (s *TableColumn) Adjust(adjust func(column string) string, columns ...strin
 			columns[index] = s.way.Replace(adjust(column))
 		}
 	}
-	return s.way.Replaces(columns)
+	return columns
 }
 
 // ColumnAll Add table name prefix to column names in batches.
@@ -1298,8 +1291,9 @@ func (s *TableColumn) ColumnAll(columns ...string) []string {
 	if s.alias == EmptyString {
 		return s.way.Replaces(columns)
 	}
+	alias := s.way.Replace(s.alias)
 	for index, column := range columns {
-		columns[index] = SqlPrefix(s.alias, s.way.Replace(column))
+		columns[index] = SqlPrefix(alias, s.way.Replace(column))
 	}
 	return columns
 }
@@ -1361,36 +1355,36 @@ func (s *TableColumn) Count(counts ...string) string {
 	return SqlAlias(count, countAlias)
 }
 
-// Coalesce If the value is NULL, set the default value.
-func (s *TableColumn) Coalesce(column string, defaultValue string, aliases ...string) string {
-	return SqlAlias(s.way.cfg.Manual.Coalesce(s.Column(column), defaultValue), s.aliasName(aliases...))
+// aggregate Perform an aggregate function on the column and set a default value to replace NULL values.
+func (s *TableColumn) aggregate(column string, defaultValue string, aliases ...string) string {
+	return SqlAlias(NullDefaultValue(s.Column(column), defaultValue), s.aliasName(aliases...))
 }
 
-// CoalesceSum COALESCE(SUM(column),0)[ AS column_name]
-func (s *TableColumn) CoalesceSum(column string, aliases ...string) string {
-	return SqlAlias(s.Coalesce(s.Sum(column), "0"), s.aliasName(aliases...))
+// SUM COALESCE(SUM(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) SUM(column string, aliases ...string) string {
+	return SqlAlias(s.aggregate(s.Sum(column), "0"), s.aliasName(aliases...))
 }
 
-// CoalesceMax COALESCE(MAX(column),0)[ AS column_name]
-func (s *TableColumn) CoalesceMax(column string, aliases ...string) string {
-	return SqlAlias(s.Coalesce(s.Max(column), "0"), s.aliasName(aliases...))
+// MAX COALESCE(MAX(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) MAX(column string, aliases ...string) string {
+	return SqlAlias(s.aggregate(s.Max(column), "0"), s.aliasName(aliases...))
 }
 
-// CoalesceMin COALESCE(MIN(column),0)[ AS column_name]
-func (s *TableColumn) CoalesceMin(column string, aliases ...string) string {
-	return SqlAlias(s.Coalesce(s.Min(column), "0"), s.aliasName(aliases...))
+// MIN COALESCE(MIN(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) MIN(column string, aliases ...string) string {
+	return SqlAlias(s.aggregate(s.Min(column), "0"), s.aliasName(aliases...))
 }
 
-// CoalesceAvg COALESCE(AVG(column),0)[ AS column_name]
-func (s *TableColumn) CoalesceAvg(column string, aliases ...string) string {
-	return SqlAlias(s.Coalesce(s.Avg(column), "0"), s.aliasName(aliases...))
+// AVG COALESCE(AVG(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) AVG(column string, aliases ...string) string {
+	return SqlAlias(s.aggregate(s.Avg(column), "0"), s.aliasName(aliases...))
 }
 
 func NewTableColumn(way *Way, aliases ...string) *TableColumn {
 	tmp := &TableColumn{
 		way: way,
 	}
-	tmp.alias = tmp.aliasName(aliases...)
+	tmp.alias = LastNotEmptyString(aliases)
 	return tmp
 }
 

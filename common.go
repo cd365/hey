@@ -413,3 +413,148 @@ func ArrayRemoveIndex[V interface{}](values []V, indexes []int) []V {
 	}
 	return result
 }
+
+// InsertOnConflictUpdateSet Implement the following SQL statement:
+// INSERT INTO ... ON CONFLICT ( column_a[, column_b, column_c...] ) DO UPDATE SET column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3, column4 = 'fixed value' ...
+type InsertOnConflictUpdateSet interface {
+	UpdateSet
+
+	// Excluded Construct the update expression column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3 ...
+	// This is how the "new" data is accessed that causes the conflict.
+	Excluded(columns ...string) InsertOnConflictUpdateSet
+}
+
+type insertOnConflictUpdateSet struct {
+	UpdateSet
+
+	way *Way
+}
+
+func (s *insertOnConflictUpdateSet) Excluded(columns ...string) InsertOnConflictUpdateSet {
+	for _, column := range columns {
+		tmp := s.way.Replace(column)
+		s.Update(ConcatString(tmp, SqlSpace, SqlEqual, SqlSpace, "EXCLUDED", SqlPoint, tmp))
+	}
+	return s
+}
+
+func NewInsertOnConflictUpdateSet(way *Way) InsertOnConflictUpdateSet {
+	tmp := &insertOnConflictUpdateSet{
+		way: way,
+	}
+	tmp.UpdateSet = NewUpdateSet(way)
+	return tmp
+}
+
+// InsertOnConflict Implement the following SQL statement:
+// INSERT INTO ... ON CONFLICT ( column_a[, column_b, column_c...] ) DO NOTHING /* If a conflict occurs, the insert operation is ignored. */
+// INSERT INTO ... ON CONFLICT ( column_a[, column_b, column_c...] ) DO UPDATE SET column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3, column4 = 'fixed value' ... /* If a conflict occurs, the existing row is updated with the new value */
+type InsertOnConflict interface {
+	// OnConflict The column causing the conflict, such as a unique key or primary key, which can be a single column or multiple columns.
+	OnConflict(onConflicts ...string) InsertOnConflict
+
+	// Do The SQL statement that needs to be executed when a data conflict occurs. By default, nothing is done.
+	Do(prepare string, args ...interface{}) InsertOnConflict
+
+	// DoUpdateSet SQL update statements executed when data conflicts occur.
+	DoUpdateSet(fc func(u InsertOnConflictUpdateSet)) InsertOnConflict
+
+	// Cmd The SQL statement and its parameter list that are finally executed.
+	Cmd() (prepare string, args []interface{})
+
+	// InsertOnConflict Executes the SQL statement constructed by the current object.
+	InsertOnConflict() (int64, error)
+}
+
+type insertOnConflict struct {
+	way *Way
+	ctx context.Context
+
+	insertPrepare     string
+	insertPrepareArgs []interface{}
+
+	onConflicts []string
+
+	onConflictsDoPrepare     string
+	onConflictsDoPrepareArgs []interface{}
+
+	onConflictsDoUpdateSet InsertOnConflictUpdateSet
+}
+
+func (s *insertOnConflict) Context(ctx context.Context) InsertOnConflict {
+	s.ctx = ctx
+	return s
+}
+
+func (s *insertOnConflict) OnConflict(onConflicts ...string) InsertOnConflict {
+	s.onConflicts = onConflicts
+	return s
+}
+
+func (s *insertOnConflict) Do(prepare string, args ...interface{}) InsertOnConflict {
+	s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs = strings.TrimSpace(prepare), args
+	return s
+}
+
+func (s *insertOnConflict) DoUpdateSet(fc func(u InsertOnConflictUpdateSet)) InsertOnConflict {
+	tmp := s.onConflictsDoUpdateSet
+	if tmp == nil {
+		s.onConflictsDoUpdateSet = NewInsertOnConflictUpdateSet(s.way)
+		tmp = s.onConflictsDoUpdateSet
+	}
+	fc(tmp)
+	return s
+}
+
+func (s *insertOnConflict) Cmd() (prepare string, args []interface{}) {
+	if s.insertPrepare == EmptyString || len(s.onConflicts) == 0 {
+		return
+	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString(s.insertPrepare)
+	args = append(args, s.insertPrepareArgs...)
+	b.WriteString(" ON CONFLICT ")
+	b.WriteString(ParcelPrepare(strings.Join(s.way.Replaces(s.onConflicts), SqlConcat)))
+	b.WriteString(SqlSpace)
+	b.WriteString("DO")
+	b.WriteString(SqlSpace)
+	doPrepare, doPrepareArgs := "NOTHING", make([]interface{}, 0)
+	if s.onConflictsDoPrepare != EmptyString {
+		doPrepare, doPrepareArgs = s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs
+	} else {
+		if s.onConflictsDoUpdateSet != nil && s.onConflictsDoUpdateSet.Len() > 0 {
+			tmpPrepare, tmpPrepareArgs := s.onConflictsDoUpdateSet.Cmd()
+			bus := getStringBuilder()
+			defer putStringBuilder(bus)
+			bus.WriteString("UPDATE SET")
+			bus.WriteString(SqlSpace)
+			bus.WriteString(tmpPrepare)
+			doPrepare = bus.String()
+			doPrepareArgs = tmpPrepareArgs
+		}
+	}
+	b.WriteString(doPrepare)
+	args = append(args, doPrepareArgs...)
+	prepare = b.String()
+	return
+}
+
+func (s *insertOnConflict) InsertOnConflict() (int64, error) {
+	ctx := s.ctx
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.way.cfg.TransactionMaxDuration)
+		defer cancel()
+	}
+	prepare, args := s.Cmd()
+	return s.way.ExecContext(ctx, prepare, args...)
+}
+
+func NewInsertOnConflict(way *Way, insertPrepare string, insertArgs []interface{}) InsertOnConflict {
+	return &insertOnConflict{
+		way:               way,
+		insertPrepare:     insertPrepare,
+		insertPrepareArgs: insertArgs,
+	}
+}
