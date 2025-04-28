@@ -98,12 +98,22 @@ func (s ErrorNoRowsAffected) Error() string {
 	return string(s)
 }
 
+// ErrorTransactionNotStarted Report transaction not started.
+type ErrorTransactionNotStarted string
+
+func (s ErrorTransactionNotStarted) Error() string {
+	return string(s)
+}
+
 const (
 	// RecordDoesNotExists record does not exist.
 	RecordDoesNotExists = ErrorRecordDoesNotExists("database: record does not exist")
 
 	// NoRowsAffected no rows affected.
 	NoRowsAffected = ErrorNoRowsAffected("database: no rows affected")
+
+	// TransactionNotStarted transaction not started.
+	TransactionNotStarted = ErrorTransactionNotStarted("database: transaction not started")
 )
 
 // Manual For handling different types of databases.
@@ -407,6 +417,9 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 
 // commit -> Commit transaction.
 func (s *Way) commit() (err error) {
+	if s.transaction == nil {
+		return TransactionNotStarted
+	}
 	tx := s.transaction
 	tx.state = "COMMIT"
 	defer tx.write()
@@ -417,6 +430,9 @@ func (s *Way) commit() (err error) {
 
 // rollback -> Rollback transaction.
 func (s *Way) rollback() (err error) {
+	if s.transaction == nil {
+		return TransactionNotStarted
+	}
 	tx := s.transaction
 	tx.state = "ROLLBACK"
 	defer tx.write()
@@ -445,9 +461,9 @@ func (s *Way) Rollback() error {
 	return s.rollback()
 }
 
-// TransactionIsNil -> Is the transaction object empty?
-func (s *Way) TransactionIsNil() bool {
-	return s.transaction == nil
+// IsInTransaction -> Is the transaction currently in progress?
+func (s *Way) IsInTransaction() bool {
+	return s.transaction != nil
 }
 
 // TransactionMessage -> Set the prompt for the current transaction, can only be set once.
@@ -502,7 +518,7 @@ func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, conn *
 
 // Transaction -> Atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
 func (s *Way) Transaction(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) error {
-	if !s.TransactionIsNil() {
+	if s.IsInTransaction() {
 		return fc(s)
 	}
 	return s.newTransaction(ctx, fc, nil, opts...)
@@ -525,10 +541,10 @@ func (s *Way) TransactionRetry(ctx context.Context, retries int, fc func(tx *Way
 
 // Now -> Get current time, the transaction open status will get the same time.
 func (s *Way) Now() time.Time {
-	if s.TransactionIsNil() {
-		return time.Now()
+	if s.IsInTransaction() {
+		return s.transaction.startAt
 	}
-	return s.transaction.startAt
+	return time.Now()
 }
 
 // ScanAll -> Iteratively scan from query results.
