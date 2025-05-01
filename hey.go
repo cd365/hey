@@ -480,19 +480,17 @@ func (s *Way) TransactionMessage(message string) *Way {
 // newTransaction -> Start a new transaction and execute a set of SQL statements atomically.
 func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
 	if ctx == nil {
-		ctx = context.Background()
+		timeout := time.Second * 8
+		if s.cfg != nil && s.cfg.TransactionMaxDuration > 0 {
+			timeout = s.cfg.TransactionMaxDuration
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 	}
-
-	timeout := time.Second * 8
-	if s.cfg != nil && s.cfg.TransactionMaxDuration > 0 {
-		timeout = s.cfg.TransactionMaxDuration
-	}
-
-	ctxTimeout, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	var tx *Way
-	tx, err = s.begin(ctxTimeout, conn, opts...)
+	tx, err = s.begin(ctx, conn, opts...)
 	if err != nil {
 		return
 	}

@@ -262,11 +262,17 @@ func IntersectCmder(items ...Cmder) Cmder {
 
 // RowsScanStructAll Rows scan to any struct, based on struct scan data.
 func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) ([]*V, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	var err error
 	length := 1 << 5
+	if ctx == nil {
+		ctx = context.Background()
+	} else {
+		if tmp := ctx.Value("hey_sql_rows_scan_len"); tmp != nil {
+			if intValue, ok := tmp.(int); ok && intValue > 0 && intValue <= 50000 {
+				length = intValue
+			}
+		}
+	}
 	result := make([]*V, 0, length)
 	err = way.QueryContext(ctx, func(rows *sql.Rows) error {
 		index := 0
