@@ -264,19 +264,19 @@ func (s *cmdLog) Write() {
 	lg := s.way.log.Info()
 	if s.err != nil {
 		lg = s.way.log.Error()
-		lg.Str("error", s.err.Error())
-		lg.Str("script", prepareArgsToString(s.prepare, s.args.args))
+		lg.Str(logError, s.err.Error())
+		lg.Str(logScript, prepareArgsToString(s.prepare, s.args.args))
 	} else {
 		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.WarnDuration {
 			lg = s.way.log.Warn()
-			lg.Str("script", prepareArgsToString(s.prepare, s.args.args))
+			lg.Str(logScript, prepareArgsToString(s.prepare, s.args.args))
 		}
 	}
-	lg.Str("prepare", s.prepare)
-	lg.Any("args", s.args.args)
-	lg.Int64("start_at", s.args.startAt.UnixMilli())
-	lg.Int64("end_at", s.args.endAt.UnixMilli())
-	lg.Str("cost", s.args.endAt.Sub(s.args.startAt).String())
+	lg.Str(logPrepare, s.prepare)
+	lg.Any(logArgs, s.args.args)
+	lg.Int64(logStartAt, s.args.startAt.UnixMilli())
+	lg.Int64(logEndAt, s.args.endAt.UnixMilli())
+	lg.Str(logCost, s.args.endAt.Sub(s.args.startAt).String())
 	lg.Send()
 }
 
@@ -421,7 +421,7 @@ func (s *Way) commit() (err error) {
 		return TransactionNotStarted
 	}
 	tx := s.transaction
-	tx.state = "COMMIT"
+	tx.state = logTxCommit
 	defer tx.write()
 	tx.err = tx.tx.Commit()
 	s.transaction, err = nil, tx.err
@@ -434,7 +434,7 @@ func (s *Way) rollback() (err error) {
 		return TransactionNotStarted
 	}
 	tx := s.transaction
-	tx.state = "ROLLBACK"
+	tx.state = logTxRollback
 	defer tx.write()
 	tx.err = tx.tx.Rollback()
 	s.transaction, err = nil, tx.err
@@ -1361,6 +1361,6 @@ func (s *debugger) Debugger(cmder Cmder) Debugger {
 	}
 	prepare, args := cmder.Cmd()
 	script := prepareArgsToString(prepare, args)
-	s.log.Debug().Str("script", script).Str("prepare", prepare).Any("args", args).Send()
+	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, args).Send()
 	return s
 }

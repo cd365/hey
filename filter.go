@@ -874,12 +874,19 @@ func (s *filter) CompareLessThanEqual(column1 string, column2 string, args ...in
 // QUANTIFIER is usually one of ALL, ANY, SOME ... or EmptyString.
 type Quantifier interface {
 	GetQuantifier() string
+
 	SetQuantifier(quantifierString string) Quantifier
+
 	Equal(column string, subquery Cmder) Quantifier
+
 	NotEqual(column string, subquery Cmder) Quantifier
+
 	GreaterThan(column string, subquery Cmder) Quantifier
+
 	GreaterThanEqual(column string, subquery Cmder) Quantifier
+
 	LessThan(column string, subquery Cmder) Quantifier
+
 	LessThanEqual(column string, subquery Cmder) Quantifier
 }
 
@@ -926,8 +933,7 @@ func (s *quantifier) build(column string, logic string, subquery Cmder) Quantifi
 	b.WriteString(prepare)
 	b.WriteString(SqlSpace)
 	b.WriteString(SqlRightSmallBracket)
-	prepare = b.String()
-	s.filter.And(prepare, args...)
+	s.filter.And(b.String(), args...)
 	return s
 }
 

@@ -5,6 +5,23 @@ import (
 	"time"
 )
 
+const (
+	logTxBegin    = "BEGIN"
+	logTxCommit   = "COMMIT"
+	logTxRollback = "ROLLBACK"
+
+	logId      = "id"
+	logStartAt = "start_at"
+	logEndAt   = "end_at"
+	logState   = "state"
+	logError   = "error"
+	logScript  = "script"
+	logMsg     = "msg"
+	logPrepare = "prepare"
+	logArgs    = "args"
+	logCost    = "cost"
+)
+
 // transaction Information for transaction.
 type transaction struct {
 	way *Way
@@ -30,9 +47,9 @@ func (s *transaction) start() {
 		return
 	}
 	lg := s.way.log.Info()
-	lg.Str("id", s.id)
-	lg.Int64("start_at", s.startAt.UnixMilli())
-	lg.Str("state", "BEGIN")
+	lg.Str(logId, s.id)
+	lg.Int64(logStartAt, s.startAt.UnixMilli())
+	lg.Str(logState, logTxBegin)
 	lg.Send()
 }
 
@@ -48,31 +65,31 @@ func (s *transaction) write() {
 		lg := s.way.log.Info()
 		if v.err != nil {
 			lg = s.way.log.Error()
-			lg.Str("error", v.err.Error())
-			lg.Str("script", prepareArgsToString(v.prepare, v.args.args))
+			lg.Str(logError, v.err.Error())
+			lg.Str(logScript, prepareArgsToString(v.prepare, v.args.args))
 		} else {
 			if v.args.endAt.Sub(v.args.startAt) > s.way.cfg.WarnDuration {
 				lg = s.way.log.Warn()
-				lg.Str("script", prepareArgsToString(v.prepare, v.args.args))
+				lg.Str(logScript, prepareArgsToString(v.prepare, v.args.args))
 			}
 		}
-		lg.Str("id", s.id).Str("msg", s.message)
-		lg.Str("prepare", v.prepare)
-		lg.Any("args", v.args.args)
-		lg.Int64("start_at", v.args.startAt.UnixMilli())
-		lg.Int64("end_at", v.args.endAt.UnixMilli())
-		lg.Str("cost", v.args.endAt.Sub(v.args.startAt).String())
+		lg.Str(logId, s.id).Str(logMsg, s.message)
+		lg.Str(logPrepare, v.prepare)
+		lg.Any(logArgs, v.args.args)
+		lg.Int64(logStartAt, v.args.startAt.UnixMilli())
+		lg.Int64(logEndAt, v.args.endAt.UnixMilli())
+		lg.Str(logCost, v.args.endAt.Sub(v.args.startAt).String())
 		lg.Send()
 	}
 	lg := s.way.log.Info()
 	if s.err != nil {
 		lg = s.way.log.Error()
-		lg.Str("error", s.err.Error())
+		lg.Str(logError, s.err.Error())
 	}
-	lg.Str("id", s.id)
-	lg.Int64("start_at", s.startAt.UnixMilli())
-	lg.Str("state", s.state)
-	lg.Int64("end_at", s.endAt.UnixMilli())
-	lg.Str("cost", s.endAt.Sub(s.startAt).String())
+	lg.Str(logId, s.id)
+	lg.Int64(logStartAt, s.startAt.UnixMilli())
+	lg.Str(logState, s.state)
+	lg.Int64(logEndAt, s.endAt.UnixMilli())
+	lg.Str(logCost, s.endAt.Sub(s.startAt).String())
 	lg.Send()
 }
