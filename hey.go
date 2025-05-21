@@ -1,5 +1,5 @@
-// Package hey is a helper that quickly responds to the results of insert, delete, update, select sql statements.
-// You can also use hey to quickly build sql statements.
+// Package hey is a helper that quickly responds to the results of insert, delete, update, select SQL statements.
+// You can also use hey to quickly build SQL statements.
 package hey
 
 import (
@@ -98,7 +98,7 @@ func (s ErrorNoRowsAffected) Error() string {
 	return string(s)
 }
 
-// ErrorTransactionNotStarted Report transaction not started.
+// ErrorTransactionNotStarted Report transaction isn't started.
 type ErrorTransactionNotStarted string
 
 func (s ErrorTransactionNotStarted) Error() string {
@@ -112,13 +112,13 @@ const (
 	// NoRowsAffected no rows affected.
 	NoRowsAffected = ErrorNoRowsAffected("database: no rows affected")
 
-	// TransactionNotStarted transaction not started.
+	// TransactionNotStarted transaction isn't started.
 	TransactionNotStarted = ErrorTransactionNotStarted("database: transaction not started")
 )
 
 // Manual For handling different types of databases.
 type Manual struct {
-	// Prepare Adjust the SQL statement format to meet the current database SQL statement format.
+	// Prepare to adjust the SQL statement format to meet the current database SQL statement format.
 	Prepare func(prepare string) string
 
 	// Replace Helpers for handling different types of databases.
@@ -578,7 +578,7 @@ func (s *Way) caller(caller ...Caller) Caller {
 	return s.db
 }
 
-// Stmt Prepare handle.
+// Stmt Prepare a handle.
 type Stmt struct {
 	way     *Way
 	caller  Caller
@@ -586,7 +586,7 @@ type Stmt struct {
 	stmt    *sql.Stmt
 }
 
-// Close -> Close prepare handle.
+// Close -> Close prepare a handle.
 func (s *Stmt) Close() (err error) {
 	if s.stmt != nil {
 		err = s.stmt.Close()
@@ -663,12 +663,12 @@ func (s *Stmt) TakeAllContext(ctx context.Context, result interface{}, args ...i
 	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.way.cfg.Scan(rows, result, s.way.cfg.ScanTag) }, args...)
 }
 
-// TakeAll -> Query prepared and get all query results, that can be called repeatedly.
+// TakeAll -> Query prepared and get all query results; that can be called repeatedly.
 func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
 	return s.TakeAllContext(context.Background(), result, args...)
 }
 
-// PrepareContext -> Prepare sql statement, don't forget to call *Stmt.Close().
+// PrepareContext -> Prepare SQL statement, remember to call *Stmt.Close().
 func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (stmt *Stmt, err error) {
 	stmt = &Stmt{
 		way:     s,
@@ -685,7 +685,7 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Call
 	return stmt, nil
 }
 
-// Prepare -> Prepare sql statement, don't forget to call *Stmt.Close().
+// Prepare -> Prepare SQL statement, remember to call *Stmt.Close().
 func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
 	return s.PrepareContext(context.Background(), prepare, caller...)
 }
@@ -705,7 +705,7 @@ func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...in
 	return s.QueryContext(context.Background(), query, prepare, args...)
 }
 
-// QueryRowContext -> Execute sql statement and return a row data, usually INSERT, UPDATE, DELETE.
+// QueryRowContext -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
 func (s *Way) QueryRowContext(ctx context.Context, query func(row *sql.Row) error, prepare string, args ...interface{}) error {
 	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
@@ -715,7 +715,7 @@ func (s *Way) QueryRowContext(ctx context.Context, query func(row *sql.Row) erro
 	return stmt.QueryRowContext(ctx, query, args...)
 }
 
-// QueryRow -> Execute sql statement and return a row data, usually INSERT, UPDATE, DELETE.
+// QueryRow -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
 func (s *Way) QueryRow(query func(row *sql.Row) error, prepare string, args ...interface{}) error {
 	return s.QueryRowContext(context.Background(), query, prepare, args...)
 }
@@ -896,7 +896,7 @@ func (s *Way) BatchUpdate(prepare string, argsList [][]interface{}) (affectedRow
 	return s.BatchUpdateContext(context.Background(), prepare, argsList)
 }
 
-// getter -> Query, execute the query sql statement with args, no prepared is used.
+// getter -> Query, execute the query SQL statement with args, no prepared is used.
 func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	if query == nil || prepare == EmptyString {
 		return nil
@@ -915,7 +915,7 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 	return err
 }
 
-// setter -> Execute, execute the execute sql statement with args, no prepared is used.
+// setter -> Execute, execute the execute SQL statement with args, no prepared is used.
 func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ...interface{}) (rowsAffected int64, err error) {
 	if prepare == EmptyString {
 		return
@@ -933,22 +933,22 @@ func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ..
 	return
 }
 
-// GetterContext -> Execute the query sql statement with args, no prepared is used.
+// GetterContext -> Execute the query SQL statement with args, no prepared is used.
 func (s *Way) GetterContext(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) (err error) {
 	return s.getter(ctx, caller, query, prepare, args...)
 }
 
-// Getter -> Execute the query sql statement with args, no prepared is used.
+// Getter -> Execute the query SQL statement with args, no prepared is used.
 func (s *Way) Getter(caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
 	return s.GetterContext(context.Background(), caller, query, prepare, args...)
 }
 
-// SetterContext -> Execute the execute sql statement with args, no prepared is used.
+// SetterContext -> Execute the execute SQL statement with args, no prepared is used.
 func (s *Way) SetterContext(ctx context.Context, caller Caller, prepare string, args ...interface{}) (int64, error) {
 	return s.setter(ctx, caller, prepare, args...)
 }
 
-// Setter -> Execute the execute sql statement with args, no prepared is used.
+// Setter -> Execute the execute SQL statement with args, no prepared is used.
 func (s *Way) Setter(caller Caller, prepare string, args ...interface{}) (int64, error) {
 	return s.SetterContext(context.Background(), caller, prepare, args...)
 }
@@ -958,22 +958,22 @@ func (s *Way) F(fs ...Filter) Filter {
 	return F().New(fs...).SetWay(s)
 }
 
-// Add -> Create an instance that executes the INSERT sql statement.
+// Add -> Create an instance that executes the INSERT SQL statement.
 func (s *Way) Add(table string) *Add {
 	return NewAdd(s).Table(s.Replace(table))
 }
 
-// Del -> Create an instance that executes the DELETE sql statement.
+// Del -> Create an instance that executes the DELETE SQL statement.
 func (s *Way) Del(table string) *Del {
 	return NewDel(s).Table(s.Replace(table))
 }
 
-// Mod -> Create an instance that executes the UPDATE sql statement.
+// Mod -> Create an instance that executes the UPDATE SQL statement.
 func (s *Way) Mod(table string) *Mod {
 	return NewMod(s).Table(s.Replace(table))
 }
 
-// Get -> Create an instance that executes the SELECT sql statement.
+// Get -> Create an instance that executes the SELECT SQL statement.
 func (s *Way) Get(table ...string) *Get {
 	return NewGet(s).Table(s.Replace(LastNotEmptyString(table)))
 }
@@ -1040,7 +1040,7 @@ func (s *addOneReturnSequenceValue) AddOne() (int64, error) {
 	return s.execute(ctx, stmt, args)
 }
 
-// NewAddOne Insert one and get last insert sequence value.
+// NewAddOne Insert one and get the last insert sequence value.
 func (s *Way) NewAddOne(prepare string, args []interface{}) AddOneReturnSequenceValue {
 	return &addOneReturnSequenceValue{
 		way:     s,
@@ -1089,7 +1089,7 @@ func (s *Way) TG() *TableColumn {
 	return NewTableColumn(s, AliasG)
 }
 
-// Replace For replace key.
+// Replace For a replacement key.
 func (s *Way) Replace(key string) string {
 	if tmp := s.cfg.Manual.Replace; tmp != nil {
 		return tmp.Get(key)
@@ -1097,7 +1097,7 @@ func (s *Way) Replace(key string) string {
 	return key
 }
 
-// Replaces For replace keys.
+// Replaces For replacement keys.
 func (s *Way) Replaces(keys []string) []string {
 	if tmp := s.cfg.Manual.Replace; tmp != nil {
 		return tmp.Gets(keys)
@@ -1123,7 +1123,7 @@ type read struct {
 	// reads Read list.
 	reads []*Way
 
-	// total Length of read list.
+	// total Length of a read list.
 	total int
 
 	// choose Gets a read-only object from the read list.

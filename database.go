@@ -165,7 +165,7 @@ type QueryColumns interface {
 
 	Use(queryColumns ...QueryColumns) QueryColumns
 
-	// Queried Get all columns of the query result.
+	// Queried Get all columns of the query results.
 	Queried(excepts ...string) []string
 }
 
@@ -322,7 +322,7 @@ func (s *queryColumns) Use(queryColumns ...QueryColumns) QueryColumns {
 	return s
 }
 
-// Queried Get all columns of the query result.
+// Queried Get all columns of the query results.
 func (s *queryColumns) Queried(excepts ...string) []string {
 	star := []string{SqlStar}
 	cols := s.columns[:]
@@ -407,7 +407,7 @@ type QueryJoin interface {
 
 	RightJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
 
-	// Where Don't forget to prefix the specific columns with the table name?
+	// Where Remember to prefix the specific columns with the table name?
 	Where(where func(where Filter)) QueryJoin
 
 	// Queries Get query columns.
@@ -1389,10 +1389,10 @@ func NewTableColumn(way *Way, aliases ...string) *TableColumn {
 }
 
 /**
- * sql window functions.
+ * SQL window functions.
  **/
 
-// WindowFunc sql window function.
+// WindowFunc SQL window function.
 type WindowFunc struct {
 	way *Way
 
@@ -1546,13 +1546,13 @@ func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 	}
 }
 
-// CmderQuery execute the built SQL statement and scan query result.
+// CmderQuery execute the built SQL statement and scan query results.
 func CmderQuery(ctx context.Context, way *Way, cmder Cmder, query func(rows *sql.Rows) (err error)) error {
 	prepare, args := cmder.Cmd()
 	return way.QueryContext(ctx, query, prepare, args...)
 }
 
-// CmderGet execute the built SQL statement and scan query result.
+// CmderGet execute the built SQL statement and scan query results.
 func CmderGet(ctx context.Context, way *Way, cmder Cmder, result interface{}) error {
 	prepare, args := cmder.Cmd()
 	return way.TakeAllContext(ctx, result, prepare, args...)

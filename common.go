@@ -76,7 +76,7 @@ func ParcelCancelCmder(cmder Cmder) Cmder {
 	return NewCmder(ParcelCancelPrepare(prepare), args)
 }
 
-// Replace For replace identifiers in sql statements.
+// Replace For replacement identifiers in SQL statements.
 // Replace by default, concurrent reads and writes are not safe.
 // If you need concurrent read and write security, you can implement Replace by yourself.
 type Replace interface {
@@ -157,7 +157,7 @@ func NewReplace() Replace {
 	}
 }
 
-// Cmder Used to build a SQL expression and its corresponding parameter list.
+// Cmder Used to build SQL expression and its corresponding parameter list.
 type Cmder interface {
 	// Cmd Get a list of script statements and their corresponding parameters.
 	Cmd() (prepare string, args []interface{})
@@ -453,8 +453,8 @@ func NewInsertOnConflictUpdateSet(way *Way) InsertOnConflictUpdateSet {
 }
 
 // InsertOnConflict Implement the following SQL statement:
-// INSERT INTO ... ON CONFLICT ( column_a[, column_b, column_c...] ) DO NOTHING /* If a conflict occurs, the insert operation is ignored. */
-// INSERT INTO ... ON CONFLICT ( column_a[, column_b, column_c...] ) DO UPDATE SET column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3, column4 = 'fixed value' ... /* If a conflict occurs, the existing row is updated with the new value */
+// INSERT INTO ... ON CONFLICT (column_a[, column_b, column_c...]) DO NOTHING /* If a conflict occurs, the insert operation is ignored. */
+// INSERT INTO ... ON CONFLICT (column_a[, column_b, column_c...]) DO UPDATE SET column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3, column4 = 'fixed value' ... /* If a conflict occurs, the existing row is updated with the new value */
 type InsertOnConflict interface {
 	// OnConflict The column causing the conflict, such as a unique key or primary key, which can be a single column or multiple columns.
 	OnConflict(onConflicts ...string) InsertOnConflict

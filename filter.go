@@ -18,7 +18,6 @@ func toInterfaceSlice[T interface{}](slice []T) []interface{} {
 }
 
 // argsCompatible Compatibility parameter.
-// var args []T
 // Calling Method A: argsCompatible(args...) (T type must be interface{}).
 // Calling Method B: argsCompatible(args) (T type can be interface{}, int, int64, string ...).
 func argsCompatible(args ...interface{}) []interface{} {
@@ -338,7 +337,7 @@ type Filter interface {
 	// New Create a new conditional filter object based on a set of conditional filter objects.
 	New(fs ...Filter) Filter
 
-	// GreaterThan Implement conditional filtering: column > value .
+	// GreaterThan Implement conditional filtering: column > value.
 	GreaterThan(column string, value interface{}) Filter
 
 	// GreaterThanEqual Implement conditional filtering: column >= value .
@@ -368,22 +367,22 @@ type Filter interface {
 	// InColsSql Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
 	InColsSql(columns []string, prepare string, args ...interface{}) Filter
 
-	// Exists Implement conditional filtering: EXISTS ( subquery ) .
+	// Exists Implement conditional filtering: EXISTS (subquery) .
 	Exists(prepare string, args ...interface{}) Filter
 
-	// Like Implement conditional filtering: column LIKE value .
+	// Like Implement conditional filtering: column LIKE value.
 	Like(column string, value interface{}) Filter
 
 	// IsNull Implement conditional filtering: column IS NULL .
 	IsNull(column string) Filter
 
-	// InQuery Implement conditional filtering: column IN ( subquery ) .
+	// InQuery Implement conditional filtering: column IN (subquery).
 	InQuery(column string, subquery Cmder) Filter
 
 	// InColsQuery Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
 	InColsQuery(columns []string, subquery Cmder) Filter
 
-	// ExistsQuery Implement conditional filtering: EXISTS ( subquery ) .
+	// ExistsQuery Implement conditional filtering: EXISTS (subquery).
 	ExistsQuery(subquery Cmder) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
@@ -413,10 +412,10 @@ type Filter interface {
 	// SomeQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} SOME ( subquery ) .
 	SomeQuantifier(fc func(tmp Quantifier)) Filter
 
-	// GetWay For get *Way .
+	// GetWay For get *Way.
 	GetWay() *Way
 
-	// SetWay For set *Way .
+	// SetWay For set *Way.
 	SetWay(way *Way) Filter
 
 	// Compare Implement conditional filtering: column1 {=||<>||>||>=||<||<=} column2 .
@@ -434,14 +433,14 @@ type Filter interface {
 	// CompareGreaterThanEqual Implement conditional filtering: column1 >= column2 .
 	CompareGreaterThanEqual(column1 string, column2 string, args ...interface{}) Filter
 
-	// CompareLessThan Implement conditional filtering: column1 < column2 .
+	// CompareLessThan Implement conditional filtering: column1 < column2.
 	CompareLessThan(column1 string, column2 string, args ...interface{}) Filter
 
 	// CompareLessThanEqual Implement conditional filtering: column1 <= column2 .
 	CompareLessThanEqual(column1 string, column2 string, args ...interface{}) Filter
 
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
-	// 1. Considering that most of the OR is not used frequently in the business development process.
+	// 1. Considering that, most of the OR is not used frequently in the business development process.
 	// 2. If the business really needs to use it, you can use the OrGroup method: OrGroup(func(g Filter) { g.Equal("column", 1) }) .
 }
 

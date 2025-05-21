@@ -116,7 +116,7 @@ type bindScanStruct struct {
 	// store root struct properties.
 	direct map[string]int
 
-	// store non-root struct properties, such as: anonymous attribute structure and named attribute structure.
+	// store non-root struct properties, such as anonymous attribute structure and named attribute structure.
 	indirect map[string][]int
 
 	// all used struct types, including the root struct.
@@ -131,7 +131,7 @@ func bindScanStructInit() *bindScanStruct {
 	}
 }
 
-// binding Match the binding according to the structure "db" tag and the query column name.
+// Binding Match the binding according to the structure "db" tag and the query column name.
 // Please ensure that the type of refStructType must be `reflect.Struct`.
 func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag string) {
 	if _, ok := s.structType[refStructType]; ok {
@@ -171,7 +171,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 			s.direct[field] = i
 			continue
 		}
-		// others structure attribute, nested anonymous structure or named structure.
+		// another structure attributes, nested anonymous structure or named structure.
 		if _, ok := s.indirect[field]; !ok {
 			dst := depth[:]
 			dst = append(dst, i)
@@ -180,8 +180,8 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 	}
 }
 
-// prepare The preparatory work before executing rows.Scan.
-// find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
+// Prepare The preparatory work before executing rows.Scan.
+// Find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
 // When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear when the root structure accesses the properties of substructures, resulting in panic.
 func (s *bindScanStruct) prepare(columns []string, rowsScan []interface{}, indirect reflect.Value, length int) error {
 	for i := 0; i < length; i++ {
@@ -274,7 +274,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 		return fmt.Errorf("hey: the receiving parameter type needs to be slice or struct, yours is `%s`", refType.String())
 	}
 
-	// Query one, don't forget to use LIMIT 1 in your SQL statement.
+	// Query one, remember to use LIMIT 1 in your SQL statement.
 	if kind1 == reflect.Struct {
 		refStructType := refType1
 		if rows.Next() {
@@ -376,7 +376,7 @@ func ScanSliceStruct(rows *sql.Rows, result interface{}, tag string) error {
 			for i := 1; i < depth2; i++ {
 				tmp := reflect.New(leap.Type()) // creates a pointer to the current type
 				tmp.Elem().Set(leap)            // assign the current value to the new pointer
-				leap = tmp                      // update to new pointer
+				leap = tmp                      // update to a new pointer
 			}
 			refValueSlice = reflect.Append(refValueSlice, leap)
 		}
@@ -444,7 +444,7 @@ type insertByStruct struct {
 	// already existing fields Hash table.
 	used map[string]*struct{}
 
-	// struct reflect type, make sure it is the same structure type.
+	// struct reflects type, make sure it is the same structure type.
 	structReflectType reflect.Type
 }
 
@@ -621,7 +621,7 @@ func StructInsert(object interface{}, tag string, except []string, allow []strin
 	return
 }
 
-// StructModify object should be one of struct{}, *struct{} get the fields and values that need to be modified.
+// StructModify object should be one of anyStruct, *anyStruct get the fields and values that need to be modified.
 func StructModify(object interface{}, tag string, except ...string) (fields []string, values []interface{}) {
 	if object == nil || tag == EmptyString {
 		return
@@ -737,7 +737,7 @@ func StructModify(object interface{}, tag string, except ...string) (fields []st
 	return
 }
 
-// StructObtain object should be one of struct{}, *struct{} for get all fields and values.
+// StructObtain object should be one of anyStruct, *anyStruct for get all fields and values.
 func StructObtain(object interface{}, tag string, except ...string) (fields []string, values []interface{}) {
 	if object == nil || tag == EmptyString {
 		return
@@ -892,7 +892,7 @@ func SqlAlias(name string, alias string) string {
 	return fmt.Sprintf("%s %s %s", name, SqlAs, alias)
 }
 
-// SqlPrefix add sql prefix name; if the prefix exists, it will not be added.
+// SqlPrefix add SQL prefix name; if the prefix exists, it will not be added.
 func SqlPrefix(prefix string, name string) string {
 	if prefix == EmptyString || strings.Contains(name, SqlPoint) {
 		return name
@@ -1033,6 +1033,14 @@ func (s *Del) Del() (int64, error) {
 // GetWay get current *Way.
 func (s *Del) GetWay() *Way {
 	return s.schema.way
+}
+
+// SetWay use the specified *Way object.
+func (s *Del) SetWay(way *Way) *Del {
+	if way != nil {
+		s.schema.way = way
+	}
+	return s
 }
 
 // Add for INSERT.
@@ -1187,7 +1195,7 @@ func (s *Add) Default(add func(add *Add)) *Add {
 	return s
 }
 
-// Create value of create should be one of struct{}, *struct{}, map[string]interface{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
+// Create value of creation should be one of struct{}, *struct{}, map[string]interface{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *Add) Create(create interface{}) *Add {
 	if columnValue, ok := create.(map[string]interface{}); ok {
 		for column, value := range columnValue {
@@ -1303,6 +1311,14 @@ func (s *Add) AddOne(custom func(add AddOneReturnSequenceValue)) (int64, error) 
 // GetWay get current *Way.
 func (s *Add) GetWay() *Way {
 	return s.schema.way
+}
+
+// SetWay use the specified *Way object.
+func (s *Add) SetWay(way *Way) *Add {
+	if way != nil {
+		s.schema.way = way
+	}
+	return s
 }
 
 // Mod for UPDATE.
@@ -1459,7 +1475,7 @@ func (s *Mod) ColumnsValues(columns []string, values []interface{}) *Mod {
 	return s
 }
 
-// Update Value of update should be one of struct{}, *struct{}, map[string]interface{}.
+// Update Value of update should be one of anyStruct, *anyStruct, map[string]interface{}.
 func (s *Mod) Update(update interface{}) *Mod {
 	if columnValue, ok := update.(map[string]interface{}); ok {
 		for column, value := range columnValue {
@@ -1470,7 +1486,7 @@ func (s *Mod) Update(update interface{}) *Mod {
 	return s.ColumnsValues(StructModify(update, s.schema.way.cfg.ScanTag))
 }
 
-// Compare For compare old and new to automatically calculate need to update columns.
+// Compare For compare old and new to automatically calculate the need to update columns.
 func (s *Mod) Compare(old, new interface{}, except ...string) *Mod {
 	return s.ColumnsValues(StructUpdate(old, new, s.schema.way.cfg.ScanTag, except...))
 }
@@ -1553,6 +1569,14 @@ func (s *Mod) GetWay() *Way {
 	return s.schema.way
 }
 
+// SetWay use the specified *Way object.
+func (s *Mod) SetWay(way *Way) *Mod {
+	if way != nil {
+		s.schema.way = way
+	}
+	return s
+}
+
 // Limiter limit and offset.
 type Limiter interface {
 	GetLimit() int64
@@ -1618,7 +1642,7 @@ func (s *Get) Table(table string) *Get {
 	return s
 }
 
-// Alias for table alias name, don't forget to call the current method when the table is a SQL statement.
+// Alias for table alias name, remember to call the current method when the table is a SQL statement.
 func (s *Get) Alias(alias string) *Get {
 	s.schema.table.Alias(s.schema.way.Replace(alias))
 	return s
@@ -1671,7 +1695,7 @@ func (s *Get) Join(custom func(join QueryJoin)) *Get {
 	alias := master.GetAlias()
 	prepare, args := master.Alias(EmptyString).Cmd()
 	if alias == EmptyString {
-		alias = AliasA // set master default alias name.
+		alias = AliasA // set primary default alias name.
 	} else {
 		master.Alias(alias) // restore master default alias name.
 	}
@@ -1699,7 +1723,7 @@ func (s *Get) Group(group ...string) *Get {
 	return s
 }
 
-// Having set filter of group result.
+// Having set filter of group results.
 func (s *Get) Having(having func(f Filter)) *Get {
 	s.group.Having(having)
 	return s
@@ -1726,7 +1750,7 @@ func (s *Get) SetSelect(queryColumns QueryColumns) *Get {
 	return s
 }
 
-// Select Set the columns list for select.
+// Select Set the column list for select.
 func (s *Get) Select(columns ...string) *Get {
 	if length := len(columns); length == 0 {
 		return s
@@ -1955,7 +1979,7 @@ func (s *Get) CountCmd(columns ...string) (string, []interface{}) {
 	return CmderGetCount(s, columns...)
 }
 
-// GetCount execute the built SQL statement and scan query result for count.
+// GetCount execute the built SQL statement and scan query results for count.
 func GetCount(get *Get, countColumns ...string) (count int64, err error) {
 	prepare, args := CmderGetCount(get, countColumns...)
 	err = get.schema.way.QueryContext(get.schema.ctx, func(rows *sql.Rows) (err error) {
@@ -1967,7 +1991,7 @@ func GetCount(get *Get, countColumns ...string) (count int64, err error) {
 	return
 }
 
-// GetQuery execute the built SQL statement and scan query result.
+// GetQuery execute the built SQL statement and scan query results.
 func GetQuery(get *Get, query func(rows *sql.Rows) (err error)) error {
 	prepare, args := CmderGetCmd(get)
 	return get.schema.way.QueryContext(get.schema.ctx, query, prepare, args...)
@@ -2024,7 +2048,7 @@ func GetCountQuery(get *Get, query func(rows *sql.Rows) (err error), countColumn
 	return count, GetQuery(get, query)
 }
 
-// GetCountGet execute the built SQL statement and scan query result, count + get.
+// GetCountGet execute the built SQL statement and scan query results, count + get.
 func GetCountGet(get *Get, result interface{}, countColumn ...string) (int64, error) {
 	count, err := GetCount(get, countColumn...)
 	if err != nil {
@@ -2036,17 +2060,17 @@ func GetCountGet(get *Get, result interface{}, countColumn ...string) (int64, er
 	return count, GetGet(get, result)
 }
 
-// Count execute the built SQL statement and scan query result for count.
+// Count execute the built SQL statement and scan query results for count.
 func (s *Get) Count(column ...string) (int64, error) {
 	return GetCount(s, column...)
 }
 
-// Query execute the built SQL statement and scan query result.
+// Query executes the built SQL statement and scan query results.
 func (s *Get) Query(query func(rows *sql.Rows) (err error)) error {
 	return GetQuery(s, query)
 }
 
-// Get execute the built SQL statement and scan query result.
+// Get execute the built SQL statement and scan query results.
 func (s *Get) Get(result interface{}) error {
 	return GetGet(s, result)
 }
@@ -2071,12 +2095,12 @@ func (s *Get) ViewMap() ([]map[string]interface{}, error) {
 	return GetViewMap(s)
 }
 
-// CountQuery execute the built SQL statement and scan query result, count + query.
+// CountQuery execute the built SQL statement and scan query results, count + query.
 func (s *Get) CountQuery(query func(rows *sql.Rows) (err error), countColumn ...string) (int64, error) {
 	return GetCountQuery(s, query, countColumn...)
 }
 
-// CountGet execute the built SQL statement and scan query result, count + get.
+// CountGet execute the built SQL statement and scan query result, count and get.
 func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error) {
 	return GetCountGet(s, result, countColumn...)
 }
@@ -2084,4 +2108,12 @@ func (s *Get) CountGet(result interface{}, countColumn ...string) (int64, error)
 // GetWay get current *Way.
 func (s *Get) GetWay() *Way {
 	return s.schema.way
+}
+
+// SetWay use the specified *Way object.
+func (s *Get) SetWay(way *Way) *Get {
+	if way != nil {
+		s.schema.way = way
+	}
+	return s
 }
