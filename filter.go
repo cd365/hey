@@ -163,9 +163,9 @@ func filterIn(column string, values []interface{}, not bool) (prepare string, ar
 	tmp := make([]string, 0, len(result)+7)
 	tmp = append(tmp, column)
 	if not {
-		tmp = append(tmp, " NOT")
+		tmp = append(tmp, SqlSpace, SqlNot)
 	}
-	tmp = append(tmp, " IN ", SqlLeftSmallBracket, SqlSpace)
+	tmp = append(tmp, SqlSpace, SqlIn, SqlSpace, SqlLeftSmallBracket, SqlSpace)
 	tmp = append(tmp, result...)
 	tmp = append(tmp, SqlSpace, SqlRightSmallBracket)
 	prepare = ConcatString(tmp...)
@@ -178,9 +178,9 @@ func filterInSql(column string, prepare string, args []interface{}, not bool) (s
 	}
 	result := column
 	if not {
-		result = ConcatString(result, " NOT")
+		result = ConcatString(result, SqlSpace, SqlNot)
 	}
-	result = ConcatString(result, " IN ", SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
+	result = ConcatString(result, SqlSpace, SqlIn, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket)
 	return result, args
 }
 
@@ -216,9 +216,9 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (prepare s
 	tmp := make([]string, 0, 8)
 	tmp = append(tmp, filterInColsFields(columns...))
 	if not {
-		tmp = append(tmp, " NOT")
+		tmp = append(tmp, SqlSpace, SqlNot)
 	}
-	tmp = append(tmp, " IN ", SqlLeftSmallBracket, SqlSpace)
+	tmp = append(tmp, SqlSpace, SqlIn, SqlSpace, SqlLeftSmallBracket, SqlSpace)
 	tmp = append(tmp, strings.Join(valueGroup, SqlConcat))
 	tmp = append(tmp, SqlSpace, SqlRightSmallBracket)
 	prepare = ConcatString(tmp...)
@@ -233,9 +233,9 @@ func filterInColsSql(columns []string, prepare string, args []interface{}, not b
 	tmp := make([]string, 0, 8)
 	tmp = append(tmp, filterInColsFields(columns...))
 	if not {
-		tmp = append(tmp, " NOT")
+		tmp = append(tmp, SqlSpace, SqlNot)
 	}
-	tmp = append(tmp, " IN ", SqlLeftSmallBracket, SqlSpace)
+	tmp = append(tmp, SqlSpace, SqlIn, SqlSpace, SqlLeftSmallBracket, SqlSpace)
 	tmp = append(tmp, prepare)
 	tmp = append(tmp, SqlSpace, SqlRightSmallBracket)
 	return ConcatString(tmp...), args
@@ -245,9 +245,9 @@ func filterExists(prepare string, args []interface{}, not bool) (string, []inter
 	if prepare == EmptyString {
 		return EmptyString, nil
 	}
-	exists := "EXISTS"
+	exists := SqlExists
 	if not {
-		exists = ConcatString("NOT ", exists)
+		exists = ConcatString(SqlNot, SqlSpace, exists)
 	}
 	return ConcatString(exists, SqlSpace, SqlLeftSmallBracket, SqlSpace, prepare, SqlSpace, SqlRightSmallBracket), args
 }
@@ -258,9 +258,9 @@ func filterBetween(column string, not bool) (prepare string) {
 	}
 	prepare = column
 	if not {
-		prepare = ConcatString(prepare, " NOT")
+		prepare = ConcatString(prepare, SqlSpace, SqlNot)
 	}
-	prepare = ConcatString(prepare, " BETWEEN ", SqlPlaceholder, " AND ", SqlPlaceholder)
+	prepare = ConcatString(prepare, SqlSpace, SqlBetween, SqlSpace, SqlPlaceholder, SqlSpace, SqlAnd, SqlSpace, SqlPlaceholder)
 	return
 }
 
@@ -270,9 +270,9 @@ func filterLike(column string, not bool) (prepare string) {
 	}
 	prepare = column
 	if not {
-		prepare = ConcatString(prepare, " NOT")
+		prepare = ConcatString(prepare, SqlSpace, SqlNot)
 	}
-	prepare = ConcatString(prepare, " LIKE ", SqlPlaceholder)
+	prepare = ConcatString(prepare, SqlSpace, SqlLike, SqlSpace, SqlPlaceholder)
 	return
 }
 
@@ -280,11 +280,11 @@ func filterIsNull(column string, not bool) (prepare string) {
 	if column == EmptyString {
 		return
 	}
-	prepare = ConcatString(column, " IS")
+	prepare = ConcatString(column, SqlSpace, SqlIs)
 	if not {
-		prepare = ConcatString(prepare, " NOT")
+		prepare = ConcatString(prepare, SqlSpace, SqlNot)
 	}
-	prepare = ConcatString(prepare, " NULL")
+	prepare = ConcatString(prepare, SqlSpace, SqlNull)
 	return
 }
 

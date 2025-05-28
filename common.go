@@ -267,8 +267,8 @@ func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(r
 	if ctx == nil {
 		ctx = context.Background()
 	} else {
-		if tmp := ctx.Value("hey_sql_rows_scan_len"); tmp != nil {
-			if intValue, ok := tmp.(int); ok && intValue > 0 && intValue <= 50000 {
+		if tmp := ctx.Value(RowsScanStructAllMakeSliceLength); tmp != nil {
+			if intValue, ok := tmp.(int); ok && intValue > 0 && intValue <= 1000000 {
 				length = intValue
 			}
 		}
@@ -426,7 +426,7 @@ type InsertOnConflictUpdateSet interface {
 	UpdateSet
 
 	// Excluded Construct the update expression column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3 ...
-	// This is how the "new" data is accessed that causes the conflict.
+	// This is how the `new` data is accessed that causes the conflict.
 	Excluded(columns ...string) InsertOnConflictUpdateSet
 }
 
@@ -439,7 +439,7 @@ type insertOnConflictUpdateSet struct {
 func (s *insertOnConflictUpdateSet) Excluded(columns ...string) InsertOnConflictUpdateSet {
 	for _, column := range columns {
 		tmp := s.way.Replace(column)
-		s.Update(ConcatString(tmp, SqlSpace, SqlEqual, SqlSpace, "EXCLUDED", SqlPoint, tmp))
+		s.Update(ConcatString(tmp, SqlSpace, SqlEqual, SqlSpace, SqlExcluded, SqlPoint, tmp))
 	}
 	return s
 }
@@ -520,12 +520,12 @@ func (s *insertOnConflict) Cmd() (prepare string, args []interface{}) {
 	defer putStringBuilder(b)
 	b.WriteString(s.insertPrepare)
 	args = append(args, s.insertPrepareArgs...)
-	b.WriteString(" ON CONFLICT ")
+	b.WriteString(ConcatString(SqlSpace, SqlOn, SqlSpace, SqlConflict, SqlSpace))
 	b.WriteString(ParcelPrepare(strings.Join(s.way.Replaces(s.onConflicts), SqlConcat)))
 	b.WriteString(SqlSpace)
-	b.WriteString("DO")
+	b.WriteString(SqlDo)
 	b.WriteString(SqlSpace)
-	doPrepare, doPrepareArgs := "NOTHING", make([]interface{}, 0)
+	doPrepare, doPrepareArgs := SqlNothing, make([]interface{}, 0)
 	if s.onConflictsDoPrepare != EmptyString {
 		doPrepare, doPrepareArgs = s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs
 	} else {
@@ -533,8 +533,7 @@ func (s *insertOnConflict) Cmd() (prepare string, args []interface{}) {
 			tmpPrepare, tmpPrepareArgs := s.onConflictsDoUpdateSet.Cmd()
 			bus := getStringBuilder()
 			defer putStringBuilder(bus)
-			bus.WriteString("UPDATE SET")
-			bus.WriteString(SqlSpace)
+			b.WriteString(ConcatString(SqlUpdate, SqlSpace, SqlSet, SqlSpace))
 			bus.WriteString(tmpPrepare)
 			doPrepare = bus.String()
 			doPrepareArgs = tmpPrepareArgs

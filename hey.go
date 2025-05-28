@@ -68,6 +68,36 @@ const (
 	SqlCoalesce = "COALESCE"
 
 	SqlDistinct = "DISTINCT"
+
+	SqlSelect = "SELECT"
+	SqlInsert = "INSERT"
+	SqlUpdate = "UPDATE"
+	SqlDelete = "DELETE"
+	SqlFrom   = "FROM"
+	SqlInto   = "INTO"
+	SqlValues = "VALUES"
+	SqlSet    = "SET"
+	SqlWhere  = "WHERE"
+
+	SqlBetween     = "BETWEEN"
+	SqlConflict    = "CONFLICT"
+	SqlDo          = "DO"
+	SqlExcluded    = "EXCLUDED"
+	SqlExists      = "EXISTS"
+	SqlGroupBy     = "GROUP BY"
+	SqlHaving      = "HAVING"
+	SqlIn          = "IN"
+	SqlIs          = "IS"
+	SqlLike        = "LIKE"
+	SqlLimit       = "LIMIT"
+	SqlNothing     = "NOTHING"
+	SqlOffset      = "OFFSET"
+	SqlOn          = "ON"
+	SqlOrderBy     = "ORDER BY"
+	SqlOver        = "OVER"
+	SqlPartitionBy = "PARTITION BY"
+	SqlUsing       = "USING"
+	SqlWith        = "WITH"
 )
 
 const (
@@ -82,6 +112,8 @@ const (
 
 const (
 	DefaultAliasNameCount = "counts"
+
+	RowsScanStructAllMakeSliceLength = "rows_scan_struct_all_make_slice_length"
 )
 
 // ErrorRecordDoesNotExists Report query record does not exist.

@@ -131,7 +131,7 @@ func bindScanStructInit() *bindScanStruct {
 	}
 }
 
-// Binding Match the binding according to the structure "db" tag and the query column name.
+// Binding Match the binding according to the structure `db` tag and the query column name.
 // Please ensure that the type of refStructType must be `reflect.Struct`.
 func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag string) {
 	if _, ok := s.structType[refStructType]; ok {
@@ -889,7 +889,7 @@ func SqlAlias(name string, alias string) string {
 	if alias == EmptyString {
 		return name
 	}
-	return fmt.Sprintf("%s %s %s", name, SqlAs, alias)
+	return ConcatString(name, SqlSpace, SqlAs, SqlSpace, alias)
 }
 
 // SqlPrefix add SQL prefix name; if the prefix exists, it will not be added.
@@ -897,7 +897,7 @@ func SqlPrefix(prefix string, name string) string {
 	if prefix == EmptyString || strings.Contains(name, SqlPoint) {
 		return name
 	}
-	return fmt.Sprintf("%s%s%s", prefix, SqlPoint, name)
+	return ConcatString(prefix, SqlPoint, name)
 }
 
 // schema used to store basic information such as context.Context, *Way, SQL comment, table name.
@@ -916,7 +916,7 @@ func newSchema(way *Way) *schema {
 	}
 }
 
-// comment make SQL statement builder, SqlPlaceholder "?" should not appear in comments.
+// comment make SQL statement builder, SqlPlaceholder `?` should not appear in comments.
 // defer putStringBuilder(builder) should be called immediately after calling the current method.
 func comment(schema *schema) (b *strings.Builder) {
 	b = getStringBuilder()
@@ -996,8 +996,7 @@ func (s *Del) Cmd() (prepare string, args []interface{}) {
 
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-	b.WriteString("DELETE ")
-	b.WriteString("FROM ")
+	b.WriteString(ConcatString(SqlDelete, SqlSpace, SqlFrom, SqlSpace))
 
 	table, param := s.schema.table.Cmd()
 	b.WriteString(s.schema.way.Replace(table))
@@ -1013,7 +1012,7 @@ func (s *Del) Cmd() (prepare string, args []interface{}) {
 
 	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := ParcelFilter(s.where).Cmd()
-		b.WriteString(" WHERE ")
+		b.WriteString(ConcatString(SqlSpace, SqlWhere, SqlSpace))
 		b.WriteString(where)
 		if whereArgs != nil {
 			args = append(args, whereArgs...)
@@ -1241,8 +1240,7 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 	b := comment(s.schema)
 	defer putStringBuilder(b)
 	if s.fromCmder != nil {
-		b.WriteString("INSERT ")
-		b.WriteString("INTO ")
+		b.WriteString(ConcatString(SqlInsert, SqlSpace, SqlInto, SqlSpace))
 		table, _ := s.schema.table.Cmd()
 		b.WriteString(s.schema.way.Replace(table))
 		if !IsEmptyCmder(s.columns) {
@@ -1262,8 +1260,7 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 	if IsEmptyCmder(s.columns) || IsEmptyCmder(s.values) {
 		return
 	}
-	b.WriteString("INSERT ")
-	b.WriteString("INTO ")
+	b.WriteString(ConcatString(SqlInsert, SqlSpace, SqlInto, SqlSpace))
 	table, _ := s.schema.table.Cmd()
 	b.WriteString(s.schema.way.Replace(table))
 	b.WriteString(SqlSpace)
@@ -1283,7 +1280,7 @@ func (s *Add) Cmd() (prepare string, args []interface{}) {
 	b.WriteString(columns)
 	b.WriteString(SqlSpace)
 	values, param := s.values.Cmd()
-	b.WriteString("VALUES ")
+	b.WriteString(ConcatString(SqlValues, SqlSpace))
 	b.WriteString(values)
 	if param != nil {
 		args = append(args, param...)
@@ -1522,7 +1519,7 @@ func (s *Mod) Cmd() (prepare string, args []interface{}) {
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-	b.WriteString("UPDATE ")
+	b.WriteString(ConcatString(SqlUpdate, SqlSpace))
 
 	table, param := s.schema.table.Cmd()
 	b.WriteString(s.schema.way.Replace(table))
@@ -1530,7 +1527,7 @@ func (s *Mod) Cmd() (prepare string, args []interface{}) {
 		args = append(args, param...)
 	}
 
-	b.WriteString(" SET ")
+	b.WriteString(ConcatString(SqlSpace, SqlSet, SqlSpace))
 	b.WriteString(update)
 	if updateArgs != nil {
 		args = append(args, updateArgs...)
@@ -1544,7 +1541,7 @@ func (s *Mod) Cmd() (prepare string, args []interface{}) {
 
 	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := ParcelFilter(s.where).Cmd()
-		b.WriteString(" WHERE ")
+		b.WriteString(ConcatString(SqlSpace, SqlWhere, SqlSpace))
 		b.WriteString(where)
 		if whereArgs != nil {
 			args = append(args, whereArgs...)
@@ -1868,13 +1865,13 @@ func CmderGetTable(s *Get) (prepare string, args []interface{}) {
 			}
 		}
 	} else {
-		b.WriteString("SELECT ")
+		b.WriteString(ConcatString(SqlSelect, SqlSpace))
 		columns, columnsArgs := s.columns.Cmd()
 		b.WriteString(columns)
 		if columnsArgs != nil {
 			args = append(args, columnsArgs...)
 		}
-		b.WriteString(" FROM ")
+		b.WriteString(ConcatString(SqlSpace, SqlFrom, SqlSpace))
 		table, param := s.schema.table.Cmd()
 		b.WriteString(s.schema.way.Replace(table))
 		if param != nil {
@@ -1883,7 +1880,7 @@ func CmderGetTable(s *Get) (prepare string, args []interface{}) {
 	}
 	if s.where != nil && !s.where.IsEmpty() {
 		where, whereArgs := ParcelFilter(s.where).Cmd()
-		b.WriteString(" WHERE ")
+		b.WriteString(ConcatString(SqlSpace, SqlWhere, SqlSpace))
 		b.WriteString(where)
 		args = append(args, whereArgs...)
 	}

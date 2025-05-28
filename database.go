@@ -94,7 +94,7 @@ func (s *queryWith) Cmd() (prepare string, args []interface{}) {
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString("WITH")
+	b.WriteString(SqlWith)
 	b.WriteString(SqlSpace)
 	var param []interface{}
 	for index, alias := range s.with {
@@ -103,10 +103,10 @@ func (s *queryWith) Cmd() (prepare string, args []interface{}) {
 		}
 		script := s.withMap[alias]
 		b.WriteString(alias)
-		b.WriteString(" AS ( ")
+		b.WriteString(ConcatString(SqlSpace, SqlAs, SqlSpace, SqlLeftSmallBracket, SqlSpace))
 		prepare, param = script.Cmd()
 		b.WriteString(prepare)
-		b.WriteString(" )")
+		b.WriteString(ConcatString(SqlSpace, SqlRightSmallBracket))
 		args = append(args, param...)
 	}
 	prepare = b.String()
@@ -451,9 +451,9 @@ func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString("SELECT ")
+	b.WriteString(ConcatString(SqlSelect, SqlSpace))
 	b.WriteString(columns)
-	b.WriteString(" FROM ")
+	b.WriteString(ConcatString(SqlSpace, SqlFrom, SqlSpace))
 	prepare, params = s.master.Cmd()
 	b.WriteString(prepare)
 	b.WriteString(SqlSpace)
@@ -512,9 +512,9 @@ func (s *queryJoin) On(conditions ...func(leftAlias string, rightAlias string) C
 			}
 			if !added {
 				added = true
-				b.WriteString("ON ")
+				b.WriteString(ConcatString(SqlOn, SqlSpace))
 			} else {
-				b.WriteString(" AND ")
+				b.WriteString(ConcatString(SqlSpace, SqlAnd, SqlSpace))
 			}
 			b.WriteString(prepare)
 			if args != nil {
@@ -540,9 +540,9 @@ func (s *queryJoin) Using(columns ...string) JoinCondition {
 		columnsUsed = s.way.Replaces(columnsUsed)
 		b := getStringBuilder()
 		defer putStringBuilder(b)
-		b.WriteString("USING ( ")
+		b.WriteString(ConcatString(SqlUsing, SqlSpace, SqlLeftSmallBracket, SqlSpace))
 		b.WriteString(strings.Join(columnsUsed, SqlConcat))
-		b.WriteString(" )")
+		b.WriteString(ConcatString(SqlSpace, SqlRightSmallBracket))
 		return NewCmder(b.String(), nil)
 	}
 }
@@ -634,10 +634,10 @@ func (s *queryGroup) Cmd() (prepare string, args []interface{}) {
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString("GROUP BY ")
+	b.WriteString(ConcatString(SqlGroupBy, SqlSpace))
 	b.WriteString(strings.Join(s.way.Replaces(s.group), SqlConcat))
 	if !s.having.IsEmpty() {
-		b.WriteString(" HAVING ")
+		b.WriteString(ConcatString(SqlSpace, SqlHaving, SqlSpace))
 		having, havingArgs := ParcelFilter(s.having).Cmd()
 		b.WriteString(having)
 		if havingArgs != nil {
@@ -705,7 +705,7 @@ func (s *queryOrder) Cmd() (prepare string, args []interface{}) {
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString("ORDER BY ")
+	b.WriteString(ConcatString(SqlOrderBy, SqlSpace))
 	b.WriteString(strings.Join(s.orderBy, SqlConcat))
 	prepare = b.String()
 	return
@@ -783,9 +783,9 @@ func (s *queryLimit) Cmd() (prepare string, args []interface{}) {
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString(fmt.Sprintf("LIMIT %d", *s.limit))
+	b.WriteString(fmt.Sprintf("%s %d", SqlLimit, *s.limit))
 	if s.offset != nil && *s.offset >= 0 {
-		b.WriteString(fmt.Sprintf(" OFFSET %d", *s.offset))
+		b.WriteString(fmt.Sprintf(" %s %d", SqlOffset, *s.offset))
 	}
 	prepare = b.String()
 	return
@@ -1526,15 +1526,15 @@ func (s *WindowFunc) Result() string {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString(s.withFunc)
-	b.WriteString(" OVER ( PARTITION BY ")
+	b.WriteString(ConcatString(SqlSpace, SqlOver, SqlSpace, SqlLeftSmallBracket, SqlSpace, SqlPartitionBy, SqlSpace))
 	b.WriteString(strings.Join(s.partition, SqlConcat))
-	b.WriteString(" ORDER BY ")
+	b.WriteString(ConcatString(SqlSpace, SqlOrderBy, SqlSpace))
 	b.WriteString(strings.Join(s.order, SqlConcat))
 	if s.windowFrame != EmptyString {
 		b.WriteString(SqlSpace)
 		b.WriteString(s.windowFrame)
 	}
-	b.WriteString(" ) AS ")
+	b.WriteString(ConcatString(SqlSpace, SqlRightSmallBracket, SqlSpace, SqlAs, SqlSpace))
 	b.WriteString(s.alias)
 	return b.String()
 }
