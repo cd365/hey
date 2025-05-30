@@ -372,6 +372,45 @@ func (s *queryColumns) Queried(excepts ...string) []string {
 	return result
 }
 
+type JoinCond interface {
+	Cmder
+	Assoc(leftAlias string, rightAlias string) Cmder
+	On(conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCond
+	Using(using ...string) JoinCond
+}
+
+type joinCond struct {
+	on    Filter
+	using []string
+}
+
+func (s *joinCond) Assoc(leftAlias string, rightAlias string) Cmder {
+	return NewCmder("", nil)
+}
+
+func (s *joinCond) On(fcs ...func(leftAlias string, rightAlias string) Cmder) JoinCond {
+	length := len(fcs)
+	if length == 0 {
+		return s
+	}
+	for _, fc := range fcs {
+		if fc == nil {
+			continue
+		}
+
+	}
+	return s
+}
+
+func (s *joinCond) Using(using ...string) JoinCond {
+	s.using = using
+	return s
+}
+
+func (s *joinCond) Cmd() (prepare string, args []interface{}) {
+	return
+}
+
 // JoinCondition Constructing conditions for join queries.
 type JoinCondition func(leftAlias string, rightAlias string) Cmder
 
@@ -397,7 +436,7 @@ type QueryJoin interface {
 
 	Using(columns ...string) JoinCondition
 
-	OnEqual(leftColumn string, rightColumn string, conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition
+	OnEqual(leftColumn string, rightColumn string) JoinCondition
 
 	Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
 
@@ -548,17 +587,13 @@ func (s *queryJoin) Using(columns ...string) JoinCondition {
 }
 
 // OnEqual For `... JOIN ON ... = ... [...]`
-func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition {
-	lists := make([]func(leftAlias string, rightAlias string) Cmder, 0, len(conditions)+1)
-	equal := func(leftAlias string, rightAlias string) Cmder {
-		if leftColumn == EmptyString || rightColumn == EmptyString {
-			return nil
-		}
+func (s *queryJoin) OnEqual(leftColumn string, rightColumn string) JoinCondition {
+	if leftColumn == EmptyString || rightColumn == EmptyString {
+		return nil
+	}
+	return func(leftAlias string, rightAlias string) Cmder {
 		return NewCmder(fmt.Sprintf("%s %s %s", SqlPrefix(leftAlias, leftColumn), SqlEqual, SqlPrefix(rightAlias, rightColumn)), nil)
 	}
-	lists = append(lists, equal)
-	lists = append(lists, conditions...)
-	return s.On(lists...)
 }
 
 func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
