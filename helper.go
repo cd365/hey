@@ -77,24 +77,8 @@ func LastNotEmptyString(sss []string) string {
 	return EmptyString
 }
 
-// RemoveDuplicate remove duplicate element.
-func RemoveDuplicate(dynamic ...interface{}) (result []interface{}) {
-	length := len(dynamic)
-	mp := make(map[interface{}]*struct{}, length)
-	ok := false
-	result = make([]interface{}, 0, length)
-	for i := 0; i < length; i++ {
-		if _, ok = mp[dynamic[i]]; ok {
-			continue
-		}
-		mp[dynamic[i]] = &struct{}{}
-		result = append(result, dynamic[i])
-	}
-	return
-}
-
-// RemoveDuplicates remove duplicate element.
-func RemoveDuplicates[T comparable](dynamic ...T) (result []T) {
+// DiscardDuplicate discard duplicate element.
+func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (result []T) {
 	length := len(dynamic)
 	mp := make(map[T]*struct{}, length)
 	ok := false
@@ -102,6 +86,11 @@ func RemoveDuplicates[T comparable](dynamic ...T) (result []T) {
 	for i := 0; i < length; i++ {
 		if _, ok = mp[dynamic[i]]; ok {
 			continue
+		}
+		if discard != nil {
+			if discard(dynamic[i]) {
+				continue
+			}
 		}
 		mp[dynamic[i]] = &struct{}{}
 		result = append(result, dynamic[i])

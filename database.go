@@ -372,8 +372,87 @@ func (s *queryColumns) Queried(excepts ...string) []string {
 	return result
 }
 
-// JoinCondition Constructing conditions for join queries.
-type JoinCondition func(leftAlias string, rightAlias string) Cmder
+type JoinOn interface {
+	Cmder
+
+	// Filter JOIN ON Condition.
+	Filter() Filter
+
+	// On Using custom JOIN ON conditions.
+	On(on func(on Filter)) JoinOn
+
+	// Equal Use equal value JOIN ON condition.
+	Equal(leftAlias string, leftColumn string, rightAlias string, rightColumn string) JoinOn
+
+	// Using Use USING instead of ON.
+	Using(using ...string) JoinOn
+}
+
+type joinOn struct {
+	way   *Way
+	on    Filter
+	using []string
+}
+
+func (s *joinOn) Filter() Filter {
+	return s.on
+}
+
+func (s *joinOn) On(fc func(on Filter)) JoinOn {
+	if fc != nil {
+		fc(s.on)
+	}
+	return s
+}
+
+func (s *joinOn) Equal(leftAlias string, leftColumn string, rightAlias string, rightColumn string) JoinOn {
+	s.on.And(ConcatString(SqlPrefix(leftAlias, leftColumn), SqlSpace, SqlEqual, SqlSpace, SqlPrefix(rightAlias, rightColumn)))
+	return s
+}
+
+func (s *joinOn) Using(using ...string) JoinOn {
+	using = DiscardDuplicate(func(tmp string) bool { return tmp == EmptyString }, using...)
+	if len(using) > 0 {
+		s.using = using
+	}
+	return s
+}
+
+func (s *joinOn) Cmd() (prepare string, args []interface{}) {
+	// JOIN ON
+	if s.on != nil && s.on.Num() > 0 {
+		prepare, args = s.on.Cmd()
+		prepare = ConcatString(SqlOn, SqlSpace, prepare)
+		return
+	}
+
+	// JOIN USING
+	if length := len(s.using); length > 0 {
+		using := make([]string, 0, length)
+		for _, column := range s.using {
+			if column != EmptyString {
+				using = append(using, column)
+			}
+		}
+		if len(using) > 0 {
+			using = s.way.Replaces(using)
+			prepare = ConcatString(SqlUsing, SqlSpace, SqlLeftSmallBracket, SqlSpace, strings.Join(using, SqlConcat), SqlSpace, SqlRightSmallBracket)
+			return
+		}
+	}
+
+	return
+}
+
+func newJoinOn(way *Way) JoinOn {
+	return &joinOn{
+		way: way,
+		on:  way.F(),
+	}
+}
+
+// JoinFunc Constructing conditions for join queries.
+type JoinFunc func(leftAlias string, rightAlias string) JoinOn
 
 type queryJoinSchema struct {
 	joinType   string
@@ -393,31 +472,39 @@ type QueryJoin interface {
 
 	NewSubquery(subquery Cmder, alias string) TableCmder
 
-	On(conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition
+	On(onList ...func(o JoinOn, leftAlias string, rightAlias string)) JoinFunc
 
-	Using(columns ...string) JoinCondition
+	Using(columns ...string) JoinFunc
 
-	OnEqual(leftColumn string, rightColumn string, conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition
+	OnEqual(leftColumn string, rightColumn string) JoinFunc
 
-	Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
+	Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
 
-	InnerJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
+	InnerJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
 
-	LeftJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
+	LeftJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
 
-	RightJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin
-
-	// Where Remember to prefix the specific columns with the table name?
-	Where(where func(where Filter)) QueryJoin
+	RightJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
 
 	// Queries Get query columns.
 	Queries() QueryColumns
+
+	// TableColumn Build *TableColumn based on TableCmder.
+	TableColumn(table TableCmder) *TableColumn
+
+	// TableSelect Add the queried column list based on the table's alias prefix.
+	TableSelect(table TableCmder, columns ...string) []string
+
+	// SelectGroupsColumns Add the queried column list based on the table's alias prefix.
+	SelectGroupsColumns(columns ...[]string) QueryJoin
+
+	// SelectTableColumnAlias Batch set multiple columns of the specified table and set aliases for all columns.
+	SelectTableColumnAlias(table TableCmder, columnAndColumnAlias ...string) QueryJoin
 }
 
 type queryJoin struct {
 	master       TableCmder
 	joins        []*queryJoinSchema
-	filter       Filter
 	queryColumns QueryColumns
 
 	way *Way
@@ -426,7 +513,6 @@ type queryJoin struct {
 func NewQueryJoin(way *Way) QueryJoin {
 	tmp := &queryJoin{
 		joins:        make([]*queryJoinSchema, 0, 1<<3),
-		filter:       way.F(),
 		queryColumns: NewQueryColumns(way),
 		way:          way,
 	}
@@ -466,14 +552,14 @@ func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
 			b.WriteString(SqlSpace)
 		}
 		b.WriteString(tmp.joinType)
-		b.WriteString(SqlSpace)
 		prepare, params = tmp.rightTable.Cmd()
-		b.WriteString(prepare)
 		b.WriteString(SqlSpace)
+		b.WriteString(prepare)
 		args = append(args, params...)
 		if tmp.condition != nil {
 			prepare, params = tmp.condition.Cmd()
 			if prepare != EmptyString {
+				b.WriteString(SqlSpace)
 				b.WriteString(prepare)
 				if params != nil {
 					args = append(args, params...)
@@ -495,73 +581,43 @@ func (s *queryJoin) NewSubquery(subquery Cmder, alias string) TableCmder {
 }
 
 // On For `... JOIN ON ...`
-func (s *queryJoin) On(conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition {
-	return func(leftAlias string, rightAlias string) Cmder {
-		b := getStringBuilder()
-		defer putStringBuilder(b)
-		added := false
-		params := make([]interface{}, 0, 1<<5)
-		for _, condition := range conditions {
-			script := condition(leftAlias, rightAlias)
-			if script == nil {
-				continue
+func (s *queryJoin) On(onList ...func(o JoinOn, leftAlias string, rightAlias string)) JoinFunc {
+	return func(leftAlias string, rightAlias string) JoinOn {
+		return newJoinOn(s.way).On(func(o Filter) {
+			for _, tmp := range onList {
+				if tmp != nil {
+					newAssoc := newJoinOn(s.way)
+					tmp(newAssoc, leftAlias, rightAlias)
+					if object := newAssoc.Filter(); object.Num() > 0 {
+						prepare, args := object.Cmd()
+						o.And(prepare, args...)
+					}
+				}
 			}
-			prepare, args := script.Cmd()
-			if prepare == EmptyString {
-				continue
-			}
-			if !added {
-				added = true
-				b.WriteString(ConcatString(SqlOn, SqlSpace))
-			} else {
-				b.WriteString(ConcatString(SqlSpace, SqlAnd, SqlSpace))
-			}
-			b.WriteString(prepare)
-			if args != nil {
-				params = append(params, args...)
-			}
-		}
-		return NewCmder(b.String(), params)
+		})
 	}
 }
 
 // Using For `... JOIN USING ...`
-func (s *queryJoin) Using(columns ...string) JoinCondition {
-	return func(leftAlias string, rightAlias string) Cmder {
-		columnsUsed := make([]string, 0, len(columns))
-		for _, column := range columns {
-			if column != EmptyString {
-				columnsUsed = append(columnsUsed, column)
-			}
-		}
-		if len(columnsUsed) == 0 {
-			return nil
-		}
-		columnsUsed = s.way.Replaces(columnsUsed)
-		b := getStringBuilder()
-		defer putStringBuilder(b)
-		b.WriteString(ConcatString(SqlUsing, SqlSpace, SqlLeftSmallBracket, SqlSpace))
-		b.WriteString(strings.Join(columnsUsed, SqlConcat))
-		b.WriteString(ConcatString(SqlSpace, SqlRightSmallBracket))
-		return NewCmder(b.String(), nil)
+func (s *queryJoin) Using(columns ...string) JoinFunc {
+	return func(leftAlias string, rightAlias string) JoinOn {
+		return newJoinOn(s.way).Using(columns...)
 	}
 }
 
 // OnEqual For `... JOIN ON ... = ... [...]`
-func (s *queryJoin) OnEqual(leftColumn string, rightColumn string, conditions ...func(leftAlias string, rightAlias string) Cmder) JoinCondition {
-	lists := make([]func(leftAlias string, rightAlias string) Cmder, 0, len(conditions)+1)
-	equal := func(leftAlias string, rightAlias string) Cmder {
-		if leftColumn == EmptyString || rightColumn == EmptyString {
-			return nil
-		}
-		return NewCmder(fmt.Sprintf("%s %s %s", SqlPrefix(leftAlias, leftColumn), SqlEqual, SqlPrefix(rightAlias, rightColumn)), nil)
+func (s *queryJoin) OnEqual(leftColumn string, rightColumn string) JoinFunc {
+	if leftColumn == EmptyString || rightColumn == EmptyString {
+		return nil
 	}
-	lists = append(lists, equal)
-	lists = append(lists, conditions...)
-	return s.On(lists...)
+	return func(leftAlias string, rightAlias string) JoinOn {
+		return newJoinOn(s.way).On(func(on Filter) {
+			on.CompareEqual(SqlPrefix(leftAlias, leftColumn), SqlPrefix(rightAlias, rightColumn))
+		})
+	}
 }
 
-func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
+func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
 	if joinTypeString == EmptyString {
 		joinTypeString = SqlJoinInner
 	}
@@ -575,35 +631,65 @@ func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable
 		joinType:   joinTypeString,
 		rightTable: rightTable,
 	}
-	if condition != nil {
-		join.condition = condition(leftTable.GetAlias(), rightTable.GetAlias())
+	if on != nil {
+		join.condition = on(leftTable.GetAlias(), rightTable.GetAlias())
 	}
 	s.joins = append(s.joins, join)
 	return s
 }
 
-func (s *queryJoin) InnerJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
-	return s.Join(SqlJoinInner, leftTable, rightTable, condition)
+func (s *queryJoin) InnerJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
+	return s.Join(SqlJoinInner, leftTable, rightTable, on)
 }
 
-func (s *queryJoin) LeftJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
-	return s.Join(SqlJoinLeft, leftTable, rightTable, condition)
+func (s *queryJoin) LeftJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
+	return s.Join(SqlJoinLeft, leftTable, rightTable, on)
 }
 
-func (s *queryJoin) RightJoin(leftTable TableCmder, rightTable TableCmder, condition JoinCondition) QueryJoin {
-	return s.Join(SqlJoinRight, leftTable, rightTable, condition)
-}
-
-func (s *queryJoin) Where(where func(where Filter)) QueryJoin {
-	if where == nil {
-		return s
-	}
-	where(s.filter)
-	return s
+func (s *queryJoin) RightJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
+	return s.Join(SqlJoinRight, leftTable, rightTable, on)
 }
 
 func (s *queryJoin) Queries() QueryColumns {
 	return s.queryColumns
+}
+
+func (s *queryJoin) TableColumn(table TableCmder) *TableColumn {
+	result := s.way.T()
+	if table == nil {
+		return result
+	}
+	if alias := table.GetAlias(); alias != EmptyString {
+		result.SetAlias(alias)
+	}
+	return result
+}
+
+func (s *queryJoin) TableSelect(table TableCmder, columns ...string) []string {
+	return s.TableColumn(table).ColumnAll(columns...)
+}
+
+func (s *queryJoin) SelectGroupsColumns(columns ...[]string) QueryJoin {
+	groups := make([]string, 0, 1<<5)
+	for _, values := range columns {
+		groups = append(groups, values...)
+	}
+	s.queryColumns.AddAll(groups...)
+	return s
+}
+
+func (s *queryJoin) SelectTableColumnAlias(table TableCmder, columnAndColumnAlias ...string) QueryJoin {
+	length := len(columnAndColumnAlias)
+	if length == 0 || length&1 == 1 {
+		return s
+	}
+	tmp := s.TableColumn(table)
+	for i := 0; i < length; i += 2 {
+		if columnAndColumnAlias[i] != EmptyString && columnAndColumnAlias[i+1] != EmptyString {
+			s.queryColumns.Add(tmp.Column(columnAndColumnAlias[i], columnAndColumnAlias[i+1]))
+		}
+	}
+	return s
 }
 
 // QueryGroup Constructing query groups.
@@ -1362,22 +1448,22 @@ func (s *TableColumn) aggregate(column string, defaultValue string, aliases ...s
 
 // SUM COALESCE(SUM(column) ,0)[ AS column_alias_name]
 func (s *TableColumn) SUM(column string, aliases ...string) string {
-	return SqlAlias(s.aggregate(s.Sum(column), "0"), s.aliasName(aliases...))
+	return s.aggregate(s.Sum(column), "0", aliases...)
 }
 
 // MAX COALESCE(MAX(column) ,0)[ AS column_alias_name]
 func (s *TableColumn) MAX(column string, aliases ...string) string {
-	return SqlAlias(s.aggregate(s.Max(column), "0"), s.aliasName(aliases...))
+	return s.aggregate(s.Max(column), "0", aliases...)
 }
 
 // MIN COALESCE(MIN(column) ,0)[ AS column_alias_name]
 func (s *TableColumn) MIN(column string, aliases ...string) string {
-	return SqlAlias(s.aggregate(s.Min(column), "0"), s.aliasName(aliases...))
+	return s.aggregate(s.Min(column), "0", aliases...)
 }
 
 // AVG COALESCE(AVG(column) ,0)[ AS column_alias_name]
 func (s *TableColumn) AVG(column string, aliases ...string) string {
-	return SqlAlias(s.aggregate(s.Avg(column), "0"), s.aliasName(aliases...))
+	return s.aggregate(s.Avg(column), "0", aliases...)
 }
 
 func NewTableColumn(way *Way, aliases ...string) *TableColumn {

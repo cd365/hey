@@ -139,7 +139,7 @@ func filterIn(column string, values []interface{}, not bool) (prepare string, ar
 	if length == 0 {
 		return
 	}
-	values = RemoveDuplicate(values...)
+	values = DiscardDuplicate(nil, values...)
 	length = len(values)
 	if length == 1 {
 		if not {
