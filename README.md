@@ -360,25 +360,43 @@ func Select(way *hey.Way) error {
 	_ = get.Group("age").Having(func(f hey.Filter) { /* TODO */ }).Get(&more)
 
 	// Join query
-	a, b, c := way.TA(), way.TB(), way.TC()
-	_ = get.Alias(a.Alias()).Join(func(join hey.QueryJoin) {
-		tb := join.NewTable("inner_join_table_name_b", b.Alias())
+
+	joinGroupBy := make([]string, 0)
+	_ = get.Alias(hey.AliasA).Join(func(join hey.QueryJoin) {
+		a := join.GetMaster()
+		b := join.NewTable("inner_join_table_name_b", hey.AliasB)
 
 		// Joining with subqueries
-		// tb = join.NewSubquery(way.Get(), b.Alias())
+		// b = join.NewSubquery(way.Get(), hey.AliasB)
 
 		// Special note: When the left table uses a nil value, the table name specified by the Get object will be used for connection by default.
-		join.InnerJoin(nil, tb, join.OnEqual("left_column_name_a", "right_column_name_b"))
+		join.InnerJoin(nil, b, join.OnEqual("left_column_name_a", "right_column_name_b"))
 
 		// Use the specified table as the left table.
-		tc := join.NewTable("inner_join_table_name_c", c.Alias())
-		join.InnerJoin(tb, tc, join.OnEqual("left_column_name_b", "right_column_name_c"))
+		c := join.NewTable("inner_join_table_name_c", hey.AliasC)
+		join.InnerJoin(b, c, join.OnEqual("left_column_name_b", "right_column_name_c"))
 		// When the names of the fields in two tables are the same, you can use the following abbreviations.
-		// join.InnerJoin(tb, tc, join.Using("user_id"))
+		// join.InnerJoin(b, c, join.Using("user_id"))
 
 		// Set the query columns list
-		join.Queries().Add("a.id", "b.name", "c.age" /* ... */)
-	}).Where(func(f hey.Filter) {}).Desc("age").Limit(10).Get(&more)
+		join.SelectGroupsColumns(
+			join.TableSelect(a, "id"),
+			join.TableSelect(b, "name"),
+			join.TableSelect(c, "age"),
+			/* ... */
+		)
+		join.SelectTableColumnAlias(a, "email", "admin_email")
+		join.SelectTableColumnAlias(b, "email", "user_email")
+		join.SelectTableColumnAlias(c, "score", "score_result")
+
+		// Using a column list prefixed with a table alias in a GROUP BY statement.
+		joinGroupBy = join.TableSelect(a, "id", "name")
+	}).
+		Where(func(f hey.Filter) {}).
+		Desc("age").
+		Group(joinGroupBy...).
+		Limit(10).
+		Get(&more)
 
 	// Custom scan data.
 	_ = get.ScanAll(func(rows *sql.Rows) error {
