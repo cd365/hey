@@ -234,7 +234,7 @@ func filterIdIn[T int | int64 | string](ids ...T) func(f hey.Filter) {
 		// Type A
 		f.In("ids", ids)
 		// Type B
-		f.In("ids", hey.ArrayToArray(ids, func(v T) interface{} { return v }))
+		f.In("ids", hey.ArrayToArray(ids, func(k int, v T) interface{} { return v }))
 	}
 }
 

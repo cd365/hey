@@ -372,7 +372,22 @@ func MergeArray[V interface{}](values ...[]V) []V {
 	return result
 }
 
+func AssocToAssoc[K comparable, V interface{}, X comparable, Y interface{}](values map[K]V, fc func(k K, v V) (X, Y)) map[X]Y {
+	if fc == nil {
+		return nil
+	}
+	result := make(map[X]Y, len(values))
+	for key, value := range values {
+		k, v := fc(key, value)
+		result[k] = v
+	}
+	return result
+}
+
 func AssocToArray[K comparable, V interface{}, W interface{}](values map[K]V, fc func(k K, v V) W) []W {
+	if fc == nil {
+		return nil
+	}
 	length := len(values)
 	result := make([]W, length)
 	for index, value := range values {
@@ -382,6 +397,9 @@ func AssocToArray[K comparable, V interface{}, W interface{}](values map[K]V, fc
 }
 
 func ArrayToAssoc[V interface{}, K comparable, W interface{}](values []V, fc func(v V) (K, W)) map[K]W {
+	if fc == nil {
+		return nil
+	}
 	length := len(values)
 	result := make(map[K]W, length)
 	for i := 0; i < length; i++ {
@@ -391,30 +409,38 @@ func ArrayToAssoc[V interface{}, K comparable, W interface{}](values []V, fc fun
 	return result
 }
 
-func ArrayToArray[V interface{}, W interface{}](values []V, fc func(v V) W) []W {
-	length := len(values)
-	result := make([]W, length)
-	for i := 0; i < length; i++ {
-		result[i] = fc(values[i])
+func ArrayToArray[V interface{}, W interface{}](values []V, fc func(k int, v V) W) []W {
+	if fc == nil {
+		return nil
+	}
+	result := make([]W, len(values))
+	for index, value := range values {
+		result[index] = fc(index, value)
 	}
 	return result
 }
 
-func ArrayRemoveIndex[V interface{}](values []V, indexes []int) []V {
-	count := len(indexes)
-	if count == 0 {
+func AssocDiscard[K comparable, V interface{}](values map[K]V, discard func(k K, v V) bool) map[K]V {
+	if values == nil || discard == nil {
 		return values
 	}
-	length := len(values)
-	mp := make(map[int]*struct{}, count)
-	for i := 0; i < count; i++ {
-		mp[indexes[i]] = &struct{}{}
+	result := make(map[K]V, len(values))
+	for index, value := range values {
+		if !discard(index, value) {
+			result[index] = value
+		}
 	}
-	ok := false
-	result := make([]V, 0, length)
-	for i := 0; i < length; i++ {
-		if _, ok = mp[i]; !ok {
-			result = append(result, values[i])
+	return result
+}
+
+func ArrayDiscard[V interface{}](values []V, discard func(k int, v V) bool) []V {
+	if values == nil || discard == nil {
+		return values
+	}
+	result := make([]V, 0, len(values))
+	for index, value := range values {
+		if !discard(index, value) {
+			result = append(result, value)
 		}
 	}
 	return result
