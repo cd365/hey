@@ -1,6 +1,6 @@
 module github.com/cd365/hey/v3
 
-go 1.21
+go 1.22
 
 require github.com/cd365/logger/v8 v8.0.0
 

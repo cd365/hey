@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 type Cache struct {
 	getter    func(key string) (value []byte, exists bool, err error)
 	setter    func(key string, value []byte, duration ...time.Duration) error
+	deleter   func(key string) error
 	exists    func(key string) (exists bool, err error)
 	key       func(key string) string
 	marshal   func(v interface{}) ([]byte, error)
@@ -31,6 +33,13 @@ func (s *Cache) UseGetter(getter func(key string) (value []byte, exists bool, er
 func (s *Cache) UseSetter(setter func(key string, value []byte, duration ...time.Duration) error) *Cache {
 	if s.setter != nil {
 		s.setter = setter
+	}
+	return s
+}
+
+func (s *Cache) UseDeleter(deleter func(key string) error) *Cache {
+	if s.deleter != nil {
+		s.deleter = deleter
 	}
 	return s
 }
@@ -83,6 +92,10 @@ func (s *Cache) Set(key string, value []byte, duration ...time.Duration) error {
 		key = s.key(key)
 	}
 	return s.setter(key, value, duration...)
+}
+
+func (s *Cache) Del(key string) error {
+	return s.deleter(key)
 }
 
 func (s *Cache) GetUnmarshal(key string, value interface{}) (exists bool, err error) {
@@ -176,7 +189,7 @@ func (s *Cache) GetBool(key string) (value bool, exists bool, err error) {
 }
 
 func (s *Cache) SetBool(key string, value bool, duration ...time.Duration) error {
-	return s.Set(key, []byte(fmt.Sprintf("%t", value)), duration...)
+	return s.Set(key, fmt.Appendf(nil, "%t", value), duration...)
 }
 
 func (s *Cache) Exists(key string) (exists bool, err error) {
@@ -204,10 +217,12 @@ func (s *Cache) RandDuration(min int, max int, duration time.Duration) time.Dura
 func NewCache(
 	getter func(key string) (value []byte, exists bool, err error), // nil value are not allowed
 	setter func(key string, value []byte, duration ...time.Duration) error, // nil value are not allowed
+	deleter func(key string) error, // nil value are not allowed
 ) *Cache {
 	return &Cache{
 		getter:    getter,
 		setter:    setter,
+		deleter:   deleter,
 		marshal:   json.Marshal,
 		unmarshal: json.Unmarshal,
 	}
@@ -230,7 +245,7 @@ func (s *CacheQuery) buildCacheKey() error {
 
 	s.prepare, s.args = s.get.Cmd()
 	if s.prepare == EmptyString {
-		return fmt.Errorf("the query statement is empty")
+		return errors.New("the query statement is empty")
 	}
 
 	for index, value := range s.args {
@@ -245,7 +260,9 @@ func (s *CacheQuery) buildCacheKey() error {
 	}
 
 	h := hmac.New(sha256.New, []byte(s.prepare))
-	h.Write(param)
+	if _, err = h.Write(param); err != nil {
+		return err
+	}
 	s.key = hex.EncodeToString(h.Sum(nil))
 
 	return nil
@@ -263,6 +280,13 @@ func (s *CacheQuery) Set(value []byte, duration ...time.Duration) error {
 		return err
 	}
 	return s.cache.Set(s.key, value, duration...)
+}
+
+func (s *CacheQuery) Del() error {
+	if err := s.buildCacheKey(); err != nil {
+		return err
+	}
+	return s.cache.Del(s.key)
 }
 
 func (s *CacheQuery) GetUnmarshal(value interface{}) (exists bool, err error) {
