@@ -400,7 +400,7 @@ func NewWay(db *sql.DB) *Way {
 		}
 	}
 
-	debug := &debugger{}
+	debug := NewDebugger()
 	debug.SetLog(logger.NewLogger(os.Stdout))
 
 	cfg.Debugger = debug
@@ -1388,11 +1388,13 @@ func (s *debugger) SetWay(way *Way) Debugger {
 }
 
 func (s *debugger) Debugger(cmder Cmder) Debugger {
-	if cmder == nil || s.log == nil || s.way == nil {
+	if cmder == nil || s.log == nil {
 		return s
 	}
 	prepare, args := cmder.Cmd()
 	script := prepareArgsToString(prepare, args)
-	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, args).Send()
+	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, args).Msg("Debugging SQL Statements")
 	return s
 }
+
+func NewDebugger() Debugger { return &debugger{} }

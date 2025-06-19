@@ -2,7 +2,7 @@ module github.com/cd365/hey/v3
 
 go 1.22
 
-require github.com/cd365/logger/v8 v8.0.0
+require github.com/cd365/logger/v8 v8.1.0
 
 require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
