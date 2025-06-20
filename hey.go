@@ -1366,7 +1366,6 @@ type Debugger interface {
 
 type debugger struct {
 	log *logger.Logger
-	way *Way
 }
 
 func (s *debugger) GetLog() *logger.Logger {
