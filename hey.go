@@ -389,6 +389,7 @@ func (s *Way) IsRead() bool {
 
 func NewWay(db *sql.DB) *Way {
 	cfg := DefaultCfg()
+
 	cfg.Manual = Postgresql()
 	if drivers := sql.Drivers(); len(drivers) == 1 {
 		switch drivers[0] {
@@ -400,17 +401,12 @@ func NewWay(db *sql.DB) *Way {
 		}
 	}
 
-	debug := NewDebugger()
-	debug.SetLog(logger.NewLogger(os.Stdout))
-
-	cfg.Debugger = debug
+	cfg.Debugger = NewDebugger().SetLog(logger.NewLogger(os.Stdout))
 
 	way := &Way{
 		db:  db,
 		cfg: &cfg,
 	}
-
-	debug.SetWay(way)
 
 	return way
 }
@@ -1142,10 +1138,10 @@ func (s *Way) WindowFunc(alias ...string) *WindowFunc {
 	return NewWindowFunc(s, alias...)
 }
 
-// Debugger Debug output SQL script.
-func (s *Way) Debugger(cmder Cmder) *Way {
+// Debug Debugging output SQL script.
+func (s *Way) Debug(cmder Cmder) *Way {
 	if s.cfg.Debugger != nil {
-		s.cfg.Debugger.Debugger(cmder)
+		s.cfg.Debugger.Debug(cmder)
 	}
 	return s
 }
@@ -1361,11 +1357,8 @@ type Debugger interface {
 	// SetLog Set *logger.Logger
 	SetLog(log *logger.Logger) Debugger
 
-	// SetWay Set *Way
-	SetWay(way *Way) Debugger
-
-	// Debugger Debug output SQL script
-	Debugger(cmder Cmder) Debugger
+	// Debug Debug output SQL script
+	Debug(cmder Cmder) Debugger
 }
 
 type debugger struct {
@@ -1382,12 +1375,7 @@ func (s *debugger) SetLog(log *logger.Logger) Debugger {
 	return s
 }
 
-func (s *debugger) SetWay(way *Way) Debugger {
-	s.way = way
-	return s
-}
-
-func (s *debugger) Debugger(cmder Cmder) Debugger {
+func (s *debugger) Debug(cmder Cmder) Debugger {
 	if cmder == nil || s.log == nil {
 		return s
 	}
