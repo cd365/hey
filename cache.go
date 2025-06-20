@@ -5,7 +5,7 @@
 package hey
 
 import (
-	"crypto/hmac"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -209,6 +209,11 @@ func (s *Cache) RandDuration(min int, max int, duration time.Duration) time.Dura
 	return time.Duration(min+rand.IntN(max-min+1)) * duration
 }
 
+func (s *Cache) Fork() *Cache {
+	forkCache := *s
+	return &forkCache
+}
+
 func NewCache(
 	getter func(key string) (value []byte, exists bool, err error), // nil value are not allowed
 	setter func(key string, value []byte, duration ...time.Duration) error, // nil value are not allowed
@@ -233,6 +238,7 @@ type CacheQuery struct {
 	key     string
 }
 
+// buildCacheKey Use prepare and args to calculate the hash value as the cache key.
 func (s *CacheQuery) buildCacheKey() error {
 	if s.key != EmptyString {
 		return nil
@@ -254,11 +260,19 @@ func (s *CacheQuery) buildCacheKey() error {
 		return err
 	}
 
-	h := hmac.New(sha256.New, []byte(s.prepare))
-	if _, err = h.Write(param); err != nil {
+	buffer := bytes.NewBufferString(s.prepare)
+	if _, err = buffer.WriteString(";"); err != nil {
 		return err
 	}
-	s.key = hex.EncodeToString(h.Sum(nil))
+	if _, err = buffer.Write(param); err != nil {
+		return err
+	}
+
+	hash := sha256.New()
+	if _, err = hash.Write(buffer.Bytes()); err != nil {
+		return err
+	}
+	s.key = hex.EncodeToString(hash.Sum(nil))
 
 	return nil
 }
