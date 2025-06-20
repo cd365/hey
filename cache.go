@@ -1,3 +1,7 @@
+// Cache query data to reduce database pressure; Used in combination with query functions to reduce coupling.
+// Supports fast extraction of specific types of data from the cache, including int, string, float, bool ...
+// You are not restricted to using a specific cache or data serialization method, and JSON serialization and deserialization are used by default.
+
 package hey
 
 import (
@@ -202,15 +206,6 @@ func (s *Cache) Exists(key string) (exists bool, err error) {
 }
 
 func (s *Cache) RandDuration(min int, max int, duration time.Duration) time.Duration {
-	if min < 1 {
-		min = 1
-	}
-	if max < 1 {
-		max = 1
-	}
-	if max < min {
-		min, max = max, min
-	}
 	return time.Duration(min+rand.IntN(max-min+1)) * duration
 }
 
@@ -346,11 +341,8 @@ func (s *CacheQuery) ResetGet(get *Get) *CacheQuery {
 }
 
 func NewCacheQuery(cache *Cache, get *Get) *CacheQuery {
-	if cache == nil {
-		panic("cache is nil")
-	}
-	if get == nil {
-		panic("get is nil")
+	if cache == nil || get == nil {
+		return nil
 	}
 	return &CacheQuery{
 		cache: cache,
