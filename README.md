@@ -9,6 +9,7 @@ For example: INSERT, DELETE, UPDATE, SELECT ...
 3. Try to avoid using reflection when scanning and querying data to reduce time consumption.
 4. When the database table structure changes, your code will be able to feel it immediately.
 5. When you implement a business, focus more on the business rather than on building SQL statements.
+6. Allows the use of custom caches to reduce query request pressure on relational databases.
 
 ## INSTALL
 ```shell
@@ -32,6 +33,7 @@ import (
 	_ "github.com/lib/pq"              /* Registering the database driver */
 	_ "github.com/mattn/go-sqlite3"    /* Registering the database driver */
 	"os"
+	"sync"
 	"time"
 )
 
@@ -125,7 +127,7 @@ func Sqlite() (*hey.Way, error) {
 	return way, nil
 }
 
-type exampleAnyStruct struct {
+type ExampleAnyStruct struct {
 	Name string `db:"name"` // Table column name
 	Age  int    `db:"age"`  // Table column age
 }
@@ -156,7 +158,7 @@ func Insert(way *hey.Way) (affectedRowsOrLastInsertId int64, err error) {
 	// Method A:
 	{
 		common(add) // Optional
-		affectedRowsOrLastInsertId, err = add.Create(exampleAnyStruct{}).Add()
+		affectedRowsOrLastInsertId, err = add.Create(ExampleAnyStruct{}).Add()
 		if err != nil {
 			return
 		}
@@ -178,7 +180,7 @@ func Insert(way *hey.Way) (affectedRowsOrLastInsertId int64, err error) {
 	// Method C:
 	{
 		// common(add) // Optional
-		lists := make([]*exampleAnyStruct, 0)
+		lists := make([]*ExampleAnyStruct, 0)
 		affectedRowsOrLastInsertId, err = add.Create(lists).Add()
 		if err != nil {
 			return
@@ -309,7 +311,7 @@ func Select(way *hey.Way) error {
 	get.Comment("The first select statement")
 
 	// Query a piece of data.
-	one := &exampleAnyStruct{}
+	one := &ExampleAnyStruct{}
 	if err := get.Limit(1).Get(one); err != nil {
 		if !errors.Is(err, hey.RecordDoesNotExists) {
 			return err
@@ -321,7 +323,7 @@ func Select(way *hey.Way) error {
 	_ = get.Desc("id").Limit(1).Get(one)
 
 	// Query multiple records
-	more := make([]*exampleAnyStruct, 0)
+	more := make([]*ExampleAnyStruct, 0)
 	_ = get.Asc("id").Limit(10).Get(&more)
 	_ = get.Asc("id").Limit(10).Offset(10).Get(&more)
 
@@ -401,7 +403,7 @@ func Select(way *hey.Way) error {
 
 	// Custom scan data.
 	_ = get.ScanAll(func(rows *sql.Rows) error {
-		tmp := &exampleAnyStruct{}
+		tmp := &ExampleAnyStruct{}
 		if err := rows.Scan(&tmp.Name /* ... */); err != nil {
 			return err
 		}
@@ -418,23 +420,23 @@ func Select(way *hey.Way) error {
 		Get(&more)
 
 	// Multiple columns comparison
-	queried := make([]*exampleAnyStruct, 0)
+	queried := make([]*ExampleAnyStruct, 0)
 	_ = get.Where(func(f hey.Filter) {
 		f.InCols(
 			[]string{"name", "age"},
-			hey.ColumnsInValues(queried, func(tmp *exampleAnyStruct) []interface{} { return []interface{}{tmp.Name, tmp.Age} })...,
+			hey.ColumnsInValues(queried, func(tmp *ExampleAnyStruct) []interface{} { return []interface{}{tmp.Name, tmp.Age} })...,
 		)
 	})
 
 	// Quickly scan data into any structure, do not use reflect scan data.
 	prepare, args := get.Select("name", "age").Limit(10).Desc("id").Cmd()
-	more, _ = hey.RowsScanStructAll[exampleAnyStruct](context.Background(), get.GetWay(), func(rows *sql.Rows, v *exampleAnyStruct) error {
+	more, _ = hey.RowsScanStructAll[ExampleAnyStruct](context.Background(), get.GetWay(), func(rows *sql.Rows, v *ExampleAnyStruct) error {
 		return rows.Scan(&v.Name, &v.Age)
 	}, prepare, args...)
 
 	// Quickly scan a piece of data into any structure, do not use reflect scan data.
 	prepare, args = get.Select("name", "age").Limit(1).Desc("id").Cmd()
-	one, err := hey.RowsScanStructOne[exampleAnyStruct](context.Background(), get.GetWay(), func(rows *sql.Rows, v *exampleAnyStruct) error {
+	one, err := hey.RowsScanStructOne[ExampleAnyStruct](context.Background(), get.GetWay(), func(rows *sql.Rows, v *ExampleAnyStruct) error {
 		return rows.Scan(&v.Name, &v.Age)
 	}, prepare, args...)
 	if err != nil {
@@ -490,7 +492,7 @@ func Transaction(way *hey.Way) error {
 	return nil
 }
 
-type exampleAnyStructUpdate struct {
+type ExampleAnyStructUpdate struct {
 	Id   int64   `json:"id" db:"id" validate:"required,min=1"`              // Table column id
 	Name *string `json:"name" db:"name" validate:"omitempty,min=0,max=255"` // Table column name
 	Age  *int    `json:"age" db:"age" validate:"omitempty,min=0,max=150"`   // Table column age
@@ -509,7 +511,7 @@ func Others(way *hey.Way) error {
 		// get = hey.UnionCmder(get1, get2, get3)
 		// get = hey.ExceptCmder(get1, get2, get3)
 		// get = hey.IntersectCmder(get1, get2, get3)
-		lists := make([]*exampleAnyStruct, 0)
+		lists := make([]*ExampleAnyStruct, 0)
 		err := way.Get().Subquery(get, hey.AliasA).Get(&lists)
 		if err != nil {
 			return err
@@ -518,7 +520,7 @@ func Others(way *hey.Way) error {
 
 	// Update any structure with tag.
 	{
-		update := &exampleAnyStructUpdate{}
+		update := &ExampleAnyStructUpdate{}
 		_, err := way.Mod("table_name").ExceptPermit(func(except hey.UpsertColumns, permit hey.UpsertColumns) {
 			except.Add("id", "created_at", "deleted_at")
 			// permit.Add("name", "age")
@@ -530,8 +532,8 @@ func Others(way *hey.Way) error {
 
 	// Update by comparing the property values of the structure.
 	{
-		origin := &exampleAnyStruct{}
-		update := &exampleAnyStructUpdate{}
+		origin := &ExampleAnyStruct{}
+		update := &ExampleAnyStructUpdate{}
 		_, err := way.Mod("table_name").ExceptPermit(func(except hey.UpsertColumns, permit hey.UpsertColumns) {
 			except.Add("id", "created_at", "deleted_at")
 			// permit.Add("name", "age")
@@ -578,5 +580,72 @@ func Others(way *hey.Way) error {
 	}
 
 	return nil
+}
+
+// UsingCache Using cache query data.
+func UsingCache(way *hey.Way, cache *hey.Cache, mutex *sync.Mutex) (data []*ExampleAnyStruct, err error) {
+	// {
+	// 	// How to build *hey.Cache?
+	// 	cache = hey.NewCache(
+	// 		func(key string) (value []byte, exists bool, err error) {
+	// 			// TODO...
+	// 			return
+	// 		},
+	// 		func(key string, value []byte, duration ...time.Duration) error {
+	// 			// TODO...
+	// 			return nil
+	// 		},
+	// 		func(key string) error {
+	// 			// TODO...
+	// 			return nil
+	// 		},
+	// 	)
+	// 	// The cache is usually implemented in Memcached, Redis, current program memory, or even files.
+	// }
+
+	// Note: Beware of unnecessary blocking and do not use the same mutex for all query cache operations.
+	// It is recommended to pre-allocate a set of mutexes, and then use the cache key to select one from that set based on some rule.
+
+	// You should set a custom cache key handling when creating a *hey.Cache , of course you can reset it or append a custom function in some cases.
+	// cache.UseKey(func(key string) string { return fmt.Sprintf("database:query:%s", key) })
+
+	get := way.Get("your_table_name").Select("name", "age").Desc("id").Limit(20).Offset(0)
+	
+	cacheCmder := hey.NewCacheCmder(cache, get)
+
+	data = make([]*ExampleAnyStruct, 0)
+	
+	exists, err := cacheCmder.GetUnmarshal(&data)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		// The data has been obtained from the cache and no longer needs to be queried from the database.
+		return data, nil
+	}
+
+	// Prepare to query data from the database.
+	mutex.Lock()
+	defer mutex.Unlock()
+	exists, err = cacheCmder.GetUnmarshal(&data)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		// The data has been obtained from the cache and no longer needs to be queried from the database.
+		return data, nil
+	}
+	
+	// Querying data from database.
+	if err = get.Get(&data); err != nil {
+		return nil, err
+	}
+	
+	// Cache query data.
+	if err = cacheCmder.MarshalSet(data, cache.RandDuration(7, 9, time.Second)); err != nil {
+		return nil, err
+	}
+	
+	return data, nil
 }
 ```
