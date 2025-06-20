@@ -708,6 +708,9 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Call
 	}
 	stmt.stmt, err = stmt.caller.PrepareContext(ctx, stmt.prepare)
 	if err != nil {
+		if s.log != nil {
+			s.log.Error().Str(logPrepare, stmt.prepare).Msg(err.Error())
+		}
 		return nil, err
 	}
 	return stmt, nil
@@ -1381,7 +1384,7 @@ func (s *debugger) Debug(cmder Cmder) Debugger {
 	}
 	prepare, args := cmder.Cmd()
 	script := prepareArgsToString(prepare, args)
-	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, args).Msg("Debugging SQL Statements")
+	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, args).Msg("debug SQL script")
 	return s
 }
 
