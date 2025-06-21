@@ -263,7 +263,7 @@ func Delete(way *hey.Way) (affectedRows int64, err error) {
 	del.Where(filterIdIn(1, 2, 3))
 
 	// By default, the constructed SQL statements are output to the terminal for easy debugging.
-	// way.Debugger(del)
+	// way.Debug(del)
 
 	return del.Del()
 }
@@ -489,6 +489,98 @@ func Transaction(way *hey.Way) error {
 
 	// _ = tx.Commit()
 	_ = tx.Rollback()
+	return nil
+}
+
+// Transaction1 Minimize other code in transactions.
+func Transaction1(way *hey.Way) error {
+	add := way.Add("example_table_1").
+		Create(map[string]interface{}{})
+	del := way.Del("example_table_2").
+		Where(func(f hey.Filter) {
+			f.Equal("id", 1)
+		})
+	mod := way.Mod("example_table_3").
+		Set("name", "Jerry").
+		Where(func(f hey.Filter) {
+			f.Equal("id", 1)
+		})
+	get := way.Get("example_table_4").
+		Select("name", "age").
+		Where(func(f hey.Filter) {
+			f.Equal("id", 1)
+		}).
+		Limit(1).
+		Desc("id")
+
+	{
+		// handle object add, del, mod, get ...
+		// TODO ...
+	}
+
+	// Generate SQL statements first.
+	prepare1, args1 := add.Cmd()
+	prepare2, args2 := del.Cmd()
+	prepare3, args3 := mod.Cmd()
+	prepare4, args4 := get.Cmd()
+
+	var had *ExampleAnyStruct
+
+	err := way.Transaction(nil, func(tx *hey.Way) error {
+		rows, err := tx.Exec(prepare1, args1...)
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return errors.New("insert failed")
+		}
+
+		had, err = hey.RowsScanStructOne[ExampleAnyStruct](
+			nil, tx,
+			func(rows *sql.Rows, v *ExampleAnyStruct) error {
+				return rows.Scan(&v.Name, &v.Age /*, .... */)
+			},
+			prepare4,
+			args4...,
+		)
+		if err != nil {
+			if errors.Is(err, hey.RecordDoesNotExists) {
+				// todo
+				// return errors.New("record does not exists")
+			} else {
+				return err
+			}
+		}
+		{
+			// use had todo ...
+			// Replace the parameters in the following SQL statement to be executed ?
+			_ = had
+		}
+
+		rows, err = tx.Exec(prepare2, args2...)
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return errors.New("delete failed")
+		}
+
+		rows, err = tx.Exec(prepare3, args3...)
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return errors.New("update failed")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// TODO other logic codes.
+
 	return nil
 }
 
