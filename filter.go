@@ -92,7 +92,7 @@ func argsCompatible(args ...any) []any {
 		rv := reflect.ValueOf(args[0])
 		count := rv.Len()
 		result := make([]any, 0, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			result = append(result, rv.Index(i).Interface())
 		}
 		return result

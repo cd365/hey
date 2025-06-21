@@ -1113,12 +1113,12 @@ func (s *insertValue) Cmd() (prepare string, args []any) {
 	}
 	line := make([]string, length)
 	args = make([]any, 0, count*length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		line[i] = SqlPlaceholder
 	}
 	value := ParcelPrepare(strings.Join(line, SqlConcat))
 	rows := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		args = append(args, s.values[i]...)
 		rows[i] = value
 	}
