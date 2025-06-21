@@ -8,9 +8,9 @@ import (
 	"sync"
 )
 
-// toInterfaceSlice Convert any type of slice to []interface{}.
-func toInterfaceSlice[T interface{}](slice []T) []interface{} {
-	result := make([]interface{}, len(slice))
+// toInterfaceSlice Convert any type of slice to []any.
+func toInterfaceSlice[T any](slice []T) []any {
+	result := make([]any, len(slice))
 	for i, v := range slice {
 		result[i] = v
 	}
@@ -18,14 +18,14 @@ func toInterfaceSlice[T interface{}](slice []T) []interface{} {
 }
 
 // argsCompatible Compatibility parameter.
-// Calling Method A: argsCompatible(args...) (T type must be interface{}).
-// Calling Method B: argsCompatible(args) (T type can be interface{}, int, int64, string ...).
-func argsCompatible(args ...interface{}) []interface{} {
+// Calling Method A: argsCompatible(args...) (T type must be any).
+// Calling Method B: argsCompatible(args) (T type can be any, int, int64, string ...).
+func argsCompatible(args ...any) []any {
 	if len(args) != 1 {
 		return args
 	}
 	switch v := args[0].(type) {
-	case []interface{}:
+	case []any:
 		return argsCompatible(v...)
 	case []string:
 		return toInterfaceSlice(v)
@@ -91,7 +91,7 @@ func argsCompatible(args ...interface{}) []interface{} {
 		// expand slice members when there is only one slice type value.
 		rv := reflect.ValueOf(args[0])
 		count := rv.Len()
-		result := make([]interface{}, 0, count)
+		result := make([]any, 0, count)
 		for i := 0; i < count; i++ {
 			result = append(result, rv.Index(i).Interface())
 		}
@@ -130,7 +130,7 @@ func filterLessThanEqual(column string) string {
 	return filterSqlExpr(column, SqlLessThanEqual)
 }
 
-func filterIn(column string, values []interface{}, not bool) (prepare string, args []interface{}) {
+func filterIn(column string, values []any, not bool) (prepare string, args []any) {
 	if column == EmptyString || values == nil {
 		return
 	}
@@ -147,7 +147,7 @@ func filterIn(column string, values []interface{}, not bool) (prepare string, ar
 		} else {
 			prepare = filterEqual(column)
 		}
-		args = []interface{}{values[0]}
+		args = []any{values[0]}
 		return
 	}
 	args = values
@@ -172,7 +172,7 @@ func filterIn(column string, values []interface{}, not bool) (prepare string, ar
 	return
 }
 
-func filterInSql(column string, prepare string, args []interface{}, not bool) (string, []interface{}) {
+func filterInSql(column string, prepare string, args []any, not bool) (string, []any) {
 	if column == EmptyString || prepare == EmptyString {
 		return EmptyString, nil
 	}
@@ -188,7 +188,7 @@ func filterInColsFields(columns ...string) string {
 	return ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(columns, SqlConcat), SqlSpace, SqlRightSmallBracket)
 }
 
-func filterInCols(columns []string, values [][]interface{}, not bool) (prepare string, args []interface{}) {
+func filterInCols(columns []string, values [][]any, not bool) (prepare string, args []any) {
 	count := len(columns)
 	if count == 0 {
 		return
@@ -225,7 +225,7 @@ func filterInCols(columns []string, values [][]interface{}, not bool) (prepare s
 	return
 }
 
-func filterInColsSql(columns []string, prepare string, args []interface{}, not bool) (string, []interface{}) {
+func filterInColsSql(columns []string, prepare string, args []any, not bool) (string, []any) {
 	count := len(columns)
 	if count == 0 || prepare == EmptyString {
 		return EmptyString, nil
@@ -241,7 +241,7 @@ func filterInColsSql(columns []string, prepare string, args []interface{}, not b
 	return ConcatString(tmp...), args
 }
 
-func filterExists(prepare string, args []interface{}, not bool) (string, []interface{}) {
+func filterExists(prepare string, args []any, not bool) (string, []any) {
 	if prepare == EmptyString {
 		return EmptyString, nil
 	}
@@ -288,8 +288,8 @@ func filterIsNull(column string, not bool) (prepare string) {
 	return
 }
 
-// filterUseValue Get value's current value as an interface{}, otherwise return nil.
-func filterUseValue(value interface{}) interface{} {
+// filterUseValue Get value's current value as an any, otherwise return nil.
+func filterUseValue(value any) any {
 	if value == nil {
 		return nil
 	}
@@ -320,10 +320,10 @@ type Filter interface {
 	Not() Filter
 
 	// And Use logical operator `AND` to combine custom conditions.
-	And(prepare string, args ...interface{}) Filter
+	And(prepare string, args ...any) Filter
 
 	// Or Use logical operator `OR` to combine custom conditions.
-	Or(prepare string, args ...interface{}) Filter
+	Or(prepare string, args ...any) Filter
 
 	// Group Add a new condition group, which is connected by the `AND` logical operator by default.
 	Group(group func(g Filter)) Filter
@@ -338,40 +338,40 @@ type Filter interface {
 	New(fs ...Filter) Filter
 
 	// GreaterThan Implement conditional filtering: column > value.
-	GreaterThan(column string, value interface{}) Filter
+	GreaterThan(column string, value any) Filter
 
 	// GreaterThanEqual Implement conditional filtering: column >= value .
-	GreaterThanEqual(column string, value interface{}) Filter
+	GreaterThanEqual(column string, value any) Filter
 
 	// LessThan Implement conditional filtering: column < value .
-	LessThan(column string, value interface{}) Filter
+	LessThan(column string, value any) Filter
 
 	// LessThanEqual Implement conditional filtering: column <= value .
-	LessThanEqual(column string, value interface{}) Filter
+	LessThanEqual(column string, value any) Filter
 
 	// Equal Implement conditional filtering: column = value .
-	Equal(column string, value interface{}, useNull ...bool) Filter
+	Equal(column string, value any, useNull ...bool) Filter
 
 	// Between Implement conditional filtering: column BETWEEN value1 AND value2 .
-	Between(column string, start interface{}, end interface{}) Filter
+	Between(column string, start any, end any) Filter
 
 	// In Implement conditional filtering: column IN ( value1, value2, value3... ) .
-	In(column string, values ...interface{}) Filter
+	In(column string, values ...any) Filter
 
 	// InSql Implement conditional filtering: column IN ( subquery ) .
-	InSql(column string, prepare string, args ...interface{}) Filter
+	InSql(column string, prepare string, args ...any) Filter
 
 	// InCols Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
-	InCols(columns []string, values ...[]interface{}) Filter
+	InCols(columns []string, values ...[]any) Filter
 
 	// InColsSql Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
-	InColsSql(columns []string, prepare string, args ...interface{}) Filter
+	InColsSql(columns []string, prepare string, args ...any) Filter
 
 	// Exists Implement conditional filtering: EXISTS (subquery) .
-	Exists(prepare string, args ...interface{}) Filter
+	Exists(prepare string, args ...any) Filter
 
 	// Like Implement conditional filtering: column LIKE value.
-	Like(column string, value interface{}) Filter
+	Like(column string, value any) Filter
 
 	// IsNull Implement conditional filtering: column IS NULL .
 	IsNull(column string) Filter
@@ -386,19 +386,19 @@ type Filter interface {
 	ExistsQuery(subquery Cmder) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
-	NotEqual(column string, value interface{}, useNotNull ...bool) Filter
+	NotEqual(column string, value any, useNotNull ...bool) Filter
 
 	// NotBetween Implement conditional filtering: column NOT BETWEEN value1 AND value2 .
-	NotBetween(column string, start interface{}, end interface{}) Filter
+	NotBetween(column string, start any, end any) Filter
 
 	// NotIn Implement conditional filtering: column NOT IN ( value1, value2, value3... ) .
-	NotIn(column string, values ...interface{}) Filter
+	NotIn(column string, values ...any) Filter
 
 	// NotInCols Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
-	NotInCols(columns []string, values ...[]interface{}) Filter
+	NotInCols(columns []string, values ...[]any) Filter
 
 	// NotLike Implement conditional filtering: column NOT LIKE value .
-	NotLike(column string, value interface{}) Filter
+	NotLike(column string, value any) Filter
 
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
 	IsNotNull(column string) Filter
@@ -419,25 +419,25 @@ type Filter interface {
 	SetWay(way *Way) Filter
 
 	// Compare Implement conditional filtering: column1 {=||<>||>||>=||<||<=} column2 .
-	Compare(column1 string, compare string, column2 string, args ...interface{}) Filter
+	Compare(column1 string, compare string, column2 string, args ...any) Filter
 
 	// CompareEqual Implement conditional filtering: column1 = column2 .
-	CompareEqual(column1 string, column2 string, args ...interface{}) Filter
+	CompareEqual(column1 string, column2 string, args ...any) Filter
 
 	// CompareNotEqual Implement conditional filtering: column1 <> column2 .
-	CompareNotEqual(column1 string, column2 string, args ...interface{}) Filter
+	CompareNotEqual(column1 string, column2 string, args ...any) Filter
 
 	// CompareGreaterThan Implement conditional filtering: column1 > column2 .
-	CompareGreaterThan(column1 string, column2 string, args ...interface{}) Filter
+	CompareGreaterThan(column1 string, column2 string, args ...any) Filter
 
 	// CompareGreaterThanEqual Implement conditional filtering: column1 >= column2 .
-	CompareGreaterThanEqual(column1 string, column2 string, args ...interface{}) Filter
+	CompareGreaterThanEqual(column1 string, column2 string, args ...any) Filter
 
 	// CompareLessThan Implement conditional filtering: column1 < column2.
-	CompareLessThan(column1 string, column2 string, args ...interface{}) Filter
+	CompareLessThan(column1 string, column2 string, args ...any) Filter
 
 	// CompareLessThanEqual Implement conditional filtering: column1 <= column2 .
-	CompareLessThanEqual(column1 string, column2 string, args ...interface{}) Filter
+	CompareLessThanEqual(column1 string, column2 string, args ...any) Filter
 
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
@@ -449,7 +449,7 @@ type filter struct {
 	not     bool
 	num     int
 	prepare *strings.Builder
-	args    []interface{}
+	args    []any
 	way     *Way
 }
 
@@ -467,7 +467,7 @@ func F() Filter {
 
 // poolFilter filter pool.
 var poolFilter = &sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return filterNew()
 	},
 }
@@ -481,7 +481,7 @@ func PutFilter(f Filter) {
 	poolFilter.Put(f)
 }
 
-func (s *filter) Cmd() (string, []interface{}) {
+func (s *filter) Cmd() (string, []any) {
 	if s.num == 0 {
 		return EmptyString, nil
 	}
@@ -529,7 +529,7 @@ func (s *filter) Not() Filter {
 	return s
 }
 
-func (s *filter) add(logic string, prepare string, args ...interface{}) *filter {
+func (s *filter) add(logic string, prepare string, args ...any) *filter {
 	if prepare == EmptyString {
 		return s
 	}
@@ -560,11 +560,11 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	return s
 }
 
-func (s *filter) And(prepare string, args ...interface{}) Filter {
+func (s *filter) And(prepare string, args ...any) Filter {
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) Or(prepare string, args ...interface{}) Filter {
+func (s *filter) Or(prepare string, args ...any) Filter {
 	return s.add(SqlOr, prepare, args...)
 }
 
@@ -610,35 +610,35 @@ func (s *filter) replaces(keys []string) []string {
 	return s.way.Replaces(keys)
 }
 
-func (s *filter) GreaterThan(column string, value interface{}) Filter {
+func (s *filter) GreaterThan(column string, value any) Filter {
 	if value = filterUseValue(value); value != nil {
 		s.add(SqlAnd, filterGreaterThan(s.replace(column)), value)
 	}
 	return s
 }
 
-func (s *filter) GreaterThanEqual(column string, value interface{}) Filter {
+func (s *filter) GreaterThanEqual(column string, value any) Filter {
 	if value = filterUseValue(value); value != nil {
 		s.add(SqlAnd, filterGreaterThanEqual(s.replace(column)), value)
 	}
 	return s
 }
 
-func (s *filter) LessThan(column string, value interface{}) Filter {
+func (s *filter) LessThan(column string, value any) Filter {
 	if value = filterUseValue(value); value != nil {
 		s.add(SqlAnd, filterLessThan(s.replace(column)), value)
 	}
 	return s
 }
 
-func (s *filter) LessThanEqual(column string, value interface{}) Filter {
+func (s *filter) LessThanEqual(column string, value any) Filter {
 	if value = filterUseValue(value); value != nil {
 		s.add(SqlAnd, filterLessThanEqual(s.replace(column)), value)
 	}
 	return s
 }
 
-func (s *filter) Equal(column string, value interface{}, useNull ...bool) Filter {
+func (s *filter) Equal(column string, value any, useNull ...bool) Filter {
 	if value == nil {
 		if length := len(useNull); length > 0 && useNull[length-1] {
 			return s.IsNull(s.replace(column))
@@ -651,39 +651,39 @@ func (s *filter) Equal(column string, value interface{}, useNull ...bool) Filter
 	return s
 }
 
-func (s *filter) Between(column string, start interface{}, end interface{}) Filter {
+func (s *filter) Between(column string, start any, end any) Filter {
 	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
 		s.add(SqlAnd, filterBetween(s.replace(column), false), start, end)
 	}
 	return s
 }
 
-func (s *filter) In(column string, values ...interface{}) Filter {
+func (s *filter) In(column string, values ...any) Filter {
 	prepare, args := filterIn(s.replace(column), values, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) InSql(column string, prepare string, args ...interface{}) Filter {
+func (s *filter) InSql(column string, prepare string, args ...any) Filter {
 	prepare, args = filterInSql(s.replace(column), prepare, args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) InCols(columns []string, values ...[]interface{}) Filter {
+func (s *filter) InCols(columns []string, values ...[]any) Filter {
 	prepare, args := filterInCols(s.replaces(columns), values, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) InColsSql(columns []string, prepare string, args ...interface{}) Filter {
+func (s *filter) InColsSql(columns []string, prepare string, args ...any) Filter {
 	prepare, args = filterInColsSql(s.replaces(columns), prepare, args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) Exists(prepare string, args ...interface{}) Filter {
+func (s *filter) Exists(prepare string, args ...any) Filter {
 	prepare, args = filterExists(prepare, args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) Like(column string, value interface{}) Filter {
+func (s *filter) Like(column string, value any) Filter {
 	value = filterUseValue(value)
 	if value == nil {
 		return s
@@ -739,7 +739,7 @@ func (s *filter) ExistsQuery(subquery Cmder) Filter {
 	return s.Exists(prepare, args...)
 }
 
-func (s *filter) NotEqual(column string, value interface{}, useNotNull ...bool) Filter {
+func (s *filter) NotEqual(column string, value any, useNotNull ...bool) Filter {
 	if value == nil {
 		if length := len(useNotNull); length > 0 && useNotNull[length-1] {
 			return s.IsNotNull(s.replace(column))
@@ -752,24 +752,24 @@ func (s *filter) NotEqual(column string, value interface{}, useNotNull ...bool) 
 	return s
 }
 
-func (s *filter) NotBetween(column string, start interface{}, end interface{}) Filter {
+func (s *filter) NotBetween(column string, start any, end any) Filter {
 	if start, end = filterUseValue(start), filterUseValue(end); start != nil && end != nil {
 		s.add(SqlAnd, filterBetween(s.replace(column), true), start, end)
 	}
 	return s
 }
 
-func (s *filter) NotIn(column string, values ...interface{}) Filter {
+func (s *filter) NotIn(column string, values ...any) Filter {
 	prepare, args := filterIn(s.replace(column), values, true)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) NotInCols(columns []string, values ...[]interface{}) Filter {
+func (s *filter) NotInCols(columns []string, values ...[]any) Filter {
 	prepare, args := filterInCols(s.replaces(columns), values, true)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) NotLike(column string, value interface{}) Filter {
+func (s *filter) NotLike(column string, value any) Filter {
 	value = filterUseValue(value)
 	if value == nil {
 		return s
@@ -837,7 +837,7 @@ func (s *filter) SetWay(way *Way) Filter {
 	return s
 }
 
-func (s *filter) Compare(column1 string, compare string, column2 string, args ...interface{}) Filter {
+func (s *filter) Compare(column1 string, compare string, column2 string, args ...any) Filter {
 	if column1 == EmptyString || compare == EmptyString || column2 == EmptyString {
 		return s
 	}
@@ -845,27 +845,27 @@ func (s *filter) Compare(column1 string, compare string, column2 string, args ..
 	return s.And(ConcatString(column1, SqlSpace, compare, SqlSpace, column2), args...)
 }
 
-func (s *filter) CompareEqual(column1 string, column2 string, args ...interface{}) Filter {
+func (s *filter) CompareEqual(column1 string, column2 string, args ...any) Filter {
 	return s.Compare(column1, SqlEqual, column2, args...)
 }
 
-func (s *filter) CompareNotEqual(column1 string, column2 string, args ...interface{}) Filter {
+func (s *filter) CompareNotEqual(column1 string, column2 string, args ...any) Filter {
 	return s.Compare(column1, SqlNotEqual, column2, args...)
 }
 
-func (s *filter) CompareGreaterThan(column1 string, column2 string, args ...interface{}) Filter {
+func (s *filter) CompareGreaterThan(column1 string, column2 string, args ...any) Filter {
 	return s.Compare(column1, SqlGreaterThan, column2, args...)
 }
 
-func (s *filter) CompareGreaterThanEqual(column1 string, column2 string, args ...interface{}) Filter {
+func (s *filter) CompareGreaterThanEqual(column1 string, column2 string, args ...any) Filter {
 	return s.Compare(column1, SqlGreaterThanEqual, column2, args...)
 }
 
-func (s *filter) CompareLessThan(column1 string, column2 string, args ...interface{}) Filter {
+func (s *filter) CompareLessThan(column1 string, column2 string, args ...any) Filter {
 	return s.Compare(column1, SqlLessThan, column2, args...)
 }
 
-func (s *filter) CompareLessThanEqual(column1 string, column2 string, args ...interface{}) Filter {
+func (s *filter) CompareLessThanEqual(column1 string, column2 string, args ...any) Filter {
 	return s.Compare(column1, SqlLessThanEqual, column2, args...)
 }
 
@@ -967,7 +967,7 @@ func (s *quantifier) LessThanEqual(column string, subquery Cmder) Quantifier {
 }
 
 // ColumnInValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
-func ColumnInValues[T interface{}](values []T, fc func(tmp T) interface{}) []interface{} {
+func ColumnInValues[T any](values []T, fc func(tmp T) any) []any {
 	if fc == nil {
 		return nil
 	}
@@ -975,7 +975,7 @@ func ColumnInValues[T interface{}](values []T, fc func(tmp T) interface{}) []int
 	if length == 0 {
 		return nil
 	}
-	result := make([]interface{}, length)
+	result := make([]any, length)
 	for index, tmp := range values {
 		result[index] = fc(tmp)
 	}
@@ -983,7 +983,7 @@ func ColumnInValues[T interface{}](values []T, fc func(tmp T) interface{}) []int
 }
 
 // ColumnsInValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )
-func ColumnsInValues[T interface{}](values []T, fc func(tmp T) []interface{}) [][]interface{} {
+func ColumnsInValues[T any](values []T, fc func(tmp T) []any) [][]any {
 	if fc == nil {
 		return nil
 	}
@@ -991,7 +991,7 @@ func ColumnsInValues[T interface{}](values []T, fc func(tmp T) []interface{}) []
 	if length == 0 {
 		return nil
 	}
-	result := make([][]interface{}, length)
+	result := make([][]any, length)
 	for index, tmp := range values {
 		result[index] = fc(tmp)
 	}

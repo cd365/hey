@@ -168,7 +168,7 @@ func Insert(way *hey.Way) (affectedRowsOrLastInsertId int64, err error) {
 	{
 		// common(add) // Optional
 		affectedRowsOrLastInsertId, err = add.Create(
-			map[string]interface{}{
+			map[string]any{
 				"your_column_name": "your_column_value",
 			},
 		).Add()
@@ -201,7 +201,7 @@ func Insert(way *hey.Way) (affectedRowsOrLastInsertId int64, err error) {
 		// mysql: insert one and get last insert id
 		// common(add) // Optional
 		affectedRowsOrLastInsertId, err = add.AddOne(func(add hey.AddOneReturnSequenceValue) {
-			add.Execute(func(ctx context.Context, stmt *hey.Stmt, args []interface{}) (sequenceValue int64, err error) {
+			add.Execute(func(ctx context.Context, stmt *hey.Stmt, args []any) (sequenceValue int64, err error) {
 				result, err := stmt.ExecuteContext(ctx, args)
 				if err != nil {
 					return 0, err
@@ -216,9 +216,9 @@ func Insert(way *hey.Way) (affectedRowsOrLastInsertId int64, err error) {
 		// postgresql: insert one and get last insert id
 		// common(add) // Optional
 		affectedRowsOrLastInsertId, err = add.AddOne(func(add hey.AddOneReturnSequenceValue) {
-			add.Adjust(func(prepare string, args []interface{}) (string, []interface{}) {
+			add.Adjust(func(prepare string, args []any) (string, []any) {
 				return fmt.Sprintf("%s RETURNING %s", prepare, "id"), args
-			}).Execute(func(ctx context.Context, stmt *hey.Stmt, args []interface{}) (sequenceValue int64, err error) {
+			}).Execute(func(ctx context.Context, stmt *hey.Stmt, args []any) (sequenceValue int64, err error) {
 				err = stmt.QueryRowContext(ctx, func(rows *sql.Row) error { return rows.Scan(&sequenceValue) }, args...)
 				return
 			})
@@ -236,7 +236,7 @@ func filterIdIn[T int | int64 | string](ids ...T) func(f hey.Filter) {
 		// Type A
 		f.In("ids", ids)
 		// Type B
-		f.In("ids", hey.ArrayToArray(ids, func(k int, v T) interface{} { return v }))
+		f.In("ids", hey.ArrayToArray(ids, func(k int, v T) any { return v }))
 	}
 }
 
@@ -424,7 +424,7 @@ func Select(way *hey.Way) error {
 	_ = get.Where(func(f hey.Filter) {
 		f.InCols(
 			[]string{"name", "age"},
-			hey.ColumnsInValues(queried, func(tmp *ExampleAnyStruct) []interface{} { return []interface{}{tmp.Name, tmp.Age} })...,
+			hey.ColumnsInValues(queried, func(tmp *ExampleAnyStruct) []any { return []any{tmp.Name, tmp.Age} })...,
 		)
 	})
 
@@ -563,7 +563,7 @@ func Others(way *hey.Way) error {
 		ctx, cancel := context.WithTimeout(context.Background(), way.GetCfg().TransactionMaxDuration)
 		defer cancel()
 
-		args := [][]interface{}{
+		args := [][]any{
 			{"Alice", 18, 1},
 			{"Bob", 20, 2},
 			{"Tom", 21, 3},

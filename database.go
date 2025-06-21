@@ -29,7 +29,7 @@ func (s *tableCmder) IsEmpty() bool {
 	return IsEmptyCmder(s.cmder)
 }
 
-func (s *tableCmder) Cmd() (prepare string, args []interface{}) {
+func (s *tableCmder) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -49,7 +49,7 @@ func (s *tableCmder) GetAlias() string {
 	return s.alias
 }
 
-func NewTableCmder(prepare string, args []interface{}) TableCmder {
+func NewTableCmder(prepare string, args []any) TableCmder {
 	return &tableCmder{
 		cmder: NewCmder(prepare, args),
 	}
@@ -88,7 +88,7 @@ func (s *queryWith) IsEmpty() bool {
 	return len(s.with) == 0
 }
 
-func (s *queryWith) Cmd() (prepare string, args []interface{}) {
+func (s *queryWith) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -96,7 +96,7 @@ func (s *queryWith) Cmd() (prepare string, args []interface{}) {
 	defer putStringBuilder(b)
 	b.WriteString(SqlWith)
 	b.WriteString(SqlSpace)
-	var param []interface{}
+	var param []any
 	for index, alias := range s.with {
 		if index > 0 {
 			b.WriteString(SqlConcat)
@@ -151,7 +151,7 @@ type QueryColumns interface {
 
 	Exists(column string) bool
 
-	Add(column string, args ...interface{}) QueryColumns
+	Add(column string, args ...any) QueryColumns
 
 	AddAll(columns ...string) QueryColumns
 
@@ -159,9 +159,9 @@ type QueryColumns interface {
 
 	Len() int
 
-	Get() ([]string, map[int][]interface{})
+	Get() ([]string, map[int][]any)
 
-	Set(columns []string, columnsArgs map[int][]interface{}) QueryColumns
+	Set(columns []string, columnsArgs map[int][]any) QueryColumns
 
 	Use(queryColumns ...QueryColumns) QueryColumns
 
@@ -172,7 +172,7 @@ type QueryColumns interface {
 type queryColumns struct {
 	columns     []string
 	columnsMap  map[string]int
-	columnsArgs map[int][]interface{}
+	columnsArgs map[int][]any
 
 	way *Way
 }
@@ -181,7 +181,7 @@ func NewQueryColumns(way *Way) QueryColumns {
 	return &queryColumns{
 		columns:     make([]string, 0, 1<<5),
 		columnsMap:  make(map[string]int, 1<<5),
-		columnsArgs: make(map[int][]interface{}, 1<<5),
+		columnsArgs: make(map[int][]any, 1<<5),
 		way:         way,
 	}
 }
@@ -190,7 +190,7 @@ func (s *queryColumns) IsEmpty() bool {
 	return len(s.columns) == 0
 }
 
-func (s *queryColumns) Cmd() (prepare string, args []interface{}) {
+func (s *queryColumns) Cmd() (prepare string, args []any) {
 	length := len(s.columns)
 	if length == 0 {
 		return SqlStar, nil
@@ -222,7 +222,7 @@ func (s *queryColumns) Exists(column string) bool {
 	return s.Index(column) >= 0
 }
 
-func (s *queryColumns) Add(column string, args ...interface{}) QueryColumns {
+func (s *queryColumns) Add(column string, args ...any) QueryColumns {
 	if column == EmptyString {
 		return s
 	}
@@ -259,7 +259,7 @@ func (s *queryColumns) DelAll(columns ...string) QueryColumns {
 	if columns == nil {
 		s.columns = make([]string, 0, 1<<5)
 		s.columnsMap = make(map[string]int, 1<<5)
-		s.columnsArgs = make(map[int][]interface{}, 1<<5)
+		s.columnsArgs = make(map[int][]any, 1<<5)
 		return s
 	}
 	deleteIndex := make(map[int]*struct{}, len(columns))
@@ -291,11 +291,11 @@ func (s *queryColumns) Len() int {
 	return len(s.columns)
 }
 
-func (s *queryColumns) Get() ([]string, map[int][]interface{}) {
+func (s *queryColumns) Get() ([]string, map[int][]any) {
 	return s.columns, s.columnsArgs
 }
 
-func (s *queryColumns) Set(columns []string, columnsArgs map[int][]interface{}) QueryColumns {
+func (s *queryColumns) Set(columns []string, columnsArgs map[int][]any) QueryColumns {
 	columnsMap := make(map[string]int, 1<<5)
 	for i, column := range columns {
 		columnsMap[column] = i
@@ -418,7 +418,7 @@ func (s *joinOn) Using(using ...string) JoinOn {
 	return s
 }
 
-func (s *joinOn) Cmd() (prepare string, args []interface{}) {
+func (s *joinOn) Cmd() (prepare string, args []any) {
 	// JOIN ON
 	if s.on != nil && s.on.Num() > 0 {
 		prepare, args = s.on.Cmd()
@@ -468,7 +468,7 @@ type QueryJoin interface {
 
 	SetMaster(master TableCmder) QueryJoin
 
-	NewTable(table string, alias string, args ...interface{}) TableCmder
+	NewTable(table string, alias string, args ...any) TableCmder
 
 	NewSubquery(subquery Cmder, alias string) TableCmder
 
@@ -530,7 +530,7 @@ func (s *queryJoin) SetMaster(master TableCmder) QueryJoin {
 	return s
 }
 
-func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
+func (s *queryJoin) Cmd() (prepare string, args []any) {
 	columns, params := s.Queries().Cmd()
 	if params != nil {
 		args = append(args, params...)
@@ -571,7 +571,7 @@ func (s *queryJoin) Cmd() (prepare string, args []interface{}) {
 	return
 }
 
-func (s *queryJoin) NewTable(table string, alias string, args ...interface{}) TableCmder {
+func (s *queryJoin) NewTable(table string, alias string, args ...any) TableCmder {
 	return NewTableCmder(table, args).Alias(alias)
 }
 
@@ -714,7 +714,7 @@ func (s *queryGroup) IsEmpty() bool {
 	return len(s.group) == 0
 }
 
-func (s *queryGroup) Cmd() (prepare string, args []interface{}) {
+func (s *queryGroup) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -785,7 +785,7 @@ func (s *queryOrder) IsEmpty() bool {
 	return len(s.orderBy) == 0
 }
 
-func (s *queryOrder) Cmd() (prepare string, args []interface{}) {
+func (s *queryOrder) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -863,7 +863,7 @@ func (s *queryLimit) IsEmpty() bool {
 	return s.limit == nil
 }
 
-func (s *queryLimit) Cmd() (prepare string, args []interface{}) {
+func (s *queryLimit) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -951,7 +951,7 @@ func (s *upsertColumns) IsEmpty() bool {
 	return len(s.columns) == 0
 }
 
-func (s *upsertColumns) Cmd() (prepare string, args []interface{}) {
+func (s *upsertColumns) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -1071,20 +1071,20 @@ type InsertValue interface {
 
 	SetSubquery(subquery Cmder) InsertValue
 
-	SetValues(values ...[]interface{}) InsertValue
+	SetValues(values ...[]any) InsertValue
 
-	Set(index int, value interface{}) InsertValue
+	Set(index int, value any) InsertValue
 
 	Del(indexes ...int) InsertValue
 
 	LenValues() int
 
-	GetValues() [][]interface{}
+	GetValues() [][]any
 }
 
 type insertValue struct {
 	subquery Cmder
-	values   [][]interface{}
+	values   [][]any
 }
 
 func NewInsertValue() InsertValue {
@@ -1095,7 +1095,7 @@ func (s *insertValue) IsEmpty() bool {
 	return s.subquery == nil && (len(s.values) == 0 || len(s.values[0]) == 0)
 }
 
-func (s *insertValue) Cmd() (prepare string, args []interface{}) {
+func (s *insertValue) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -1112,7 +1112,7 @@ func (s *insertValue) Cmd() (prepare string, args []interface{}) {
 		return
 	}
 	line := make([]string, length)
-	args = make([]interface{}, 0, count*length)
+	args = make([]any, 0, count*length)
 	for i := 0; i < length; i++ {
 		line[i] = SqlPlaceholder
 	}
@@ -1136,17 +1136,17 @@ func (s *insertValue) SetSubquery(subquery Cmder) InsertValue {
 	return s
 }
 
-func (s *insertValue) SetValues(values ...[]interface{}) InsertValue {
+func (s *insertValue) SetValues(values ...[]any) InsertValue {
 	s.values = values
 	return s
 }
 
-func (s *insertValue) Set(index int, value interface{}) InsertValue {
+func (s *insertValue) Set(index int, value any) InsertValue {
 	if index < 0 {
 		return s
 	}
 	if s.values == nil {
-		s.values = make([][]interface{}, 1)
+		s.values = make([][]any, 1)
 	}
 	for num, tmp := range s.values {
 		length := len(tmp)
@@ -1181,9 +1181,9 @@ func (s *insertValue) Del(indexes ...int) InsertValue {
 	if length == 0 {
 		return s
 	}
-	values := make([][]interface{}, len(s.values))
+	values := make([][]any, len(s.values))
 	for index, value := range s.values {
-		values[index] = make([]interface{}, 0, len(value))
+		values[index] = make([]any, 0, len(value))
 		for num, tmp := range value {
 			if _, ok := deletedIndex[num]; !ok {
 				values[index] = append(values[index], tmp)
@@ -1198,7 +1198,7 @@ func (s *insertValue) LenValues() int {
 	return len(s.values)
 }
 
-func (s *insertValue) GetValues() [][]interface{} {
+func (s *insertValue) GetValues() [][]any {
 	return s.values
 }
 
@@ -1208,21 +1208,21 @@ type UpdateSet interface {
 
 	Cmder
 
-	Update(update string, args ...interface{}) UpdateSet
+	Update(update string, args ...any) UpdateSet
 
-	Set(column string, value interface{}) UpdateSet
+	Set(column string, value any) UpdateSet
 
-	Decr(column string, decr interface{}) UpdateSet
+	Decr(column string, decr any) UpdateSet
 
-	Incr(column string, incr interface{}) UpdateSet
+	Incr(column string, incr any) UpdateSet
 
-	SetMap(columnValue map[string]interface{}) UpdateSet
+	SetMap(columnValue map[string]any) UpdateSet
 
-	SetSlice(columns []string, values []interface{}) UpdateSet
+	SetSlice(columns []string, values []any) UpdateSet
 
 	Len() int
 
-	GetUpdate() (updates []string, args [][]interface{})
+	GetUpdate() (updates []string, args [][]any)
 
 	UpdateIndex(prepare string) int
 
@@ -1231,7 +1231,7 @@ type UpdateSet interface {
 
 type updateSet struct {
 	updateExpr []string
-	updateArgs [][]interface{}
+	updateArgs [][]any
 	updateMap  map[string]int
 	way        *Way
 }
@@ -1239,7 +1239,7 @@ type updateSet struct {
 func NewUpdateSet(way *Way) UpdateSet {
 	return &updateSet{
 		updateExpr: make([]string, 0, 1<<3),
-		updateArgs: make([][]interface{}, 0, 1<<3),
+		updateArgs: make([][]any, 0, 1<<3),
 		updateMap:  make(map[string]int, 1<<3),
 		way:        way,
 	}
@@ -1249,7 +1249,7 @@ func (s *updateSet) IsEmpty() bool {
 	return len(s.updateExpr) == 0
 }
 
-func (s *updateSet) Cmd() (prepare string, args []interface{}) {
+func (s *updateSet) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -1268,7 +1268,7 @@ func (s *updateSet) beautifyUpdate(update string) string {
 	return update
 }
 
-func (s *updateSet) Update(update string, args ...interface{}) UpdateSet {
+func (s *updateSet) Update(update string, args ...any) UpdateSet {
 	if update == EmptyString {
 		return s
 	}
@@ -1287,29 +1287,29 @@ func (s *updateSet) Update(update string, args ...interface{}) UpdateSet {
 	return s
 }
 
-func (s *updateSet) Set(column string, value interface{}) UpdateSet {
+func (s *updateSet) Set(column string, value any) UpdateSet {
 	column = s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s", column, SqlPlaceholder), value)
 }
 
-func (s *updateSet) Decr(column string, decrement interface{}) UpdateSet {
+func (s *updateSet) Decr(column string, decrement any) UpdateSet {
 	column = s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s - %s", column, column, SqlPlaceholder), decrement)
 }
 
-func (s *updateSet) Incr(column string, increment interface{}) UpdateSet {
+func (s *updateSet) Incr(column string, increment any) UpdateSet {
 	s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s + %s", column, column, SqlPlaceholder), increment)
 }
 
-func (s *updateSet) SetMap(columnValue map[string]interface{}) UpdateSet {
+func (s *updateSet) SetMap(columnValue map[string]any) UpdateSet {
 	for column, value := range columnValue {
 		s.Set(column, value)
 	}
 	return s
 }
 
-func (s *updateSet) SetSlice(columns []string, values []interface{}) UpdateSet {
+func (s *updateSet) SetSlice(columns []string, values []any) UpdateSet {
 	for index, column := range columns {
 		s.Set(column, values[index])
 	}
@@ -1320,7 +1320,7 @@ func (s *updateSet) Len() int {
 	return len(s.updateExpr)
 }
 
-func (s *updateSet) GetUpdate() ([]string, [][]interface{}) {
+func (s *updateSet) GetUpdate() ([]string, [][]any) {
 	return s.updateExpr, s.updateArgs
 }
 
@@ -1639,7 +1639,7 @@ func CmderQuery(ctx context.Context, way *Way, cmder Cmder, query func(rows *sql
 }
 
 // CmderGet execute the built SQL statement and scan query results.
-func CmderGet(ctx context.Context, way *Way, cmder Cmder, result interface{}) error {
+func CmderGet(ctx context.Context, way *Way, cmder Cmder, result any) error {
 	prepare, args := cmder.Cmd()
 	return way.TakeAllContext(ctx, result, prepare, args...)
 }
@@ -1652,14 +1652,14 @@ func CmderScanAll(ctx context.Context, way *Way, cmder Cmder, custom func(rows *
 }
 
 // CmderScanOne execute the built SQL statement and scan at most once from the query results.
-func CmderScanOne(ctx context.Context, way *Way, cmder Cmder, dest ...interface{}) error {
+func CmderScanOne(ctx context.Context, way *Way, cmder Cmder, dest ...any) error {
 	return CmderQuery(ctx, way, cmder, func(rows *sql.Rows) error {
 		return way.ScanOne(rows, dest...)
 	})
 }
 
 // CmderViewMap execute the built SQL statement and scan all from the query results.
-func CmderViewMap(ctx context.Context, way *Way, cmder Cmder) (result []map[string]interface{}, err error) {
+func CmderViewMap(ctx context.Context, way *Way, cmder Cmder) (result []map[string]any, err error) {
 	err = CmderQuery(ctx, way, cmder, func(rows *sql.Rows) (err error) {
 		result, err = ScanViewMap(rows)
 		return

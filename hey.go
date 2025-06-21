@@ -215,7 +215,7 @@ type Cfg struct {
 	Manual *Manual
 
 	// Scan Scan data into structure.
-	Scan func(rows *sql.Rows, result interface{}, tag string) error
+	Scan func(rows *sql.Rows, result any, tag string) error
 
 	// ScanTag Scan data to tag mapping on structure.
 	ScanTag string
@@ -262,7 +262,7 @@ type cmdLog struct {
 // cmdLogRun Record executed args of prepare.
 type cmdLogRun struct {
 	// args SQL parameter list.
-	args []interface{}
+	args []any
 
 	// startAt The start time of the SQL statement.
 	startAt time.Time
@@ -271,7 +271,7 @@ type cmdLogRun struct {
 	endAt time.Time
 }
 
-func (s *Way) cmdLog(prepare string, args []interface{}) *cmdLog {
+func (s *Way) cmdLog(prepare string, args []any) *cmdLog {
 	return &cmdLog{
 		way:     s,
 		prepare: prepare,
@@ -579,7 +579,7 @@ func (s *Way) ScanAll(rows *sql.Rows, fc func(rows *sql.Rows) error) error {
 }
 
 // ScanOne -> Scan at most once from the query results.
-func (s *Way) ScanOne(rows *sql.Rows, dest ...interface{}) error {
+func (s *Way) ScanOne(rows *sql.Rows, dest ...any) error {
 	return ScanOne(rows, dest...)
 }
 
@@ -587,9 +587,9 @@ func (s *Way) ScanOne(rows *sql.Rows, dest ...interface{}) error {
 type Caller interface {
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // caller -> *sql.Conn(or other) first, *sql.Tx(s.tx) second, *sql.DB(s.db) last.
@@ -623,7 +623,7 @@ func (s *Stmt) Close() (err error) {
 }
 
 // QueryContext -> Query prepared, that can be called repeatedly.
-func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...interface{}) error {
+func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...any) error {
 	lg := s.way.cmdLog(s.prepare, args)
 	defer lg.Write()
 	rows, err := s.stmt.QueryContext(ctx, args...)
@@ -638,12 +638,12 @@ func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) erro
 }
 
 // Query -> Query prepared, that can be called repeatedly.
-func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...interface{}) error {
+func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...any) error {
 	return s.QueryContext(context.Background(), query, args...)
 }
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
-func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...interface{}) error {
+func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...any) error {
 	lg := s.way.cmdLog(s.prepare, args)
 	defer lg.Write()
 	row := s.stmt.QueryRowContext(ctx, args...)
@@ -653,12 +653,12 @@ func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) er
 }
 
 // QueryRow -> Query prepared, that can be called repeatedly.
-func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...interface{}) (err error) {
+func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...any) (err error) {
 	return s.QueryRowContext(context.Background(), query, args...)
 }
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
-func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Result, error) {
+func (s *Stmt) ExecuteContext(ctx context.Context, args ...any) (sql.Result, error) {
 	lg := s.way.cmdLog(s.prepare, args)
 	defer lg.Write()
 	result, err := s.stmt.ExecContext(ctx, args...)
@@ -668,12 +668,12 @@ func (s *Stmt) ExecuteContext(ctx context.Context, args ...interface{}) (sql.Res
 }
 
 // Execute -> Execute prepared, that can be called repeatedly.
-func (s *Stmt) Execute(args ...interface{}) (sql.Result, error) {
+func (s *Stmt) Execute(args ...any) (sql.Result, error) {
 	return s.ExecuteContext(context.Background(), args...)
 }
 
 // ExecContext -> Execute prepared, that can be called repeatedly, return number of rows affected.
-func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (int64, error) {
+func (s *Stmt) ExecContext(ctx context.Context, args ...any) (int64, error) {
 	result, err := s.ExecuteContext(ctx, args...)
 	if err != nil {
 		return 0, err
@@ -682,17 +682,17 @@ func (s *Stmt) ExecContext(ctx context.Context, args ...interface{}) (int64, err
 }
 
 // Exec -> Execute prepared, that can be called repeatedly, return number of rows affected.
-func (s *Stmt) Exec(args ...interface{}) (int64, error) {
+func (s *Stmt) Exec(args ...any) (int64, error) {
 	return s.ExecContext(context.Background(), args...)
 }
 
 // TakeAllContext -> Query prepared and get all query results, that can be called repeatedly.
-func (s *Stmt) TakeAllContext(ctx context.Context, result interface{}, args ...interface{}) error {
+func (s *Stmt) TakeAllContext(ctx context.Context, result any, args ...any) error {
 	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.way.cfg.Scan(rows, result, s.way.cfg.ScanTag) }, args...)
 }
 
 // TakeAll -> Query prepared and get all query results; that can be called repeatedly.
-func (s *Stmt) TakeAll(result interface{}, args ...interface{}) error {
+func (s *Stmt) TakeAll(result any, args ...any) error {
 	return s.TakeAllContext(context.Background(), result, args...)
 }
 
@@ -722,7 +722,7 @@ func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
 }
 
 // QueryContext -> Execute the query sql statement.
-func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...any) error {
 	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
 		return err
@@ -732,12 +732,12 @@ func (s *Way) QueryContext(ctx context.Context, query func(rows *sql.Rows) error
 }
 
 // Query -> Execute the query sql statement.
-func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+func (s *Way) Query(query func(rows *sql.Rows) error, prepare string, args ...any) error {
 	return s.QueryContext(context.Background(), query, prepare, args...)
 }
 
 // QueryRowContext -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
-func (s *Way) QueryRowContext(ctx context.Context, query func(row *sql.Row) error, prepare string, args ...interface{}) error {
+func (s *Way) QueryRowContext(ctx context.Context, query func(row *sql.Row) error, prepare string, args ...any) error {
 	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
 		return err
@@ -747,22 +747,22 @@ func (s *Way) QueryRowContext(ctx context.Context, query func(row *sql.Row) erro
 }
 
 // QueryRow -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
-func (s *Way) QueryRow(query func(row *sql.Row) error, prepare string, args ...interface{}) error {
+func (s *Way) QueryRow(query func(row *sql.Row) error, prepare string, args ...any) error {
 	return s.QueryRowContext(context.Background(), query, prepare, args...)
 }
 
 // TakeAllContext -> Query prepared and get all query results, through the mapping of column names and struct tags.
-func (s *Way) TakeAllContext(ctx context.Context, result interface{}, prepare string, args ...interface{}) error {
+func (s *Way) TakeAllContext(ctx context.Context, result any, prepare string, args ...any) error {
 	return s.QueryContext(ctx, func(rows *sql.Rows) error { return s.cfg.Scan(rows, result, s.cfg.ScanTag) }, prepare, args...)
 }
 
 // TakeAll -> Query prepared and get all query results.
-func (s *Way) TakeAll(result interface{}, prepare string, args ...interface{}) error {
+func (s *Way) TakeAll(result any, prepare string, args ...any) error {
 	return s.TakeAllContext(context.Background(), result, prepare, args...)
 }
 
 // ExecuteContext -> Execute the execute sql statement.
-func (s *Way) ExecuteContext(ctx context.Context, prepare string, args ...interface{}) (sql.Result, error) {
+func (s *Way) ExecuteContext(ctx context.Context, prepare string, args ...any) (sql.Result, error) {
 	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
 		return nil, err
@@ -772,12 +772,12 @@ func (s *Way) ExecuteContext(ctx context.Context, prepare string, args ...interf
 }
 
 // Execute -> Execute the execute sql statement.
-func (s *Way) Execute(prepare string, args ...interface{}) (sql.Result, error) {
+func (s *Way) Execute(prepare string, args ...any) (sql.Result, error) {
 	return s.ExecuteContext(context.Background(), prepare, args...)
 }
 
 // ExecContext -> Execute the execute sql statement.
-func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface{}) (int64, error) {
+func (s *Way) ExecContext(ctx context.Context, prepare string, args ...any) (int64, error) {
 	stmt, err := s.PrepareContext(ctx, prepare)
 	if err != nil {
 		return 0, err
@@ -787,7 +787,7 @@ func (s *Way) ExecContext(ctx context.Context, prepare string, args ...interface
 }
 
 // Exec -> Execute the execute sql statement.
-func (s *Way) Exec(prepare string, args ...interface{}) (int64, error) {
+func (s *Way) Exec(prepare string, args ...any) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
@@ -837,7 +837,7 @@ func (s *Way) CmderQueryRow(cmder Cmder, query func(row *sql.Row) error) error {
 	return s.QueryRow(query, prepare, args...)
 }
 
-func (s *Way) CmderTakeAllContext(ctx context.Context, cmder Cmder, result interface{}) error {
+func (s *Way) CmderTakeAllContext(ctx context.Context, cmder Cmder, result any) error {
 	if cmder == nil {
 		return nil
 	}
@@ -848,7 +848,7 @@ func (s *Way) CmderTakeAllContext(ctx context.Context, cmder Cmder, result inter
 	return s.TakeAllContext(ctx, result, prepare, args...)
 }
 
-func (s *Way) CmderTakeAll(cmder Cmder, result interface{}) error {
+func (s *Way) CmderTakeAll(cmder Cmder, result any) error {
 	if cmder == nil {
 		return nil
 	}
@@ -905,7 +905,7 @@ func (s *Way) CmderExec(cmder Cmder) (int64, error) {
 
 /* Batch Update */
 
-func (s *Way) BatchUpdateContext(ctx context.Context, prepare string, argsList [][]interface{}) (affectedRows int64, err error) {
+func (s *Way) BatchUpdateContext(ctx context.Context, prepare string, argsList [][]any) (affectedRows int64, err error) {
 	var stmt *Stmt
 	stmt, err = s.PrepareContext(ctx, prepare)
 	if err != nil {
@@ -923,12 +923,12 @@ func (s *Way) BatchUpdateContext(ctx context.Context, prepare string, argsList [
 	return affectedRows, nil
 }
 
-func (s *Way) BatchUpdate(prepare string, argsList [][]interface{}) (affectedRows int64, err error) {
+func (s *Way) BatchUpdate(prepare string, argsList [][]any) (affectedRows int64, err error) {
 	return s.BatchUpdateContext(context.Background(), prepare, argsList)
 }
 
 // getter -> Query, execute the query SQL statement with args, no prepared is used.
-func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...any) error {
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
@@ -947,7 +947,7 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 }
 
 // setter -> Execute, execute the execute SQL statement with args, no prepared is used.
-func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ...interface{}) (rowsAffected int64, err error) {
+func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ...any) (rowsAffected int64, err error) {
 	if prepare == EmptyString {
 		return
 	}
@@ -965,22 +965,22 @@ func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ..
 }
 
 // GetterContext -> Execute the query SQL statement with args, no prepared is used.
-func (s *Way) GetterContext(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) (err error) {
+func (s *Way) GetterContext(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...any) (err error) {
 	return s.getter(ctx, caller, query, prepare, args...)
 }
 
 // Getter -> Execute the query SQL statement with args, no prepared is used.
-func (s *Way) Getter(caller Caller, query func(rows *sql.Rows) error, prepare string, args ...interface{}) error {
+func (s *Way) Getter(caller Caller, query func(rows *sql.Rows) error, prepare string, args ...any) error {
 	return s.GetterContext(context.Background(), caller, query, prepare, args...)
 }
 
 // SetterContext -> Execute the execute SQL statement with args, no prepared is used.
-func (s *Way) SetterContext(ctx context.Context, caller Caller, prepare string, args ...interface{}) (int64, error) {
+func (s *Way) SetterContext(ctx context.Context, caller Caller, prepare string, args ...any) (int64, error) {
 	return s.setter(ctx, caller, prepare, args...)
 }
 
 // Setter -> Execute the execute SQL statement with args, no prepared is used.
-func (s *Way) Setter(caller Caller, prepare string, args ...interface{}) (int64, error) {
+func (s *Way) Setter(caller Caller, prepare string, args ...any) (int64, error) {
 	return s.SetterContext(context.Background(), caller, prepare, args...)
 }
 
@@ -1012,13 +1012,13 @@ func (s *Way) Get(table ...string) *Get {
 // AddOneReturnSequenceValue Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
 type AddOneReturnSequenceValue interface {
 	// Adjust You may need to modify the SQL statement to be executed.
-	Adjust(adjust func(prepare string, args []interface{}) (string, []interface{})) AddOneReturnSequenceValue
+	Adjust(adjust func(prepare string, args []any) (string, []any)) AddOneReturnSequenceValue
 
 	// Context Custom context.
 	Context(ctx context.Context) AddOneReturnSequenceValue
 
 	// Execute Customize the method to return the sequence value of inserted data.
-	Execute(execute func(ctx context.Context, stmt *Stmt, args []interface{}) (sequenceValue int64, err error)) AddOneReturnSequenceValue
+	Execute(execute func(ctx context.Context, stmt *Stmt, args []any) (sequenceValue int64, err error)) AddOneReturnSequenceValue
 
 	// AddOne Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
 	AddOne() (int64, error)
@@ -1028,13 +1028,13 @@ type addOneReturnSequenceValue struct {
 	ctx     context.Context
 	way     *Way
 	prepare string
-	args    []interface{}
-	adjust  func(prepare string, args []interface{}) (string, []interface{})
-	execute func(ctx context.Context, stmt *Stmt, args []interface{}) (sequenceValue int64, err error)
+	args    []any
+	adjust  func(prepare string, args []any) (string, []any)
+	execute func(ctx context.Context, stmt *Stmt, args []any) (sequenceValue int64, err error)
 }
 
 // Adjust You may need to modify the SQL statement to be executed.
-func (s *addOneReturnSequenceValue) Adjust(adjust func(prepare string, args []interface{}) (string, []interface{})) AddOneReturnSequenceValue {
+func (s *addOneReturnSequenceValue) Adjust(adjust func(prepare string, args []any) (string, []any)) AddOneReturnSequenceValue {
 	s.adjust = adjust
 	return s
 }
@@ -1046,7 +1046,7 @@ func (s *addOneReturnSequenceValue) Context(ctx context.Context) AddOneReturnSeq
 }
 
 // Execute Customize the method to return the sequence value of inserted data.
-func (s *addOneReturnSequenceValue) Execute(execute func(ctx context.Context, stmt *Stmt, args []interface{}) (sequenceValue int64, err error)) AddOneReturnSequenceValue {
+func (s *addOneReturnSequenceValue) Execute(execute func(ctx context.Context, stmt *Stmt, args []any) (sequenceValue int64, err error)) AddOneReturnSequenceValue {
 	s.execute = execute
 	return s
 }
@@ -1072,7 +1072,7 @@ func (s *addOneReturnSequenceValue) AddOne() (int64, error) {
 }
 
 // NewAddOne Insert one and get the last insert sequence value.
-func (s *Way) NewAddOne(prepare string, args []interface{}) AddOneReturnSequenceValue {
+func (s *Way) NewAddOne(prepare string, args []any) AddOneReturnSequenceValue {
 	return &addOneReturnSequenceValue{
 		way:     s,
 		prepare: prepare,
@@ -1193,7 +1193,7 @@ func ScanAll(rows *sql.Rows, fc func(rows *sql.Rows) error) (err error) {
 }
 
 // ScanOne Scan at most once from the query results.
-func ScanOne(rows *sql.Rows, dest ...interface{}) error {
+func ScanOne(rows *sql.Rows, dest ...any) error {
 	if rows.Next() {
 		return rows.Scan(dest...)
 	}
@@ -1201,7 +1201,7 @@ func ScanOne(rows *sql.Rows, dest ...interface{}) error {
 }
 
 // tryFloat64 string or []byte to float64.
-func tryFloat64(value interface{}) interface{} {
+func tryFloat64(value any) any {
 	if value == nil {
 		return nil
 	}
@@ -1219,7 +1219,7 @@ func tryFloat64(value interface{}) interface{} {
 }
 
 // tryString []byte to string.
-func tryString(value interface{}) interface{} {
+func tryString(value any) any {
 	if value == nil {
 		return nil
 	}
@@ -1231,7 +1231,7 @@ func tryString(value interface{}) interface{} {
 }
 
 // adjustViewData Try to convert the text data type to a specific type that matches it.
-func adjustViewData(columnType *sql.ColumnType) func(value interface{}) interface{} {
+func adjustViewData(columnType *sql.ColumnType) func(value any) any {
 	databaseTypeName := columnType.DatabaseTypeName()
 	databaseTypeNameUpper := strings.ToUpper(databaseTypeName)
 	switch databaseTypeNameUpper {
@@ -1251,8 +1251,8 @@ func adjustViewData(columnType *sql.ColumnType) func(value interface{}) interfac
 	return nil
 }
 
-// ScanViewMap Scan query result to []map[string]interface{}, view query result.
-func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
+// ScanViewMap Scan query result to []map[string]any, view query result.
+func ScanViewMap(rows *sql.Rows) ([]map[string]any, error) {
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, err
@@ -1262,23 +1262,23 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 		return nil, err
 	}
 	count := len(columns)
-	var slices []map[string]interface{}
+	var slices []map[string]any
 	for rows.Next() {
-		tmp := make(map[string]interface{}, 32)
-		scan := make([]interface{}, count)
+		tmp := make(map[string]any, 32)
+		scan := make([]any, count)
 		for i := range scan {
-			scan[i] = new(interface{})
+			scan[i] = new(any)
 		}
 		if err = rows.Scan(scan...); err != nil {
 			return nil, err
 		}
 		for i, column := range columns {
-			value := scan[i].(*interface{})
+			value := scan[i].(*any)
 			tmp[column] = *value
 		}
 		slices = append(slices, tmp)
 	}
-	fcs := make(map[string]func(interface{}) interface{}, 32)
+	fcs := make(map[string]func(any) any, 32)
 	for _, v := range types {
 		if tmp := adjustViewData(v); tmp != nil {
 			fcs[v.Name()] = tmp
@@ -1293,7 +1293,7 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]interface{}, error) {
 }
 
 // argValueToString Convert SQL statement parameters into text strings.
-func argValueToString(i interface{}) string {
+func argValueToString(i any) string {
 	if i == nil {
 		return SqlNull
 	}
@@ -1330,7 +1330,7 @@ func argValueToString(i interface{}) string {
 }
 
 // prepareArgsToString Merge executed SQL statements and parameters.
-func prepareArgsToString(prepare string, args []interface{}) string {
+func prepareArgsToString(prepare string, args []any) string {
 	count := len(args)
 	if count == 0 {
 		return prepare

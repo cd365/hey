@@ -35,10 +35,10 @@ type Cache struct {
 	key func(key string) string
 
 	// marshal Serializing cache data.
-	marshal func(v interface{}) ([]byte, error)
+	marshal func(v any) ([]byte, error)
 
 	// unmarshal Deserializing cache data.
-	unmarshal func(data []byte, v interface{}) error
+	unmarshal func(data []byte, v any) error
 }
 
 // UseGetter Customize the read data from the cache.
@@ -82,7 +82,7 @@ func (s *Cache) UseKey(key func(key string) string) *Cache {
 }
 
 // UseMarshal Custom serializing cache data.
-func (s *Cache) UseMarshal(marshal func(v interface{}) ([]byte, error)) *Cache {
+func (s *Cache) UseMarshal(marshal func(v any) ([]byte, error)) *Cache {
 	if marshal != nil {
 		s.marshal = marshal
 	}
@@ -90,7 +90,7 @@ func (s *Cache) UseMarshal(marshal func(v interface{}) ([]byte, error)) *Cache {
 }
 
 // UseUnmarshal Custom deserializing cache data.
-func (s *Cache) UseUnmarshal(unmarshal func(data []byte, v interface{}) error) *Cache {
+func (s *Cache) UseUnmarshal(unmarshal func(data []byte, v any) error) *Cache {
 	if unmarshal != nil {
 		s.unmarshal = unmarshal
 	}
@@ -103,12 +103,12 @@ func (s *Cache) Key() func(key string) string {
 }
 
 // Marshal Get custom method of marshal.
-func (s *Cache) Marshal() func(v interface{}) ([]byte, error) {
+func (s *Cache) Marshal() func(v any) ([]byte, error) {
 	return s.marshal
 }
 
 // Unmarshal Get custom method of unmarshal.
-func (s *Cache) Unmarshal() func(data []byte, v interface{}) error {
+func (s *Cache) Unmarshal() func(data []byte, v any) error {
 	return s.unmarshal
 }
 
@@ -144,7 +144,7 @@ func (s *Cache) Exists(key string) (exists bool, err error) {
 }
 
 // GetUnmarshal Read cached data from the cache and deserialize cached data.
-func (s *Cache) GetUnmarshal(key string, value interface{}) (exists bool, err error) {
+func (s *Cache) GetUnmarshal(key string, value any) (exists bool, err error) {
 	tmp, exists, err := s.Get(key)
 	if err != nil {
 		return exists, err
@@ -159,7 +159,7 @@ func (s *Cache) GetUnmarshal(key string, value interface{}) (exists bool, err er
 }
 
 // MarshalSet Serialize cache data and write the serialized data to the cache.
-func (s *Cache) MarshalSet(key string, value interface{}, duration ...time.Duration) error {
+func (s *Cache) MarshalSet(key string, value any, duration ...time.Duration) error {
 	tmp, err := s.marshal(value)
 	if err != nil {
 		return err
@@ -297,10 +297,10 @@ type CacheCmder interface {
 	Exists() (exists bool, err error)
 
 	// GetUnmarshal Query data and unmarshal data.
-	GetUnmarshal(value interface{}) (exists bool, err error)
+	GetUnmarshal(value any) (exists bool, err error)
 
 	// MarshalSet Marshal data and set data.
-	MarshalSet(value interface{}, duration ...time.Duration) error
+	MarshalSet(value any, duration ...time.Duration) error
 
 	// GetString Get string type value.
 	GetString() (string, bool, error)
@@ -335,7 +335,7 @@ type cacheCmd struct {
 	cacheKey func() (string, error)
 
 	prepare string
-	args    []interface{}
+	args    []any
 	key     string
 }
 
@@ -430,14 +430,14 @@ func (s *cacheCmd) Exists() (exists bool, err error) {
 	return s.cache.Exists(s.key)
 }
 
-func (s *cacheCmd) GetUnmarshal(value interface{}) (exists bool, err error) {
+func (s *cacheCmd) GetUnmarshal(value any) (exists bool, err error) {
 	if _, err = s.GetCacheKey(); err != nil {
 		return false, err
 	}
 	return s.cache.GetUnmarshal(s.key, value)
 }
 
-func (s *cacheCmd) MarshalSet(value interface{}, duration ...time.Duration) error {
+func (s *cacheCmd) MarshalSet(value any, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}

@@ -9,7 +9,7 @@ import (
 
 var (
 	stringBuilder = &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return &strings.Builder{}
 		},
 	}
@@ -160,15 +160,15 @@ func NewReplace() Replace {
 // Cmder Used to build SQL expression and its corresponding parameter list.
 type Cmder interface {
 	// Cmd Get a list of script statements and their corresponding parameters.
-	Cmd() (prepare string, args []interface{})
+	Cmd() (prepare string, args []any)
 }
 
 type cmdSql struct {
 	prepare string
-	args    []interface{}
+	args    []any
 }
 
-func (s *cmdSql) Cmd() (prepare string, args []interface{}) {
+func (s *cmdSql) Cmd() (prepare string, args []any) {
 	if s.prepare != EmptyString {
 		prepare, args = s.prepare, s.args
 	}
@@ -176,7 +176,7 @@ func (s *cmdSql) Cmd() (prepare string, args []interface{}) {
 }
 
 // NewCmder Construct a Cmder using SQL statements and parameter lists.
-func NewCmder(prepare string, args []interface{}) Cmder {
+func NewCmder(prepare string, args []any) Cmder {
 	return &cmdSql{
 		prepare: prepare,
 		args:    args,
@@ -221,7 +221,7 @@ func ConcatCmder(concat string, custom func(index int, cmder Cmder) Cmder, items
 
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	args := make([]interface{}, 0, 32)
+	args := make([]any, 0, 32)
 	concat = strings.TrimSpace(concat)
 	for i := 0; i < index; i++ {
 		prepare, param := lists[i].Cmd()
@@ -261,7 +261,7 @@ func IntersectCmder(items ...Cmder) Cmder {
 }
 
 // RowsScanStructAll Rows scan to any struct, based on struct scan data.
-func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) ([]*V, error) {
+func RowsScanStructAll[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...any) ([]*V, error) {
 	var err error
 	length := 1 << 5
 	if ctx == nil {
@@ -297,7 +297,7 @@ func RowsScanStructAll[V interface{}](ctx context.Context, way *Way, scan func(r
 }
 
 // RowsScanStructOne Rows scan to any struct, based on struct scan data.
-func RowsScanStructOne[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...interface{}) (*V, error) {
+func RowsScanStructOne[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...any) (*V, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -327,7 +327,7 @@ func RowsScanStructOne[V interface{}](ctx context.Context, way *Way, scan func(r
 }
 
 // RowsScanStructAllCmder Rows scan to any struct, based on struct scan data.
-func RowsScanStructAllCmder[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, cmder Cmder) ([]*V, error) {
+func RowsScanStructAllCmder[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, cmder Cmder) ([]*V, error) {
 	if IsEmptyCmder(cmder) {
 		return nil, nil
 	}
@@ -336,7 +336,7 @@ func RowsScanStructAllCmder[V interface{}](ctx context.Context, way *Way, scan f
 }
 
 // RowsScanStructOneCmder Rows scan to any struct, based on struct scan data.
-func RowsScanStructOneCmder[V interface{}](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, cmder Cmder) (*V, error) {
+func RowsScanStructOneCmder[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, cmder Cmder) (*V, error) {
 	if IsEmptyCmder(cmder) {
 		return nil, nil
 	}
@@ -344,7 +344,7 @@ func RowsScanStructOneCmder[V interface{}](ctx context.Context, way *Way, scan f
 	return RowsScanStructOne(ctx, way, scan, prepare, args...)
 }
 
-func MergeAssoc[K comparable, V interface{}](values ...map[K]V) map[K]V {
+func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
 	length := len(values)
 	result := make(map[K]V)
 	for i := 0; i < length; i++ {
@@ -359,7 +359,7 @@ func MergeAssoc[K comparable, V interface{}](values ...map[K]V) map[K]V {
 	return result
 }
 
-func MergeArray[V interface{}](values ...[]V) []V {
+func MergeArray[V any](values ...[]V) []V {
 	length := len(values)
 	result := make([]V, 0)
 	for i := 0; i < length; i++ {
@@ -372,7 +372,7 @@ func MergeArray[V interface{}](values ...[]V) []V {
 	return result
 }
 
-func AssocToAssoc[K comparable, V interface{}, X comparable, Y interface{}](values map[K]V, fc func(k K, v V) (X, Y)) map[X]Y {
+func AssocToAssoc[K comparable, V any, X comparable, Y any](values map[K]V, fc func(k K, v V) (X, Y)) map[X]Y {
 	if fc == nil {
 		return nil
 	}
@@ -384,7 +384,7 @@ func AssocToAssoc[K comparable, V interface{}, X comparable, Y interface{}](valu
 	return result
 }
 
-func AssocToArray[K comparable, V interface{}, W interface{}](values map[K]V, fc func(k K, v V) W) []W {
+func AssocToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) W) []W {
 	if fc == nil {
 		return nil
 	}
@@ -396,7 +396,7 @@ func AssocToArray[K comparable, V interface{}, W interface{}](values map[K]V, fc
 	return result
 }
 
-func ArrayToAssoc[V interface{}, K comparable, W interface{}](values []V, fc func(v V) (K, W)) map[K]W {
+func ArrayToAssoc[V any, K comparable, W any](values []V, fc func(v V) (K, W)) map[K]W {
 	if fc == nil {
 		return nil
 	}
@@ -409,7 +409,7 @@ func ArrayToAssoc[V interface{}, K comparable, W interface{}](values []V, fc fun
 	return result
 }
 
-func ArrayToArray[V interface{}, W interface{}](values []V, fc func(k int, v V) W) []W {
+func ArrayToArray[V any, W any](values []V, fc func(k int, v V) W) []W {
 	if fc == nil {
 		return nil
 	}
@@ -420,7 +420,7 @@ func ArrayToArray[V interface{}, W interface{}](values []V, fc func(k int, v V) 
 	return result
 }
 
-func AssocDiscard[K comparable, V interface{}](values map[K]V, discard func(k K, v V) bool) map[K]V {
+func AssocDiscard[K comparable, V any](values map[K]V, discard func(k K, v V) bool) map[K]V {
 	if values == nil || discard == nil {
 		return values
 	}
@@ -433,7 +433,7 @@ func AssocDiscard[K comparable, V interface{}](values map[K]V, discard func(k K,
 	return result
 }
 
-func ArrayDiscard[V interface{}](values []V, discard func(k int, v V) bool) []V {
+func ArrayDiscard[V any](values []V, discard func(k int, v V) bool) []V {
 	if values == nil || discard == nil {
 		return values
 	}
@@ -486,13 +486,13 @@ type InsertOnConflict interface {
 	OnConflict(onConflicts ...string) InsertOnConflict
 
 	// Do The SQL statement that needs to be executed when a data conflict occurs. By default, nothing is done.
-	Do(prepare string, args ...interface{}) InsertOnConflict
+	Do(prepare string, args ...any) InsertOnConflict
 
 	// DoUpdateSet SQL update statements executed when data conflicts occur.
 	DoUpdateSet(fc func(u InsertOnConflictUpdateSet)) InsertOnConflict
 
 	// Cmd The SQL statement and its parameter list that are finally executed.
-	Cmd() (prepare string, args []interface{})
+	Cmd() (prepare string, args []any)
 
 	// InsertOnConflict Executes the SQL statement constructed by the current object.
 	InsertOnConflict() (int64, error)
@@ -503,12 +503,12 @@ type insertOnConflict struct {
 	ctx context.Context
 
 	insertPrepare     string
-	insertPrepareArgs []interface{}
+	insertPrepareArgs []any
 
 	onConflicts []string
 
 	onConflictsDoPrepare     string
-	onConflictsDoPrepareArgs []interface{}
+	onConflictsDoPrepareArgs []any
 
 	onConflictsDoUpdateSet InsertOnConflictUpdateSet
 }
@@ -523,7 +523,7 @@ func (s *insertOnConflict) OnConflict(onConflicts ...string) InsertOnConflict {
 	return s
 }
 
-func (s *insertOnConflict) Do(prepare string, args ...interface{}) InsertOnConflict {
+func (s *insertOnConflict) Do(prepare string, args ...any) InsertOnConflict {
 	s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs = strings.TrimSpace(prepare), args
 	return s
 }
@@ -538,7 +538,7 @@ func (s *insertOnConflict) DoUpdateSet(fc func(u InsertOnConflictUpdateSet)) Ins
 	return s
 }
 
-func (s *insertOnConflict) Cmd() (prepare string, args []interface{}) {
+func (s *insertOnConflict) Cmd() (prepare string, args []any) {
 	if s.insertPrepare == EmptyString || len(s.onConflicts) == 0 {
 		return
 	}
@@ -551,7 +551,7 @@ func (s *insertOnConflict) Cmd() (prepare string, args []interface{}) {
 	b.WriteString(SqlSpace)
 	b.WriteString(SqlDo)
 	b.WriteString(SqlSpace)
-	doPrepare, doPrepareArgs := SqlNothing, make([]interface{}, 0)
+	doPrepare, doPrepareArgs := SqlNothing, make([]any, 0)
 	if s.onConflictsDoPrepare != EmptyString {
 		doPrepare, doPrepareArgs = s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs
 	} else {
@@ -582,7 +582,7 @@ func (s *insertOnConflict) InsertOnConflict() (int64, error) {
 	return s.way.ExecContext(ctx, prepare, args...)
 }
 
-func NewInsertOnConflict(way *Way, insertPrepare string, insertArgs []interface{}) InsertOnConflict {
+func NewInsertOnConflict(way *Way, insertPrepare string, insertArgs []any) InsertOnConflict {
 	return &insertOnConflict{
 		way:               way,
 		insertPrepare:     insertPrepare,
