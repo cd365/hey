@@ -271,6 +271,20 @@ type cmdLogRun struct {
 	endAt time.Time
 }
 
+func (s *cmdLogRun) handleArgs() []any {
+	return handleArgs(s.args)
+}
+
+// handleArgs Convert binary data to hexadecimal string.
+func handleArgs(args []any) []any {
+	for index, value := range args {
+		if tmp, ok := value.([]byte); ok && tmp != nil {
+			args[index] = hex.EncodeToString(tmp)
+		}
+	}
+	return args
+}
+
 func (s *Way) cmdLog(prepare string, args []any) *cmdLog {
 	return &cmdLog{
 		way:     s,
@@ -305,7 +319,7 @@ func (s *cmdLog) Write() {
 		}
 	}
 	lg.Str(logPrepare, s.prepare)
-	lg.Any(logArgs, s.args.args)
+	lg.Any(logArgs, s.args.handleArgs())
 	lg.Int64(logStartAt, s.args.startAt.UnixMilli())
 	lg.Int64(logEndAt, s.args.endAt.UnixMilli())
 	lg.Str(logCost, s.args.endAt.Sub(s.args.startAt).String())
@@ -1383,7 +1397,7 @@ func (s *debugger) Debug(cmder Cmder) Debugger {
 	}
 	prepare, args := cmder.Cmd()
 	script := prepareArgsToString(prepare, args)
-	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, args).Msg("debug SQL script")
+	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, handleArgs(args)).Msg("debug SQL script")
 	return s
 }
 

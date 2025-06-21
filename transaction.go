@@ -75,7 +75,7 @@ func (s *transaction) write() {
 		}
 		lg.Str(logId, s.id).Str(logMsg, s.message)
 		lg.Str(logPrepare, v.prepare)
-		lg.Any(logArgs, v.args.args)
+		lg.Any(logArgs, v.args.handleArgs())
 		lg.Int64(logStartAt, v.args.startAt.UnixMilli())
 		lg.Int64(logEndAt, v.args.endAt.UnixMilli())
 		lg.Str(logCost, v.args.endAt.Sub(v.args.startAt).String())
