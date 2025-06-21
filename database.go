@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -869,9 +870,16 @@ func (s *queryLimit) Cmd() (prepare string, args []any) {
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	fmt.Fprintf(b, "%s %d", SqlLimit, *s.limit)
+	b.WriteString(SqlLimit)
+	b.WriteString(SqlSpace)
+	limit := strconv.FormatInt(*s.limit, 10)
+	b.WriteString(limit)
 	if s.offset != nil && *s.offset >= 0 {
-		fmt.Fprintf(b, " %s %d", SqlOffset, *s.offset)
+		b.WriteString(SqlSpace)
+		b.WriteString(SqlOffset)
+		b.WriteString(SqlSpace)
+		offset := strconv.FormatInt(*s.offset, 10)
+		b.WriteString(offset)
 	}
 	prepare = b.String()
 	return
