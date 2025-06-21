@@ -134,7 +134,7 @@ func (s *replace) Gets(keys []string) []string {
 		return keys
 	}
 	replaced := make([]string, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if value, ok := s.maps[keys[i]]; ok {
 			replaced[i] = value
 		} else {
@@ -347,7 +347,7 @@ func RowsScanStructOneCmder[V any](ctx context.Context, way *Way, scan func(rows
 func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
 	length := len(values)
 	result := make(map[K]V)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if i == 0 {
 			result = values[i]
 			continue
@@ -362,7 +362,7 @@ func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
 func MergeArray[V any](values ...[]V) []V {
 	length := len(values)
 	result := make([]V, 0)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if i == 0 {
 			result = values[i]
 			continue
@@ -402,7 +402,7 @@ func ArrayToAssoc[V any, K comparable, W any](values []V, fc func(v V) (K, W)) m
 	}
 	length := len(values)
 	result := make(map[K]W, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		k, v := fc(values[i])
 		result[k] = v
 	}

@@ -197,7 +197,7 @@ func filterInCols(columns []string, values [][]any, not bool) (prepare string, a
 	if length == 0 {
 		return
 	}
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if len(values[i]) != count {
 			args = nil
 			return
@@ -205,12 +205,12 @@ func filterInCols(columns []string, values [][]any, not bool) (prepare string, a
 		args = append(args, values[i][:]...)
 	}
 	oneGroup := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		oneGroup[i] = SqlPlaceholder
 	}
 	oneGroupString := ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(oneGroup, SqlConcat), SqlSpace, SqlRightSmallBracket)
 	valueGroup := make([]string, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		valueGroup[i] = oneGroupString
 	}
 	tmp := make([]string, 0, 8)

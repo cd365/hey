@@ -182,7 +182,7 @@ func prepare63236(prepare string) string {
 	length := len(origin)
 	dollar := byte('$')       // $
 	questionMark := byte('?') // ?
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if origin[i] == questionMark {
 			index++
 			latest.WriteByte(dollar)
@@ -557,7 +557,7 @@ func (s *Way) TransactionNew(ctx context.Context, fc func(tx *Way) error, opts .
 
 // TransactionRetry Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
 func (s *Way) TransactionRetry(ctx context.Context, retries int, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
-	for i := 0; i < retries; i++ {
+	for range retries {
 		if err = s.newTransaction(ctx, fc, nil, opts...); err == nil {
 			break
 		}
@@ -1341,7 +1341,7 @@ func prepareArgsToString(prepare string, args []any) string {
 	defer putStringBuilder(latest)
 	length := len(origin)
 	questionMark := byte('?')
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if origin[i] == questionMark && index < count {
 			latest.WriteString(argValueToString(args[index]))
 			index++

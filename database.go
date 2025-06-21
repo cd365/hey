@@ -196,7 +196,7 @@ func (s *queryColumns) Cmd() (prepare string, args []any) {
 		return SqlStar, nil
 	}
 	columns := make([]string, 0, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		tmpArgs, ok := s.columnsArgs[i]
 		if !ok {
 			continue
@@ -309,7 +309,7 @@ func (s *queryColumns) Set(columns []string, columnsArgs map[int][]any) QueryCol
 
 func (s *queryColumns) Use(queryColumns ...QueryColumns) QueryColumns {
 	length := len(queryColumns)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		tmp := queryColumns[i]
 		if tmp == nil {
 			continue
@@ -331,7 +331,7 @@ func (s *queryColumns) Queried(excepts ...string) []string {
 		return star
 	}
 	lists := make([]string, 0, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		column := strings.TrimSpace(cols[i])
 		index := strings.LastIndex(column, SqlSpace)
 		if index >= 0 {
@@ -869,9 +869,9 @@ func (s *queryLimit) Cmd() (prepare string, args []any) {
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString(fmt.Sprintf("%s %d", SqlLimit, *s.limit))
+	fmt.Fprintf(b, "%s %d", SqlLimit, *s.limit)
 	if s.offset != nil && *s.offset >= 0 {
-		b.WriteString(fmt.Sprintf(" %s %d", SqlOffset, *s.offset))
+		fmt.Fprintf(b, " %s %d", SqlOffset, *s.offset)
 	}
 	prepare = b.String()
 	return
@@ -1428,7 +1428,7 @@ func (s *TableColumn) Count(counts ...string) string {
 	// set COUNT function parameters and alias name
 	countAlias := s.way.Replace(DefaultAliasNameCount)
 	column := false
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if counts[i] == EmptyString {
 			continue
 		}

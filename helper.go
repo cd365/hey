@@ -83,7 +83,7 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 	mp := make(map[T]*struct{}, length)
 	ok := false
 	result = make([]T, 0, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if _, ok = mp[dynamic[i]]; ok {
 			continue
 		}
@@ -129,7 +129,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 	}
 	s.structType[refStructType] = &struct{}{}
 	length := refStructType.NumField()
-	for i := 0; i < length; i++ {
+	for i := range length {
 		attribute := refStructType.Field(i)
 		if !attribute.IsExported() {
 			continue
@@ -173,7 +173,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 // Find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
 // When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear when the root structure accesses the properties of substructures, resulting in panic.
 func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect reflect.Value, length int) error {
-	for i := 0; i < length; i++ {
+	for i := range length {
 		index, ok := s.direct[columns[i]]
 		if ok {
 			// top structure.
@@ -202,7 +202,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 		}
 		cursor := make([]reflect.Value, count)
 		cursor[0] = indirect
-		for j := 0; j < count; j++ {
+		for j := range count {
 			parent := cursor[j]
 			if j+1 < count {
 				// middle layer structures.
@@ -465,7 +465,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 		panicSliceElementTypesAreInconsistent()
 	}
 	length := reflectType.NumField()
-	for i := 0; i < length; i++ {
+	for i := range length {
 		field := reflectType.Field(i)
 		if !field.IsExported() {
 			continue
@@ -517,7 +517,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 		panicSliceElementTypesAreInconsistent()
 	}
 	length := reflectType.NumField()
-	for i := 0; i < length; i++ {
+	for i := range length {
 		field := reflectType.Field(i)
 		if !field.IsExported() {
 			continue
@@ -583,7 +583,7 @@ func (s *insertByStruct) Insert(object any, tag string, except []string, allow [
 	if kind == reflect.Slice {
 		sliceLength := reflectValue.Len()
 		values = make([][]any, sliceLength)
-		for i := 0; i < sliceLength; i++ {
+		for i := range sliceLength {
 			indexValue := reflectValue.Index(i)
 			for indexValue.Kind() == reflect.Ptr {
 				indexValue = indexValue.Elem()
@@ -651,7 +651,7 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 		last++
 	}
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		field := ofType.Field(i)
 
 		fieldType := field.Type
@@ -767,7 +767,7 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 		last++
 	}
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		field := ofType.Field(i)
 
 		fieldType := field.Type
@@ -867,7 +867,7 @@ func ConcatString(sss ...string) string {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	length := len(sss)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		b.WriteString(sss[i])
 	}
 	return b.String()
@@ -1455,7 +1455,7 @@ func (s *Mod) ColumnsValues(columns []string, values []any) *Mod {
 	if len1 != len2 {
 		return s
 	}
-	for i := 0; i < len1; i++ {
+	for i := range len1 {
 		s.Set(columns[i], values[i])
 	}
 	return s
