@@ -19,14 +19,14 @@ import (
 
 // Cache Read and write data in cache.
 type Cache struct {
-	// getter Reading data from the cache.
-	getter func(key string) (value []byte, exists bool, err error)
+	// get Reading data from the cache.
+	get func(key string) (value []byte, exists bool, err error)
 
-	// setter Writing data to cache.
-	setter func(key string, value []byte, duration ...time.Duration) error
+	// set Writing data to cache.
+	set func(key string, value []byte, duration ...time.Duration) error
 
-	// deleter Deleting data from the cache.
-	deleter func(key string) error
+	// del Deleting data from the cache.
+	del func(key string) error
 
 	// exists Whether cached data exists?
 	exists func(key string) (exists bool, err error)
@@ -41,58 +41,58 @@ type Cache struct {
 	unmarshal func(data []byte, v any) error
 }
 
-// UseGetter Customize the read data from the cache.
-func (s *Cache) UseGetter(getter func(key string) (value []byte, exists bool, err error)) *Cache {
-	if s.getter != nil {
-		s.getter = getter
+// UseGet Customize the read data from the cache.
+func (s *Cache) UseGet(f func(key string) (value []byte, exists bool, err error)) *Cache {
+	if s.get != nil {
+		s.get = f
 	}
 	return s
 }
 
-// UseSetter Customize the write data to cache.
-func (s *Cache) UseSetter(setter func(key string, value []byte, duration ...time.Duration) error) *Cache {
-	if s.setter != nil {
-		s.setter = setter
+// UseSet Customize the write data to cache.
+func (s *Cache) UseSet(f func(key string, value []byte, duration ...time.Duration) error) *Cache {
+	if s.set != nil {
+		s.set = f
 	}
 	return s
 }
 
-// UseDeleter Customize whether cached data exists.
-func (s *Cache) UseDeleter(deleter func(key string) error) *Cache {
-	if s.deleter != nil {
-		s.deleter = deleter
+// UseDel Customize whether cached data exists.
+func (s *Cache) UseDel(f func(key string) error) *Cache {
+	if s.del != nil {
+		s.del = f
 	}
 	return s
 }
 
 // UseExists Customize whether the data exists in the cache.
-func (s *Cache) UseExists(exists func(key string) (exists bool, err error)) *Cache {
-	if exists != nil {
-		s.exists = exists
+func (s *Cache) UseExists(f func(key string) (exists bool, err error)) *Cache {
+	if f != nil {
+		s.exists = f
 	}
 	return s
 }
 
 // UseKey Customize cache key processing, such as adding a specified prefix.
-func (s *Cache) UseKey(key func(key string) string) *Cache {
-	if key != nil {
-		s.key = key
+func (s *Cache) UseKey(f func(key string) string) *Cache {
+	if f != nil {
+		s.key = f
 	}
 	return s
 }
 
 // UseMarshal Custom serializing cache data.
-func (s *Cache) UseMarshal(marshal func(v any) ([]byte, error)) *Cache {
-	if marshal != nil {
-		s.marshal = marshal
+func (s *Cache) UseMarshal(f func(v any) ([]byte, error)) *Cache {
+	if f != nil {
+		s.marshal = f
 	}
 	return s
 }
 
 // UseUnmarshal Custom deserializing cache data.
-func (s *Cache) UseUnmarshal(unmarshal func(data []byte, v any) error) *Cache {
-	if unmarshal != nil {
-		s.unmarshal = unmarshal
+func (s *Cache) UseUnmarshal(f func(data []byte, v any) error) *Cache {
+	if f != nil {
+		s.unmarshal = f
 	}
 	return s
 }
@@ -117,7 +117,7 @@ func (s *Cache) Get(key string) (value []byte, exists bool, err error) {
 	if s.key != nil {
 		key = s.key(key)
 	}
-	return s.getter(key)
+	return s.get(key)
 }
 
 // Set Write cache data to cache.
@@ -125,12 +125,12 @@ func (s *Cache) Set(key string, value []byte, duration ...time.Duration) error {
 	if s.key != nil {
 		key = s.key(key)
 	}
-	return s.setter(key, value, duration...)
+	return s.set(key, value, duration...)
 }
 
 // Del Deleting data from the cache.
 func (s *Cache) Del(key string) error {
-	return s.deleter(key)
+	return s.del(key)
 }
 
 // Exists Whether cached data exists?
@@ -138,7 +138,7 @@ func (s *Cache) Exists(key string) (exists bool, err error) {
 	if had := s.exists; had != nil {
 		exists, err = had(key)
 	} else {
-		_, exists, err = s.getter(key)
+		_, exists, err = s.get(key)
 	}
 	return
 }
@@ -260,14 +260,14 @@ func (s *Cache) Fork() *Cache {
 
 // NewCache Create a new *Cache object.
 func NewCache(
-	getter func(key string) (value []byte, exists bool, err error), // nil value are not allowed
-	setter func(key string, value []byte, duration ...time.Duration) error, // nil value are not allowed
-	deleter func(key string) error, // nil value are not allowed
+	get func(key string) (value []byte, exists bool, err error), // nil value are not allowed
+	set func(key string, value []byte, duration ...time.Duration) error, // nil value are not allowed
+	del func(key string) error, // nil value are not allowed
 ) *Cache {
 	return &Cache{
-		getter:    getter,
-		setter:    setter,
-		deleter:   deleter,
+		get:       get,
+		set:       set,
+		del:       del,
 		marshal:   json.Marshal,
 		unmarshal: json.Unmarshal,
 	}
@@ -452,6 +452,9 @@ func (s *cacheCmd) GetString() (string, bool, error) {
 }
 
 func (s *cacheCmd) SetString(value string, duration ...time.Duration) error {
+	if _, err := s.GetCacheKey(); err != nil {
+		return err
+	}
 	return s.cache.SetString(s.key, value, duration...)
 }
 
@@ -463,6 +466,9 @@ func (s *cacheCmd) GetFloat() (float64, bool, error) {
 }
 
 func (s *cacheCmd) SetFloat(value float64, duration ...time.Duration) error {
+	if _, err := s.GetCacheKey(); err != nil {
+		return err
+	}
 	return s.cache.SetFloat(s.key, value, duration...)
 }
 
@@ -474,6 +480,9 @@ func (s *cacheCmd) GetInt() (int64, bool, error) {
 }
 
 func (s *cacheCmd) SetInt(value int64, duration ...time.Duration) error {
+	if _, err := s.GetCacheKey(); err != nil {
+		return err
+	}
 	return s.cache.SetInt(s.key, value, duration...)
 }
 
@@ -485,6 +494,9 @@ func (s *cacheCmd) GetBool() (bool, bool, error) {
 }
 
 func (s *cacheCmd) SetBool(value bool, duration ...time.Duration) error {
+	if _, err := s.GetCacheKey(); err != nil {
+		return err
+	}
 	return s.cache.SetBool(s.key, value, duration...)
 }
 
