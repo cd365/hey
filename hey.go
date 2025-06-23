@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"github.com/cd365/logger/v8"
+	"github.com/cd365/logger/v9"
 	"os"
 	"reflect"
 	"strconv"
@@ -55,9 +55,8 @@ const (
 	SqlLessThan         = "<"
 	SqlLessThanEqual    = "<="
 
-	SqlAll  = "ALL"
-	SqlAny  = "ANY"
-	SqlSome = "SOME"
+	SqlAll = "ALL"
+	SqlAny = "ANY"
 
 	SqlLeftSmallBracket  = "("
 	SqlRightSmallBracket = ")"
@@ -323,7 +322,7 @@ func (s *cmdLog) Write() {
 	lg.Int64(logStartAt, s.args.startAt.UnixMilli())
 	lg.Int64(logEndAt, s.args.endAt.UnixMilli())
 	lg.Str(logCost, s.args.endAt.Sub(s.args.startAt).String())
-	lg.Send()
+	lg.Msg(EmptyString)
 }
 
 // Reader Separate read and write, when you distinguish between reading and writing, please do not use the same object for both reading and writing.
@@ -415,7 +414,7 @@ func NewWay(db *sql.DB) *Way {
 		}
 	}
 
-	cfg.Debugger = NewDebugger().SetLog(logger.NewLogger(os.Stdout))
+	cfg.Debugger = NewDebugger().SetLogger(logger.NewLogger(os.Stdout))
 
 	way := &Way{
 		db:  db,
@@ -1251,12 +1250,8 @@ func adjustViewData(columnType *sql.ColumnType) func(value any) any {
 	switch databaseTypeNameUpper {
 	case "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "NUMBER":
 		return tryFloat64
-	case "CHAR", "VARCHAR", "TEXT",
-		"CHARACTER", "CHARACTER VARYING", "BPCHAR",
-		"NCHAR", "NVARCHAR",
-		"TINYTEXT", "MEDIUMTEXT", "LARGETEXT", "LONGTEXT",
-		"TIMESTAMP", "DATE", "TIME", "DATETIME",
-		"JSON":
+	case "CHAR", "VARCHAR", "TEXT", "CHARACTER", "CHARACTER VARYING", "BPCHAR", "NCHAR", "NVARCHAR",
+		"TINYTEXT", "MEDIUMTEXT", "LARGETEXT", "LONGTEXT", "TIMESTAMP", "DATE", "TIME", "DATETIME", "JSON":
 		return tryString
 	case "BYTEA",
 		"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB":
@@ -1368,25 +1363,23 @@ func prepareArgsToString(prepare string, args []any) string {
 
 // Debugger Debug output SQL script.
 type Debugger interface {
-	// GetLog Get *logger.Logger
-	GetLog() *logger.Logger
-
-	// SetLog Set *logger.Logger
-	SetLog(log *logger.Logger) Debugger
-
 	// Debug Debug output SQL script
 	Debug(cmder Cmder) Debugger
+
+	GetLogger() *logger.Logger
+
+	SetLogger(log *logger.Logger) Debugger
 }
 
 type debugger struct {
 	log *logger.Logger
 }
 
-func (s *debugger) GetLog() *logger.Logger {
+func (s *debugger) GetLogger() *logger.Logger {
 	return s.log
 }
 
-func (s *debugger) SetLog(log *logger.Logger) Debugger {
+func (s *debugger) SetLogger(log *logger.Logger) Debugger {
 	s.log = log
 	return s
 }

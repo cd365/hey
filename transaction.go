@@ -50,7 +50,7 @@ func (s *transaction) start() {
 	lg.Str(logId, s.id)
 	lg.Int64(logStartAt, s.startAt.UnixMilli())
 	lg.Str(logState, logTxBegin)
-	lg.Send()
+	lg.Msg(EmptyString)
 }
 
 // write Recording transaction logs.
@@ -79,7 +79,7 @@ func (s *transaction) write() {
 		lg.Int64(logStartAt, v.args.startAt.UnixMilli())
 		lg.Int64(logEndAt, v.args.endAt.UnixMilli())
 		lg.Str(logCost, v.args.endAt.Sub(v.args.startAt).String())
-		lg.Send()
+		lg.Msg(EmptyString)
 	}
 	lg := s.way.log.Info()
 	if s.err != nil {
@@ -91,5 +91,5 @@ func (s *transaction) write() {
 	lg.Str(logState, s.state)
 	lg.Int64(logEndAt, s.endAt.UnixMilli())
 	lg.Str(logCost, s.endAt.Sub(s.startAt).String())
-	lg.Send()
+	lg.Msg(EmptyString)
 }

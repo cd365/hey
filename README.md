@@ -28,7 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cd365/hey/v3"
-	"github.com/cd365/logger/v8"
+	"github.com/cd365/logger/v9"
 	_ "github.com/go-sql-driver/mysql" /* Registering the database driver */
 	_ "github.com/lib/pq"              /* Registering the database driver */
 	_ "github.com/mattn/go-sqlite3"    /* Registering the database driver */
@@ -702,11 +702,11 @@ func UsingCache(way *hey.Way, cache *hey.Cache, mutex *sync.Mutex) (data []*Exam
 	// cache.UseKey(func(key string) string { return fmt.Sprintf("database:query:%s", key) })
 
 	get := way.Get("your_table_name").Select("name", "age").Desc("id").Limit(20).Offset(0)
-	
+
 	cacheCmder := hey.NewCacheCmder(cache, get)
 
 	data = make([]*ExampleAnyStruct, 0)
-	
+
 	exists, err := cacheCmder.GetUnmarshal(&data)
 	if err != nil {
 		return nil, err
@@ -727,17 +727,17 @@ func UsingCache(way *hey.Way, cache *hey.Cache, mutex *sync.Mutex) (data []*Exam
 		// The data has been obtained from the cache and no longer needs to be queried from the database.
 		return data, nil
 	}
-	
+
 	// Querying data from database.
 	if err = get.Get(&data); err != nil {
 		return nil, err
 	}
-	
+
 	// Cache query data.
 	if err = cacheCmder.MarshalSet(data, cache.RandDuration(7, 9, time.Second)); err != nil {
 		return nil, err
 	}
-	
+
 	return data, nil
 }
 ```

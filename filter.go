@@ -303,7 +303,7 @@ func filterUseValue(value any) any {
 	return v.Interface()
 }
 
-// Filter Implement SQL statement condition filtering.
+// Filter Implement SQL statement conditional filtering (general conditional filtering).
 type Filter interface {
 	Cmder
 
@@ -408,9 +408,6 @@ type Filter interface {
 
 	// AnyQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
 	AnyQuantifier(fc func(tmp Quantifier)) Filter
-
-	// SomeQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} SOME ( subquery ) .
-	SomeQuantifier(fc func(tmp Quantifier)) Filter
 
 	// GetWay For get *Way.
 	GetWay() *Way
@@ -591,9 +588,7 @@ func (s *filter) Use(filters ...Filter) Filter {
 }
 
 func (s *filter) New(filters ...Filter) Filter {
-	object := filterNew()
-	object.way = s.way
-	return object.Use(filters...)
+	return filterNew().SetWay(s.way).Use(filters...)
 }
 
 func (s *filter) replace(key string) string {
@@ -811,18 +806,6 @@ func (s *filter) AnyQuantifier(fc func(tmp Quantifier)) Filter {
 	tmp := &quantifier{
 		filter:     s.New(),
 		quantifier: SqlAny,
-	}
-	fc(tmp)
-	return s.Use(tmp.filter)
-}
-
-func (s *filter) SomeQuantifier(fc func(tmp Quantifier)) Filter {
-	if fc == nil {
-		return s
-	}
-	tmp := &quantifier{
-		filter:     s.New(),
-		quantifier: SqlSome,
 	}
 	fc(tmp)
 	return s.Use(tmp.filter)
