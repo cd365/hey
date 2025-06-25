@@ -136,9 +136,9 @@ func (s *bindScanStruct) free() *bindScanStruct {
 }
 
 func (s *bindScanStruct) init() *bindScanStruct {
-	s.direct = make(map[string]int, 1<<5)
-	s.indirect = make(map[string][]int, 1<<5)
-	s.structType = make(map[reflect.Type]*struct{}, 1<<3)
+	s.direct = make(map[string]int, 16)
+	s.indirect = make(map[string][]int, 16)
+	s.structType = make(map[reflect.Type]*struct{}, 2)
 	return s
 }
 
@@ -185,6 +185,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 		}
 
 		if tagValue == EmptyString {
+			// Database columns are usually named with underscores, so the `db` tag is not set. No column mapping is done here.
 			continue
 		}
 
@@ -218,8 +219,8 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 				return fmt.Errorf("hey: column `%s` cann't set value", columns[i])
 			}
 			if field.Kind() == reflect.Ptr && field.IsNil() {
-				indirect.Field(index).Set(reflect.New(field.Type()).Elem())
-				rowsScan[i] = indirect.Field(index).Addr().Interface()
+				field.Set(reflect.New(field.Type()).Elem())
+				rowsScan[i] = field.Addr().Interface()
 				continue
 			}
 			rowsScan[i] = field.Addr().Interface()
@@ -245,8 +246,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 				latest := parent.Field(line[j])
 				if latest.Type().Kind() == reflect.Ptr {
 					if latest.IsNil() {
-						parent.Field(line[j]).Set(reflect.New(latest.Type().Elem()))
-						latest = parent.Field(line[j])
+						latest.Set(reflect.New(latest.Type().Elem()))
 					}
 					latest = latest.Elem()
 				}
@@ -260,8 +260,8 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 				return fmt.Errorf("hey: column `%s` cann't set value, multi-level", columns[i])
 			}
 			if field.Kind() == reflect.Ptr && field.IsNil() {
-				parent.Field(line[j]).Set(reflect.New(field.Type()).Elem())
-				rowsScan[i] = parent.Field(line[j]).Addr().Interface()
+				field.Set(reflect.New(field.Type()).Elem())
+				rowsScan[i] = field.Addr().Interface()
 				continue
 			}
 			rowsScan[i] = field.Addr().Interface()
@@ -270,8 +270,8 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 	return nil
 }
 
-// ScanSliceStruct Scan the query result set into the receiving object. Support type *AnyStruct, **AnyStruct, *[]AnyStruct, *[]*AnyStruct, **[]AnyStruct, **[]*AnyStruct ...
-func ScanSliceStruct(rows *sql.Rows, result any, tag string) error {
+// RowsScan Scan the query result set into the receiving object. Support type *AnyStruct, **AnyStruct, *[]AnyStruct, *[]*AnyStruct, **[]AnyStruct, **[]*AnyStruct ...
+func RowsScan(rows *sql.Rows, result any, tag string) error {
 	refType, refValue := reflect.TypeOf(result), reflect.ValueOf(result)
 
 	depth1 := 0
@@ -383,7 +383,7 @@ func ScanSliceStruct(rows *sql.Rows, result any, tag string) error {
 
 	defer func() {
 		if b != nil {
-			defer putBindScanStruct(b)
+			putBindScanStruct(b)
 		}
 	}()
 

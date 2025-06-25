@@ -235,7 +235,7 @@ type Cfg struct {
 // DefaultCfg default configure value.
 func DefaultCfg() Cfg {
 	return Cfg{
-		Scan:                   ScanSliceStruct,
+		Scan:                   RowsScan,
 		ScanTag:                DefaultTag,
 		DeleteMustUseWhere:     true,
 		UpdateMustUseWhere:     true,

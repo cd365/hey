@@ -153,7 +153,7 @@ func (s *replace) Sets(mapping map[string]string) Replace {
 
 func NewReplace() Replace {
 	return &replace{
-		maps: make(map[string]string, 1<<9),
+		maps: make(map[string]string, 256),
 	}
 }
 
@@ -262,17 +262,17 @@ func IntersectCmder(items ...Cmder) Cmder {
 
 // RowsScanStructAll Rows scan to any struct, based on struct scan data.
 func RowsScanStructAll[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...any) ([]*V, error) {
-	var err error
-	length := 1 << 5
+	length := 16
 	if ctx == nil {
 		ctx = context.Background()
 	} else {
 		if tmp := ctx.Value(RowsScanStructAllMakeSliceLength); tmp != nil {
-			if intValue, ok := tmp.(int); ok && intValue > 0 && intValue <= 1000000 {
+			if intValue, ok := tmp.(int); ok && intValue > 0 && intValue <= 10000 {
 				length = intValue
 			}
 		}
 	}
+	var err error
 	result := make([]*V, 0, length)
 	err = way.QueryContext(ctx, func(rows *sql.Rows) error {
 		index := 0
@@ -280,9 +280,8 @@ func RowsScanStructAll[V any](ctx context.Context, way *Way, scan func(rows *sql
 		for rows.Next() {
 			if err = scan(rows, &values[index]); err != nil {
 				return err
-			} else {
-				result = append(result, &values[index])
 			}
+			result = append(result, &values[index])
 			index++
 			if index == length {
 				index, values = 0, make([]V, length)

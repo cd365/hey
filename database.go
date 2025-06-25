@@ -80,8 +80,8 @@ type queryWith struct {
 
 func NewQueryWith() QueryWith {
 	return &queryWith{
-		with:    make([]string, 0, 1<<3),
-		withMap: make(map[string]Cmder, 1<<3),
+		with:    make([]string, 0, 2),
+		withMap: make(map[string]Cmder, 2),
 	}
 }
 
@@ -180,9 +180,9 @@ type queryColumns struct {
 
 func NewQueryColumns(way *Way) QueryColumns {
 	return &queryColumns{
-		columns:     make([]string, 0, 1<<5),
-		columnsMap:  make(map[string]int, 1<<5),
-		columnsArgs: make(map[int][]any, 1<<5),
+		columns:     make([]string, 0, 16),
+		columnsMap:  make(map[string]int, 16),
+		columnsArgs: make(map[int][]any),
 		way:         way,
 	}
 }
@@ -258,9 +258,9 @@ func (s *queryColumns) AddAll(columns ...string) QueryColumns {
 
 func (s *queryColumns) DelAll(columns ...string) QueryColumns {
 	if columns == nil {
-		s.columns = make([]string, 0, 1<<5)
-		s.columnsMap = make(map[string]int, 1<<5)
-		s.columnsArgs = make(map[int][]any, 1<<5)
+		s.columns = make([]string, 0, 16)
+		s.columnsMap = make(map[string]int, 16)
+		s.columnsArgs = make(map[int][]any)
 		return s
 	}
 	deleteIndex := make(map[int]*struct{}, len(columns))
@@ -297,7 +297,7 @@ func (s *queryColumns) Get() ([]string, map[int][]any) {
 }
 
 func (s *queryColumns) Set(columns []string, columnsArgs map[int][]any) QueryColumns {
-	columnsMap := make(map[string]int, 1<<5)
+	columnsMap := make(map[string]int, len(columns))
 	for i, column := range columns {
 		columnsMap[column] = i
 		if _, ok := columnsArgs[i]; !ok {
@@ -513,7 +513,7 @@ type queryJoin struct {
 
 func NewQueryJoin(way *Way) QueryJoin {
 	tmp := &queryJoin{
-		joins:        make([]*queryJoinSchema, 0, 1<<3),
+		joins:        make([]*queryJoinSchema, 0, 2),
 		queryColumns: NewQueryColumns(way),
 		way:          way,
 	}
@@ -671,7 +671,7 @@ func (s *queryJoin) TableSelect(table TableCmder, columns ...string) []string {
 }
 
 func (s *queryJoin) SelectGroupsColumns(columns ...[]string) QueryJoin {
-	groups := make([]string, 0, 1<<5)
+	groups := make([]string, 0, 32)
 	for _, values := range columns {
 		groups = append(groups, values...)
 	}
@@ -758,8 +758,8 @@ func (s *queryGroup) Having(having func(having Filter)) QueryGroup {
 
 func NewQueryGroup(way *Way) QueryGroup {
 	return &queryGroup{
-		group:    make([]string, 0, 1<<3),
-		groupMap: make(map[string]int, 1<<3),
+		group:    make([]string, 0, 2),
+		groupMap: make(map[string]int, 2),
 		having:   way.F(),
 		way:      way,
 	}
@@ -836,8 +836,8 @@ func (s *queryOrder) Desc(columns ...string) QueryOrder {
 
 func NewQueryOrder(way *Way) QueryOrder {
 	return &queryOrder{
-		orderBy:  make([]string, 0, 1<<3),
-		orderMap: make(map[string]int, 1<<3),
+		orderBy:  make([]string, 0, 2),
+		orderMap: make(map[string]int, 2),
 		way:      way,
 	}
 }
@@ -949,8 +949,8 @@ type upsertColumns struct {
 
 func NewUpsertColumns(way *Way) UpsertColumns {
 	return &upsertColumns{
-		columns:    make([]string, 0, 1<<5),
-		columnsMap: make(map[string]int, 1<<5),
+		columns:    make([]string, 0, 16),
+		columnsMap: make(map[string]int, 16),
 		way:        way,
 	}
 }
@@ -984,8 +984,8 @@ func (s *upsertColumns) Add(columns ...string) UpsertColumns {
 
 func (s *upsertColumns) Del(columns ...string) UpsertColumns {
 	if columns == nil {
-		s.columns = make([]string, 0, 1<<5)
-		s.columnsMap = make(map[string]int, 1<<5)
+		s.columns = make([]string, 0, 16)
+		s.columnsMap = make(map[string]int, 16)
 		return s
 	}
 	deletedIndex := make(map[int]*struct{}, len(columns))
@@ -1246,9 +1246,9 @@ type updateSet struct {
 
 func NewUpdateSet(way *Way) UpdateSet {
 	return &updateSet{
-		updateExpr: make([]string, 0, 1<<3),
-		updateArgs: make([][]any, 0, 1<<3),
-		updateMap:  make(map[string]int, 1<<3),
+		updateExpr: make([]string, 0, 8),
+		updateArgs: make([][]any, 0, 8),
+		updateMap:  make(map[string]int, 8),
 		way:        way,
 	}
 }
