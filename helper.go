@@ -100,6 +100,22 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 
 /* Implement scanning *sql.Rows data into STRUCT or []STRUCT */
 
+var (
+	bindScanStructPool = &sync.Pool{
+		New: func() any {
+			return &bindScanStruct{}
+		},
+	}
+)
+
+func getBindScanStruct() *bindScanStruct {
+	return bindScanStructPool.Get().(*bindScanStruct).init()
+}
+
+func putBindScanStruct(b *bindScanStruct) {
+	bindScanStructPool.Put(b.free())
+}
+
 // bindScanStruct bind the receiving object with the query result.
 type bindScanStruct struct {
 	// store root struct properties.
@@ -112,12 +128,18 @@ type bindScanStruct struct {
 	structType map[reflect.Type]*struct{}
 }
 
-func bindScanStructInit() *bindScanStruct {
-	return &bindScanStruct{
-		direct:     make(map[string]int, 32),
-		indirect:   make(map[string][]int, 32),
-		structType: make(map[reflect.Type]*struct{}, 8),
-	}
+func (s *bindScanStruct) free() *bindScanStruct {
+	s.direct = nil
+	s.indirect = nil
+	s.structType = nil
+	return s
+}
+
+func (s *bindScanStruct) init() *bindScanStruct {
+	s.direct = make(map[string]int, 1<<5)
+	s.indirect = make(map[string][]int, 1<<5)
+	s.structType = make(map[reflect.Type]*struct{}, 1<<3)
+	return s
 }
 
 // Binding Match the binding according to the structure `db` tag and the query column name.
@@ -127,16 +149,26 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 		// prevent structure loop nesting.
 		return
 	}
+
 	s.structType[refStructType] = &struct{}{}
+
 	length := refStructType.NumField()
+
 	for i := range length {
+
 		attribute := refStructType.Field(i)
+
 		if !attribute.IsExported() {
 			continue
 		}
+
+		tagValue := attribute.Tag.Get(tag) // table column name
+		if tagValue == "-" {
+			continue
+		}
+
 		// anonymous structure, or named structure.
-		if attribute.Type.Kind() == reflect.Struct ||
-			(attribute.Type.Kind() == reflect.Ptr && attribute.Type.Elem().Kind() == reflect.Struct) {
+		if attribute.Type.Kind() == reflect.Struct || (attribute.Type.Kind() == reflect.Ptr && attribute.Type.Elem().Kind() == reflect.Struct) {
 			at := attribute.Type
 			kind := at.Kind()
 			if kind == reflect.Ptr {
@@ -151,22 +183,26 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 			}
 			continue
 		}
-		field := attribute.Tag.Get(tag)
-		if field == EmptyString || field == "-" {
+
+		if tagValue == EmptyString {
 			continue
 		}
+
 		// root structure attribute.
 		if depth == nil {
-			s.direct[field] = i
+			s.direct[tagValue] = i
 			continue
 		}
+
 		// another structure attributes, nested anonymous structure or named structure.
-		if _, ok := s.indirect[field]; !ok {
+		if _, ok := s.indirect[tagValue]; !ok {
 			dst := depth[:]
 			dst = append(dst, i)
-			s.indirect[field] = dst
+			s.indirect[tagValue] = dst
 		}
+
 	}
+
 }
 
 // Prepare The preparatory work before executing rows.Scan.
@@ -267,7 +303,8 @@ func ScanSliceStruct(rows *sql.Rows, result any, tag string) error {
 	if kind1 == reflect.Struct {
 		refStructType := refType1
 		if rows.Next() {
-			b := bindScanStructInit()
+			b := getBindScanStruct()
+			defer putBindScanStruct(b)
 			b.binding(refStructType, nil, tag)
 			columns, err := rows.Columns()
 			if err != nil {
@@ -336,17 +373,35 @@ func ScanSliceStruct(rows *sql.Rows, result any, tag string) error {
 		refValueSlice = refValueSlice.Elem()
 	}
 
-	b := bindScanStructInit()
-	b.binding(refStructType, nil, tag)
+	var (
+		b        *bindScanStruct
+		columns  []string
+		err      error
+		length   int
+		rowsScan []any
+	)
 
-	columns, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-	length := len(columns)
-	rowsScan := make([]any, length)
+	defer func() {
+		if b != nil {
+			defer putBindScanStruct(b)
+		}
+	}()
 
 	for rows.Next() {
+
+		if b == nil {
+			// initialize variable values
+			b = getBindScanStruct()
+			b.binding(refStructType, nil, tag)
+
+			columns, err = rows.Columns()
+			if err != nil {
+				return err
+			}
+			length = len(columns)
+			rowsScan = make([]any, length)
+		}
+
 		refStructPtr := reflect.New(refStructType)
 		refStructVal := reflect.Indirect(refStructPtr)
 		if err = b.prepare(columns, rowsScan, refStructVal, length); err != nil {
