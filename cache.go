@@ -1,7 +1,5 @@
 // Cache query data to reduce database pressure; Used in combination with query functions to reduce coupling.
-// Supports fast extraction of specific types of data from the cache, including int, string, float, bool ...
-// You are not restricted to using a specific cache or data serialization method, and JSON serialization and deserialization are used by default.
-// You can rewrite the cache key according to your business needs, such as adding a specific prefix.
+// Supports fast extraction of specific types of data from the cache, including bool, int, float, string ...
 
 package hey
 
@@ -9,7 +7,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -17,130 +14,66 @@ import (
 	"time"
 )
 
+// Cacher Objects that implement cache.
+type Cacher interface {
+	// Key Customize cache key processing before reading and writing cache.
+	Key(key string) string
+
+	// Get Reading data from the cache.
+	Get(key string) (value []byte, exists bool, err error)
+
+	// Set Writing data to the cache.
+	Set(key string, value []byte, duration ...time.Duration) error
+
+	// Del Deleting data from the cache.
+	Del(key string) error
+
+	// Exists Check if a certain data exists in the cache.
+	Exists(key string) (exists bool, err error)
+
+	// Marshal Serialize cache data.
+	Marshal(v any) ([]byte, error)
+
+	// Unmarshal Deserialize cache data.
+	Unmarshal(data []byte, v any) error
+}
+
 // Cache Read and write data in cache.
 type Cache struct {
-	// get Reading data from the cache.
-	get func(key string) (value []byte, exists bool, err error)
-
-	// set Writing data to cache.
-	set func(key string, value []byte, duration ...time.Duration) error
-
-	// del Deleting data from the cache.
-	del func(key string) error
-
-	// exists Whether cached data exists?
-	exists func(key string) (exists bool, err error)
-
-	// key Customize cache key processing, such as adding a specified prefix.
-	key func(key string) string
-
-	// marshal Serializing cache data.
-	marshal func(v any) ([]byte, error)
-
-	// unmarshal Deserializing cache data.
-	unmarshal func(data []byte, v any) error
+	cacher Cacher
 }
 
-// UseGet Customize the read data from the cache.
-func (s *Cache) UseGet(f func(key string) (value []byte, exists bool, err error)) *Cache {
-	if s.get != nil {
-		s.get = f
+// GetCacher Read Cacher.
+func (s *Cache) GetCacher() Cacher {
+	return s.cacher
+}
+
+// SetCacher Write Cacher.
+func (s *Cache) SetCacher(cacher Cacher) *Cache {
+	if cacher != nil {
+		s.cacher = cacher
 	}
 	return s
-}
-
-// UseSet Customize the write data to cache.
-func (s *Cache) UseSet(f func(key string, value []byte, duration ...time.Duration) error) *Cache {
-	if s.set != nil {
-		s.set = f
-	}
-	return s
-}
-
-// UseDel Customize whether cached data exists.
-func (s *Cache) UseDel(f func(key string) error) *Cache {
-	if s.del != nil {
-		s.del = f
-	}
-	return s
-}
-
-// UseExists Customize whether the data exists in the cache.
-func (s *Cache) UseExists(f func(key string) (exists bool, err error)) *Cache {
-	if f != nil {
-		s.exists = f
-	}
-	return s
-}
-
-// UseKey Customize cache key processing, such as adding a specified prefix.
-func (s *Cache) UseKey(f func(key string) string) *Cache {
-	if f != nil {
-		s.key = f
-	}
-	return s
-}
-
-// UseMarshal Custom serializing cache data.
-func (s *Cache) UseMarshal(f func(v any) ([]byte, error)) *Cache {
-	if f != nil {
-		s.marshal = f
-	}
-	return s
-}
-
-// UseUnmarshal Custom deserializing cache data.
-func (s *Cache) UseUnmarshal(f func(data []byte, v any) error) *Cache {
-	if f != nil {
-		s.unmarshal = f
-	}
-	return s
-}
-
-// Key Get custom method of key.
-func (s *Cache) Key() func(key string) string {
-	return s.key
-}
-
-// Marshal Get custom method of marshal.
-func (s *Cache) Marshal() func(v any) ([]byte, error) {
-	return s.marshal
-}
-
-// Unmarshal Get custom method of unmarshal.
-func (s *Cache) Unmarshal() func(data []byte, v any) error {
-	return s.unmarshal
 }
 
 // Get Read cache data from cache.
 func (s *Cache) Get(key string) (value []byte, exists bool, err error) {
-	if s.key != nil {
-		key = s.key(key)
-	}
-	return s.get(key)
+	return s.cacher.Get(s.cacher.Key(key))
 }
 
 // Set Write cache data to cache.
 func (s *Cache) Set(key string, value []byte, duration ...time.Duration) error {
-	if s.key != nil {
-		key = s.key(key)
-	}
-	return s.set(key, value, duration...)
+	return s.cacher.Set(s.cacher.Key(key), value, duration...)
 }
 
 // Del Deleting data from the cache.
 func (s *Cache) Del(key string) error {
-	return s.del(key)
+	return s.cacher.Del(s.cacher.Key(key))
 }
 
 // Exists Whether cached data exists?
 func (s *Cache) Exists(key string) (exists bool, err error) {
-	if had := s.exists; had != nil {
-		exists, err = had(key)
-	} else {
-		_, exists, err = s.get(key)
-	}
-	return
+	return s.cacher.Exists(s.cacher.Key(key))
 }
 
 // GetUnmarshal Read cached data from the cache and deserialize cached data.
@@ -152,7 +85,7 @@ func (s *Cache) GetUnmarshal(key string, value any) (exists bool, err error) {
 	if !exists {
 		return exists, nil
 	}
-	if err = s.unmarshal(tmp, value); err != nil {
+	if err = s.cacher.Unmarshal(tmp, value); err != nil {
 		return exists, err
 	}
 	return exists, nil
@@ -160,7 +93,7 @@ func (s *Cache) GetUnmarshal(key string, value any) (exists bool, err error) {
 
 // MarshalSet Serialize cache data and write the serialized data to the cache.
 func (s *Cache) MarshalSet(key string, value any, duration ...time.Duration) error {
-	tmp, err := s.marshal(value)
+	tmp, err := s.cacher.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -247,29 +180,18 @@ func (s *Cache) SetBool(key string, value bool, duration ...time.Duration) error
 	return s.Set(key, fmt.Appendf(nil, "%t", value), duration...)
 }
 
-// RandDuration Get a random Duration between min*duration and max*duration.
-func (s *Cache) RandDuration(min int, max int, duration time.Duration) time.Duration {
-	return time.Duration(min+rand.IntN(max-min+1)) * duration
-}
-
-// Fork Copy the current object.
-func (s *Cache) Fork() *Cache {
-	forkCache := *s
-	return &forkCache
+// DurationRange Get a random Duration between min*duration and max*duration.
+func (s *Cache) DurationRange(duration time.Duration, minValue int, maxValue int) time.Duration {
+	return time.Duration(minValue+rand.IntN(maxValue-minValue+1)) * duration
 }
 
 // NewCache Create a new *Cache object.
-func NewCache(
-	get func(key string) (value []byte, exists bool, err error), // nil value are not allowed
-	set func(key string, value []byte, duration ...time.Duration) error, // nil value are not allowed
-	del func(key string) error, // nil value are not allowed
-) *Cache {
+func NewCache(cacher Cacher) *Cache {
+	if cacher == nil {
+		panic("hey: cacher is nil")
+	}
 	return &Cache{
-		get:       get,
-		set:       set,
-		del:       del,
-		marshal:   json.Marshal,
-		unmarshal: json.Unmarshal,
+		cacher: cacher,
 	}
 }
 
@@ -330,13 +252,20 @@ type CacheCmder interface {
 // cacheCmd Implementing the CacheCmder interface.
 type cacheCmd struct {
 	cache *Cache
+
 	cmder Cmder
 
+	// cacheKey Allows custom unique cache keys to be constructed based on query objects.
 	cacheKey func() (string, error)
 
+	// prepare Query Statement.
 	prepare string
-	args    []any
-	key     string
+
+	// args Query statement corresponding parameter list.
+	args []any
+
+	// key Cache key.
+	key string
 }
 
 func (s *cacheCmd) getCacheKey() (string, error) {
@@ -355,7 +284,7 @@ func (s *cacheCmd) getCacheKey() (string, error) {
 		}
 	}
 
-	param, err := s.cache.Marshal()(s.args)
+	param, err := s.cache.GetCacher().Marshal(s.args)
 	if err != nil {
 		return EmptyString, err
 	}

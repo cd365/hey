@@ -313,7 +313,7 @@ func Select(way *hey.Way) error {
 	// Query a piece of data.
 	one := &ExampleAnyStruct{}
 	if err := get.Limit(1).Get(one); err != nil {
-		if !errors.Is(err, hey.RecordDoesNotExists) {
+		if !errors.Is(err, hey.ErrNoRows) {
 			return err
 		}
 	}
@@ -440,7 +440,7 @@ func Select(way *hey.Way) error {
 		return rows.Scan(&v.Name, &v.Age)
 	}, prepare, args...)
 	if err != nil {
-		if !errors.Is(err, hey.RecordDoesNotExists) {
+		if !errors.Is(err, hey.ErrNoRows) {
 			return err
 		}
 	}
@@ -544,7 +544,7 @@ func Transaction1(way *hey.Way) error {
 			args4...,
 		)
 		if err != nil {
-			if errors.Is(err, hey.RecordDoesNotExists) {
+			if errors.Is(err, hey.ErrNoRows) {
 				// todo
 				// return errors.New("record does not exists")
 			} else {
@@ -675,31 +675,12 @@ func Others(way *hey.Way) error {
 }
 
 // UsingCache Using cache query data.
-func UsingCache(way *hey.Way, cache *hey.Cache, mutex *sync.Mutex) (data []*ExampleAnyStruct, err error) {
-	// {
-	// 	// How to build *hey.Cache?
-	// 	cache = hey.NewCache(
-	// 		func(key string) (value []byte, exists bool, err error) {
-	// 			// TODO...
-	// 			return
-	// 		},
-	// 		func(key string, value []byte, duration ...time.Duration) error {
-	// 			// TODO...
-	// 			return nil
-	// 		},
-	// 		func(key string) error {
-	// 			// TODO...
-	// 			return nil
-	// 		},
-	// 	)
-	// 	// The cache is usually implemented in Memcached, Redis, current program memory, or even files.
-	// }
+func UsingCache(way *hey.Way, cacher hey.Cacher, mutex *sync.Mutex) (data []*ExampleAnyStruct, err error) {
+	// The cacher is usually implemented in Memcached, Redis, current program memory, or even files.
+	cache := hey.NewCache(cacher)
 
 	// Note: Beware of unnecessary blocking and do not use the same mutex for all query cache operations.
 	// It is recommended to pre-allocate a set of mutexes, and then use the cache key to select one from that set based on some rule.
-
-	// You should set a custom cache key handling when creating a *hey.Cache , of course you can reset it or append a custom function in some cases.
-	// cache.UseKey(func(key string) string { return fmt.Sprintf("database:query:%s", key) })
 
 	get := way.Get("your_table_name").Select("name", "age").Desc("id").Limit(20).Offset(0)
 
@@ -734,7 +715,7 @@ func UsingCache(way *hey.Way, cache *hey.Cache, mutex *sync.Mutex) (data []*Exam
 	}
 
 	// Cache query data.
-	if err = cacheCmder.MarshalSet(data, cache.RandDuration(7, 9, time.Second)); err != nil {
+	if err = cacheCmder.MarshalSet(data, cache.DurationRange(time.Second, 7, 9)); err != nil {
 		return nil, err
 	}
 
