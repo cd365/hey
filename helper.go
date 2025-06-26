@@ -142,7 +142,7 @@ func (s *bindScanStruct) init() *bindScanStruct {
 	return s
 }
 
-// Binding Match the binding according to the structure `db` tag and the query column name.
+// binding Match the binding according to the structure `db` tag and the query column name.
 // Please ensure that the type of refStructType must be `reflect.Struct`.
 func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag string) {
 	if _, ok := s.structType[refStructType]; ok {
@@ -168,24 +168,26 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 		}
 
 		// anonymous structure, or named structure.
-		if attribute.Type.Kind() == reflect.Struct || (attribute.Type.Kind() == reflect.Ptr && attribute.Type.Elem().Kind() == reflect.Struct) {
-			at := attribute.Type
-			kind := at.Kind()
-			if kind == reflect.Ptr {
-				at = at.Elem()
-				kind = at.Kind()
-			}
-			if kind == reflect.Struct {
+		at := attribute.Type
+		atk := at.Kind()
+		switch atk {
+		case reflect.Struct:
+			dst := depth[:]
+			dst = append(dst, i)
+			s.binding(at, dst, tag)
+			continue
+		case reflect.Ptr:
+			if at.Elem().Kind() == reflect.Struct {
 				dst := depth[:]
 				dst = append(dst, i)
-				// recursive call.
-				s.binding(at, dst, tag)
+				s.binding(at.Elem(), dst, tag)
+				continue
 			}
-			continue
+		default:
 		}
 
 		if tagValue == EmptyString {
-			// Database columns are usually named with underscores, so the `db` tag is not set. No column mapping is done here.
+			// database columns are usually named with underscores, so the `db` tag is not set. No column mapping is done here.
 			continue
 		}
 
@@ -208,12 +210,11 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 
 // Prepare The preparatory work before executing rows.Scan.
 // Find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
-// When nesting structures, it is recommended to use structure value nesting to prevent null pointers that may appear when the root structure accesses the properties of substructures, resulting in panic.
 func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect reflect.Value, length int) error {
 	for i := range length {
 		index, ok := s.direct[columns[i]]
 		if ok {
-			// top structure.
+			// root structure.
 			field := indirect.Field(index)
 			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("hey: column `%s` cann't set value", columns[i])
@@ -226,36 +227,36 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 			rowsScan[i] = field.Addr().Interface()
 			continue
 		}
-		// parsing multi-layer structures.
-		line, ok := s.indirect[columns[i]]
+		// non-root structure, parsing multi-layer structures.
+		indexChain, ok := s.indirect[columns[i]]
 		if !ok {
 			// unable to find mapping property for current field Use *[]byte instead to receive.
 			rowsScan[i] = new([]byte)
 			continue
 		}
-		count := len(line)
-		if count < 2 {
+		total := len(indexChain)
+		if total < 2 {
 			return fmt.Errorf("hey: unable to determine field `%s` mapping", columns[i])
 		}
-		cursor := make([]reflect.Value, count)
-		cursor[0] = indirect
-		for j := range count {
-			parent := cursor[j]
-			if j+1 < count {
-				// middle layer structures.
-				latest := parent.Field(line[j])
-				if latest.Type().Kind() == reflect.Ptr {
-					if latest.IsNil() {
-						latest.Set(reflect.New(latest.Type().Elem()))
+		lists := make([]reflect.Value, total)
+		lists[0] = indirect
+		for serial := range total {
+			using := lists[serial]
+			if serial+1 < total {
+				// Middle layer structures.
+				next := using.Field(indexChain[serial])
+				if next.Type().Kind() == reflect.Ptr {
+					if next.IsNil() {
+						next.Set(reflect.New(next.Type().Elem()))
 					}
-					latest = latest.Elem()
+					next = next.Elem()
 				}
-				cursor[j+1] = latest
+				lists[serial+1] = next
 				continue
 			}
-			// j + 1 == count
-			// innermost structure.
-			field := parent.Field(line[j])
+
+			// The struct where the current column is located.
+			field := using.Field(indexChain[serial])
 			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("hey: column `%s` cann't set value, multi-level", columns[i])
 			}
