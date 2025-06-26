@@ -62,7 +62,7 @@ func MustAffectedRows(affectedRows int64, err error) error {
 		return err
 	}
 	if affectedRows <= 0 {
-		return NoRowsAffected
+		return ErrNoRowsAffected
 	}
 	return nil
 }
@@ -341,7 +341,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 			}
 			return nil
 		}
-		return RecordDoesNotExists
+		return ErrNoRows
 	}
 
 	// Query multiple items.

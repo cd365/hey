@@ -115,36 +115,21 @@ const (
 	RowsScanStructAllMakeSliceLength = "rows_scan_struct_all_make_slice_length"
 )
 
-// ErrorRecordDoesNotExists Report query record does not exist.
-type ErrorRecordDoesNotExists string
+type manualError string
 
-func (s ErrorRecordDoesNotExists) Error() string {
-	return string(s)
-}
-
-// ErrorNoRowsAffected Report no affected rows.
-type ErrorNoRowsAffected string
-
-func (s ErrorNoRowsAffected) Error() string {
-	return string(s)
-}
-
-// ErrorTransactionNotStarted Report transaction isn't started.
-type ErrorTransactionNotStarted string
-
-func (s ErrorTransactionNotStarted) Error() string {
+func (s manualError) Error() string {
 	return string(s)
 }
 
 const (
-	// RecordDoesNotExists record does not exist.
-	RecordDoesNotExists = ErrorRecordDoesNotExists("database: record does not exist")
+	// ErrNoRows record does not exist.
+	ErrNoRows = manualError("hey: no rows")
 
-	// NoRowsAffected no rows affected.
-	NoRowsAffected = ErrorNoRowsAffected("database: no rows affected")
+	// ErrNoRowsAffected no rows affected.
+	ErrNoRowsAffected = manualError("hey: no rows affected")
 
-	// TransactionNotStarted transaction isn't started.
-	TransactionNotStarted = ErrorTransactionNotStarted("database: transaction not started")
+	// ErrNilTransaction transaction isn't started.
+	ErrNilTransaction = manualError("hey: transaction is nil")
 )
 
 // Manual For handling different types of databases.
@@ -459,7 +444,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 // commit -> Commit transaction.
 func (s *Way) commit() (err error) {
 	if s.transaction == nil {
-		return TransactionNotStarted
+		return ErrNilTransaction
 	}
 	tx := s.transaction
 	tx.state = logTxCommit
@@ -472,7 +457,7 @@ func (s *Way) commit() (err error) {
 // rollback -> Rollback transaction.
 func (s *Way) rollback() (err error) {
 	if s.transaction == nil {
-		return TransactionNotStarted
+		return ErrNilTransaction
 	}
 	tx := s.transaction
 	tx.state = logTxRollback

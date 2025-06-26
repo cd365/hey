@@ -1615,7 +1615,7 @@ func (s *WindowFunc) Alias(alias string) *WindowFunc {
 // Result Query column expressions.
 func (s *WindowFunc) Result() string {
 	if s.withFunc == EmptyString || s.partition == nil || s.order == nil || s.alias == EmptyString {
-		panic("hey: the SQL window function parameters are incomplete.")
+		panic("hey: the SQL window function parameters are incomplete")
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)

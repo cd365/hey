@@ -320,7 +320,7 @@ func RowsScanStructOne[V any](ctx context.Context, way *Way, scan func(rows *sql
 		return nil, err
 	}
 	if !has {
-		return nil, RecordDoesNotExists
+		return nil, ErrNoRows
 	}
 	return &tmp, nil
 }
