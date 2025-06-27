@@ -180,7 +180,7 @@ func (s *Cache) SetBool(key string, value bool, duration ...time.Duration) error
 	return s.Set(key, fmt.Appendf(nil, "%t", value), duration...)
 }
 
-// DurationRange Get a random Duration between min*duration and max*duration.
+// DurationRange Get a random Duration between minValue*duration and maxValue*duration.
 func (s *Cache) DurationRange(duration time.Duration, minValue int, maxValue int) time.Duration {
 	return time.Duration(minValue+rand.IntN(maxValue-minValue+1)) * duration
 }

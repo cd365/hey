@@ -1848,7 +1848,7 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 			continue
 		}
 		column := matched[1]
-		if val, ok := columnMap[column]; ok && val != EmptyString {
+		if val, ok := columnMap[column]; ok {
 			column = val
 		}
 		if matched[3][0] == 97 {
