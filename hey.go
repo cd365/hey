@@ -122,14 +122,14 @@ func (s manualError) Error() string {
 }
 
 const (
-	// ErrNoRows record does not exist.
+	// ErrNoRows Error no rows.
 	ErrNoRows = manualError("hey: no rows")
 
-	// ErrNoRowsAffected no rows affected.
+	// ErrNoRowsAffected Error no rows affected.
 	ErrNoRowsAffected = manualError("hey: no rows affected")
 
-	// ErrNilTransaction transaction isn't started.
-	ErrNilTransaction = manualError("hey: transaction is nil")
+	// errTransactionIsNil Error transaction isn't started.
+	errTransactionIsNil = manualError("hey: transaction is nil")
 )
 
 // Manual For handling different types of databases.
@@ -444,7 +444,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 // commit -> Commit transaction.
 func (s *Way) commit() (err error) {
 	if s.transaction == nil {
-		return ErrNilTransaction
+		return errTransactionIsNil
 	}
 	tx := s.transaction
 	tx.state = logTxCommit
@@ -457,7 +457,7 @@ func (s *Way) commit() (err error) {
 // rollback -> Rollback transaction.
 func (s *Way) rollback() (err error) {
 	if s.transaction == nil {
-		return ErrNilTransaction
+		return errTransactionIsNil
 	}
 	tx := s.transaction
 	tx.state = logTxRollback

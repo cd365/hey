@@ -307,10 +307,20 @@ func (s *cacheCmd) getCacheKey() (string, error) {
 }
 
 func (s *cacheCmd) GetCacheKey() (string, error) {
-	if cacheKey := s.cacheKey; cacheKey != nil {
-		return cacheKey()
+	cacheKey := s.cacheKey
+	if cacheKey == nil {
+		return s.getCacheKey()
 	}
-	return s.getCacheKey()
+
+	if s.key != EmptyString {
+		return s.key, nil
+	}
+	key, err := cacheKey()
+	if err != nil {
+		return EmptyString, err
+	}
+	s.key = key
+	return s.key, nil
 }
 
 func (s *cacheCmd) UseCacheKey(cacheKey func(cmder Cmder) (string, error)) CacheCmder {
