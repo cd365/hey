@@ -268,6 +268,7 @@ type cacheCmd struct {
 	key string
 }
 
+// getCacheKey Default method for building cache key.
 func (s *cacheCmd) getCacheKey() (string, error) {
 	if s.key != EmptyString {
 		return s.key, nil
@@ -306,6 +307,7 @@ func (s *cacheCmd) getCacheKey() (string, error) {
 	return s.key, nil
 }
 
+// GetCacheKey Build cache key, custom method is used first.
 func (s *cacheCmd) GetCacheKey() (string, error) {
 	cacheKey := s.cacheKey
 	if cacheKey == nil {
@@ -323,6 +325,7 @@ func (s *cacheCmd) GetCacheKey() (string, error) {
 	return s.key, nil
 }
 
+// UseCacheKey Using custom method to build cache key.
 func (s *cacheCmd) UseCacheKey(cacheKey func(cmder Cmder) (string, error)) CacheCmder {
 	if cacheKey != nil {
 		s.cacheKey = func() (string, error) { return cacheKey(s.cmder) }
@@ -330,6 +333,7 @@ func (s *cacheCmd) UseCacheKey(cacheKey func(cmder Cmder) (string, error)) Cache
 	return s
 }
 
+// Reset Resetting cache related properties.
 func (s *cacheCmd) Reset(cmder ...Cmder) CacheCmder {
 	s.prepare, s.args, s.key = EmptyString, nil, EmptyString
 	for _, tmp := range cmder {
@@ -341,6 +345,7 @@ func (s *cacheCmd) Reset(cmder ...Cmder) CacheCmder {
 	return s
 }
 
+// Get Read data from cache.
 func (s *cacheCmd) Get() (value []byte, exists bool, err error) {
 	if _, err = s.GetCacheKey(); err != nil {
 		return nil, false, err
@@ -348,6 +353,7 @@ func (s *cacheCmd) Get() (value []byte, exists bool, err error) {
 	return s.cache.Get(s.key)
 }
 
+// Set Write data to cache.
 func (s *cacheCmd) Set(value []byte, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
@@ -355,6 +361,7 @@ func (s *cacheCmd) Set(value []byte, duration ...time.Duration) error {
 	return s.cache.Set(s.key, value, duration...)
 }
 
+// Del Delete cache value.
 func (s *cacheCmd) Del() error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
@@ -362,6 +369,7 @@ func (s *cacheCmd) Del() error {
 	return s.cache.Del(s.key)
 }
 
+// Exists Check if the cache value exists.
 func (s *cacheCmd) Exists() (exists bool, err error) {
 	if _, err = s.GetCacheKey(); err != nil {
 		return false, err
@@ -369,6 +377,7 @@ func (s *cacheCmd) Exists() (exists bool, err error) {
 	return s.cache.Exists(s.key)
 }
 
+// GetUnmarshal Get cached value and deserialize.
 func (s *cacheCmd) GetUnmarshal(value any) (exists bool, err error) {
 	if _, err = s.GetCacheKey(); err != nil {
 		return false, err
@@ -376,6 +385,7 @@ func (s *cacheCmd) GetUnmarshal(value any) (exists bool, err error) {
 	return s.cache.GetUnmarshal(s.key, value)
 }
 
+// MarshalSet Serialize cache data and set serialized data to the cache.
 func (s *cacheCmd) MarshalSet(value any, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
@@ -383,6 +393,7 @@ func (s *cacheCmd) MarshalSet(value any, duration ...time.Duration) error {
 	return s.cache.MarshalSet(s.key, value, duration...)
 }
 
+// GetString Get string value.
 func (s *cacheCmd) GetString() (string, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return EmptyString, false, err
@@ -390,6 +401,7 @@ func (s *cacheCmd) GetString() (string, bool, error) {
 	return s.cache.GetString(s.key)
 }
 
+// SetString Set string value.
 func (s *cacheCmd) SetString(value string, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
@@ -397,6 +409,7 @@ func (s *cacheCmd) SetString(value string, duration ...time.Duration) error {
 	return s.cache.SetString(s.key, value, duration...)
 }
 
+// GetFloat Get float64 value.
 func (s *cacheCmd) GetFloat() (float64, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return 0, false, err
@@ -404,6 +417,7 @@ func (s *cacheCmd) GetFloat() (float64, bool, error) {
 	return s.cache.GetFloat(s.key)
 }
 
+// SetFloat Set float64 value.
 func (s *cacheCmd) SetFloat(value float64, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
@@ -411,6 +425,7 @@ func (s *cacheCmd) SetFloat(value float64, duration ...time.Duration) error {
 	return s.cache.SetFloat(s.key, value, duration...)
 }
 
+// GetInt Get int64 value.
 func (s *cacheCmd) GetInt() (int64, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return 0, false, err
@@ -418,6 +433,7 @@ func (s *cacheCmd) GetInt() (int64, bool, error) {
 	return s.cache.GetInt(s.key)
 }
 
+// SetInt Set int64 value.
 func (s *cacheCmd) SetInt(value int64, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
@@ -425,6 +441,7 @@ func (s *cacheCmd) SetInt(value int64, duration ...time.Duration) error {
 	return s.cache.SetInt(s.key, value, duration...)
 }
 
+// GetBool Get bool value.
 func (s *cacheCmd) GetBool() (bool, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return false, false, err
@@ -432,6 +449,7 @@ func (s *cacheCmd) GetBool() (bool, bool, error) {
 	return s.cache.GetBool(s.key)
 }
 
+// SetBool Set bool value.
 func (s *cacheCmd) SetBool(value bool, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
