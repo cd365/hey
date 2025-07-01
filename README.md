@@ -33,7 +33,6 @@ import (
 	_ "github.com/lib/pq"              /* Registering the database driver */
 	_ "github.com/mattn/go-sqlite3"    /* Registering the database driver */
 	"os"
-	"sync"
 	"time"
 )
 
@@ -675,7 +674,7 @@ func Others(way *hey.Way) error {
 }
 
 // UsingCache Using cache query data.
-func UsingCache(way *hey.Way, cacher hey.Cacher, keyLock *hey.KeyLock) (data []*ExampleAnyStruct, err error) {
+func UsingCache(way *hey.Way, cacher hey.Cacher, mutexes *hey.StringMutex) (data []*ExampleAnyStruct, err error) {
 	// The cacher is usually implemented in Memcached, Redis, current program memory, or even files.
 	cache := hey.NewCache(cacher)
 
@@ -698,7 +697,7 @@ func UsingCache(way *hey.Way, cacher hey.Cacher, keyLock *hey.KeyLock) (data []*
 	// Prepare to query data from the database.
 	cacheKey, _ := cacheCmder.GetCacheKey()
 
-	mutex := keyLock.Get(cacheKey)
+	mutex := mutexes.Get(cacheKey)
 
 	mutex.Lock()
 	defer mutex.Unlock()

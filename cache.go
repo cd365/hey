@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"math/rand/v2"
 	"strconv"
 	"sync"
@@ -470,51 +471,38 @@ func NewCacheCmder(cache *Cache, cmder Cmder) CacheCmder {
 	}
 }
 
-// KeyLock Get a mutex pointer address from a set of locks based on a string.
-type KeyLock struct {
-	// length The mutex slice length.
-	length uint32
-
-	// mutex Slice of *sync.Mutex.
-	mutex []*sync.Mutex
+// StringMutex maps string keys to a fixed set of sync.Mutex locks using hashing.
+type StringMutex struct {
+	length  int           // Number of mutexes, fixed after initialization.
+	mutexes []*sync.Mutex // Slice of mutexes, fixed after initialization.
 }
 
-// get a pointer to a mutex lock through key.
-func (s *KeyLock) get(key string) *sync.Mutex {
-	h := fnv.New32a()
-	if _, err := h.Write([]byte(key)); err != nil {
-		panic(err)
+// Get returns the sync.Mutex corresponding to the given key.
+func (s *StringMutex) Get(key string) *sync.Mutex {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	value := h.Sum64()
+	index := value % uint64(s.length)
+	return s.mutexes[index]
+}
+
+// Len returns the number of mutexes.
+func (s *StringMutex) Len() int {
+	return s.length
+}
+
+// NewStringMutex creates a new StringMutex with the specified number of mutexes.
+// If length is invalid (< 1 or > math.MaxUint16), it defaults to 256.
+func NewStringMutex(length int) *StringMutex {
+	if length < 1 || length > math.MaxUint16 {
+		length = 256
 	}
-	value := h.Sum32()
-	index := value % s.length
-	return s.mutex[index]
-}
-
-// Get a pointer to a mutex lock through key.
-func (s *KeyLock) Get(key string) *sync.Mutex {
-	return s.get(key)
-}
-
-// resize the mutex slice.
-func (s *KeyLock) resize(length uint32) *KeyLock {
-	if length == 0 {
-		panic("hey: length must be greater than 0")
+	result := &StringMutex{
+		length:  length,
+		mutexes: make([]*sync.Mutex, length),
 	}
-	s.length, s.mutex = length, make([]*sync.Mutex, length)
-	for i := range length {
-		s.mutex[i] = &sync.Mutex{}
+	for i := range result.mutexes {
+		result.mutexes[i] = &sync.Mutex{}
 	}
-	return s
-}
-
-// Resize the mutex slice.
-func (s *KeyLock) Resize(length uint32) *KeyLock {
-	return s.resize(length)
-}
-
-// NewKeyLock Create a new *KeyLock object.
-func NewKeyLock() *KeyLock {
-	tmp := &KeyLock{}
-	tmp.resize(1 << 8)
-	return tmp
+	return result
 }
