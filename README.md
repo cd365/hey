@@ -675,12 +675,9 @@ func Others(way *hey.Way) error {
 }
 
 // UsingCache Using cache query data.
-func UsingCache(way *hey.Way, cacher hey.Cacher, mutex *sync.Mutex) (data []*ExampleAnyStruct, err error) {
+func UsingCache(way *hey.Way, cacher hey.Cacher, keyLock *hey.KeyLock) (data []*ExampleAnyStruct, err error) {
 	// The cacher is usually implemented in Memcached, Redis, current program memory, or even files.
 	cache := hey.NewCache(cacher)
-
-	// Note: Beware of unnecessary blocking and do not use the same mutex for all query cache operations.
-	// It is recommended to pre-allocate a set of mutexes, and then use the cache key to select one from that set based on some rule.
 
 	get := way.Get("your_table_name").Select("name", "age").Desc("id").Limit(20).Offset(0)
 
@@ -692,18 +689,25 @@ func UsingCache(way *hey.Way, cacher hey.Cacher, mutex *sync.Mutex) (data []*Exa
 	if err != nil {
 		return nil, err
 	}
+
 	if exists {
 		// The data has been obtained from the cache and no longer needs to be queried from the database.
 		return data, nil
 	}
 
 	// Prepare to query data from the database.
+	cacheKey, _ := cacheCmder.GetCacheKey()
+
+	mutex := keyLock.Get(cacheKey)
+
 	mutex.Lock()
 	defer mutex.Unlock()
+
 	exists, err = cacheCmder.GetUnmarshal(&data)
 	if err != nil {
 		return nil, err
 	}
+
 	if exists {
 		// The data has been obtained from the cache and no longer needs to be queried from the database.
 		return data, nil

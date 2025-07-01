@@ -9,8 +9,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"math/rand/v2"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -466,4 +468,53 @@ func NewCacheCmder(cache *Cache, cmder Cmder) CacheCmder {
 		cache: cache,
 		cmder: cmder,
 	}
+}
+
+// KeyLock Get a mutex pointer address from a set of locks based on a string.
+type KeyLock struct {
+	// length The mutex slice length.
+	length uint32
+
+	// mutex Slice of *sync.Mutex.
+	mutex []*sync.Mutex
+}
+
+// get a pointer to a mutex lock through key.
+func (s *KeyLock) get(key string) *sync.Mutex {
+	h := fnv.New32a()
+	if _, err := h.Write([]byte(key)); err != nil {
+		panic(err)
+	}
+	value := h.Sum32()
+	index := value % s.length
+	return s.mutex[index]
+}
+
+// Get a pointer to a mutex lock through key.
+func (s *KeyLock) Get(key string) *sync.Mutex {
+	return s.get(key)
+}
+
+// resize the mutex slice.
+func (s *KeyLock) resize(length uint32) *KeyLock {
+	if length == 0 {
+		panic("hey: length must be greater than 0")
+	}
+	s.length, s.mutex = length, make([]*sync.Mutex, length)
+	for i := range length {
+		s.mutex[i] = &sync.Mutex{}
+	}
+	return s
+}
+
+// Resize the mutex slice.
+func (s *KeyLock) Resize(length uint32) *KeyLock {
+	return s.resize(length)
+}
+
+// NewKeyLock Create a new *KeyLock object.
+func NewKeyLock() *KeyLock {
+	tmp := &KeyLock{}
+	tmp.resize(1 << 8)
+	return tmp
 }
