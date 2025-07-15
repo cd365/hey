@@ -1666,15 +1666,15 @@ func (s *Get) GetContext() context.Context {
 	return s.schema.ctx
 }
 
-// With for with query.
-func (s *Get) With(alias string, script Cmder, columns ...string) *Get {
-	if alias == EmptyString || IsEmptyCmder(script) {
+// With for with query, COMMON TABLE EXPRESSION.
+func (s *Get) With(fc func(w QueryWith)) *Get {
+	if fc == nil {
 		return s
 	}
 	if s.with == nil {
 		s.with = NewQueryWith()
 	}
-	s.with.Set(alias, script, columns...)
+	fc(s.with)
 	return s
 }
 

@@ -83,6 +83,9 @@ type QueryWith interface {
 
 	Cmder
 
+	// Recursive Recursion or cancellation of recursion.
+	Recursive() QueryWith
+
 	// Set Setting common table expression.
 	Set(alias string, cmder Cmder, columns ...string) QueryWith
 
@@ -91,9 +94,10 @@ type QueryWith interface {
 }
 
 type queryWith struct {
-	alias   []string
-	column  map[string][]string
-	prepare map[string]Cmder
+	recursive bool
+	alias     []string
+	column    map[string][]string
+	prepare   map[string]Cmder
 }
 
 func NewQueryWith() QueryWith {
@@ -116,6 +120,10 @@ func (s *queryWith) Cmd() (prepare string, args []any) {
 	defer putStringBuilder(b)
 	b.WriteString(SqlWith)
 	b.WriteString(SqlSpace)
+	if s.recursive {
+		b.WriteString("RECURSIVE")
+		b.WriteString(SqlSpace)
+	}
 	var param []any
 	for index, alias := range s.alias {
 		if index > 0 {
@@ -141,6 +149,11 @@ func (s *queryWith) Cmd() (prepare string, args []any) {
 	}
 	prepare = b.String()
 	return
+}
+
+func (s *queryWith) Recursive() QueryWith {
+	s.recursive = !s.recursive
+	return s
 }
 
 func (s *queryWith) Set(alias string, cmder Cmder, columns ...string) QueryWith {
