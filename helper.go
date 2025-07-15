@@ -1667,14 +1667,14 @@ func (s *Get) GetContext() context.Context {
 }
 
 // With for with query.
-func (s *Get) With(alias string, script Cmder) *Get {
+func (s *Get) With(alias string, script Cmder, columns ...string) *Get {
 	if alias == EmptyString || IsEmptyCmder(script) {
 		return s
 	}
 	if s.with == nil {
 		s.with = NewQueryWith()
 	}
-	s.with.Add(alias, script)
+	s.with.Set(alias, script, columns...)
 	return s
 }
 
