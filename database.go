@@ -60,33 +60,52 @@ func NewCmderGet(alias string, get *Get) TableCmder {
 	return NewTableCmder(ParcelCmder(get).Cmd()).Alias(alias)
 }
 
+/*
+-- CTE
+WITH [RECURSIVE]
+	cte_name1 [(column_name11, column_name12, ...)] AS ( SELECT ... )
+	[, cte_name2 [(column_name21, column_name22, ...)] AS ( SELECT ... ) ]
+SELECT ... FROM cte_name1 ...
+
+-- EXAMPLE RECURSIVE CTE:
+-- postgres
+WITH RECURSIVE sss AS (
+	SELECT id, pid, name, 1 AS level, name::TEXT AS path FROM employee WHERE pid = 0
+	UNION ALL
+	SELECT e.id, e.pid, e.name, f.level + 1, f.path || ' -> ' || e.name FROM employee e INNER JOIN sss f ON e.pid = f.id
+)
+SELECT * FROM sss ORDER BY level ASC, id DESC
+*/
+
 // QueryWith CTE: Common Table Expression.
 type QueryWith interface {
 	IsEmpty
 
 	Cmder
 
-	// Add Set common table expression.
-	Add(alias string, cmder Cmder) QueryWith
+	// Set Setting common table expression.
+	Set(alias string, cmder Cmder, columns ...string) QueryWith
 
-	// Del Remove common table expression.
+	// Del Removing common table expression.
 	Del(alias string) QueryWith
 }
 
 type queryWith struct {
-	with    []string
-	withMap map[string]Cmder
+	alias   []string
+	column  map[string][]string
+	prepare map[string]Cmder
 }
 
 func NewQueryWith() QueryWith {
 	return &queryWith{
-		with:    make([]string, 0, 2),
-		withMap: make(map[string]Cmder, 2),
+		alias:   make([]string, 0, 2),
+		column:  make(map[string][]string, 2),
+		prepare: make(map[string]Cmder, 2),
 	}
 }
 
 func (s *queryWith) IsEmpty() bool {
-	return len(s.with) == 0
+	return len(s.alias) == 0
 }
 
 func (s *queryWith) Cmd() (prepare string, args []any) {
@@ -98,13 +117,23 @@ func (s *queryWith) Cmd() (prepare string, args []any) {
 	b.WriteString(SqlWith)
 	b.WriteString(SqlSpace)
 	var param []any
-	for index, alias := range s.with {
+	for index, alias := range s.alias {
 		if index > 0 {
 			b.WriteString(SqlConcat)
 		}
-		script := s.withMap[alias]
+		script := s.prepare[alias]
 		b.WriteString(alias)
-		b.WriteString(ConcatString(SqlSpace, SqlAs, SqlSpace, SqlLeftSmallBracket, SqlSpace))
+		b.WriteString(SqlSpace)
+		if columns := s.column[alias]; len(columns) > 0 {
+			// Displays the column alias that defines the CTE, overwriting the original column name of the query result.
+			b.WriteString(SqlLeftSmallBracket)
+			b.WriteString(SqlSpace)
+			b.WriteString(strings.Join(columns, SqlConcat))
+			b.WriteString(SqlSpace)
+			b.WriteString(SqlRightSmallBracket)
+			b.WriteString(SqlSpace)
+		}
+		b.WriteString(ConcatString(SqlAs, SqlSpace, SqlLeftSmallBracket, SqlSpace))
 		prepare, param = script.Cmd()
 		b.WriteString(prepare)
 		b.WriteString(ConcatString(SqlSpace, SqlRightSmallBracket))
@@ -114,16 +143,16 @@ func (s *queryWith) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *queryWith) Add(alias string, cmder Cmder) QueryWith {
+func (s *queryWith) Set(alias string, cmder Cmder, columns ...string) QueryWith {
 	if alias == EmptyString || IsEmptyCmder(cmder) {
 		return s
 	}
-	if _, ok := s.withMap[alias]; ok {
-		s.withMap[alias] = cmder
+	if _, ok := s.prepare[alias]; !ok {
+		s.alias = append(s.alias, alias)
 		return s
 	}
-	s.with = append(s.with, alias)
-	s.withMap[alias] = cmder
+	s.column[alias] = columns
+	s.prepare[alias] = cmder
 	return s
 }
 
@@ -131,14 +160,18 @@ func (s *queryWith) Del(alias string) QueryWith {
 	if alias == EmptyString {
 		return s
 	}
-	with := make([]string, 0, len(s.with))
-	for _, tmp := range s.with {
+	if _, ok := s.prepare[alias]; !ok {
+		return s
+	}
+	keeps := make([]string, 0, len(s.alias))
+	for _, tmp := range s.alias {
 		if tmp != alias {
-			with = append(with, tmp)
+			keeps = append(keeps, tmp)
 		}
 	}
-	delete(s.withMap, alias)
-	s.with = with
+	s.alias = keeps
+	delete(s.column, alias)
+	delete(s.prepare, alias)
 	return s
 }
 
