@@ -1997,18 +1997,15 @@ func CmderGetCmd(s *Get) (prepare string, args []any) {
 // SELECT COUNT(*) AS count FROM ( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] ) AS a
 // SELECT COUNT(*) AS count FROM ( query1 UNION [ALL] query2 [UNION [ALL] ...] ) AS a
 func CmderGetCount(s *Get, countColumns ...string) (prepare string, args []any) {
+	if IsEmptyCmder(s) {
+		return
+	}
 	if countColumns == nil {
 		countColumns = []string{
 			SqlAlias("COUNT(*)", s.schema.way.Replace(DefaultAliasNameCount)),
 		}
 	}
-	if IsEmptyCmder(s) {
-		return
-	}
-	return NewGet(s.schema.way).
-		Select(countColumns...).
-		Subquery(s, AliasA).
-		Cmd()
+	return s.Select(countColumns...).Cmd()
 }
 
 // Cmd build SQL statement.

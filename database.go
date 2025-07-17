@@ -162,7 +162,6 @@ func (s *queryWith) Set(alias string, cmder Cmder, columns ...string) QueryWith 
 	}
 	if _, ok := s.prepare[alias]; !ok {
 		s.alias = append(s.alias, alias)
-		return s
 	}
 	s.column[alias] = columns
 	s.prepare[alias] = cmder
