@@ -36,13 +36,14 @@ func (s *tableCmder) Cmd() (prepare string, args []any) {
 	}
 	prepare, args = s.cmder.Cmd()
 	if s.alias != EmptyString {
-		prepare = ConcatString(prepare, SqlSpace, s.alias)
+		prepare = SqlAlias(prepare, s.alias)
 	}
 	return
 }
 
 func (s *tableCmder) Alias(alias string) TableCmder {
-	s.alias = alias // allow setting empty values
+	// Allow setting empty values.
+	s.alias = alias
 	return s
 }
 
@@ -541,6 +542,9 @@ type QueryJoin interface {
 	// TableSelect Add the queried column list based on the table's alias prefix.
 	TableSelect(table TableCmder, columns ...string) []string
 
+	// TableSelectAliases Add the queried column list based on the table's alias prefix, support setting the query column alias.
+	TableSelectAliases(table TableCmder, aliases map[string]string, columns ...string) []string
+
 	// SelectGroupsColumns Add the queried column list based on the table's alias prefix.
 	SelectGroupsColumns(columns ...[]string) QueryJoin
 
@@ -711,8 +715,25 @@ func (s *queryJoin) TableColumn(table TableCmder) *TableColumn {
 	return result
 }
 
+func (s *queryJoin) selectTableColumnOptionalColumnAlias(table TableCmder, aliases map[string]string, columns ...string) []string {
+	change := s.TableColumn(table)
+	result := make([]string, len(columns))
+	for index, column := range columns {
+		alias, ok := aliases[column]
+		if !ok || alias == EmptyString {
+			alias = columns[index]
+		}
+		result[index] = change.Column(column, alias)
+	}
+	return result
+}
+
 func (s *queryJoin) TableSelect(table TableCmder, columns ...string) []string {
-	return s.TableColumn(table).ColumnAll(columns...)
+	return s.selectTableColumnOptionalColumnAlias(table, nil, columns...)
+}
+
+func (s *queryJoin) TableSelectAliases(table TableCmder, aliases map[string]string, columns ...string) []string {
+	return s.selectTableColumnOptionalColumnAlias(table, aliases, columns...)
 }
 
 func (s *queryJoin) SelectGroupsColumns(columns ...[]string) QueryJoin {
@@ -1431,35 +1452,43 @@ func (s *TableColumn) ColumnAll(columns ...string) []string {
 		return s.way.Replaces(columns)
 	}
 	alias := s.way.Replace(s.alias)
+	result := make([]string, len(columns))
 	for index, column := range columns {
-		columns[index] = SqlPrefix(alias, s.way.Replace(column))
+		result[index] = SqlPrefix(alias, s.way.Replace(column))
 	}
-	return columns
+	return result
+}
+
+// columnAlias Set an alias for the column.
+// "column_name + alias_name" -> "column_name"
+// "column_name + alias_name" -> "column_name AS alias_name"
+func (s *TableColumn) columnAlias(column string, alias string) string {
+	return SqlAlias(column, alias)
 }
 
 // Column Add table name prefix to single column name, allowing column alias to be set.
 func (s *TableColumn) Column(column string, aliases ...string) string {
-	return SqlAlias(s.ColumnAll(column)[0], s.aliasName(aliases...))
+	return s.columnAlias(s.ColumnAll(column)[0], s.aliasName(aliases...))
 }
 
 // Sum SUM(column[, alias])
 func (s *TableColumn) Sum(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("SUM(%s)", s.Column(column)), s.aliasName(aliases...))
+	return s.columnAlias(fmt.Sprintf("SUM(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Max MAX(column[, alias])
 func (s *TableColumn) Max(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("MAX(%s)", s.Column(column)), s.aliasName(aliases...))
+	return s.columnAlias(fmt.Sprintf("MAX(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Min MIN(column[, alias])
 func (s *TableColumn) Min(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("MIN(%s)", s.Column(column)), s.aliasName(aliases...))
+	return s.columnAlias(fmt.Sprintf("MIN(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Avg AVG(column[, alias])
 func (s *TableColumn) Avg(column string, aliases ...string) string {
-	return SqlAlias(fmt.Sprintf("AVG(%s)", s.Column(column)), s.aliasName(aliases...))
+	return s.columnAlias(fmt.Sprintf("AVG(%s)", s.Column(column)), s.aliasName(aliases...))
 }
 
 // Count Example
@@ -1472,11 +1501,11 @@ func (s *TableColumn) Count(counts ...string) string {
 	length := len(counts)
 	if length == 0 {
 		// using default expression: COUNT(*) AS `counts`
-		return SqlAlias(count, s.way.Replace(DefaultAliasNameCount))
+		return s.columnAlias(count, s.way.Replace(DefaultAliasNameCount))
 	}
 	if length == 1 && counts[0] != EmptyString {
 		// only set alias name
-		return SqlAlias(count, s.way.Replace(counts[0]))
+		return s.columnAlias(count, s.way.Replace(counts[0]))
 	}
 	// set COUNT function parameters and alias name
 	countAlias := s.way.Replace(DefaultAliasNameCount)
@@ -1491,12 +1520,12 @@ func (s *TableColumn) Count(counts ...string) string {
 		}
 		count, column = fmt.Sprintf("COUNT(%s)", s.Column(counts[i])), true
 	}
-	return SqlAlias(count, countAlias)
+	return s.columnAlias(count, countAlias)
 }
 
 // aggregate Perform an aggregate function on the column and set a default value to replace NULL values.
 func (s *TableColumn) aggregate(column string, defaultValue string, aliases ...string) string {
-	return SqlAlias(NullDefaultValue(s.Column(column), defaultValue), s.aliasName(aliases...))
+	return s.columnAlias(NullDefaultValue(s.Column(column), defaultValue), s.aliasName(aliases...))
 }
 
 // SUM COALESCE(SUM(column) ,0)[ AS column_alias_name]
