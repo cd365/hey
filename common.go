@@ -448,7 +448,7 @@ func ArrayDiscard[V any](values []V, discard func(k int, v V) bool) []V {
 // InsertOnConflictUpdateSet Implement the following SQL statement:
 // INSERT INTO ... ON CONFLICT ( column_a[, column_b, column_c...] ) DO UPDATE SET column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3, column4 = 'fixed value' ...
 type InsertOnConflictUpdateSet interface {
-	UpdateSet
+	SQLUpdateSet
 
 	// Excluded Construct the update expression column1 = EXCLUDED.column1, column2 = EXCLUDED.column2, column3 = EXCLUDED.column3 ...
 	// This is how the `new` data is accessed that causes the conflict.
@@ -456,7 +456,7 @@ type InsertOnConflictUpdateSet interface {
 }
 
 type insertOnConflictUpdateSet struct {
-	UpdateSet
+	SQLUpdateSet
 
 	way *Way
 }
@@ -473,7 +473,7 @@ func NewInsertOnConflictUpdateSet(way *Way) InsertOnConflictUpdateSet {
 	tmp := &insertOnConflictUpdateSet{
 		way: way,
 	}
-	tmp.UpdateSet = NewUpdateSet(way)
+	tmp.SQLUpdateSet = NewSQLUpdateSet(way)
 	return tmp
 }
 

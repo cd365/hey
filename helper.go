@@ -950,7 +950,7 @@ type schema struct {
 	ctx     context.Context
 	way     *Way
 	comment string
-	table   TableCmder
+	table   SQLTable
 }
 
 // newSchema new schema with *Way.
@@ -1008,16 +1008,16 @@ func (s *Del) GetContext() context.Context {
 
 // Table set table name.
 func (s *Del) Table(table string, args ...any) *Del {
-	s.schema.table = NewTableCmder(s.schema.way.Replace(table), args)
+	s.schema.table = NewSQLTable(s.schema.way.Replace(table), args)
 	return s
 }
 
-// TableCmder Set table script.
-func (s *Del) TableCmder(cmder TableCmder) *Del {
-	if cmder == nil || IsEmptyCmder(cmder) {
+// SQLTable Set table script.
+func (s *Del) SQLTable(sqlTable SQLTable) *Del {
+	if sqlTable == nil || IsEmptyCmder(sqlTable) {
 		return s
 	}
-	s.schema.table = cmder
+	s.schema.table = sqlTable
 	return s
 }
 
@@ -1090,12 +1090,12 @@ func (s *Del) SetWay(way *Way) *Del {
 // Add for INSERT.
 type Add struct {
 	schema         *schema
-	except         UpsertColumns
-	permit         UpsertColumns
-	columns        UpsertColumns
-	values         InsertValue
-	columnsDefault UpsertColumns
-	valuesDefault  InsertValue
+	except         SQLUpsertColumn
+	permit         SQLUpsertColumn
+	columns        SQLUpsertColumn
+	values         SQLInsertValue
+	columnsDefault SQLUpsertColumn
+	valuesDefault  SQLInsertValue
 	fromCmder      Cmder
 }
 
@@ -1103,8 +1103,8 @@ type Add struct {
 func NewAdd(way *Way) *Add {
 	add := &Add{
 		schema:  newSchema(way),
-		columns: NewUpsertColumns(way),
-		values:  NewInsertValue(),
+		columns: NewSQLUpsertColumn(way),
+		values:  NewSQLInsertValue(),
 	}
 	return add
 }
@@ -1128,21 +1128,21 @@ func (s *Add) GetContext() context.Context {
 
 // Table set table name.
 func (s *Add) Table(table string) *Add {
-	s.schema.table = NewTableCmder(s.schema.way.Replace(table), nil)
+	s.schema.table = NewSQLTable(s.schema.way.Replace(table), nil)
 	return s
 }
 
 // ExceptPermit Set a list of columns that are not allowed to be inserted and a list of columns that are only allowed to be inserted.
-func (s *Add) ExceptPermit(custom func(except UpsertColumns, permit UpsertColumns)) *Add {
+func (s *Add) ExceptPermit(custom func(except SQLUpsertColumn, permit SQLUpsertColumn)) *Add {
 	if custom == nil {
 		return s
 	}
 	except, permit := s.except, s.permit
 	if except == nil {
-		except = NewUpsertColumns(s.schema.way)
+		except = NewSQLUpsertColumn(s.schema.way)
 	}
 	if permit == nil {
-		permit = NewUpsertColumns(s.schema.way)
+		permit = NewSQLUpsertColumn(s.schema.way)
 	}
 	custom(except, permit)
 	s.except, s.permit = except, permit
@@ -1221,14 +1221,14 @@ func (s *Add) Default(add func(add *Add)) *Add {
 	}
 	v := *s
 	tmp := &v
-	tmp.columns, tmp.values = NewUpsertColumns(s.schema.way), NewInsertValue()
+	tmp.columns, tmp.values = NewSQLUpsertColumn(s.schema.way), NewSQLInsertValue()
 	add(tmp)
 	if !tmp.columns.IsEmpty() && !tmp.values.IsEmpty() {
 		if s.columnsDefault == nil {
-			s.columnsDefault = NewUpsertColumns(s.schema.way)
+			s.columnsDefault = NewSQLUpsertColumn(s.schema.way)
 		}
 		if tmp.valuesDefault == nil {
-			s.valuesDefault = NewInsertValue()
+			s.valuesDefault = NewSQLInsertValue()
 		}
 		columns, values := tmp.columns.GetColumns(), tmp.values.GetValues()
 		for index, column := range columns {
@@ -1262,7 +1262,7 @@ func (s *Add) CmderValues(cmdValues Cmder, columns []string) *Add {
 	if cmdValues == nil || IsEmptyCmder(cmdValues) {
 		return s
 	}
-	s.columns = NewUpsertColumns(s.schema.way).SetColumns(columns)
+	s.columns = NewSQLUpsertColumn(s.schema.way).SetColumns(columns)
 	s.fromCmder = cmdValues
 	return s
 }
@@ -1366,10 +1366,10 @@ func (s *Add) SetWay(way *Way) *Add {
 // Mod for UPDATE.
 type Mod struct {
 	schema        *schema
-	except        UpsertColumns
-	permit        UpsertColumns
-	update        UpdateSet
-	updateDefault UpdateSet
+	except        SQLUpsertColumn
+	permit        SQLUpsertColumn
+	update        SQLUpdateSet
+	updateDefault SQLUpdateSet
 	where         Filter
 }
 
@@ -1377,7 +1377,7 @@ type Mod struct {
 func NewMod(way *Way) *Mod {
 	return &Mod{
 		schema: newSchema(way),
-		update: NewUpdateSet(way),
+		update: NewSQLUpdateSet(way),
 	}
 }
 
@@ -1400,21 +1400,21 @@ func (s *Mod) GetContext() context.Context {
 
 // Table set table name.
 func (s *Mod) Table(table string, args ...any) *Mod {
-	s.schema.table = NewTableCmder(s.schema.way.Replace(table), args)
+	s.schema.table = NewSQLTable(s.schema.way.Replace(table), args)
 	return s
 }
 
 // ExceptPermit Set a list of columns that are not allowed to be updated and a list of columns that are only allowed to be updated.
-func (s *Mod) ExceptPermit(custom func(except UpsertColumns, permit UpsertColumns)) *Mod {
+func (s *Mod) ExceptPermit(custom func(except SQLUpsertColumn, permit SQLUpsertColumn)) *Mod {
 	if custom == nil {
 		return s
 	}
 	except, permit := s.except, s.permit
 	if except == nil {
-		except = NewUpsertColumns(s.schema.way)
+		except = NewSQLUpsertColumn(s.schema.way)
 	}
 	if permit == nil {
-		permit = NewUpsertColumns(s.schema.way)
+		permit = NewSQLUpsertColumn(s.schema.way)
 	}
 	custom(except, permit)
 	s.except, s.permit = except, permit
@@ -1434,11 +1434,11 @@ func (s *Mod) Default(custom func(mod *Mod)) *Mod {
 	}
 	tmp := *s
 	mod := &tmp
-	mod.update = NewUpdateSet(s.schema.way)
+	mod.update = NewSQLUpdateSet(s.schema.way)
 	custom(mod)
 	if !mod.update.IsEmpty() {
 		if s.updateDefault == nil {
-			s.updateDefault = NewUpdateSet(s.schema.way)
+			s.updateDefault = NewSQLUpdateSet(s.schema.way)
 		}
 		prepares, args := mod.update.GetUpdate()
 		for index, prepare := range prepares {
@@ -1628,24 +1628,24 @@ type Limiter interface {
 // Get for SELECT.
 type Get struct {
 	schema  *schema
-	with    QueryWith
-	columns QueryColumns
-	join    QueryJoin
+	with    SQLWith
+	columns SQLSelect
+	join    SQLJoin
 	where   Filter
-	group   QueryGroup
-	order   QueryOrder
-	limit   QueryLimit
+	group   SQLGroupBy
+	order   SQLOrderBy
+	limit   SQLLimit
 }
 
 // NewGet for SELECT.
 func NewGet(way *Way) *Get {
 	return &Get{
 		schema:  newSchema(way),
-		columns: NewQueryColumns(way),
+		columns: NewSQLSelect(way),
 		where:   way.F(),
-		group:   NewQueryGroup(way),
-		order:   NewQueryOrder(way),
-		limit:   NewQueryLimit(),
+		group:   NewSQLGroupBy(way),
+		order:   NewSQLOrderBy(way),
+		limit:   NewSQLLimit(),
 	}
 }
 
@@ -1667,12 +1667,12 @@ func (s *Get) GetContext() context.Context {
 }
 
 // With for with query, COMMON TABLE EXPRESSION.
-func (s *Get) With(fc func(w QueryWith)) *Get {
+func (s *Get) With(fc func(w SQLWith)) *Get {
 	if fc == nil {
 		return s
 	}
 	if s.with == nil {
-		s.with = NewQueryWith()
+		s.with = NewSQLWith()
 	}
 	fc(s.with)
 	return s
@@ -1680,7 +1680,7 @@ func (s *Get) With(fc func(w QueryWith)) *Get {
 
 // Table set table name.
 func (s *Get) Table(table string) *Get {
-	s.schema.table = NewTableCmder(s.schema.way.Replace(table), nil)
+	s.schema.table = NewSQLTable(s.schema.way.Replace(table), nil)
 	return s
 }
 
@@ -1704,7 +1704,7 @@ func (s *Get) Subquery(subquery Cmder, alias string) *Get {
 			}
 		}
 		if alias == EmptyString {
-			if tab, ok := subquery.(TableCmder); ok && tab != nil {
+			if tab, ok := subquery.(SQLTable); ok && tab != nil {
 				alias = tab.GetAlias()
 				if alias != EmptyString {
 					tab.Alias(EmptyString)
@@ -1717,12 +1717,12 @@ func (s *Get) Subquery(subquery Cmder, alias string) *Get {
 		return s
 	}
 	prepare, args := ParcelCmder(subquery).Cmd()
-	s.schema.table = NewTableCmder(prepare, args).Alias(alias)
+	s.schema.table = NewSQLTable(prepare, args).Alias(alias)
 	return s
 }
 
 // Join for `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` ...
-func (s *Get) Join(custom func(join QueryJoin)) *Get {
+func (s *Get) Join(custom func(join SQLJoin)) *Get {
 	if custom == nil {
 		return s
 	}
@@ -1742,7 +1742,7 @@ func (s *Get) Join(custom func(join QueryJoin)) *Get {
 		master.Alias(alias) // restore master default alias name.
 	}
 	way := s.schema.way
-	s.join = NewQueryJoin(way).SetMaster(NewTableCmder(prepare, args).Alias(alias))
+	s.join = NewSQLJoin(way).SetMaster(NewSQLTable(prepare, args).Alias(alias))
 	custom(s.join)
 	return s
 }
@@ -1759,8 +1759,8 @@ func (s *Get) Where(where func(f Filter)) *Get {
 	return s
 }
 
-// Group set group columns.
-func (s *Get) Group(group ...string) *Get {
+// GroupBy set group columns.
+func (s *Get) GroupBy(group ...string) *Get {
 	s.group.Group(group...)
 	return s
 }
@@ -1772,7 +1772,7 @@ func (s *Get) Having(having func(f Filter)) *Get {
 }
 
 // GetSelect Get select object.
-func (s *Get) GetSelect() QueryColumns {
+func (s *Get) GetSelect() SQLSelect {
 	if s.join != nil {
 		return s.join.Queries()
 	}
@@ -1780,15 +1780,15 @@ func (s *Get) GetSelect() QueryColumns {
 }
 
 // SetSelect Set select object.
-func (s *Get) SetSelect(queryColumns QueryColumns) *Get {
-	if queryColumns == nil {
+func (s *Get) SetSelect(sqlSelect SQLSelect) *Get {
+	if sqlSelect == nil {
 		return s
 	}
 	if s.join != nil {
-		s.join.Queries().Set(queryColumns.Get())
+		s.join.Queries().Set(sqlSelect.Get())
 		return s
 	}
-	s.columns.Set(queryColumns.Get())
+	s.columns.Set(sqlSelect.Get())
 	return s
 }
 
@@ -1797,8 +1797,16 @@ func (s *Get) Select(columns ...string) *Get {
 	if length := len(columns); length == 0 {
 		return s
 	}
-	if tmp := NewQueryColumns(s.schema.way).AddAll(columns...); tmp.Len() > 0 {
+	if tmp := NewSQLSelect(s.schema.way).AddAll(columns...); tmp.Len() > 0 {
 		s.SetSelect(tmp)
+	}
+	return s
+}
+
+// OrderBy SQL ORDER BY.
+func (s *Get) OrderBy(fc func(o SQLOrderBy)) *Get {
+	if fc != nil {
+		fc(s.order)
 	}
 	return s
 }
@@ -1820,18 +1828,23 @@ var (
 	orderRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
 )
 
-// Order set the column sorting list in batches through regular expressions according to the request parameter value.
-func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
-	columnMap := make(map[string]string, 8)
-	for _, m := range orderMap {
-		for k, v := range m {
-			if k == EmptyString || v == EmptyString {
-				continue
+// OrderString set the column sorting list in batches through regular expressions according to the request parameter value.
+func (s *Get) OrderString(order string, replaces ...map[string]string) *Get {
+	columns := make(map[string]string, 8)
+	mapping := make([]string, 0, 8)
+	for _, tmp := range replaces {
+		for column, value := range tmp {
+			if column != EmptyString {
+				columns[column] = value
 			}
-			columnMap[k] = v
+			if value != EmptyString {
+				mapping = append(mapping, value)
+			}
 		}
 	}
-
+	if len(mapping) > 0 {
+		s.order.Use(mapping...)
+	}
 	orders := strings.Split(order, ",")
 	for _, v := range orders {
 		if len(v) > 32 {
@@ -1848,8 +1861,8 @@ func (s *Get) Order(order string, orderMap ...map[string]string) *Get {
 			continue
 		}
 		column := matched[1]
-		if val, ok := columnMap[column]; ok {
-			column = val
+		if value, ok := columns[column]; ok {
+			column = value
 		}
 		if matched[3][0] == 97 {
 			s.Asc(column)
@@ -2000,12 +2013,19 @@ func CmderGetCount(s *Get, countColumns ...string) (prepare string, args []any) 
 	if IsEmptyCmder(s) {
 		return
 	}
+
 	if countColumns == nil {
 		countColumns = []string{
 			SqlAlias("COUNT(*)", s.schema.way.Replace(DefaultAliasNameCount)),
 		}
 	}
-	return s.Select(countColumns...).Cmd()
+
+	selects := s.GetSelect()
+
+	prepare, args = s.Select(countColumns...).Cmd()
+
+	s.SetSelect(selects)
+	return
 }
 
 // Cmd build SQL statement.

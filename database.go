@@ -8,29 +8,29 @@ import (
 	"strings"
 )
 
-// TableCmder Used to construct expressions that can use table aliases and their corresponding parameter lists.
-type TableCmder interface {
+// SQLTable Used to construct expressions that can use table aliases and their corresponding parameter lists.
+type SQLTable interface {
 	IsEmpty
 
 	Cmder
 
 	// Alias Setting aliases for script statements.
-	Alias(alias string) TableCmder
+	Alias(alias string) SQLTable
 
 	// GetAlias Getting aliases for script statements.
 	GetAlias() string
 }
 
-type tableCmder struct {
+type sqlTable struct {
 	cmder Cmder
 	alias string
 }
 
-func (s *tableCmder) IsEmpty() bool {
+func (s *sqlTable) IsEmpty() bool {
 	return IsEmptyCmder(s.cmder)
 }
 
-func (s *tableCmder) Cmd() (prepare string, args []any) {
+func (s *sqlTable) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -41,24 +41,24 @@ func (s *tableCmder) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *tableCmder) Alias(alias string) TableCmder {
+func (s *sqlTable) Alias(alias string) SQLTable {
 	// Allow setting empty values.
 	s.alias = alias
 	return s
 }
 
-func (s *tableCmder) GetAlias() string {
+func (s *sqlTable) GetAlias() string {
 	return s.alias
 }
 
-func NewTableCmder(prepare string, args []any) TableCmder {
-	return &tableCmder{
+func NewSQLTable(prepare string, args []any) SQLTable {
+	return &sqlTable{
 		cmder: NewCmder(prepare, args),
 	}
 }
 
-func NewCmderGet(alias string, get *Get) TableCmder {
-	return NewTableCmder(ParcelCmder(get).Cmd()).Alias(alias)
+func NewSQLTableGet(alias string, get *Get) SQLTable {
+	return NewSQLTable(ParcelCmder(get).Cmd()).Alias(alias)
 }
 
 /*
@@ -78,42 +78,42 @@ WITH RECURSIVE sss AS (
 SELECT * FROM sss ORDER BY level ASC, id DESC
 */
 
-// QueryWith CTE: Common Table Expression.
-type QueryWith interface {
+// SQLWith CTE: Common Table Expression.
+type SQLWith interface {
 	IsEmpty
 
 	Cmder
 
 	// Recursive Recursion or cancellation of recursion.
-	Recursive() QueryWith
+	Recursive() SQLWith
 
 	// Set Setting common table expression.
-	Set(alias string, cmder Cmder, columns ...string) QueryWith
+	Set(alias string, cmder Cmder, columns ...string) SQLWith
 
 	// Del Removing common table expression.
-	Del(alias string) QueryWith
+	Del(alias string) SQLWith
 }
 
-type queryWith struct {
+type sqlWith struct {
 	recursive bool
 	alias     []string
 	column    map[string][]string
 	prepare   map[string]Cmder
 }
 
-func NewQueryWith() QueryWith {
-	return &queryWith{
+func NewSQLWith() SQLWith {
+	return &sqlWith{
 		alias:   make([]string, 0, 2),
 		column:  make(map[string][]string, 2),
 		prepare: make(map[string]Cmder, 2),
 	}
 }
 
-func (s *queryWith) IsEmpty() bool {
+func (s *sqlWith) IsEmpty() bool {
 	return len(s.alias) == 0
 }
 
-func (s *queryWith) Cmd() (prepare string, args []any) {
+func (s *sqlWith) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -152,12 +152,12 @@ func (s *queryWith) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *queryWith) Recursive() QueryWith {
+func (s *sqlWith) Recursive() SQLWith {
 	s.recursive = !s.recursive
 	return s
 }
 
-func (s *queryWith) Set(alias string, cmder Cmder, columns ...string) QueryWith {
+func (s *sqlWith) Set(alias string, cmder Cmder, columns ...string) SQLWith {
 	if alias == EmptyString || IsEmptyCmder(cmder) {
 		return s
 	}
@@ -169,7 +169,7 @@ func (s *queryWith) Set(alias string, cmder Cmder, columns ...string) QueryWith 
 	return s
 }
 
-func (s *queryWith) Del(alias string) QueryWith {
+func (s *sqlWith) Del(alias string) SQLWith {
 	if alias == EmptyString {
 		return s
 	}
@@ -188,8 +188,8 @@ func (s *queryWith) Del(alias string) QueryWith {
 	return s
 }
 
-// QueryColumns Used to build the list of columns to be queried.
-type QueryColumns interface {
+// SQLSelect Used to build the list of columns to be queried.
+type SQLSelect interface {
 	IsEmpty
 
 	Cmder
@@ -198,25 +198,25 @@ type QueryColumns interface {
 
 	Exists(column string) bool
 
-	Add(column string, args ...any) QueryColumns
+	Add(column string, args ...any) SQLSelect
 
-	AddAll(columns ...string) QueryColumns
+	AddAll(columns ...string) SQLSelect
 
-	DelAll(columns ...string) QueryColumns
+	DelAll(columns ...string) SQLSelect
 
 	Len() int
 
 	Get() ([]string, map[int][]any)
 
-	Set(columns []string, columnsArgs map[int][]any) QueryColumns
+	Set(columns []string, columnsArgs map[int][]any) SQLSelect
 
-	Use(queryColumns ...QueryColumns) QueryColumns
+	Use(sqlSelect ...SQLSelect) SQLSelect
 
 	// Queried Get all columns of the query results.
 	Queried(excepts ...string) []string
 }
 
-type queryColumns struct {
+type sqlSelect struct {
 	columns     []string
 	columnsMap  map[string]int
 	columnsArgs map[int][]any
@@ -224,8 +224,8 @@ type queryColumns struct {
 	way *Way
 }
 
-func NewQueryColumns(way *Way) QueryColumns {
-	return &queryColumns{
+func NewSQLSelect(way *Way) SQLSelect {
+	return &sqlSelect{
 		columns:     make([]string, 0, 16),
 		columnsMap:  make(map[string]int, 16),
 		columnsArgs: make(map[int][]any),
@@ -233,11 +233,11 @@ func NewQueryColumns(way *Way) QueryColumns {
 	}
 }
 
-func (s *queryColumns) IsEmpty() bool {
+func (s *sqlSelect) IsEmpty() bool {
 	return len(s.columns) == 0
 }
 
-func (s *queryColumns) Cmd() (prepare string, args []any) {
+func (s *sqlSelect) Cmd() (prepare string, args []any) {
 	length := len(s.columns)
 	if length == 0 {
 		return SqlStar, nil
@@ -257,7 +257,7 @@ func (s *queryColumns) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *queryColumns) Index(column string) int {
+func (s *sqlSelect) Index(column string) int {
 	index, ok := s.columnsMap[column]
 	if !ok {
 		return -1
@@ -265,11 +265,11 @@ func (s *queryColumns) Index(column string) int {
 	return index
 }
 
-func (s *queryColumns) Exists(column string) bool {
+func (s *sqlSelect) Exists(column string) bool {
 	return s.Index(column) >= 0
 }
 
-func (s *queryColumns) Add(column string, args ...any) QueryColumns {
+func (s *sqlSelect) Add(column string, args ...any) SQLSelect {
 	if column == EmptyString {
 		return s
 	}
@@ -285,7 +285,7 @@ func (s *queryColumns) Add(column string, args ...any) QueryColumns {
 	return s
 }
 
-func (s *queryColumns) AddAll(columns ...string) QueryColumns {
+func (s *sqlSelect) AddAll(columns ...string) SQLSelect {
 	index := len(s.columns)
 	for _, column := range columns {
 		if column == EmptyString {
@@ -302,7 +302,7 @@ func (s *queryColumns) AddAll(columns ...string) QueryColumns {
 	return s
 }
 
-func (s *queryColumns) DelAll(columns ...string) QueryColumns {
+func (s *sqlSelect) DelAll(columns ...string) SQLSelect {
 	if columns == nil {
 		s.columns = make([]string, 0, 16)
 		s.columnsMap = make(map[string]int, 16)
@@ -334,15 +334,15 @@ func (s *queryColumns) DelAll(columns ...string) QueryColumns {
 	return s
 }
 
-func (s *queryColumns) Len() int {
+func (s *sqlSelect) Len() int {
 	return len(s.columns)
 }
 
-func (s *queryColumns) Get() ([]string, map[int][]any) {
+func (s *sqlSelect) Get() ([]string, map[int][]any) {
 	return s.columns, s.columnsArgs
 }
 
-func (s *queryColumns) Set(columns []string, columnsArgs map[int][]any) QueryColumns {
+func (s *sqlSelect) Set(columns []string, columnsArgs map[int][]any) SQLSelect {
 	columnsMap := make(map[string]int, len(columns))
 	for i, column := range columns {
 		columnsMap[column] = i
@@ -354,10 +354,10 @@ func (s *queryColumns) Set(columns []string, columnsArgs map[int][]any) QueryCol
 	return s
 }
 
-func (s *queryColumns) Use(queryColumns ...QueryColumns) QueryColumns {
-	length := len(queryColumns)
+func (s *sqlSelect) Use(sqlSelect ...SQLSelect) SQLSelect {
+	length := len(sqlSelect)
 	for i := range length {
-		tmp := queryColumns[i]
+		tmp := sqlSelect[i]
 		if tmp == nil {
 			continue
 		}
@@ -370,7 +370,7 @@ func (s *queryColumns) Use(queryColumns ...QueryColumns) QueryColumns {
 }
 
 // Queried Get all columns of the query results.
-func (s *queryColumns) Queried(excepts ...string) []string {
+func (s *sqlSelect) Queried(excepts ...string) []string {
 	star := []string{SqlStar}
 	cols := s.columns[:]
 	length := len(cols)
@@ -419,45 +419,38 @@ func (s *queryColumns) Queried(excepts ...string) []string {
 	return result
 }
 
-type JoinOn interface {
+type SQLJoinOn interface {
 	Cmder
 
-	// Filter JOIN ON Condition.
-	Filter() Filter
-
-	// On Using custom JOIN ON conditions.
-	On(on func(on Filter)) JoinOn
-
 	// Equal Use equal value JOIN ON condition.
-	Equal(leftAlias string, leftColumn string, rightAlias string, rightColumn string) JoinOn
+	Equal(leftAlias string, leftColumn string, rightAlias string, rightColumn string) SQLJoinOn
+
+	// Filter Append custom conditions to the ON statement or use custom conditions on the ON statement to associate tables.
+	Filter(fc func(f Filter)) SQLJoinOn
 
 	// Using Use USING instead of ON.
-	Using(using ...string) JoinOn
+	Using(using ...string) SQLJoinOn
 }
 
-type joinOn struct {
+type sqlJoinOn struct {
 	way   *Way
 	on    Filter
 	using []string
 }
 
-func (s *joinOn) Filter() Filter {
-	return s.on
+func (s *sqlJoinOn) Equal(leftAlias string, leftColumn string, rightAlias string, rightColumn string) SQLJoinOn {
+	s.on.And(ConcatString(SqlPrefix(leftAlias, leftColumn), SqlSpace, SqlEqual, SqlSpace, SqlPrefix(rightAlias, rightColumn)))
+	return s
 }
 
-func (s *joinOn) On(fc func(on Filter)) JoinOn {
+func (s *sqlJoinOn) Filter(fc func(f Filter)) SQLJoinOn {
 	if fc != nil {
 		fc(s.on)
 	}
 	return s
 }
 
-func (s *joinOn) Equal(leftAlias string, leftColumn string, rightAlias string, rightColumn string) JoinOn {
-	s.on.And(ConcatString(SqlPrefix(leftAlias, leftColumn), SqlSpace, SqlEqual, SqlSpace, SqlPrefix(rightAlias, rightColumn)))
-	return s
-}
-
-func (s *joinOn) Using(using ...string) JoinOn {
+func (s *sqlJoinOn) Using(using ...string) SQLJoinOn {
 	using = DiscardDuplicate(func(tmp string) bool { return tmp == EmptyString }, using...)
 	if len(using) > 0 {
 		s.using = using
@@ -465,7 +458,7 @@ func (s *joinOn) Using(using ...string) JoinOn {
 	return s
 }
 
-func (s *joinOn) Cmd() (prepare string, args []any) {
+func (s *sqlJoinOn) Cmd() (prepare string, args []any) {
 	// JOIN ON
 	if s.on != nil && s.on.Num() > 0 {
 		prepare, args = s.on.Cmd()
@@ -491,96 +484,96 @@ func (s *joinOn) Cmd() (prepare string, args []any) {
 	return
 }
 
-func newJoinOn(way *Way) JoinOn {
-	return &joinOn{
+func newSQLJoinOn(way *Way) SQLJoinOn {
+	return &sqlJoinOn{
 		way: way,
 		on:  way.F(),
 	}
 }
 
-// JoinFunc Constructing conditions for join queries.
-type JoinFunc func(leftAlias string, rightAlias string) JoinOn
+// SQLJoinAssoc Constructing conditions for join queries.
+type SQLJoinAssoc func(leftAlias string, rightAlias string) SQLJoinOn
 
-type queryJoinSchema struct {
+type sqlJoinSchema struct {
 	joinType   string
-	rightTable TableCmder
+	rightTable SQLTable
 	condition  Cmder
 }
 
-// QueryJoin Constructing multi-table join queries.
-type QueryJoin interface {
+// SQLJoin Constructing multi-table join queries.
+type SQLJoin interface {
 	Cmder
 
-	GetMaster() TableCmder
+	GetMaster() SQLTable
 
-	SetMaster(master TableCmder) QueryJoin
+	SetMaster(master SQLTable) SQLJoin
 
-	NewTable(table string, alias string, args ...any) TableCmder
+	NewTable(table string, alias string, args ...any) SQLTable
 
-	NewSubquery(subquery Cmder, alias string) TableCmder
+	NewSubquery(subquery Cmder, alias string) SQLTable
 
-	On(onList ...func(o JoinOn, leftAlias string, rightAlias string)) JoinFunc
+	On(onList ...func(o SQLJoinOn, leftAlias string, rightAlias string)) SQLJoinAssoc
 
-	Using(columns ...string) JoinFunc
+	Using(columns ...string) SQLJoinAssoc
 
-	OnEqual(leftColumn string, rightColumn string) JoinFunc
+	OnEqual(leftColumn string, rightColumn string) SQLJoinAssoc
 
-	Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
+	Join(joinTypeString string, leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin
 
-	InnerJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
+	InnerJoin(leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin
 
-	LeftJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
+	LeftJoin(leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin
 
-	RightJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin
+	RightJoin(leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin
 
 	// Queries Get query columns.
-	Queries() QueryColumns
+	Queries() SQLSelect
 
-	// TableColumn Build *TableColumn based on TableCmder.
-	TableColumn(table TableCmder) *TableColumn
+	// TableColumn Build *TableColumn based on SQLTable.
+	TableColumn(table SQLTable) *TableColumn
 
 	// TableSelect Add the queried column list based on the table's alias prefix.
-	TableSelect(table TableCmder, columns ...string) []string
+	TableSelect(table SQLTable, columns ...string) []string
 
 	// TableSelectAliases Add the queried column list based on the table's alias prefix, support setting the query column alias.
-	TableSelectAliases(table TableCmder, aliases map[string]string, columns ...string) []string
+	TableSelectAliases(table SQLTable, aliases map[string]string, columns ...string) []string
 
 	// SelectGroupsColumns Add the queried column list based on the table's alias prefix.
-	SelectGroupsColumns(columns ...[]string) QueryJoin
+	SelectGroupsColumns(columns ...[]string) SQLJoin
 
 	// SelectTableColumnAlias Batch set multiple columns of the specified table and set aliases for all columns.
-	SelectTableColumnAlias(table TableCmder, columnAndColumnAlias ...string) QueryJoin
+	SelectTableColumnAlias(table SQLTable, columnAndColumnAlias ...string) SQLJoin
 }
 
-type queryJoin struct {
-	master       TableCmder
-	joins        []*queryJoinSchema
-	queryColumns QueryColumns
+type sqlJoin struct {
+	master    SQLTable
+	joins     []*sqlJoinSchema
+	sqlSelect SQLSelect
 
 	way *Way
 }
 
-func NewQueryJoin(way *Way) QueryJoin {
-	tmp := &queryJoin{
-		joins:        make([]*queryJoinSchema, 0, 2),
-		queryColumns: NewQueryColumns(way),
-		way:          way,
+func NewSQLJoin(way *Way) SQLJoin {
+	tmp := &sqlJoin{
+		joins:     make([]*sqlJoinSchema, 0, 2),
+		sqlSelect: NewSQLSelect(way),
+		way:       way,
 	}
 	return tmp
 }
 
-func (s *queryJoin) GetMaster() TableCmder {
+func (s *sqlJoin) GetMaster() SQLTable {
 	return s.master
 }
 
-func (s *queryJoin) SetMaster(master TableCmder) QueryJoin {
+func (s *sqlJoin) SetMaster(master SQLTable) SQLJoin {
 	if master != nil && !master.IsEmpty() {
 		s.master = master
 	}
 	return s
 }
 
-func (s *queryJoin) Cmd() (prepare string, args []any) {
+func (s *sqlJoin) Cmd() (prepare string, args []any) {
 	columns, params := s.Queries().Cmd()
 	if params != nil {
 		args = append(args, params...)
@@ -621,27 +614,24 @@ func (s *queryJoin) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *queryJoin) NewTable(table string, alias string, args ...any) TableCmder {
-	return NewTableCmder(table, args).Alias(alias)
+func (s *sqlJoin) NewTable(table string, alias string, args ...any) SQLTable {
+	return NewSQLTable(table, args).Alias(alias)
 }
 
-func (s *queryJoin) NewSubquery(subquery Cmder, alias string) TableCmder {
+func (s *sqlJoin) NewSubquery(subquery Cmder, alias string) SQLTable {
 	prepare, args := ParcelCmder(subquery).Cmd()
 	return s.NewTable(prepare, alias, args...)
 }
 
 // On For `... JOIN ON ...`
-func (s *queryJoin) On(onList ...func(o JoinOn, leftAlias string, rightAlias string)) JoinFunc {
-	return func(leftAlias string, rightAlias string) JoinOn {
-		return newJoinOn(s.way).On(func(o Filter) {
+func (s *sqlJoin) On(onList ...func(o SQLJoinOn, leftAlias string, rightAlias string)) SQLJoinAssoc {
+	return func(leftAlias string, rightAlias string) SQLJoinOn {
+		return newSQLJoinOn(s.way).Filter(func(o Filter) {
 			for _, tmp := range onList {
 				if tmp != nil {
-					newAssoc := newJoinOn(s.way)
+					newAssoc := newSQLJoinOn(s.way)
 					tmp(newAssoc, leftAlias, rightAlias)
-					if object := newAssoc.Filter(); object.Num() > 0 {
-						prepare, args := object.Cmd()
-						o.And(prepare, args...)
-					}
+					newAssoc.Filter(func(f Filter) { o.Use(f) })
 				}
 			}
 		})
@@ -649,25 +639,25 @@ func (s *queryJoin) On(onList ...func(o JoinOn, leftAlias string, rightAlias str
 }
 
 // Using For `... JOIN USING ...`
-func (s *queryJoin) Using(columns ...string) JoinFunc {
-	return func(leftAlias string, rightAlias string) JoinOn {
-		return newJoinOn(s.way).Using(columns...)
+func (s *sqlJoin) Using(columns ...string) SQLJoinAssoc {
+	return func(leftAlias string, rightAlias string) SQLJoinOn {
+		return newSQLJoinOn(s.way).Using(columns...)
 	}
 }
 
 // OnEqual For `... JOIN ON ... = ... [...]`
-func (s *queryJoin) OnEqual(leftColumn string, rightColumn string) JoinFunc {
+func (s *sqlJoin) OnEqual(leftColumn string, rightColumn string) SQLJoinAssoc {
 	if leftColumn == EmptyString || rightColumn == EmptyString {
 		return nil
 	}
-	return func(leftAlias string, rightAlias string) JoinOn {
-		return newJoinOn(s.way).On(func(on Filter) {
-			on.CompareEqual(SqlPrefix(leftAlias, leftColumn), SqlPrefix(rightAlias, rightColumn))
+	return func(leftAlias string, rightAlias string) SQLJoinOn {
+		return newSQLJoinOn(s.way).Filter(func(f Filter) {
+			f.CompareEqual(SqlPrefix(leftAlias, leftColumn), SqlPrefix(rightAlias, rightColumn))
 		})
 	}
 }
 
-func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
+func (s *sqlJoin) Join(joinTypeString string, leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin {
 	if joinTypeString == EmptyString {
 		joinTypeString = SqlJoinInner
 	}
@@ -677,7 +667,7 @@ func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable
 	if rightTable == nil || rightTable.IsEmpty() {
 		return s
 	}
-	join := &queryJoinSchema{
+	join := &sqlJoinSchema{
 		joinType:   joinTypeString,
 		rightTable: rightTable,
 	}
@@ -688,23 +678,23 @@ func (s *queryJoin) Join(joinTypeString string, leftTable TableCmder, rightTable
 	return s
 }
 
-func (s *queryJoin) InnerJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
+func (s *sqlJoin) InnerJoin(leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin {
 	return s.Join(SqlJoinInner, leftTable, rightTable, on)
 }
 
-func (s *queryJoin) LeftJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
+func (s *sqlJoin) LeftJoin(leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin {
 	return s.Join(SqlJoinLeft, leftTable, rightTable, on)
 }
 
-func (s *queryJoin) RightJoin(leftTable TableCmder, rightTable TableCmder, on JoinFunc) QueryJoin {
+func (s *sqlJoin) RightJoin(leftTable SQLTable, rightTable SQLTable, on SQLJoinAssoc) SQLJoin {
 	return s.Join(SqlJoinRight, leftTable, rightTable, on)
 }
 
-func (s *queryJoin) Queries() QueryColumns {
-	return s.queryColumns
+func (s *sqlJoin) Queries() SQLSelect {
+	return s.sqlSelect
 }
 
-func (s *queryJoin) TableColumn(table TableCmder) *TableColumn {
+func (s *sqlJoin) TableColumn(table SQLTable) *TableColumn {
 	result := s.way.T()
 	if table == nil {
 		return result
@@ -715,7 +705,7 @@ func (s *queryJoin) TableColumn(table TableCmder) *TableColumn {
 	return result
 }
 
-func (s *queryJoin) selectTableColumnOptionalColumnAlias(table TableCmder, aliases map[string]string, columns ...string) []string {
+func (s *sqlJoin) selectTableColumnOptionalColumnAlias(table SQLTable, aliases map[string]string, columns ...string) []string {
 	change := s.TableColumn(table)
 	result := make([]string, len(columns))
 	for index, column := range columns {
@@ -728,24 +718,24 @@ func (s *queryJoin) selectTableColumnOptionalColumnAlias(table TableCmder, alias
 	return result
 }
 
-func (s *queryJoin) TableSelect(table TableCmder, columns ...string) []string {
+func (s *sqlJoin) TableSelect(table SQLTable, columns ...string) []string {
 	return s.selectTableColumnOptionalColumnAlias(table, nil, columns...)
 }
 
-func (s *queryJoin) TableSelectAliases(table TableCmder, aliases map[string]string, columns ...string) []string {
+func (s *sqlJoin) TableSelectAliases(table SQLTable, aliases map[string]string, columns ...string) []string {
 	return s.selectTableColumnOptionalColumnAlias(table, aliases, columns...)
 }
 
-func (s *queryJoin) SelectGroupsColumns(columns ...[]string) QueryJoin {
+func (s *sqlJoin) SelectGroupsColumns(columns ...[]string) SQLJoin {
 	groups := make([]string, 0, 32)
 	for _, values := range columns {
 		groups = append(groups, values...)
 	}
-	s.queryColumns.AddAll(groups...)
+	s.sqlSelect.AddAll(groups...)
 	return s
 }
 
-func (s *queryJoin) SelectTableColumnAlias(table TableCmder, columnAndColumnAlias ...string) QueryJoin {
+func (s *sqlJoin) SelectTableColumnAlias(table SQLTable, columnAndColumnAlias ...string) SQLJoin {
 	length := len(columnAndColumnAlias)
 	if length == 0 || length&1 == 1 {
 		return s
@@ -753,35 +743,35 @@ func (s *queryJoin) SelectTableColumnAlias(table TableCmder, columnAndColumnAlia
 	tmp := s.TableColumn(table)
 	for i := 0; i < length; i += 2 {
 		if columnAndColumnAlias[i] != EmptyString && columnAndColumnAlias[i+1] != EmptyString {
-			s.queryColumns.Add(tmp.Column(columnAndColumnAlias[i], columnAndColumnAlias[i+1]))
+			s.sqlSelect.Add(tmp.Column(columnAndColumnAlias[i], columnAndColumnAlias[i+1]))
 		}
 	}
 	return s
 }
 
-// QueryGroup Constructing query groups.
-type QueryGroup interface {
+// SQLGroupBy Constructing query groups.
+type SQLGroupBy interface {
 	IsEmpty
 
 	Cmder
 
-	Group(columns ...string) QueryGroup
+	Group(columns ...string) SQLGroupBy
 
-	Having(having func(having Filter)) QueryGroup
+	Having(having func(having Filter)) SQLGroupBy
 }
 
-type queryGroup struct {
+type sqlGroupBy struct {
 	group    []string
 	groupMap map[string]int
 	having   Filter
 	way      *Way
 }
 
-func (s *queryGroup) IsEmpty() bool {
+func (s *sqlGroupBy) IsEmpty() bool {
 	return len(s.group) == 0
 }
 
-func (s *queryGroup) Cmd() (prepare string, args []any) {
+func (s *sqlGroupBy) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -801,7 +791,7 @@ func (s *queryGroup) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *queryGroup) Group(columns ...string) QueryGroup {
+func (s *sqlGroupBy) Group(columns ...string) SQLGroupBy {
 	for _, column := range columns {
 		if column == EmptyString {
 			continue
@@ -815,15 +805,15 @@ func (s *queryGroup) Group(columns ...string) QueryGroup {
 	return s
 }
 
-func (s *queryGroup) Having(having func(having Filter)) QueryGroup {
+func (s *sqlGroupBy) Having(having func(having Filter)) SQLGroupBy {
 	if having != nil {
 		having(s.having)
 	}
 	return s
 }
 
-func NewQueryGroup(way *Way) QueryGroup {
-	return &queryGroup{
+func NewSQLGroupBy(way *Way) SQLGroupBy {
+	return &sqlGroupBy{
 		group:    make([]string, 0, 2),
 		groupMap: make(map[string]int, 2),
 		having:   way.F(),
@@ -831,28 +821,31 @@ func NewQueryGroup(way *Way) QueryGroup {
 	}
 }
 
-// QueryOrder Constructing query orders.
-type QueryOrder interface {
+// SQLOrderBy Constructing query orders.
+type SQLOrderBy interface {
 	IsEmpty
 
 	Cmder
 
-	Asc(columns ...string) QueryOrder
+	Use(columns ...string) SQLOrderBy
 
-	Desc(columns ...string) QueryOrder
+	Asc(columns ...string) SQLOrderBy
+
+	Desc(columns ...string) SQLOrderBy
 }
 
-type queryOrder struct {
+type sqlOrderBy struct {
+	allow    map[string]*struct{}
 	orderBy  []string
 	orderMap map[string]int
 	way      *Way
 }
 
-func (s *queryOrder) IsEmpty() bool {
+func (s *sqlOrderBy) IsEmpty() bool {
 	return len(s.orderBy) == 0
 }
 
-func (s *queryOrder) Cmd() (prepare string, args []any) {
+func (s *sqlOrderBy) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -864,11 +857,33 @@ func (s *queryOrder) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *queryOrder) Asc(columns ...string) QueryOrder {
+func (s *sqlOrderBy) Use(columns ...string) SQLOrderBy {
+	allow := make(map[string]*struct{}, len(columns))
+	for _, column := range columns {
+		if column != EmptyString {
+			allow[column] = nil
+		}
+	}
+	if len(allow) > 0 {
+		s.allow = MergeAssoc(s.allow, allow)
+	}
+	return s
+}
+
+func (s *sqlOrderBy) add(category string, columns ...string) SQLOrderBy {
+	if category == EmptyString {
+		return s
+	}
+	allow := s.allow != nil
 	index := len(s.orderBy)
 	for _, column := range columns {
 		if column == EmptyString {
 			continue
+		}
+		if allow {
+			if _, ok := s.allow[column]; !ok {
+				continue
+			}
 		}
 		if _, ok := s.orderMap[column]; ok {
 			continue
@@ -876,61 +891,51 @@ func (s *queryOrder) Asc(columns ...string) QueryOrder {
 		s.orderMap[column] = index
 		index++
 		order := s.way.Replace(column)
-		order = fmt.Sprintf("%s %s", order, SqlAsc)
+		order = ConcatString(order, SqlSpace, category)
 		s.orderBy = append(s.orderBy, order)
 	}
 	return s
 }
 
-func (s *queryOrder) Desc(columns ...string) QueryOrder {
-	index := len(s.orderBy)
-	for _, column := range columns {
-		if column == EmptyString {
-			continue
-		}
-		if _, ok := s.orderMap[column]; ok {
-			continue
-		}
-		s.orderMap[column] = index
-		index++
-		order := s.way.Replace(column)
-		order = fmt.Sprintf("%s %s", order, SqlDesc)
-		s.orderBy = append(s.orderBy, order)
-	}
-	return s
+func (s *sqlOrderBy) Asc(columns ...string) SQLOrderBy {
+	return s.add(SqlAsc, columns...)
 }
 
-func NewQueryOrder(way *Way) QueryOrder {
-	return &queryOrder{
+func (s *sqlOrderBy) Desc(columns ...string) SQLOrderBy {
+	return s.add(SqlDesc, columns...)
+}
+
+func NewSQLOrderBy(way *Way) SQLOrderBy {
+	return &sqlOrderBy{
 		orderBy:  make([]string, 0, 2),
 		orderMap: make(map[string]int, 2),
 		way:      way,
 	}
 }
 
-// QueryLimit Constructing query limits.
-type QueryLimit interface {
+// SQLLimit Constructing query limits.
+type SQLLimit interface {
 	IsEmpty
 
 	Cmder
 
-	Limit(limit int64) QueryLimit
+	Limit(limit int64) SQLLimit
 
-	Offset(offset int64) QueryLimit
+	Offset(offset int64) SQLLimit
 
-	Page(page int64, limit ...int64) QueryLimit
+	Page(page int64, limit ...int64) SQLLimit
 }
 
-type queryLimit struct {
+type sqlLimit struct {
 	limit  *int64
 	offset *int64
 }
 
-func (s *queryLimit) IsEmpty() bool {
+func (s *sqlLimit) IsEmpty() bool {
 	return s.limit == nil
 }
 
-func (s *queryLimit) Cmd() (prepare string, args []any) {
+func (s *sqlLimit) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -951,21 +956,21 @@ func (s *queryLimit) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *queryLimit) Limit(limit int64) QueryLimit {
+func (s *sqlLimit) Limit(limit int64) SQLLimit {
 	if limit > 0 {
 		s.limit = &limit
 	}
 	return s
 }
 
-func (s *queryLimit) Offset(offset int64) QueryLimit {
+func (s *sqlLimit) Offset(offset int64) SQLLimit {
 	if offset > 0 {
 		s.offset = &offset
 	}
 	return s
 }
 
-func (s *queryLimit) Page(page int64, limit ...int64) QueryLimit {
+func (s *sqlLimit) Page(page int64, limit ...int64) SQLLimit {
 	if page <= 0 {
 		return s
 	}
@@ -978,21 +983,21 @@ func (s *queryLimit) Page(page int64, limit ...int64) QueryLimit {
 	return s
 }
 
-func NewQueryLimit() QueryLimit {
-	return &queryLimit{}
+func NewSQLLimit() SQLLimit {
+	return &sqlLimit{}
 }
 
-// UpsertColumns Constructing insert columns.
-type UpsertColumns interface {
+// SQLUpsertColumn Constructing insert columns.
+type SQLUpsertColumn interface {
 	IsEmpty
 
 	Cmder
 
-	Add(columns ...string) UpsertColumns
+	Add(columns ...string) SQLUpsertColumn
 
-	Del(columns ...string) UpsertColumns
+	Del(columns ...string) SQLUpsertColumn
 
-	DelUseIndex(indexes ...int) UpsertColumns
+	DelUseIndex(indexes ...int) SQLUpsertColumn
 
 	ColumnIndex(column string) int
 
@@ -1000,39 +1005,39 @@ type UpsertColumns interface {
 
 	Len() int
 
-	SetColumns(columns []string) UpsertColumns
+	SetColumns(columns []string) SQLUpsertColumn
 
 	GetColumns() []string
 
 	GetColumnsMap() map[string]*struct{}
 }
 
-type upsertColumns struct {
+type sqlUpsertColumn struct {
 	columns    []string
 	columnsMap map[string]int
 	way        *Way
 }
 
-func NewUpsertColumns(way *Way) UpsertColumns {
-	return &upsertColumns{
+func NewSQLUpsertColumn(way *Way) SQLUpsertColumn {
+	return &sqlUpsertColumn{
 		columns:    make([]string, 0, 16),
 		columnsMap: make(map[string]int, 16),
 		way:        way,
 	}
 }
 
-func (s *upsertColumns) IsEmpty() bool {
+func (s *sqlUpsertColumn) IsEmpty() bool {
 	return len(s.columns) == 0
 }
 
-func (s *upsertColumns) Cmd() (prepare string, args []any) {
+func (s *sqlUpsertColumn) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
 	return ParcelPrepare(strings.Join(s.way.Replaces(s.columns), SqlConcat)), nil
 }
 
-func (s *upsertColumns) Add(columns ...string) UpsertColumns {
+func (s *sqlUpsertColumn) Add(columns ...string) SQLUpsertColumn {
 	num := len(s.columns)
 	for _, column := range columns {
 		if column == EmptyString {
@@ -1048,7 +1053,7 @@ func (s *upsertColumns) Add(columns ...string) UpsertColumns {
 	return s
 }
 
-func (s *upsertColumns) Del(columns ...string) UpsertColumns {
+func (s *sqlUpsertColumn) Del(columns ...string) SQLUpsertColumn {
 	if columns == nil {
 		s.columns = make([]string, 0, 16)
 		s.columnsMap = make(map[string]int, 16)
@@ -1080,7 +1085,7 @@ func (s *upsertColumns) Del(columns ...string) UpsertColumns {
 	return s
 }
 
-func (s *upsertColumns) DelUseIndex(indexes ...int) UpsertColumns {
+func (s *sqlUpsertColumn) DelUseIndex(indexes ...int) SQLUpsertColumn {
 	length := len(s.columns)
 	minIndex, maxIndex := 0, length
 	if maxIndex == minIndex {
@@ -1105,7 +1110,7 @@ func (s *upsertColumns) DelUseIndex(indexes ...int) UpsertColumns {
 	return s.Del(columns...)
 }
 
-func (s *upsertColumns) ColumnIndex(column string) int {
+func (s *sqlUpsertColumn) ColumnIndex(column string) int {
 	index, ok := s.columnsMap[column]
 	if !ok {
 		return -1
@@ -1113,19 +1118,19 @@ func (s *upsertColumns) ColumnIndex(column string) int {
 	return index
 }
 
-func (s *upsertColumns) ColumnExists(column string) bool {
+func (s *sqlUpsertColumn) ColumnExists(column string) bool {
 	return s.ColumnIndex(column) >= 0
 }
 
-func (s *upsertColumns) SetColumns(columns []string) UpsertColumns {
+func (s *sqlUpsertColumn) SetColumns(columns []string) SQLUpsertColumn {
 	return s.Del().Add(columns...)
 }
 
-func (s *upsertColumns) GetColumns() []string {
+func (s *sqlUpsertColumn) GetColumns() []string {
 	return s.columns[:]
 }
 
-func (s *upsertColumns) GetColumnsMap() map[string]*struct{} {
+func (s *sqlUpsertColumn) GetColumnsMap() map[string]*struct{} {
 	result := make(map[string]*struct{}, len(s.columns))
 	for _, column := range s.GetColumns() {
 		result[column] = &struct{}{}
@@ -1133,43 +1138,43 @@ func (s *upsertColumns) GetColumnsMap() map[string]*struct{} {
 	return result
 }
 
-func (s *upsertColumns) Len() int {
+func (s *sqlUpsertColumn) Len() int {
 	return len(s.columns)
 }
 
-// InsertValue Constructing insert values.
-type InsertValue interface {
+// SQLInsertValue Constructing insert values.
+type SQLInsertValue interface {
 	IsEmpty
 
 	Cmder
 
-	SetSubquery(subquery Cmder) InsertValue
+	SetSubquery(subquery Cmder) SQLInsertValue
 
-	SetValues(values ...[]any) InsertValue
+	SetValues(values ...[]any) SQLInsertValue
 
-	Set(index int, value any) InsertValue
+	Set(index int, value any) SQLInsertValue
 
-	Del(indexes ...int) InsertValue
+	Del(indexes ...int) SQLInsertValue
 
 	LenValues() int
 
 	GetValues() [][]any
 }
 
-type insertValue struct {
+type sqlInsertValue struct {
 	subquery Cmder
 	values   [][]any
 }
 
-func NewInsertValue() InsertValue {
-	return &insertValue{}
+func NewSQLInsertValue() SQLInsertValue {
+	return &sqlInsertValue{}
 }
 
-func (s *insertValue) IsEmpty() bool {
+func (s *sqlInsertValue) IsEmpty() bool {
 	return s.subquery == nil && (len(s.values) == 0 || len(s.values[0]) == 0)
 }
 
-func (s *insertValue) Cmd() (prepare string, args []any) {
+func (s *sqlInsertValue) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -1200,7 +1205,7 @@ func (s *insertValue) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *insertValue) SetSubquery(subquery Cmder) InsertValue {
+func (s *sqlInsertValue) SetSubquery(subquery Cmder) SQLInsertValue {
 	if subquery != nil {
 		if prepare, _ := subquery.Cmd(); prepare == EmptyString {
 			return s
@@ -1210,12 +1215,12 @@ func (s *insertValue) SetSubquery(subquery Cmder) InsertValue {
 	return s
 }
 
-func (s *insertValue) SetValues(values ...[]any) InsertValue {
+func (s *sqlInsertValue) SetValues(values ...[]any) SQLInsertValue {
 	s.values = values
 	return s
 }
 
-func (s *insertValue) Set(index int, value any) InsertValue {
+func (s *sqlInsertValue) Set(index int, value any) SQLInsertValue {
 	if index < 0 {
 		return s
 	}
@@ -1236,7 +1241,7 @@ func (s *insertValue) Set(index int, value any) InsertValue {
 	return s
 }
 
-func (s *insertValue) Del(indexes ...int) InsertValue {
+func (s *sqlInsertValue) Del(indexes ...int) SQLInsertValue {
 	if s.values == nil {
 		return s
 	}
@@ -1268,31 +1273,31 @@ func (s *insertValue) Del(indexes ...int) InsertValue {
 	return s
 }
 
-func (s *insertValue) LenValues() int {
+func (s *sqlInsertValue) LenValues() int {
 	return len(s.values)
 }
 
-func (s *insertValue) GetValues() [][]any {
+func (s *sqlInsertValue) GetValues() [][]any {
 	return s.values
 }
 
-// UpdateSet Constructing update sets.
-type UpdateSet interface {
+// SQLUpdateSet Constructing update sets.
+type SQLUpdateSet interface {
 	IsEmpty
 
 	Cmder
 
-	Update(update string, args ...any) UpdateSet
+	Update(update string, args ...any) SQLUpdateSet
 
-	Set(column string, value any) UpdateSet
+	Set(column string, value any) SQLUpdateSet
 
-	Decr(column string, decr any) UpdateSet
+	Decr(column string, decr any) SQLUpdateSet
 
-	Incr(column string, incr any) UpdateSet
+	Incr(column string, incr any) SQLUpdateSet
 
-	SetMap(columnValue map[string]any) UpdateSet
+	SetMap(columnValue map[string]any) SQLUpdateSet
 
-	SetSlice(columns []string, values []any) UpdateSet
+	SetSlice(columns []string, values []any) SQLUpdateSet
 
 	Len() int
 
@@ -1303,15 +1308,15 @@ type UpdateSet interface {
 	UpdateExists(prepare string) bool
 }
 
-type updateSet struct {
+type sqlUpdateSet struct {
 	updateExpr []string
 	updateArgs [][]any
 	updateMap  map[string]int
 	way        *Way
 }
 
-func NewUpdateSet(way *Way) UpdateSet {
-	return &updateSet{
+func NewSQLUpdateSet(way *Way) SQLUpdateSet {
+	return &sqlUpdateSet{
 		updateExpr: make([]string, 0, 8),
 		updateArgs: make([][]any, 0, 8),
 		updateMap:  make(map[string]int, 8),
@@ -1319,11 +1324,11 @@ func NewUpdateSet(way *Way) UpdateSet {
 	}
 }
 
-func (s *updateSet) IsEmpty() bool {
+func (s *sqlUpdateSet) IsEmpty() bool {
 	return len(s.updateExpr) == 0
 }
 
-func (s *updateSet) Cmd() (prepare string, args []any) {
+func (s *sqlUpdateSet) Cmd() (prepare string, args []any) {
 	if s.IsEmpty() {
 		return
 	}
@@ -1334,7 +1339,7 @@ func (s *updateSet) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *updateSet) beautifyUpdate(update string) string {
+func (s *sqlUpdateSet) beautifyUpdate(update string) string {
 	update = strings.TrimSpace(update)
 	for strings.Contains(update, "  ") {
 		update = strings.ReplaceAll(update, "  ", SqlSpace)
@@ -1342,7 +1347,7 @@ func (s *updateSet) beautifyUpdate(update string) string {
 	return update
 }
 
-func (s *updateSet) Update(update string, args ...any) UpdateSet {
+func (s *sqlUpdateSet) Update(update string, args ...any) SQLUpdateSet {
 	if update == EmptyString {
 		return s
 	}
@@ -1361,44 +1366,44 @@ func (s *updateSet) Update(update string, args ...any) UpdateSet {
 	return s
 }
 
-func (s *updateSet) Set(column string, value any) UpdateSet {
+func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 	column = s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s", column, SqlPlaceholder), value)
 }
 
-func (s *updateSet) Decr(column string, decrement any) UpdateSet {
+func (s *sqlUpdateSet) Decr(column string, decrement any) SQLUpdateSet {
 	column = s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s - %s", column, column, SqlPlaceholder), decrement)
 }
 
-func (s *updateSet) Incr(column string, increment any) UpdateSet {
+func (s *sqlUpdateSet) Incr(column string, increment any) SQLUpdateSet {
 	s.way.Replace(column)
 	return s.Update(fmt.Sprintf("%s = %s + %s", column, column, SqlPlaceholder), increment)
 }
 
-func (s *updateSet) SetMap(columnValue map[string]any) UpdateSet {
+func (s *sqlUpdateSet) SetMap(columnValue map[string]any) SQLUpdateSet {
 	for column, value := range columnValue {
 		s.Set(column, value)
 	}
 	return s
 }
 
-func (s *updateSet) SetSlice(columns []string, values []any) UpdateSet {
+func (s *sqlUpdateSet) SetSlice(columns []string, values []any) SQLUpdateSet {
 	for index, column := range columns {
 		s.Set(column, values[index])
 	}
 	return s
 }
 
-func (s *updateSet) Len() int {
+func (s *sqlUpdateSet) Len() int {
 	return len(s.updateExpr)
 }
 
-func (s *updateSet) GetUpdate() ([]string, [][]any) {
+func (s *sqlUpdateSet) GetUpdate() ([]string, [][]any) {
 	return s.updateExpr, s.updateArgs
 }
 
-func (s *updateSet) UpdateIndex(update string) int {
+func (s *sqlUpdateSet) UpdateIndex(update string) int {
 	update = s.beautifyUpdate(update)
 	index, ok := s.updateMap[update]
 	if !ok {
@@ -1407,7 +1412,7 @@ func (s *updateSet) UpdateIndex(update string) int {
 	return index
 }
 
-func (s *updateSet) UpdateExists(update string) bool {
+func (s *sqlUpdateSet) UpdateExists(update string) bool {
 	return s.UpdateIndex(update) >= 0
 }
 

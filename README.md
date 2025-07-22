@@ -142,7 +142,7 @@ func Insert(way *hey.Way) (affectedRowsOrLastInsertId int64, err error) {
 	add.Comment("The first insert statement")
 
 	common := func(add *hey.Add) {
-		add.ExceptPermit(func(except hey.UpsertColumns, permit hey.UpsertColumns) {
+		add.ExceptPermit(func(except hey.SQLUpsertColumn, permit hey.SQLUpsertColumn) {
 			// Set the list of fields that are not allowed to be added through the `except` object.
 			// Set the list of fields that can only be added through the `permit` object.
 			except.Add("id", "deleted_at")
@@ -283,7 +283,7 @@ func Update(way *hey.Way) (affectedRows int64, err error) {
 	where.Clean().Equal("id", 2)
 	mod.Where(func(f hey.Filter) { f.Use(where) })
 
-	mod.ExceptPermit(func(except hey.UpsertColumns, permit hey.UpsertColumns) {
+	mod.ExceptPermit(func(except hey.SQLUpsertColumn, permit hey.SQLUpsertColumn) {
 		except.Add("id", "created_at", "deleted_at")
 	})
 	mod.Default(func(mod *hey.Mod) {
@@ -358,12 +358,12 @@ func Select(way *hey.Way) error {
 	}).Limit(10).Get(&more)
 
 	// Group By
-	_ = get.Group("age").Having(func(f hey.Filter) { /* TODO */ }).Get(&more)
+	_ = get.GroupBy("age").Having(func(f hey.Filter) { /* TODO */ }).Get(&more)
 
 	// Join queries
 
 	joinGroupBy := make([]string, 0)
-	_ = get.Alias(hey.AliasA).Join(func(join hey.QueryJoin) {
+	_ = get.Alias(hey.AliasA).Join(func(join hey.SQLJoin) {
 		a := join.GetMaster()
 		b := join.NewTable("inner_join_table_name_b", hey.AliasB)
 
@@ -396,7 +396,7 @@ func Select(way *hey.Way) error {
 	}).
 		Where(func(f hey.Filter) {}).
 		Desc("age").
-		Group(joinGroupBy...).
+		GroupBy(joinGroupBy...).
 		Limit(10).
 		Get(&more)
 
@@ -612,7 +612,7 @@ func Others(way *hey.Way) error {
 	// Update any structure with tag.
 	{
 		update := &ExampleAnyStructUpdate{}
-		_, err := way.Mod("table_name").ExceptPermit(func(except hey.UpsertColumns, permit hey.UpsertColumns) {
+		_, err := way.Mod("table_name").ExceptPermit(func(except hey.SQLUpsertColumn, permit hey.SQLUpsertColumn) {
 			except.Add("id", "created_at", "deleted_at")
 			// permit.Add("name", "age")
 		}).Update(update).Mod()
@@ -625,7 +625,7 @@ func Others(way *hey.Way) error {
 	{
 		origin := &ExampleAnyStruct{}
 		update := &ExampleAnyStructUpdate{}
-		_, err := way.Mod("table_name").ExceptPermit(func(except hey.UpsertColumns, permit hey.UpsertColumns) {
+		_, err := way.Mod("table_name").ExceptPermit(func(except hey.SQLUpsertColumn, permit hey.SQLUpsertColumn) {
 			except.Add("id", "created_at", "deleted_at")
 			// permit.Add("name", "age")
 		}).Compare(origin, update).Mod()
@@ -639,7 +639,7 @@ func Others(way *hey.Way) error {
 		t1 := way.TA()
 		get := way.Get("table_name").Alias(t1.Alias())
 		get.GetSelect().AddAll("uid", t1.SUM("balance", "balance"))
-		get.Group("uid").Having(func(f hey.Filter) {
+		get.GroupBy("uid").Having(func(f hey.Filter) {
 			f.GreaterThanEqual(t1.SUM("balance"), 100)
 		})
 		_ = get.Get(nil)
