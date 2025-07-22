@@ -345,10 +345,12 @@ func RowsScanStructOneCmder[V any](ctx context.Context, way *Way, scan func(rows
 
 func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
 	length := len(values)
-	result := make(map[K]V)
+	result := make(map[K]V, 8)
 	for i := range length {
 		if i == 0 {
-			result = values[i]
+			if values[i] != nil {
+				result = values[i]
+			}
 			continue
 		}
 		for k, v := range values[i] {
