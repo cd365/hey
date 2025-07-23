@@ -1033,6 +1033,13 @@ func (s *Del) Where(where func(f Filter)) *Del {
 	return s
 }
 
+// Filters Using multiple WHERE conditions.
+func (s *Del) Filters(filters ...Filter) *Del {
+	return s.Where(func(f Filter) {
+		f.Use(filters...)
+	})
+}
+
 // Cmd build SQL statement.
 func (s *Del) Cmd() (prepare string, args []any) {
 	if s.schema.table == nil || s.schema.table.IsEmpty() {
@@ -1545,6 +1552,13 @@ func (s *Mod) Where(where func(f Filter)) *Mod {
 	return s
 }
 
+// Filters Using multiple WHERE conditions.
+func (s *Mod) Filters(filters ...Filter) *Mod {
+	return s.Where(func(f Filter) {
+		f.Use(filters...)
+	})
+}
+
 // GetUpdateSet prepare args of SET.
 func (s *Mod) GetUpdateSet() (prepare string, args []any) {
 	if s.update.IsEmpty() {
@@ -1757,6 +1771,13 @@ func (s *Get) Where(where func(f Filter)) *Get {
 	}
 	where(s.where)
 	return s
+}
+
+// Filters Using multiple WHERE conditions.
+func (s *Get) Filters(filters ...Filter) *Get {
+	return s.Where(func(f Filter) {
+		f.Use(filters...)
+	})
 }
 
 // GroupBy set group columns.
