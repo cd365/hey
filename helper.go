@@ -1780,10 +1780,17 @@ func (s *Get) Filters(filters ...Filter) *Get {
 	})
 }
 
-// GroupBy set group columns.
-func (s *Get) GroupBy(group ...string) *Get {
-	s.group.Group(group...)
+// GroupBy set group expression.
+func (s *Get) GroupBy(fc func(g SQLGroupBy)) *Get {
+	if fc != nil {
+		fc(s.group)
+	}
 	return s
+}
+
+// Group set group columns.
+func (s *Get) Group(columns ...string) *Get {
+	return s.GroupBy(func(g SQLGroupBy) { g.Column(columns...) })
 }
 
 // Having set filter of group results.
@@ -1849,8 +1856,8 @@ var (
 	orderRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
 )
 
-// OrderString set the column sorting list in batches through regular expressions according to the request parameter value.
-func (s *Get) OrderString(order string, replaces ...map[string]string) *Get {
+// Order set the column sorting list in batches through regular expressions according to the request parameter value.
+func (s *Get) Order(order string, replaces ...map[string]string) *Get {
 	columns := make(map[string]string, 8)
 	mapping := make([]string, 0, 8)
 	for _, tmp := range replaces {

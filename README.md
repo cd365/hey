@@ -358,7 +358,7 @@ func Select(way *hey.Way) error {
 	}).Limit(10).Get(&more)
 
 	// Group By
-	_ = get.GroupBy("age").Having(func(f hey.Filter) { /* TODO */ }).Get(&more)
+	_ = get.Group("age").Having(func(f hey.Filter) { /* TODO */ }).Get(&more)
 
 	// Join queries
 
@@ -396,7 +396,7 @@ func Select(way *hey.Way) error {
 	}).
 		Where(func(f hey.Filter) {}).
 		Desc("age").
-		GroupBy(joinGroupBy...).
+		Group(joinGroupBy...).
 		Limit(10).
 		Get(&more)
 
@@ -639,7 +639,7 @@ func Others(way *hey.Way) error {
 		t1 := way.TA()
 		get := way.Get("table_name").Alias(t1.Alias())
 		get.GetSelect().AddAll("uid", t1.SUM("balance", "balance"))
-		get.GroupBy("uid").Having(func(f hey.Filter) {
+		get.Group("uid").Having(func(f hey.Filter) {
 			f.GreaterThanEqual(t1.SUM("balance"), 100)
 		})
 		_ = get.Get(nil)

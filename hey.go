@@ -97,6 +97,12 @@ const (
 	SqlPartitionBy = "PARTITION BY"
 	SqlUsing       = "USING"
 	SqlWith        = "WITH"
+
+	SqlCase = "CASE"
+	SqlWhen = "WHEN"
+	SqlThen = "THEN"
+	SqlElse = "ELSE"
+	SqlEnd  = "END"
 )
 
 const (

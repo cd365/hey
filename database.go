@@ -202,6 +202,8 @@ type SQLSelect interface {
 
 	AddAll(columns ...string) SQLSelect
 
+	AddCmder(cmder Cmder) SQLSelect
+
 	DelAll(columns ...string) SQLSelect
 
 	Len() int
@@ -298,6 +300,15 @@ func (s *sqlSelect) AddAll(columns ...string) SQLSelect {
 		s.columnsMap[column] = index
 		s.columnsArgs[index] = nil
 		index++
+	}
+	return s
+}
+
+func (s *sqlSelect) AddCmder(cmder Cmder) SQLSelect {
+	if cmder != nil {
+		if prepare, args := cmder.Cmd(); prepare == EmptyString {
+			return s.Add(prepare, args...)
+		}
 	}
 	return s
 }
@@ -755,30 +766,54 @@ type SQLGroupBy interface {
 
 	Cmder
 
-	Group(columns ...string) SQLGroupBy
+	Column(columns ...string) SQLGroupBy
+
+	Group(prepare string, args ...any) SQLGroupBy
+
+	GroupCmder(cmder Cmder) SQLGroupBy
 
 	Having(having func(having Filter)) SQLGroupBy
 }
 
 type sqlGroupBy struct {
-	group    []string
-	groupMap map[string]int
-	having   Filter
-	way      *Way
+	group     string
+	groupArgs []any
+
+	groupColumns    []string
+	groupColumnsMap map[string]int
+
+	having Filter
+
+	way *Way
 }
 
 func (s *sqlGroupBy) IsEmpty() bool {
-	return len(s.group) == 0
+	return len(s.groupColumns) == 0 && s.group == EmptyString
 }
 
 func (s *sqlGroupBy) Cmd() (prepare string, args []any) {
-	if s.IsEmpty() {
+	groupBy := EmptyString
+	if s.group != EmptyString {
+		groupBy = s.group
+		args = append(args, s.groupArgs...)
+	}
+	if group := strings.Join(s.way.Replaces(s.groupColumns), SqlConcat); group != EmptyString {
+		if groupBy == EmptyString {
+			groupBy = group
+		} else {
+			groupBy = ConcatString(groupBy, SqlConcat, group)
+		}
+	}
+
+	if groupBy == EmptyString {
+		args = nil
 		return
 	}
+
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString(ConcatString(SqlGroupBy, SqlSpace))
-	b.WriteString(strings.Join(s.way.Replaces(s.group), SqlConcat))
+	b.WriteString(ConcatString(SqlGroupBy, SqlSpace, groupBy))
+
 	if !s.having.IsEmpty() {
 		b.WriteString(ConcatString(SqlSpace, SqlHaving, SqlSpace))
 		having, havingArgs := ParcelFilter(s.having).Cmd()
@@ -791,16 +826,32 @@ func (s *sqlGroupBy) Cmd() (prepare string, args []any) {
 	return
 }
 
-func (s *sqlGroupBy) Group(columns ...string) SQLGroupBy {
+func (s *sqlGroupBy) Group(prepare string, args ...any) SQLGroupBy {
+	s.group, s.groupArgs = prepare, args
+	return s
+}
+
+func (s *sqlGroupBy) GroupCmder(cmder Cmder) SQLGroupBy {
+	if cmder == nil {
+		return s
+	}
+	prepare, args := cmder.Cmd()
+	if prepare != EmptyString {
+		return s.Group(prepare, args...)
+	}
+	return s
+}
+
+func (s *sqlGroupBy) Column(columns ...string) SQLGroupBy {
 	for _, column := range columns {
 		if column == EmptyString {
 			continue
 		}
-		if _, ok := s.groupMap[column]; ok {
+		if _, ok := s.groupColumnsMap[column]; ok {
 			continue
 		}
-		s.groupMap[column] = len(s.group)
-		s.group = append(s.group, column)
+		s.groupColumnsMap[column] = len(s.groupColumns)
+		s.groupColumns = append(s.groupColumns, column)
 	}
 	return s
 }
@@ -814,10 +865,10 @@ func (s *sqlGroupBy) Having(having func(having Filter)) SQLGroupBy {
 
 func NewSQLGroupBy(way *Way) SQLGroupBy {
 	return &sqlGroupBy{
-		group:    make([]string, 0, 2),
-		groupMap: make(map[string]int, 2),
-		having:   way.F(),
-		way:      way,
+		groupColumns:    make([]string, 0, 2),
+		groupColumnsMap: make(map[string]int, 2),
+		having:          way.F(),
+		way:             way,
 	}
 }
 
@@ -1752,4 +1803,236 @@ func CmderViewMap(ctx context.Context, way *Way, cmder Cmder) (result []map[stri
 		return
 	})
 	return
+}
+
+/* CASE [xxx] WHEN xxx THEN XXX [WHEN yyy THEN YYY] [ELSE xxx] END [AS xxx] */
+
+func sqlCaseValueFirst(value any) (prepare string) {
+	if value == nil {
+		prepare = SqlNull
+		return
+	}
+	switch val := value.(type) {
+	case bool:
+		prepare = fmt.Sprintf("%t", val)
+	case float32:
+		prepare = strconv.FormatFloat(float64(val), 'g', -1, 64)
+	case float64:
+		prepare = strconv.FormatFloat(val, 'g', -1, 64)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		prepare = fmt.Sprintf("%d", val)
+	case string:
+		prepare = val
+	default:
+		panic(fmt.Errorf("hey: unsupported type `%T`", val))
+	}
+	return
+}
+
+func sqlCaseValuesToCmder(values ...any) Cmder {
+	length := len(values)
+	if length == 0 {
+		return nil
+	}
+	if tmp, ok := values[0].(Cmder); ok {
+		return tmp
+	}
+	if length == 1 {
+		return NewCmder(sqlCaseValueFirst(values[0]), nil)
+	}
+	first, ok := values[0].(string)
+	if !ok {
+		return nil
+	}
+	return NewCmder(sqlCaseValueFirst(first), values[1:])
+}
+
+func sqlCaseString(value string) string {
+	return fmt.Sprintf("'%s'", value)
+}
+
+func sqlCaseParseCmder(cmder Cmder) (prepare string, args []interface{}) {
+	if cmder == nil {
+		prepare = SqlNull
+		return
+	}
+	emptyString := sqlCaseString(EmptyString)
+	prepare, args = cmder.Cmd()
+	if prepare == EmptyString || prepare == emptyString {
+		prepare = emptyString
+		return
+	}
+	return
+}
+
+// SQLWhenThen Store multiple pairs of WHEN xxx THEN xxx.
+type SQLWhenThen interface {
+	Cmder
+
+	String(value string) string
+
+	When(values ...any) SQLWhenThen
+
+	Then(values ...any) SQLWhenThen
+}
+
+type sqlWhenThen struct {
+	when []Cmder
+	then []Cmder
+}
+
+func (s *sqlWhenThen) String(value string) string {
+	return sqlCaseString(value)
+}
+
+func (s *sqlWhenThen) Cmd() (prepare string, args []any) {
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	length1, length2 := len(s.when), len(s.then)
+	if length1 != length2 || length1 == 0 {
+		return
+	}
+	for i := 0; i < length1; i++ {
+		if i > 0 {
+			b.WriteString(SqlSpace)
+		}
+		b.WriteString(SqlWhen)
+		b.WriteString(SqlSpace)
+		if s.when == nil {
+			b.WriteString(SqlNull)
+		} else {
+			express, params := sqlCaseParseCmder(s.when[i])
+			b.WriteString(express)
+			args = append(args, params...)
+		}
+		b.WriteString(SqlSpace)
+		b.WriteString(SqlThen)
+		b.WriteString(SqlSpace)
+		if s.then == nil {
+			b.WriteString(SqlNull)
+		} else {
+			express, params := sqlCaseParseCmder(s.then[i])
+			b.WriteString(express)
+			args = append(args, params...)
+		}
+	}
+	prepare = b.String()
+	return
+}
+
+func (s *sqlWhenThen) When(values ...any) SQLWhenThen {
+	s.when = append(s.when, sqlCaseValuesToCmder(values...))
+	return s
+}
+
+func (s *sqlWhenThen) Then(values ...any) SQLWhenThen {
+	s.then = append(s.then, sqlCaseValuesToCmder(values...))
+	return s
+}
+
+// SQLCase Implementing SQL CASE.
+type SQLCase interface {
+	Cmder
+
+	String(value string) string
+
+	Alias(alias string) SQLCase
+
+	Case(values ...any) SQLCase
+
+	When(fc func(w SQLWhenThen)) SQLCase
+
+	Else(values ...any) SQLCase
+}
+
+type sqlCase struct {
+	alias   string      // alias name for CASE , value is optional
+	cmdCase Cmder       // CASE value , value is optional
+	cmdWhen SQLWhenThen // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
+	cmdElse Cmder       // ELSE value , value is optional
+
+	way *Way
+}
+
+func (s *sqlCase) String(value string) string {
+	return sqlCaseString(value)
+}
+
+func (s *sqlCase) Cmd() (prepare string, args []any) {
+	if s.cmdWhen == nil {
+		return
+	}
+	whenThenPrepare, whenThenArgs := s.cmdWhen.Cmd()
+	if whenThenPrepare == EmptyString {
+		return
+	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString(SqlCase)
+	if tmp := s.cmdCase; tmp != nil {
+		b.WriteString(SqlSpace)
+		express, params := sqlCaseParseCmder(tmp)
+		b.WriteString(express)
+		args = append(args, params...)
+	}
+	b.WriteString(SqlSpace)
+	b.WriteString(whenThenPrepare)
+	args = append(args, whenThenArgs...)
+	if tmp := s.cmdElse; tmp != nil {
+		b.WriteString(SqlSpace)
+		b.WriteString(SqlElse)
+		b.WriteString(SqlSpace)
+		express, params := sqlCaseParseCmder(tmp)
+		b.WriteString(express)
+		args = append(args, params...)
+	}
+	b.WriteString(SqlSpace)
+	b.WriteString(SqlEnd)
+	if alias := s.alias; alias != EmptyString {
+		b.WriteString(SqlSpace)
+		b.WriteString(SqlAs)
+		b.WriteString(SqlSpace)
+		if s.way != nil {
+			alias = s.way.Replace(alias)
+		}
+		b.WriteString(alias)
+	}
+	prepare = b.String()
+	return
+}
+
+func (s *sqlCase) Alias(alias string) SQLCase {
+	s.alias = alias
+	return s
+}
+
+func (s *sqlCase) Case(values ...any) SQLCase {
+	if tmp := sqlCaseValuesToCmder(values...); tmp != nil {
+		s.cmdCase = tmp
+	}
+	return s
+}
+
+func (s *sqlCase) When(fc func(w SQLWhenThen)) SQLCase {
+	if fc == nil {
+		return s
+	}
+	if s.cmdWhen == nil {
+		s.cmdWhen = &sqlWhenThen{}
+	}
+	fc(s.cmdWhen)
+	return s
+}
+
+func (s *sqlCase) Else(values ...any) SQLCase {
+	if tmp := sqlCaseValuesToCmder(values...); tmp != nil {
+		s.cmdElse = tmp
+	}
+	return s
+}
+
+func NewSQLCase(way *Way) SQLCase {
+	return &sqlCase{
+		way: way,
+	}
 }
