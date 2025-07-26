@@ -2,6 +2,7 @@ package hey
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"testing"
@@ -36,12 +37,9 @@ func TestNewAdd(t *testing.T) {
 			// PostgreSQL
 			addOne.Prepare(func(tmp *SQL) {
 				tmp.Prepare = fmt.Sprintf("%s RETURNING %s", tmp.Prepare, "id")
-			}).Execute(func(ctx context.Context, stmt *Stmt, args ...any) (sequenceValue int64, err error) {
-				result, err := stmt.ExecuteContext(ctx, args...)
-				if err != nil {
-					return 0, err
-				}
-				return result.RowsAffected()
+			}).Execute(func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error) {
+				err = stmt.QueryRowContext(ctx, func(rows *sql.Row) error { return rows.Scan(&id) }, args...)
+				return
 			})
 		})
 		_, _ = lastInsertId, err
