@@ -420,9 +420,9 @@ func (s *Add) Add() (int64, error) {
 }
 
 // AddOne execute the built SQL statement, return the sequence value of the data.
-func (s *Add) AddOne(custom func(add AddOneReturnSequenceValue)) (int64, error) {
+func (s *Add) AddOne(custom func(addOne AddOneReturnSequenceValue)) (int64, error) {
 	script := s.ToSQL()
-	add := s.schema.way.NewAddOne(script.Prepare, script.Args).Context(s.schema.ctx)
+	add := s.schema.way.NewAddOne(script.Prepare, script.Args...).Context(s.schema.ctx)
 	custom(add)
 	return add.AddOne()
 }

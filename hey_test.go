@@ -20,15 +20,44 @@ func TestWayTransaction(t *testing.T) {
 	way := NewWay(nil)
 
 	if way.db != nil {
-		_ = way.Transaction(context.Background(), func(tx *Way) error {
+		err := way.Transaction(context.Background(), func(tx *Way) error {
 			// Use tx to execute SQL statements.
 			table := "example"
-			tx.Get(table)
-			tx.Add(table)
-			tx.Mod(table)
-			tx.Del(table)
+			if false {
+				tx.Get(table) // ...
+			}
+			{
+				rows, err := tx.Add(table).Add()
+				if err != nil {
+					return err
+				}
+				if rows <= 0 {
+					return ErrNoRowsAffected
+				}
+			}
+			{
+				rows, err := tx.Mod(table).Mod()
+				if err != nil {
+					return err
+				}
+				if rows <= 0 {
+					return ErrNoRowsAffected
+				}
+			}
+			{
+				rows, err := tx.Del(table).Del()
+				if err != nil {
+					return err
+				}
+				if rows <= 0 {
+					return ErrNoRowsAffected
+				}
+			}
 			return nil
 		})
+		if err != nil {
+			t.Log(err.Error())
+		}
 
 		// Manually control transactions.
 		// way.Begin(context.Background())

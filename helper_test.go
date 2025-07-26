@@ -1,9 +1,12 @@
 package hey
 
 import (
-	"github.com/stretchr/testify/assert"
+	"context"
+	"fmt"
 	"sort"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 /* INSERT SQL */
@@ -17,6 +20,32 @@ func TestNewAdd(t *testing.T) {
 	add.ColumnValue("email", "example@gmail.com")
 	add.ColumnValue("age", 21)
 	ast.Equal("INSERT INTO example ( username, email, age ) VALUES ( ?, ?, ? )", add.ToSQL().Prepare, equalMessage)
+
+	// example INSERT ONE AND RETURNING id value
+	if way.GetDatabase() != nil {
+		lastInsertId, err := add.AddOne(func(addOne AddOneReturnSequenceValue) {
+			// MySQL or Sqlite
+			addOne.Execute(func(ctx context.Context, stmt *Stmt, args ...any) (sequenceValue int64, err error) {
+				result, err := stmt.ExecuteContext(ctx, args...)
+				if err != nil {
+					return 0, err
+				}
+				return result.LastInsertId()
+			})
+
+			// PostgreSQL
+			addOne.Prepare(func(tmp *SQL) {
+				tmp.Prepare = fmt.Sprintf("%s RETURNING %s", tmp.Prepare, "id")
+			}).Execute(func(ctx context.Context, stmt *Stmt, args ...any) (sequenceValue int64, err error) {
+				result, err := stmt.ExecuteContext(ctx, args...)
+				if err != nil {
+					return 0, err
+				}
+				return result.RowsAffected()
+			})
+		})
+		_, _ = lastInsertId, err
+	}
 
 	{
 		add = way.Add("example")
@@ -150,10 +179,11 @@ func TestNewDel(t *testing.T) {
 		way.cfg.DeleteMustUseWhere = true
 	}
 
+	del.Comment("Here is the comment to delete the SQL statement")
 	del.Where(func(f Filter) {
 		f.Equal("id", 3)
 	})
-	ast.Equal("DELETE FROM example WHERE ( id = ? )", del.ToSQL().Prepare)
+	ast.Equal("/*Here is the comment to delete the SQL statement*/DELETE FROM example WHERE ( id = ? )", del.ToSQL().Prepare)
 
 }
 
@@ -277,7 +307,7 @@ func TestNewGet(t *testing.T) {
 	ast := assert.New(t)
 	way := testWay()
 
-	get := way.Get()
+	get := (*Get)(nil)
 
 	{
 		get = way.Get("example")
@@ -365,10 +395,25 @@ func TestNewGet(t *testing.T) {
 		ast.Equal("SELECT a.id, a.username, a.age, a.created_at, a.updated_at FROM example AS a INNER JOIN table2 AS b ON a.id = b.id ORDER BY a.id DESC LIMIT 10", get.ToSQL().Prepare)
 
 		/* USING ( column1, column2 ... ) */
+		joinGroupByColumns := make([]string, 0)
 		get = way.Get().Table("example").Alias(ta.Alias()).Join(func(j SQLJoin) {
 			b := j.NewTable("table2", tb.Alias())
 			j.InnerJoin(j.GetMaster(), b, j.Using("id", "username"))
+
+			if false {
+				a := j.GetMaster()
+				j.SelectGroupsColumns(
+					j.TableSelect(a, "id", "name", "username"),
+					/* ... */
+				)
+				j.SelectTableColumnAlias(b, "email", "user_email")
+				joinGroupByColumns = j.TableSelect(a, "username")
+				joinGroupByColumns = append(joinGroupByColumns, j.TableSelect(b, "activity_id")...)
+			}
 		})
+		if false {
+			get.Group(joinGroupByColumns...)
+		}
 		get.Select(ta.ColumnAll("id", "username", "age", "created_at", "updated_at")...)
 		get.Desc(ta.Column("id"))
 		get.Limit(10).Offset(0)
@@ -396,4 +441,98 @@ func TestNewGet(t *testing.T) {
 		ast.Equal("SELECT * FROM ( SELECT * FROM example WHERE ( ( status = ? AND deleted_at = ? ) AND ( age BETWEEN ? AND ? AND score > ? ) ) ) AS a ORDER BY id DESC LIMIT 10 OFFSET 10", get.ToSQL().Prepare)
 	}
 
+	if way.GetDatabase() != nil {
+		others(way)
+	}
+
+}
+
+func others(way *Way) error {
+	type ExampleAnyStruct struct {
+		Name string `db:"name"` // Table column name
+		Age  int    `db:"age"`  // Table column age
+	}
+	type ExampleAnyStructUpdate struct {
+		Id   int64   `json:"id" db:"id" validate:"required,min=1"`              // Table column id
+		Name *string `json:"name" db:"name" validate:"omitempty,min=0,max=255"` // Table column name
+		Age  *int    `json:"age" db:"age" validate:"omitempty,min=0,max=150"`   // Table column age
+	}
+
+	// UNION, UNION ALL, EXCEPT, INTERSECT
+	{
+		get1 := way.Get("table1").Limit(10)
+		get2 := way.Get("table2").Limit(10)
+		get3 := way.Get("table3").Limit(10)
+		get := UnionAllMaker(get1, get2, get3)
+		// get = UnionMaker(get1, get2, get3)
+		// get = ExceptMaker(get1, get2, get3)
+		// get = IntersectMaker(get1, get2, get3)
+		lists := make([]*ExampleAnyStruct, 0)
+		err := way.Get().Subquery(get, AliasA).Get(&lists)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update any structure with tag.
+	{
+		update := &ExampleAnyStructUpdate{}
+		_, err := way.Mod("table_name").ExceptPermit(func(except SQLUpsertColumn, permit SQLUpsertColumn) {
+			except.Add("id", "created_at", "deleted_at")
+			// permit.Add("name", "age")
+		}).Update(update).Mod()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update by comparing the property values of the structure.
+	{
+		origin := &ExampleAnyStruct{}
+		update := &ExampleAnyStructUpdate{}
+		_, err := way.Mod("table_name").ExceptPermit(func(except SQLUpsertColumn, permit SQLUpsertColumn) {
+			except.Add("id", "created_at", "deleted_at")
+			// permit.Add("name", "age")
+		}).Compare(origin, update).Mod()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Select GROUP BY
+	{
+		t1 := way.TA()
+		get := way.Get("table_name").Alias(t1.Alias())
+		get.GetSelect().AddAll("uid", t1.SUM("balance", "balance"))
+		get.Group("uid").Having(func(f Filter) {
+			f.MoreThanEqual(t1.SUM("balance"), 100)
+		})
+		_ = get.Get(nil)
+	}
+
+	// Update the same column for multiple records.
+	{
+		// When you need to update the following data at the same time.
+		// UPDATE account SET name = 'Alice', age = 18 WHERE ( id = 1 )
+		// UPDATE account SET name = 'Bob', age = 20 WHERE ( id = 2 )
+		// UPDATE account SET name = 'Tom', age = 21 WHERE ( id = 3 )
+		ctx, cancel := context.WithTimeout(context.Background(), way.GetCfg().TransactionMaxDuration)
+		defer cancel()
+
+		args := [][]any{
+			{"Alice", 18, 1},
+			{"Bob", 20, 2},
+			{"Tom", 21, 3},
+		}
+		mod := way.Mod("account").Set("name", "").Set("age", 0).Where(func(f Filter) { f.Equal("id", 1) })
+		script := mod.ToSQL()
+
+		// Efficiently re-execute the same SQL statement by simply changing the parameters.
+		affectedRows, err := way.BatchUpdateContext(ctx, script.Prepare, args)
+		if err != nil {
+			return err
+		}
+		_ = affectedRows
+	}
+	return nil
 }

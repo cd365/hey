@@ -7,12 +7,13 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"github.com/cd365/logger/v9"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cd365/logger/v9"
 )
 
 // Manual For handling different types of databases.
@@ -892,14 +893,14 @@ func (s *Way) Get(table ...string) *Get {
 
 // AddOneReturnSequenceValue Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
 type AddOneReturnSequenceValue interface {
-	// Adjust You may need to modify the SQL statement to be executed.
-	Adjust(adjust func(prepare string, args []any) (string, []any)) AddOneReturnSequenceValue
-
 	// Context Custom context.
 	Context(ctx context.Context) AddOneReturnSequenceValue
 
+	// Prepare You may need to modify the SQL statement to be executed.
+	Prepare(prepare func(tmp *SQL)) AddOneReturnSequenceValue
+
 	// Execute Customize the method to return the sequence value of inserted data.
-	Execute(execute func(ctx context.Context, stmt *Stmt, args []any) (sequenceValue int64, err error)) AddOneReturnSequenceValue
+	Execute(execute func(ctx context.Context, stmt *Stmt, args ...any) (sequenceValue int64, err error)) AddOneReturnSequenceValue
 
 	// AddOne Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
 	AddOne() (int64, error)
@@ -908,16 +909,9 @@ type AddOneReturnSequenceValue interface {
 type addOneReturnSequenceValue struct {
 	ctx     context.Context
 	way     *Way
-	prepare string
-	args    []any
-	adjust  func(prepare string, args []any) (string, []any)
-	execute func(ctx context.Context, stmt *Stmt, args []any) (sequenceValue int64, err error)
-}
-
-// Adjust You may need to modify the SQL statement to be executed.
-func (s *addOneReturnSequenceValue) Adjust(adjust func(prepare string, args []any) (string, []any)) AddOneReturnSequenceValue {
-	s.adjust = adjust
-	return s
+	add     *SQL
+	prepare func(tmp *SQL)
+	execute func(ctx context.Context, stmt *Stmt, args ...any) (sequenceValue int64, err error)
 }
 
 // Context Custom context.
@@ -926,17 +920,23 @@ func (s *addOneReturnSequenceValue) Context(ctx context.Context) AddOneReturnSeq
 	return s
 }
 
+// Prepare You may need to modify the SQL statement to be executed.
+func (s *addOneReturnSequenceValue) Prepare(prepare func(tmp *SQL)) AddOneReturnSequenceValue {
+	s.prepare = prepare
+	return s
+}
+
 // Execute Customize the method to return the sequence value of inserted data.
-func (s *addOneReturnSequenceValue) Execute(execute func(ctx context.Context, stmt *Stmt, args []any) (sequenceValue int64, err error)) AddOneReturnSequenceValue {
+func (s *addOneReturnSequenceValue) Execute(execute func(ctx context.Context, stmt *Stmt, args ...any) (sequenceValue int64, err error)) AddOneReturnSequenceValue {
 	s.execute = execute
 	return s
 }
 
 // AddOne Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
 func (s *addOneReturnSequenceValue) AddOne() (int64, error) {
-	prepare, args := s.prepare, s.args
-	if s.adjust != nil {
-		prepare, args = s.adjust(prepare, args)
+	script := s.add.ToSQL()
+	if s.prepare != nil {
+		s.prepare(script)
 	}
 	ctx := s.ctx
 	if ctx == nil {
@@ -944,20 +944,19 @@ func (s *addOneReturnSequenceValue) AddOne() (int64, error) {
 		ctx, cancel = context.WithTimeout(context.Background(), s.way.cfg.TransactionMaxDuration)
 		defer cancel()
 	}
-	stmt, err := s.way.PrepareContext(ctx, prepare)
+	stmt, err := s.way.PrepareContext(ctx, script.Prepare)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = stmt.Close() }()
-	return s.execute(ctx, stmt, args)
+	return s.execute(ctx, stmt, script.Args...)
 }
 
 // NewAddOne Insert one and get the last insert sequence value.
-func (s *Way) NewAddOne(prepare string, args []any) AddOneReturnSequenceValue {
+func (s *Way) NewAddOne(prepare string, args ...any) AddOneReturnSequenceValue {
 	return &addOneReturnSequenceValue{
-		way:     s,
-		prepare: prepare,
-		args:    args,
+		way: s,
+		add: NewSQL(prepare, args...),
 	}
 }
 
