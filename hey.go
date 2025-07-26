@@ -15,129 +15,6 @@ import (
 	"time"
 )
 
-const (
-	// DefaultTag Mapping of default database column name and struct tag.
-	DefaultTag = "db"
-
-	// EmptyString Empty string value.
-	EmptyString = ""
-)
-
-const (
-	SqlConcat = ", "
-	SqlPoint  = "."
-	SqlSpace  = " "
-	SqlStar   = "*"
-
-	SqlAs       = "AS"
-	SqlAsc      = "ASC"
-	SqlDesc     = "DESC"
-	SqlUnion    = "UNION"
-	SqlUnionAll = "UNION ALL"
-
-	SqlJoinInner = "INNER JOIN"
-	SqlJoinLeft  = "LEFT JOIN"
-	SqlJoinRight = "RIGHT JOIN"
-	SqlJoinFull  = "FULL JOIN"
-	SqlJoinCross = "CROSS JOIN"
-
-	SqlAnd = "AND"
-	SqlOr  = "OR"
-
-	SqlNot  = "NOT"
-	SqlNull = "NULL"
-
-	SqlPlaceholder      = "?"
-	SqlEqual            = "="
-	SqlNotEqual         = "<>"
-	SqlGreaterThan      = ">"
-	SqlGreaterThanEqual = ">="
-	SqlLessThan         = "<"
-	SqlLessThanEqual    = "<="
-
-	SqlAll = "ALL"
-	SqlAny = "ANY"
-
-	SqlLeftSmallBracket  = "("
-	SqlRightSmallBracket = ")"
-
-	SqlExpect    = "EXCEPT"
-	SqlIntersect = "INTERSECT"
-
-	SqlCoalesce = "COALESCE"
-
-	SqlDistinct = "DISTINCT"
-
-	SqlSelect = "SELECT"
-	SqlInsert = "INSERT"
-	SqlUpdate = "UPDATE"
-	SqlDelete = "DELETE"
-	SqlFrom   = "FROM"
-	SqlInto   = "INTO"
-	SqlValues = "VALUES"
-	SqlSet    = "SET"
-	SqlWhere  = "WHERE"
-
-	SqlBetween     = "BETWEEN"
-	SqlConflict    = "CONFLICT"
-	SqlDo          = "DO"
-	SqlExcluded    = "EXCLUDED"
-	SqlExists      = "EXISTS"
-	SqlGroupBy     = "GROUP BY"
-	SqlHaving      = "HAVING"
-	SqlIn          = "IN"
-	SqlIs          = "IS"
-	SqlLike        = "LIKE"
-	SqlLimit       = "LIMIT"
-	SqlNothing     = "NOTHING"
-	SqlOffset      = "OFFSET"
-	SqlOn          = "ON"
-	SqlOrderBy     = "ORDER BY"
-	SqlOver        = "OVER"
-	SqlPartitionBy = "PARTITION BY"
-	SqlUsing       = "USING"
-	SqlWith        = "WITH"
-
-	SqlCase = "CASE"
-	SqlWhen = "WHEN"
-	SqlThen = "THEN"
-	SqlElse = "ELSE"
-	SqlEnd  = "END"
-)
-
-const (
-	AliasA = "a"
-	AliasB = "b"
-	AliasC = "c"
-	AliasD = "d"
-	AliasE = "e"
-	AliasF = "f"
-	AliasG = "g"
-)
-
-const (
-	DefaultAliasNameCount = "counts"
-
-	RowsScanStructAllMakeSliceLength = "rows_scan_struct_all_make_slice_length"
-)
-
-type manualError string
-
-func (s manualError) Error() string {
-	return string(s)
-}
-
-const (
-	// ErrNoRows Error no rows.
-	ErrNoRows = manualError("hey: no rows")
-
-	// ErrNoRowsAffected Error no rows affected.
-	ErrNoRowsAffected = manualError("hey: no rows affected")
-
-	// errTransactionIsNil Error transaction isn't started.
-	errTransactionIsNil = manualError("hey: transaction is nil")
-)
-
 // Manual For handling different types of databases.
 type Manual struct {
 	// Prepare to adjust the SQL statement format to meet the current database SQL statement format.
@@ -235,22 +112,22 @@ func DefaultCfg() Cfg {
 	}
 }
 
-// cmdLog Record executed prepare args.
-type cmdLog struct {
+// sqlLog Record executed prepare args.
+type sqlLog struct {
 	way *Way
 
 	// prepare Preprocess the SQL statements that are executed.
 	prepare string
 
 	// args SQL parameter list.
-	args *cmdLogRun
+	args *sqlLogRun
 
 	// err An error encountered when executing SQL.
 	err error
 }
 
-// cmdLogRun Record executed args of prepare.
-type cmdLogRun struct {
+// sqlLogRun Record executed args of prepare.
+type sqlLogRun struct {
 	// args SQL parameter list.
 	args []any
 
@@ -261,7 +138,7 @@ type cmdLogRun struct {
 	endAt time.Time
 }
 
-func (s *cmdLogRun) handleArgs() []any {
+func (s *sqlLogRun) handleArgs() []any {
 	return handleArgs(s.args)
 }
 
@@ -275,18 +152,18 @@ func handleArgs(args []any) []any {
 	return args
 }
 
-func (s *Way) cmdLog(prepare string, args []any) *cmdLog {
-	return &cmdLog{
+func (s *Way) sqlLog(prepare string, args []any) *sqlLog {
+	return &sqlLog{
 		way:     s,
 		prepare: prepare,
-		args: &cmdLogRun{
+		args: &sqlLogRun{
 			startAt: time.Now(),
 			args:    args,
 		},
 	}
 }
 
-func (s *cmdLog) Write() {
+func (s *sqlLog) Write() {
 	if s.way.log == nil {
 		return
 	}
@@ -294,7 +171,7 @@ func (s *cmdLog) Write() {
 		s.args.endAt = time.Now()
 	}
 	if s.way.transaction != nil {
-		s.way.transaction.logCmd = append(s.way.transaction.logCmd, s)
+		s.way.transaction.sqlLog = append(s.way.transaction.sqlLog, s)
 		return
 	}
 	lg := s.way.log.Info()
@@ -628,7 +505,7 @@ func (s *Stmt) Close() (err error) {
 
 // QueryContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryContext(ctx context.Context, query func(rows *sql.Rows) error, args ...any) error {
-	lg := s.way.cmdLog(s.prepare, args)
+	lg := s.way.sqlLog(s.prepare, args)
 	defer lg.Write()
 	rows, err := s.stmt.QueryContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -648,7 +525,7 @@ func (s *Stmt) Query(query func(rows *sql.Rows) error, args ...any) error {
 
 // QueryRowContext -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRowContext(ctx context.Context, query func(rows *sql.Row) error, args ...any) error {
-	lg := s.way.cmdLog(s.prepare, args)
+	lg := s.way.sqlLog(s.prepare, args)
 	defer lg.Write()
 	row := s.stmt.QueryRowContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -663,7 +540,7 @@ func (s *Stmt) QueryRow(query func(rows *sql.Row) error, args ...any) (err error
 
 // ExecuteContext -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) ExecuteContext(ctx context.Context, args ...any) (sql.Result, error) {
-	lg := s.way.cmdLog(s.prepare, args)
+	lg := s.way.sqlLog(s.prepare, args)
 	defer lg.Write()
 	result, err := s.stmt.ExecContext(ctx, args...)
 	lg.args.endAt = time.Now()
@@ -795,116 +672,116 @@ func (s *Way) Exec(prepare string, args ...any) (int64, error) {
 	return s.ExecContext(context.Background(), prepare, args...)
 }
 
-/* Using Cmder */
+/* Using Maker */
 
-func (s *Way) CmderQueryContext(ctx context.Context, cmder Cmder, query func(rows *sql.Rows) error) error {
-	if cmder == nil {
+func (s *Way) MakerQueryContext(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) error {
+	if maker == nil {
 		return nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil
 	}
-	return s.QueryContext(ctx, query, prepare, args...)
+	return s.QueryContext(ctx, query, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderQuery(cmder Cmder, query func(rows *sql.Rows) error) error {
-	if cmder == nil {
+func (s *Way) MakerQuery(maker Maker, query func(rows *sql.Rows) error) error {
+	if maker == nil {
 		return nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil
 	}
-	return s.Query(query, prepare, args...)
+	return s.Query(query, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderQueryRowContext(ctx context.Context, cmder Cmder, query func(row *sql.Row) error) error {
-	if cmder == nil {
+func (s *Way) MakerQueryRowContext(ctx context.Context, maker Maker, query func(row *sql.Row) error) error {
+	if maker == nil {
 		return nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil
 	}
-	return s.QueryRowContext(ctx, query, prepare, args...)
+	return s.QueryRowContext(ctx, query, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderQueryRow(cmder Cmder, query func(row *sql.Row) error) error {
-	if cmder == nil {
+func (s *Way) MakerQueryRow(maker Maker, query func(row *sql.Row) error) error {
+	if maker == nil {
 		return nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil
 	}
-	return s.QueryRow(query, prepare, args...)
+	return s.QueryRow(query, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderTakeAllContext(ctx context.Context, cmder Cmder, result any) error {
-	if cmder == nil {
+func (s *Way) MakerTakeAllContext(ctx context.Context, maker Maker, result any) error {
+	if maker == nil {
 		return nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil
 	}
-	return s.TakeAllContext(ctx, result, prepare, args...)
+	return s.TakeAllContext(ctx, result, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderTakeAll(cmder Cmder, result any) error {
-	if cmder == nil {
+func (s *Way) MakerTakeAll(maker Maker, result any) error {
+	if maker == nil {
 		return nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil
 	}
-	return s.TakeAll(result, prepare, args...)
+	return s.TakeAll(result, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderExecuteContext(ctx context.Context, cmder Cmder) (sql.Result, error) {
-	if cmder == nil {
+func (s *Way) MakerExecuteContext(ctx context.Context, maker Maker) (sql.Result, error) {
+	if maker == nil {
 		return nil, nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil, nil
 	}
-	return s.ExecuteContext(ctx, prepare, args...)
+	return s.ExecuteContext(ctx, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderExecute(cmder Cmder) (sql.Result, error) {
-	if cmder == nil {
+func (s *Way) MakerExecute(maker Maker) (sql.Result, error) {
+	if maker == nil {
 		return nil, nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return nil, nil
 	}
-	return s.Execute(prepare, args...)
+	return s.Execute(script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderExecContext(ctx context.Context, cmder Cmder) (int64, error) {
-	if cmder == nil {
+func (s *Way) MakerExecContext(ctx context.Context, maker Maker) (int64, error) {
+	if maker == nil {
 		return 0, nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return 0, nil
 	}
-	return s.ExecContext(ctx, prepare, args...)
+	return s.ExecContext(ctx, script.Prepare, script.Args...)
 }
 
-func (s *Way) CmderExec(cmder Cmder) (int64, error) {
-	if cmder == nil {
+func (s *Way) MakerExec(maker Maker) (int64, error) {
+	if maker == nil {
 		return 0, nil
 	}
-	prepare, args := cmder.Cmd()
-	if prepare == EmptyString {
+	script := maker.ToSQL()
+	if script.Empty() {
 		return 0, nil
 	}
-	return s.Exec(prepare, args...)
+	return s.Exec(script.Prepare, script.Args...)
 }
 
 /* Batch Update */
@@ -936,7 +813,7 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
-	lg := s.cmdLog(prepare, args)
+	lg := s.sqlLog(prepare, args)
 	defer lg.Write()
 	rows, err := s.caller(caller).QueryContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
@@ -955,7 +832,7 @@ func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ..
 	if prepare == EmptyString {
 		return
 	}
-	lg := s.cmdLog(prepare, args)
+	lg := s.sqlLog(prepare, args)
 	defer lg.Write()
 	result, rer := s.caller(caller).ExecContext(ctx, prepare, args...)
 	lg.args.endAt = time.Now()
@@ -1146,9 +1023,9 @@ func (s *Way) WindowFunc(alias ...string) *WindowFunc {
 }
 
 // Debug Debugging output SQL script.
-func (s *Way) Debug(cmder Cmder) *Way {
+func (s *Way) Debug(maker Maker) *Way {
 	if s.cfg.Debugger != nil {
-		s.cfg.Debugger.Debug(cmder)
+		s.cfg.Debugger.Debug(maker)
 	}
 	return s
 }
@@ -1247,12 +1124,13 @@ func adjustViewData(columnType *sql.ColumnType) func(value any) any {
 	case "BYTEA",
 		"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB":
 		return nil
+	default:
 	}
 	return nil
 }
 
-// ScanViewMap Scan query result to []map[string]any, view query result.
-func ScanViewMap(rows *sql.Rows) ([]map[string]any, error) {
+// ScanMap Scan query result to []map[string]any, view query result.
+func ScanMap(rows *sql.Rows) ([]map[string]any, error) {
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, err
@@ -1262,9 +1140,8 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]any, error) {
 		return nil, err
 	}
 	count := len(columns)
-	var slices []map[string]any
+	result := make([]map[string]any, 0)
 	for rows.Next() {
-		tmp := make(map[string]any, 32)
 		scan := make([]any, count)
 		for i := range scan {
 			scan[i] = new(any)
@@ -1272,24 +1149,28 @@ func ScanViewMap(rows *sql.Rows) ([]map[string]any, error) {
 		if err = rows.Scan(scan...); err != nil {
 			return nil, err
 		}
-		for i, column := range columns {
-			value := scan[i].(*any)
-			tmp[column] = *value
+		value := make(map[string]any, count)
+		for index, column := range columns {
+			if scan[index] == nil {
+				value[column] = nil
+			} else {
+				value[column] = scan[index]
+			}
 		}
-		slices = append(slices, tmp)
+		result = append(result, value)
 	}
-	fcs := make(map[string]func(any) any, 32)
-	for _, v := range types {
-		if tmp := adjustViewData(v); tmp != nil {
-			fcs[v.Name()] = tmp
+	change := make(map[string]func(any) any, 8)
+	for _, value := range types {
+		if tmp := adjustViewData(value); tmp != nil {
+			change[value.Name()] = tmp
 		}
 	}
-	for column, call := range fcs {
-		for index, temp := range slices {
-			slices[index][column] = call(temp[column])
+	for column, action := range change {
+		for index, value := range result {
+			result[index][column] = action(value[column])
 		}
 	}
-	return slices, nil
+	return result, nil
 }
 
 // argValueToString Convert SQL statement parameters into text strings.
@@ -1355,7 +1236,7 @@ func prepareArgsToString(prepare string, args []any) string {
 // Debugger Debug output SQL script.
 type Debugger interface {
 	// Debug Debug output SQL script
-	Debug(cmder Cmder) Debugger
+	Debug(maker Maker) Debugger
 
 	GetLogger() *logger.Logger
 
@@ -1375,13 +1256,16 @@ func (s *debugger) SetLogger(log *logger.Logger) Debugger {
 	return s
 }
 
-func (s *debugger) Debug(cmder Cmder) Debugger {
-	if cmder == nil || s.log == nil {
+func (s *debugger) Debug(maker Maker) Debugger {
+	if maker == nil || s.log == nil {
 		return s
 	}
-	prepare, args := cmder.Cmd()
-	script := prepareArgsToString(prepare, args)
-	s.log.Debug().Str(logScript, script).Str(logPrepare, prepare).Any(logArgs, handleArgs(args)).Msg("debug SQL script")
+	script := maker.ToSQL()
+	if script.Empty() {
+		return s
+	}
+	scriptString := prepareArgsToString(script.Prepare, script.Args)
+	s.log.Debug().Str(logScript, scriptString).Str(logPrepare, script.Prepare).Any(logArgs, handleArgs(script.Args)).Msg("debug SQL script")
 	return s
 }
 

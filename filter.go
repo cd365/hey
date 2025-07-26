@@ -114,12 +114,12 @@ func filterNotEqual(column string) string {
 	return filterSqlExpr(column, SqlNotEqual)
 }
 
-func filterGreaterThan(column string) string {
-	return filterSqlExpr(column, SqlGreaterThan)
+func filterMoreThan(column string) string {
+	return filterSqlExpr(column, SqlMoreThan)
 }
 
-func filterGreaterThanEqual(column string) string {
-	return filterSqlExpr(column, SqlGreaterThanEqual)
+func filterMoreThanEqual(column string) string {
+	return filterSqlExpr(column, SqlMoreThanEqual)
 }
 
 func filterLessThan(column string) string {
@@ -184,11 +184,11 @@ func filterInSql(column string, prepare string, args []any, not bool) (string, [
 	return result, args
 }
 
-func filterInColsFields(columns ...string) string {
+func filterInGroupColumns(columns ...string) string {
 	return ConcatString(SqlLeftSmallBracket, SqlSpace, strings.Join(columns, SqlConcat), SqlSpace, SqlRightSmallBracket)
 }
 
-func filterInCols(columns []string, values [][]any, not bool) (prepare string, args []any) {
+func filterInGroup(columns []string, values [][]any, not bool) (prepare string, args []any) {
 	count := len(columns)
 	if count == 0 {
 		return
@@ -214,7 +214,7 @@ func filterInCols(columns []string, values [][]any, not bool) (prepare string, a
 		valueGroup[i] = oneGroupString
 	}
 	tmp := make([]string, 0, 8)
-	tmp = append(tmp, filterInColsFields(columns...))
+	tmp = append(tmp, filterInGroupColumns(columns...))
 	if not {
 		tmp = append(tmp, SqlSpace, SqlNot)
 	}
@@ -225,13 +225,13 @@ func filterInCols(columns []string, values [][]any, not bool) (prepare string, a
 	return
 }
 
-func filterInColsSql(columns []string, prepare string, args []any, not bool) (string, []any) {
+func filterInGroupSql(columns []string, prepare string, args []any, not bool) (string, []any) {
 	count := len(columns)
 	if count == 0 || prepare == EmptyString {
 		return EmptyString, nil
 	}
 	tmp := make([]string, 0, 8)
-	tmp = append(tmp, filterInColsFields(columns...))
+	tmp = append(tmp, filterInGroupColumns(columns...))
 	if not {
 		tmp = append(tmp, SqlSpace, SqlNot)
 	}
@@ -305,7 +305,7 @@ func filterUseValue(value any) any {
 
 // Filter Implement SQL statement conditional filtering (general conditional filtering).
 type Filter interface {
-	Cmder
+	Maker
 
 	// Clean Clear the existing conditional filtering of the current object.
 	Clean() Filter
@@ -313,8 +313,8 @@ type Filter interface {
 	// Num Number of conditions used.
 	Num() int
 
-	// IsEmpty Is the current object an empty object?
-	IsEmpty() bool
+	// Empty Is the current object an empty object?
+	Empty() bool
 
 	// Not Negate the result of the current conditional filter object. Multiple negations are allowed.
 	Not() Filter
@@ -326,22 +326,19 @@ type Filter interface {
 	Or(prepare string, args ...any) Filter
 
 	// Group Add a new condition group, which is connected by the `AND` logical operator by default.
-	Group(group func(g Filter)) Filter
+	Group(group func(f Filter)) Filter
 
 	// OrGroup Add a new condition group, which is connected by the `OR` logical operator by default.
-	OrGroup(group func(g Filter)) Filter
+	OrGroup(group func(f Filter)) Filter
 
 	// Use Implement import a set of conditional filter objects into the current object.
-	Use(fs ...Filter) Filter
+	Use(filters ...Filter) Filter
 
 	// New Create a new conditional filter object based on a set of conditional filter objects.
-	New(fs ...Filter) Filter
+	New(filters ...Filter) Filter
 
-	// GreaterThan Implement conditional filtering: column > value.
-	GreaterThan(column string, value any) Filter
-
-	// GreaterThanEqual Implement conditional filtering: column >= value .
-	GreaterThanEqual(column string, value any) Filter
+	// Equal Implement conditional filtering: column = value .
+	Equal(column string, value any, usingNull ...bool) Filter
 
 	// LessThan Implement conditional filtering: column < value .
 	LessThan(column string, value any) Filter
@@ -349,8 +346,11 @@ type Filter interface {
 	// LessThanEqual Implement conditional filtering: column <= value .
 	LessThanEqual(column string, value any) Filter
 
-	// Equal Implement conditional filtering: column = value .
-	Equal(column string, value any, useNull ...bool) Filter
+	// MoreThan Implement conditional filtering: column > value.
+	MoreThan(column string, value any) Filter
+
+	// MoreThanEqual Implement conditional filtering: column >= value .
+	MoreThanEqual(column string, value any) Filter
 
 	// Between Implement conditional filtering: column BETWEEN value1 AND value2 .
 	Between(column string, start any, end any) Filter
@@ -358,17 +358,11 @@ type Filter interface {
 	// In Implement conditional filtering: column IN ( value1, value2, value3... ) .
 	In(column string, values ...any) Filter
 
-	// InSql Implement conditional filtering: column IN ( subquery ) .
-	InSql(column string, prepare string, args ...any) Filter
-
-	// InCols Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
-	InCols(columns []string, values ...[]any) Filter
-
-	// InColsSql Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
-	InColsSql(columns []string, prepare string, args ...any) Filter
+	// InQuery Implement conditional filtering: column IN (subquery).
+	InQuery(column string, subquery Maker) Filter
 
 	// Exists Implement conditional filtering: EXISTS (subquery) .
-	Exists(prepare string, args ...any) Filter
+	Exists(subquery Maker) Filter
 
 	// Like Implement conditional filtering: column LIKE value.
 	Like(column string, value any) Filter
@@ -376,17 +370,14 @@ type Filter interface {
 	// IsNull Implement conditional filtering: column IS NULL .
 	IsNull(column string) Filter
 
-	// InQuery Implement conditional filtering: column IN (subquery).
-	InQuery(column string, subquery Cmder) Filter
+	// InGroup Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
+	InGroup(columns []string, values ...[]any) Filter
 
-	// InColsQuery Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
-	InColsQuery(columns []string, subquery Cmder) Filter
-
-	// ExistsQuery Implement conditional filtering: EXISTS (subquery).
-	ExistsQuery(subquery Cmder) Filter
+	// InGroupQuery Implement conditional filtering: ( column1, column2, column3... ) IN ( subquery ) .
+	InGroupQuery(columns []string, subquery Maker) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
-	NotEqual(column string, value any, useNotNull ...bool) Filter
+	NotEqual(column string, value any, notUsingNull ...bool) Filter
 
 	// NotBetween Implement conditional filtering: column NOT BETWEEN value1 AND value2 .
 	NotBetween(column string, start any, end any) Filter
@@ -394,8 +385,8 @@ type Filter interface {
 	// NotIn Implement conditional filtering: column NOT IN ( value1, value2, value3... ) .
 	NotIn(column string, values ...any) Filter
 
-	// NotInCols Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
-	NotInCols(columns []string, values ...[]any) Filter
+	// NotInGroup Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
+	NotInGroup(columns []string, values ...[]any) Filter
 
 	// NotLike Implement conditional filtering: column NOT LIKE value .
 	NotLike(column string, value any) Filter
@@ -404,10 +395,10 @@ type Filter interface {
 	IsNotNull(column string) Filter
 
 	// AllQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
-	AllQuantifier(fc func(tmp Quantifier)) Filter
+	AllQuantifier(fc func(q Quantifier)) Filter
 
 	// AnyQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
-	AnyQuantifier(fc func(tmp Quantifier)) Filter
+	AnyQuantifier(fc func(q Quantifier)) Filter
 
 	// GetWay For get *Way.
 	GetWay() *Way
@@ -424,11 +415,11 @@ type Filter interface {
 	// CompareNotEqual Implement conditional filtering: column1 <> column2 .
 	CompareNotEqual(column1 string, column2 string, args ...any) Filter
 
-	// CompareGreaterThan Implement conditional filtering: column1 > column2 .
-	CompareGreaterThan(column1 string, column2 string, args ...any) Filter
+	// CompareMoreThan Implement conditional filtering: column1 > column2 .
+	CompareMoreThan(column1 string, column2 string, args ...any) Filter
 
-	// CompareGreaterThanEqual Implement conditional filtering: column1 >= column2 .
-	CompareGreaterThanEqual(column1 string, column2 string, args ...any) Filter
+	// CompareMoreThanEqual Implement conditional filtering: column1 >= column2 .
+	CompareMoreThanEqual(column1 string, column2 string, args ...any) Filter
 
 	// CompareLessThan Implement conditional filtering: column1 < column2.
 	CompareLessThan(column1 string, column2 string, args ...any) Filter
@@ -469,18 +460,18 @@ var poolFilter = &sync.Pool{
 	},
 }
 
-func GetFilter() Filter {
+func getFilter() Filter {
 	return poolFilter.Get().(*filter)
 }
 
-func PutFilter(f Filter) {
+func putFilter(f Filter) {
 	f.Clean()
 	poolFilter.Put(f)
 }
 
-func (s *filter) Cmd() (string, []any) {
+func (s *filter) ToSQL() *SQL {
 	if s.num == 0 {
-		return EmptyString, nil
+		return NewSQL(EmptyString)
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
@@ -497,7 +488,7 @@ func (s *filter) Cmd() (string, []any) {
 	} else {
 		b.WriteString(s.prepare.String())
 	}
-	return b.String(), s.args[:]
+	return NewSQL(b.String(), s.args[:]...)
 }
 
 func (s *filter) clean() {
@@ -517,7 +508,7 @@ func (s *filter) Num() int {
 	return s.num
 }
 
-func (s *filter) IsEmpty() bool {
+func (s *filter) Empty() bool {
 	return s.num == 0
 }
 
@@ -546,14 +537,14 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if group == nil {
 		return s
 	}
-	tmp := GetFilter().SetWay(s.way)
-	defer PutFilter(tmp)
+	tmp := getFilter().SetWay(s.way)
+	defer putFilter(tmp)
 	group(tmp)
-	if tmp.IsEmpty() {
+	if tmp.Empty() {
 		return s
 	}
-	prepare, args := tmp.Cmd()
-	s.add(logic, prepare, args...)
+	script := tmp.ToSQL()
+	s.add(logic, script.Prepare, script.Args...)
 	return s
 }
 
@@ -565,26 +556,26 @@ func (s *filter) Or(prepare string, args ...any) Filter {
 	return s.add(SqlOr, prepare, args...)
 }
 
-func (s *filter) Group(group func(g Filter)) Filter {
+func (s *filter) Group(group func(f Filter)) Filter {
 	return s.addGroup(SqlAnd, group)
 }
 
-func (s *filter) OrGroup(group func(g Filter)) Filter {
+func (s *filter) OrGroup(group func(f Filter)) Filter {
 	return s.addGroup(SqlOr, group)
 }
 
 func (s *filter) Use(filters ...Filter) Filter {
-	groups := GetFilter().SetWay(s.way)
-	defer PutFilter(groups)
+	groups := getFilter().SetWay(s.way)
+	defer putFilter(groups)
 	for _, tmp := range filters {
-		if tmp == nil || tmp.IsEmpty() {
+		if tmp == nil || tmp.Empty() {
 			continue
 		}
-		prepare, args := tmp.Cmd()
-		groups.And(prepare, args...)
+		script := tmp.ToSQL()
+		groups.And(script.Prepare, script.Args...)
 	}
-	prepare, args := groups.Cmd()
-	return s.And(prepare, args...)
+	script := groups.ToSQL()
+	return s.And(script.Prepare, script.Args...)
 }
 
 func (s *filter) New(filters ...Filter) Filter {
@@ -605,16 +596,15 @@ func (s *filter) replaces(keys []string) []string {
 	return s.way.Replaces(keys)
 }
 
-func (s *filter) GreaterThan(column string, value any) Filter {
-	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterGreaterThan(s.replace(column)), value)
+func (s *filter) Equal(column string, value any, usingNull ...bool) Filter {
+	if value == nil {
+		if length := len(usingNull); length > 0 && usingNull[length-1] {
+			return s.IsNull(s.replace(column))
+		}
+		return s
 	}
-	return s
-}
-
-func (s *filter) GreaterThanEqual(column string, value any) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterGreaterThanEqual(s.replace(column)), value)
+		s.add(SqlAnd, filterEqual(s.replace(column)), value)
 	}
 	return s
 }
@@ -633,15 +623,16 @@ func (s *filter) LessThanEqual(column string, value any) Filter {
 	return s
 }
 
-func (s *filter) Equal(column string, value any, useNull ...bool) Filter {
-	if value == nil {
-		if length := len(useNull); length > 0 && useNull[length-1] {
-			return s.IsNull(s.replace(column))
-		}
-		return s
-	}
+func (s *filter) MoreThan(column string, value any) Filter {
 	if value = filterUseValue(value); value != nil {
-		s.add(SqlAnd, filterEqual(s.replace(column)), value)
+		s.add(SqlAnd, filterMoreThan(s.replace(column)), value)
+	}
+	return s
+}
+
+func (s *filter) MoreThanEqual(column string, value any) Filter {
+	if value = filterUseValue(value); value != nil {
+		s.add(SqlAnd, filterMoreThanEqual(s.replace(column)), value)
 	}
 	return s
 }
@@ -658,23 +649,27 @@ func (s *filter) In(column string, values ...any) Filter {
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) InSql(column string, prepare string, args ...any) Filter {
-	prepare, args = filterInSql(s.replace(column), prepare, args, false)
+func (s *filter) InQuery(column string, subquery Maker) Filter {
+	if subquery == nil {
+		return s
+	}
+	script := subquery.ToSQL()
+	if script.Empty() {
+		return s
+	}
+	prepare, args := filterInSql(s.replace(column), script.Prepare, script.Args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) InCols(columns []string, values ...[]any) Filter {
-	prepare, args := filterInCols(s.replaces(columns), values, false)
-	return s.add(SqlAnd, prepare, args...)
-}
-
-func (s *filter) InColsSql(columns []string, prepare string, args ...any) Filter {
-	prepare, args = filterInColsSql(s.replaces(columns), prepare, args, false)
-	return s.add(SqlAnd, prepare, args...)
-}
-
-func (s *filter) Exists(prepare string, args ...any) Filter {
-	prepare, args = filterExists(prepare, args, false)
+func (s *filter) Exists(subquery Maker) Filter {
+	if subquery == nil {
+		return s
+	}
+	script := subquery.ToSQL()
+	if script == nil || script.Empty() {
+		return s
+	}
+	prepare, args := filterExists(script.Prepare, script.Args, false)
 	return s.add(SqlAnd, prepare, args...)
 }
 
@@ -701,42 +696,26 @@ func (s *filter) IsNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(s.replace(column), false))
 }
 
-func (s *filter) InQuery(column string, subquery Cmder) Filter {
+func (s *filter) InGroup(columns []string, values ...[]any) Filter {
+	prepare, args := filterInGroup(s.replaces(columns), values, false)
+	return s.add(SqlAnd, prepare, args...)
+}
+
+func (s *filter) InGroupQuery(columns []string, subquery Maker) Filter {
 	if subquery == nil {
 		return s
 	}
-	prepare, args := subquery.Cmd()
-	if prepare == EmptyString {
+	script := subquery.ToSQL()
+	if script.Empty() {
 		return s
 	}
-	return s.InSql(column, prepare, args...)
+	prepare, args := filterInGroupSql(s.replaces(columns), script.Prepare, script.Args, false)
+	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) InColsQuery(columns []string, subquery Cmder) Filter {
-	if subquery == nil {
-		return s
-	}
-	prepare, args := subquery.Cmd()
-	if prepare == EmptyString {
-		return s
-	}
-	return s.InColsSql(columns, prepare, args...)
-}
-
-func (s *filter) ExistsQuery(subquery Cmder) Filter {
-	if subquery == nil {
-		return s
-	}
-	prepare, args := subquery.Cmd()
-	if prepare == EmptyString {
-		return s
-	}
-	return s.Exists(prepare, args...)
-}
-
-func (s *filter) NotEqual(column string, value any, useNotNull ...bool) Filter {
+func (s *filter) NotEqual(column string, value any, notUsingNull ...bool) Filter {
 	if value == nil {
-		if length := len(useNotNull); length > 0 && useNotNull[length-1] {
+		if length := len(notUsingNull); length > 0 && notUsingNull[length-1] {
 			return s.IsNotNull(s.replace(column))
 		}
 		return s
@@ -759,8 +738,8 @@ func (s *filter) NotIn(column string, values ...any) Filter {
 	return s.add(SqlAnd, prepare, args...)
 }
 
-func (s *filter) NotInCols(columns []string, values ...[]any) Filter {
-	prepare, args := filterInCols(s.replaces(columns), values, true)
+func (s *filter) NotInGroup(columns []string, values ...[]any) Filter {
+	prepare, args := filterInGroup(s.replaces(columns), values, true)
 	return s.add(SqlAnd, prepare, args...)
 }
 
@@ -787,7 +766,7 @@ func (s *filter) IsNotNull(column string) Filter {
 	return s.add(SqlAnd, filterIsNull(s.replace(column), true))
 }
 
-func (s *filter) AllQuantifier(fc func(tmp Quantifier)) Filter {
+func (s *filter) AllQuantifier(fc func(q Quantifier)) Filter {
 	if fc == nil {
 		return s
 	}
@@ -799,7 +778,7 @@ func (s *filter) AllQuantifier(fc func(tmp Quantifier)) Filter {
 	return s.Use(tmp.filter)
 }
 
-func (s *filter) AnyQuantifier(fc func(tmp Quantifier)) Filter {
+func (s *filter) AnyQuantifier(fc func(q Quantifier)) Filter {
 	if fc == nil {
 		return s
 	}
@@ -836,12 +815,12 @@ func (s *filter) CompareNotEqual(column1 string, column2 string, args ...any) Fi
 	return s.Compare(column1, SqlNotEqual, column2, args...)
 }
 
-func (s *filter) CompareGreaterThan(column1 string, column2 string, args ...any) Filter {
-	return s.Compare(column1, SqlGreaterThan, column2, args...)
+func (s *filter) CompareMoreThan(column1 string, column2 string, args ...any) Filter {
+	return s.Compare(column1, SqlMoreThan, column2, args...)
 }
 
-func (s *filter) CompareGreaterThanEqual(column1 string, column2 string, args ...any) Filter {
-	return s.Compare(column1, SqlGreaterThanEqual, column2, args...)
+func (s *filter) CompareMoreThanEqual(column1 string, column2 string, args ...any) Filter {
+	return s.Compare(column1, SqlMoreThanEqual, column2, args...)
 }
 
 func (s *filter) CompareLessThan(column1 string, column2 string, args ...any) Filter {
@@ -859,17 +838,17 @@ type Quantifier interface {
 
 	SetQuantifier(quantifierString string) Quantifier
 
-	Equal(column string, subquery Cmder) Quantifier
+	Equal(column string, subquery Maker) Quantifier
 
-	NotEqual(column string, subquery Cmder) Quantifier
+	NotEqual(column string, subquery Maker) Quantifier
 
-	GreaterThan(column string, subquery Cmder) Quantifier
+	LessThan(column string, subquery Maker) Quantifier
 
-	GreaterThanEqual(column string, subquery Cmder) Quantifier
+	LessThanEqual(column string, subquery Maker) Quantifier
 
-	LessThan(column string, subquery Cmder) Quantifier
+	MoreThan(column string, subquery Maker) Quantifier
 
-	LessThanEqual(column string, subquery Cmder) Quantifier
+	MoreThanEqual(column string, subquery Maker) Quantifier
 }
 
 type quantifier struct {
@@ -889,12 +868,12 @@ func (s *quantifier) SetQuantifier(quantifierString string) Quantifier {
 }
 
 // build Add SQL filter statement.
-func (s *quantifier) build(column string, logic string, subquery Cmder) Quantifier {
+func (s *quantifier) build(column string, logic string, subquery Maker) Quantifier {
 	if column == EmptyString || logic == EmptyString || subquery == nil {
 		return s
 	}
-	prepare, args := subquery.Cmd()
-	if prepare == EmptyString {
+	script := subquery.ToSQL()
+	if script.Empty() {
 		return s
 	}
 	if way := s.filter.GetWay(); way != nil {
@@ -912,45 +891,45 @@ func (s *quantifier) build(column string, logic string, subquery Cmder) Quantifi
 	}
 	b.WriteString(SqlLeftSmallBracket)
 	b.WriteString(SqlSpace)
-	b.WriteString(prepare)
+	b.WriteString(script.Prepare)
 	b.WriteString(SqlSpace)
 	b.WriteString(SqlRightSmallBracket)
-	s.filter.And(b.String(), args...)
+	s.filter.And(b.String(), script.Args...)
 	return s
 }
 
 // Equal Implement the filter condition: column = QUANTIFIER ( subquery ) .
-func (s *quantifier) Equal(column string, subquery Cmder) Quantifier {
+func (s *quantifier) Equal(column string, subquery Maker) Quantifier {
 	return s.build(column, SqlEqual, subquery)
 }
 
 // NotEqual Implement the filter condition: column <> QUANTIFIER ( subquery ) .
-func (s *quantifier) NotEqual(column string, subquery Cmder) Quantifier {
+func (s *quantifier) NotEqual(column string, subquery Maker) Quantifier {
 	return s.build(column, SqlNotEqual, subquery)
 }
 
-// GreaterThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
-func (s *quantifier) GreaterThan(column string, subquery Cmder) Quantifier {
-	return s.build(column, SqlGreaterThan, subquery)
-}
-
-// GreaterThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
-func (s *quantifier) GreaterThanEqual(column string, subquery Cmder) Quantifier {
-	return s.build(column, SqlGreaterThanEqual, subquery)
-}
-
 // LessThan Implement the filter condition: column < QUANTIFIER ( subquery ) .
-func (s *quantifier) LessThan(column string, subquery Cmder) Quantifier {
+func (s *quantifier) LessThan(column string, subquery Maker) Quantifier {
 	return s.build(column, SqlLessThan, subquery)
 }
 
 // LessThanEqual Implement the filter condition: column <= QUANTIFIER ( subquery ) .
-func (s *quantifier) LessThanEqual(column string, subquery Cmder) Quantifier {
+func (s *quantifier) LessThanEqual(column string, subquery Maker) Quantifier {
 	return s.build(column, SqlLessThanEqual, subquery)
 }
 
-// ColumnInValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
-func ColumnInValues[T any](values []T, fc func(tmp T) any) []any {
+// MoreThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
+func (s *quantifier) MoreThan(column string, subquery Maker) Quantifier {
+	return s.build(column, SqlMoreThan, subquery)
+}
+
+// MoreThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
+func (s *quantifier) MoreThanEqual(column string, subquery Maker) Quantifier {
+	return s.build(column, SqlMoreThanEqual, subquery)
+}
+
+// InValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
+func InValues[T any](values []T, fc func(tmp T) any) []any {
 	if fc == nil {
 		return nil
 	}
@@ -965,8 +944,8 @@ func ColumnInValues[T any](values []T, fc func(tmp T) any) []any {
 	return result
 }
 
-// ColumnsInValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )
-func ColumnsInValues[T any](values []T, fc func(tmp T) []any) [][]any {
+// InGroupValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )
+func InGroupValues[T any](values []T, fc func(tmp T) []any) [][]any {
 	if fc == nil {
 		return nil
 	}

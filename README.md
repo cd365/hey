@@ -13,7 +13,7 @@ For example: INSERT, DELETE, UPDATE, SELECT ...
 
 ## INSTALL
 ```shell
-go get github.com/cd365/hey/v3@latest
+go get github.com/cd365/hey/v4@latest
 ```
 
 ## How to use hey?
@@ -27,7 +27,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/cd365/hey/v3"
+	"github.com/cd365/hey/v4"
 	"github.com/cd365/logger/v9"
 	_ "github.com/go-sql-driver/mysql" /* Registering the database driver */
 	_ "github.com/lib/pq"              /* Registering the database driver */
@@ -189,7 +189,7 @@ func Insert(way *hey.Way) (affectedRowsOrLastInsertId int64, err error) {
 	// Method D:
 	{
 		cols := []string{"column1", "column2", "column3"}
-		affectedRowsOrLastInsertId, err = add.CmderValues(way.Get("your_query_data_table").Select(cols...), cols).Add()
+		affectedRowsOrLastInsertId, err = add.MakerValues(way.Get("your_query_data_table").Select(cols...), cols).Add()
 		if err != nil {
 			return
 		}
@@ -331,7 +331,7 @@ func Select(way *hey.Way) error {
 
 	// Setting the WHERE condition
 	_ = get.Where(func(f hey.Filter) {
-		f.GreaterThan("id", 0)
+		f.MoreThan("id", 0)
 		f.Equal("status", 1)
 	}).Limit(10).Get(&more)
 
@@ -421,23 +421,23 @@ func Select(way *hey.Way) error {
 	// Multiple columns comparison
 	queried := make([]*ExampleAnyStruct, 0)
 	_ = get.Where(func(f hey.Filter) {
-		f.InCols(
+		f.InGroup(
 			[]string{"name", "age"},
-			hey.ColumnsInValues(queried, func(tmp *ExampleAnyStruct) []any { return []any{tmp.Name, tmp.Age} })...,
+			hey.InGroupValues(queried, func(tmp *ExampleAnyStruct) []any { return []any{tmp.Name, tmp.Age} })...,
 		)
 	})
 
 	// Quickly scan data into any structure, do not use reflect scan data.
-	prepare, args := get.Select("name", "age").Limit(10).Desc("id").Cmd()
+	script := get.Select("name", "age").Limit(10).Desc("id").ToSQL()
 	more, _ = hey.RowsScanStructAll[ExampleAnyStruct](context.Background(), get.GetWay(), func(rows *sql.Rows, v *ExampleAnyStruct) error {
 		return rows.Scan(&v.Name, &v.Age)
-	}, prepare, args...)
+	}, script.Prepare, script.Args...)
 
 	// Quickly scan a piece of data into any structure, do not use reflect scan data.
-	prepare, args = get.Select("name", "age").Limit(1).Desc("id").Cmd()
+	script = get.Select("name", "age").Limit(1).Desc("id").ToSQL()
 	one, err := hey.RowsScanStructOne[ExampleAnyStruct](context.Background(), get.GetWay(), func(rows *sql.Rows, v *ExampleAnyStruct) error {
 		return rows.Scan(&v.Name, &v.Age)
-	}, prepare, args...)
+	}, script.Prepare, script.Args...)
 	if err != nil {
 		if !errors.Is(err, hey.ErrNoRows) {
 			return err
@@ -518,15 +518,15 @@ func Transaction1(way *hey.Way) error {
 	}
 
 	// Generate SQL statements first.
-	prepare1, args1 := add.Cmd()
-	prepare2, args2 := del.Cmd()
-	prepare3, args3 := mod.Cmd()
-	prepare4, args4 := get.Cmd()
+	script1 := add.ToSQL()
+	script2 := del.ToSQL()
+	script3 := mod.ToSQL()
+	script4 := get.ToSQL()
 
 	var had *ExampleAnyStruct
 
 	err := way.Transaction(nil, func(tx *hey.Way) error {
-		rows, err := tx.Exec(prepare1, args1...)
+		rows, err := tx.Exec(script1.Prepare, script1.Args...)
 		if err != nil {
 			return err
 		}
@@ -539,8 +539,7 @@ func Transaction1(way *hey.Way) error {
 			func(rows *sql.Rows, v *ExampleAnyStruct) error {
 				return rows.Scan(&v.Name, &v.Age /*, .... */)
 			},
-			prepare4,
-			args4...,
+			script4.Prepare, script4.Args...,
 		)
 		if err != nil {
 			if errors.Is(err, hey.ErrNoRows) {
@@ -556,7 +555,7 @@ func Transaction1(way *hey.Way) error {
 			_ = had
 		}
 
-		rows, err = tx.Exec(prepare2, args2...)
+		rows, err = tx.Exec(script2.Prepare, script2.Args...)
 		if err != nil {
 			return err
 		}
@@ -564,7 +563,7 @@ func Transaction1(way *hey.Way) error {
 			return errors.New("delete failed")
 		}
 
-		rows, err = tx.Exec(prepare3, args3...)
+		rows, err = tx.Exec(script3.Prepare, script3.Args...)
 		if err != nil {
 			return err
 		}
@@ -598,10 +597,10 @@ func Others(way *hey.Way) error {
 		get2 := way.Get("table2").Limit(10)
 		get3 := way.Get("table3").Limit(10)
 
-		get := hey.UnionAllCmder(get1, get2, get3)
-		// get = hey.UnionCmder(get1, get2, get3)
-		// get = hey.ExceptCmder(get1, get2, get3)
-		// get = hey.IntersectCmder(get1, get2, get3)
+		get := hey.UnionAllMaker(get1, get2, get3)
+		// get = hey.UnionMaker(get1, get2, get3)
+		// get = hey.ExceptMaker(get1, get2, get3)
+		// get = hey.IntersectMaker(get1, get2, get3)
 		lists := make([]*ExampleAnyStruct, 0)
 		err := way.Get().Subquery(get, hey.AliasA).Get(&lists)
 		if err != nil {
@@ -640,7 +639,7 @@ func Others(way *hey.Way) error {
 		get := way.Get("table_name").Alias(t1.Alias())
 		get.GetSelect().AddAll("uid", t1.SUM("balance", "balance"))
 		get.Group("uid").Having(func(f hey.Filter) {
-			f.GreaterThanEqual(t1.SUM("balance"), 100)
+			f.MoreThanEqual(t1.SUM("balance"), 100)
 		})
 		_ = get.Get(nil)
 	}
@@ -660,10 +659,10 @@ func Others(way *hey.Way) error {
 			{"Tom", 21, 3},
 		}
 		mod := way.Mod("account").Set("name", "").Set("age", 0).Where(func(f hey.Filter) { f.Equal("id", 1) })
-		prepare, _ := mod.Cmd()
+		script := mod.ToSQL()
 
 		// Efficiently re-execute the same SQL statement by simply changing the parameters.
-		affectedRows, err := way.BatchUpdateContext(ctx, prepare, args)
+		affectedRows, err := way.BatchUpdateContext(ctx, script.Prepare, args)
 		if err != nil {
 			return err
 		}
@@ -680,11 +679,11 @@ func UsingCache(way *hey.Way, cacher hey.Cacher, mutexes *hey.StringMutex) (data
 
 	get := way.Get("your_table_name").Select("name", "age").Desc("id").Limit(20).Offset(0)
 
-	cacheCmder := hey.NewCacheCmder(cache, get)
+	cacheMaker := hey.NewCacheMaker(cache, get)
 
 	data = make([]*ExampleAnyStruct, 0)
 
-	exists, err := cacheCmder.GetUnmarshal(&data)
+	exists, err := cacheMaker.GetUnmarshal(&data)
 	if err != nil {
 		return nil, err
 	}
@@ -695,14 +694,14 @@ func UsingCache(way *hey.Way, cacher hey.Cacher, mutexes *hey.StringMutex) (data
 	}
 
 	// Prepare to query data from the database.
-	cacheKey, _ := cacheCmder.GetCacheKey()
+	cacheKey, _ := cacheMaker.GetCacheKey()
 
 	mutex := mutexes.Get(cacheKey)
 
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	exists, err = cacheCmder.GetUnmarshal(&data)
+	exists, err = cacheMaker.GetUnmarshal(&data)
 	if err != nil {
 		return nil, err
 	}
@@ -718,7 +717,7 @@ func UsingCache(way *hey.Way, cacher hey.Cacher, mutexes *hey.StringMutex) (data
 	}
 
 	// Cache query data.
-	if err = cacheCmder.MarshalSet(data, cache.DurationRange(time.Second, 7, 9)); err != nil {
+	if err = cacheMaker.MarshalSet(data, cache.DurationRange(time.Second, 7, 9)); err != nil {
 		return nil, err
 	}
 

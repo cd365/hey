@@ -34,7 +34,7 @@ type transaction struct {
 
 	err error
 
-	logCmd []*cmdLog
+	sqlLog []*sqlLog
 
 	endAt time.Time
 
@@ -61,7 +61,7 @@ func (s *transaction) write() {
 	if s.endAt.IsZero() {
 		s.endAt = time.Now()
 	}
-	for _, v := range s.logCmd {
+	for _, v := range s.sqlLog {
 		lg := s.way.log.Info()
 		if v.err != nil {
 			lg = s.way.log.Error()

@@ -4,7 +4,6 @@
 package hey
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -198,16 +197,16 @@ func NewCache(cacher Cacher) *Cache {
 	}
 }
 
-// CacheCmder Cache SQL statement related data, including but not limited to cache query data.
-type CacheCmder interface {
+// CacheMaker Cache SQL statement related data, including but not limited to cache query data.
+type CacheMaker interface {
 	// GetCacheKey Use prepare and args to calculate the hash value as the cache key.
 	GetCacheKey() (string, error)
 
 	// UseCacheKey Custom build cache key.
-	UseCacheKey(cacheKey func(cmder Cmder) (string, error)) CacheCmder
+	UseCacheKey(cacheKey func(maker Maker) (string, error)) CacheMaker
 
-	// Reset For reset cmder and it's related property values.
-	Reset(cmder ...Cmder) CacheCmder
+	// Reset For reset maker and it's related property values.
+	Reset(maker ...Maker) CacheMaker
 
 	// Get For get value from cache.
 	Get() (value []byte, exists bool, err error)
@@ -252,71 +251,63 @@ type CacheCmder interface {
 	SetBool(value bool, duration ...time.Duration) error
 }
 
-// cacheCmd Implementing the CacheCmder interface.
-type cacheCmd struct {
+// cacheMaker Implementing the CacheMaker interface.
+type cacheMaker struct {
+	// cache Instance of Cache.
 	cache *Cache
 
-	cmder Cmder
+	// maker Cache Maker Object.
+	maker Maker
 
 	// cacheKey Allows custom unique cache keys to be constructed based on query objects.
 	cacheKey func() (string, error)
-
-	// prepare Query Statement.
-	prepare string
-
-	// args Query statement corresponding parameter list.
-	args []any
 
 	// key Cache key.
 	key string
 }
 
 // getCacheKey Default method for building cache key.
-func (s *cacheCmd) getCacheKey() (string, error) {
+func (s *cacheMaker) getCacheKey() (string, error) {
 	if s.key != EmptyString {
 		return s.key, nil
 	}
 
-	s.prepare, s.args = s.cmder.Cmd()
-	if s.prepare == EmptyString {
-		return EmptyString, errors.New("the prepare value is empty")
+	script := s.maker.ToSQL()
+	if script == nil || script.Empty() {
+		return EmptyString, errors.New("SQL is empty")
 	}
 
-	for index, value := range s.args {
+	for index, value := range script.Args {
 		if tmp, ok := value.([]byte); ok && tmp != nil {
-			s.args[index] = hex.EncodeToString(tmp)
+			script.Args[index] = hex.EncodeToString(tmp)
 		}
 	}
-
-	param, err := s.cache.GetCacher().Marshal(s.args)
+	args, err := s.cache.GetCacher().Marshal(script.Args)
 	if err != nil {
 		return EmptyString, err
 	}
 
-	buffer := bytes.NewBufferString(s.prepare)
-	if _, err = buffer.WriteString(";"); err != nil {
-		return EmptyString, err
-	}
-	if _, err = buffer.Write(param); err != nil {
-		return EmptyString, err
-	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+
+	b.WriteString(script.Prepare)
+	b.WriteString(";")
+	b.Write(args)
 
 	hash := sha256.New()
-	if _, err = hash.Write(buffer.Bytes()); err != nil {
+	if _, err = hash.Write([]byte(b.String())); err != nil {
 		return EmptyString, err
 	}
 	s.key = hex.EncodeToString(hash.Sum(nil))
-
 	return s.key, nil
 }
 
 // GetCacheKey Build cache key, custom method is used first.
-func (s *cacheCmd) GetCacheKey() (string, error) {
+func (s *cacheMaker) GetCacheKey() (string, error) {
 	cacheKey := s.cacheKey
 	if cacheKey == nil {
 		return s.getCacheKey()
 	}
-
 	if s.key != EmptyString {
 		return s.key, nil
 	}
@@ -329,19 +320,19 @@ func (s *cacheCmd) GetCacheKey() (string, error) {
 }
 
 // UseCacheKey Using custom method to build cache key.
-func (s *cacheCmd) UseCacheKey(cacheKey func(cmder Cmder) (string, error)) CacheCmder {
+func (s *cacheMaker) UseCacheKey(cacheKey func(maker Maker) (string, error)) CacheMaker {
 	if cacheKey != nil {
-		s.cacheKey = func() (string, error) { return cacheKey(s.cmder) }
+		s.cacheKey = func() (string, error) { return cacheKey(s.maker) }
 	}
 	return s
 }
 
 // Reset Resetting cache related properties.
-func (s *cacheCmd) Reset(cmder ...Cmder) CacheCmder {
-	s.prepare, s.args, s.key = EmptyString, nil, EmptyString
-	for _, tmp := range cmder {
+func (s *cacheMaker) Reset(maker ...Maker) CacheMaker {
+	s.key = EmptyString
+	for _, tmp := range maker {
 		if tmp != nil {
-			s.cmder = tmp
+			s.maker = tmp
 			break
 		}
 	}
@@ -349,7 +340,7 @@ func (s *cacheCmd) Reset(cmder ...Cmder) CacheCmder {
 }
 
 // Get Read data from cache.
-func (s *cacheCmd) Get() (value []byte, exists bool, err error) {
+func (s *cacheMaker) Get() (value []byte, exists bool, err error) {
 	if _, err = s.GetCacheKey(); err != nil {
 		return nil, false, err
 	}
@@ -357,7 +348,7 @@ func (s *cacheCmd) Get() (value []byte, exists bool, err error) {
 }
 
 // Set Write data to cache.
-func (s *cacheCmd) Set(value []byte, duration ...time.Duration) error {
+func (s *cacheMaker) Set(value []byte, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
@@ -365,7 +356,7 @@ func (s *cacheCmd) Set(value []byte, duration ...time.Duration) error {
 }
 
 // Del Delete cache value.
-func (s *cacheCmd) Del() error {
+func (s *cacheMaker) Del() error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
@@ -373,7 +364,7 @@ func (s *cacheCmd) Del() error {
 }
 
 // Exists Check if the cache value exists.
-func (s *cacheCmd) Exists() (exists bool, err error) {
+func (s *cacheMaker) Exists() (exists bool, err error) {
 	if _, err = s.GetCacheKey(); err != nil {
 		return false, err
 	}
@@ -381,7 +372,7 @@ func (s *cacheCmd) Exists() (exists bool, err error) {
 }
 
 // GetUnmarshal Get cached value and deserialize.
-func (s *cacheCmd) GetUnmarshal(value any) (exists bool, err error) {
+func (s *cacheMaker) GetUnmarshal(value any) (exists bool, err error) {
 	if _, err = s.GetCacheKey(); err != nil {
 		return false, err
 	}
@@ -389,7 +380,7 @@ func (s *cacheCmd) GetUnmarshal(value any) (exists bool, err error) {
 }
 
 // MarshalSet Serialize cache data and set serialized data to the cache.
-func (s *cacheCmd) MarshalSet(value any, duration ...time.Duration) error {
+func (s *cacheMaker) MarshalSet(value any, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
@@ -397,7 +388,7 @@ func (s *cacheCmd) MarshalSet(value any, duration ...time.Duration) error {
 }
 
 // GetString Get string value.
-func (s *cacheCmd) GetString() (string, bool, error) {
+func (s *cacheMaker) GetString() (string, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return EmptyString, false, err
 	}
@@ -405,7 +396,7 @@ func (s *cacheCmd) GetString() (string, bool, error) {
 }
 
 // SetString Set string value.
-func (s *cacheCmd) SetString(value string, duration ...time.Duration) error {
+func (s *cacheMaker) SetString(value string, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
@@ -413,7 +404,7 @@ func (s *cacheCmd) SetString(value string, duration ...time.Duration) error {
 }
 
 // GetFloat Get float64 value.
-func (s *cacheCmd) GetFloat() (float64, bool, error) {
+func (s *cacheMaker) GetFloat() (float64, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return 0, false, err
 	}
@@ -421,7 +412,7 @@ func (s *cacheCmd) GetFloat() (float64, bool, error) {
 }
 
 // SetFloat Set float64 value.
-func (s *cacheCmd) SetFloat(value float64, duration ...time.Duration) error {
+func (s *cacheMaker) SetFloat(value float64, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
@@ -429,7 +420,7 @@ func (s *cacheCmd) SetFloat(value float64, duration ...time.Duration) error {
 }
 
 // GetInt Get int64 value.
-func (s *cacheCmd) GetInt() (int64, bool, error) {
+func (s *cacheMaker) GetInt() (int64, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return 0, false, err
 	}
@@ -437,7 +428,7 @@ func (s *cacheCmd) GetInt() (int64, bool, error) {
 }
 
 // SetInt Set int64 value.
-func (s *cacheCmd) SetInt(value int64, duration ...time.Duration) error {
+func (s *cacheMaker) SetInt(value int64, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
@@ -445,7 +436,7 @@ func (s *cacheCmd) SetInt(value int64, duration ...time.Duration) error {
 }
 
 // GetBool Get bool value.
-func (s *cacheCmd) GetBool() (bool, bool, error) {
+func (s *cacheMaker) GetBool() (bool, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
 		return false, false, err
 	}
@@ -453,28 +444,31 @@ func (s *cacheCmd) GetBool() (bool, bool, error) {
 }
 
 // SetBool Set bool value.
-func (s *cacheCmd) SetBool(value bool, duration ...time.Duration) error {
+func (s *cacheMaker) SetBool(value bool, duration ...time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
 	return s.cache.SetBool(s.key, value, duration...)
 }
 
-// NewCacheCmder Create a new CacheCmder object.
-func NewCacheCmder(cache *Cache, cmder Cmder) CacheCmder {
-	if cache == nil || cmder == nil {
+// NewCacheMaker Create a new CacheMaker object.
+func NewCacheMaker(cache *Cache, maker Maker) CacheMaker {
+	if cache == nil || maker == nil {
 		return nil
 	}
-	return &cacheCmd{
+	return &cacheMaker{
 		cache: cache,
-		cmder: cmder,
+		maker: maker,
 	}
 }
 
 // StringMutex maps string keys to a fixed set of sync.Mutex locks using hashing.
 type StringMutex struct {
-	length  int           // Number of mutexes, fixed after initialization.
-	mutexes []*sync.Mutex // Slice of mutexes, fixed after initialization.
+	// length Number of mutexes, fixed after initialization.
+	length int
+
+	// mutexes Slice of mutexes, fixed after initialization.
+	mutexes []*sync.Mutex
 }
 
 // Get returns the sync.Mutex corresponding to the given key.
