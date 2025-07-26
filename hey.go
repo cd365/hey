@@ -893,6 +893,8 @@ func (s *Way) Get(table ...string) *Get {
 
 // AddOneReturnSequenceValue Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
 type AddOneReturnSequenceValue interface {
+	Maker
+
 	// Context Custom context.
 	Context(ctx context.Context) AddOneReturnSequenceValue
 
@@ -932,24 +934,30 @@ func (s *addOneReturnSequenceValue) Execute(execute func(ctx context.Context, st
 	return s
 }
 
+// ToSQL Make SQL.
+func (s *addOneReturnSequenceValue) ToSQL() *SQL {
+	result := NewSQL(s.add.Prepare, s.add.Args...)
+	if prepare := s.prepare; prepare != nil {
+		prepare(result)
+	}
+	return result
+}
+
 // AddOne Insert a record and return the sequence value of the data (usually an auto-incrementing id value).
 func (s *addOneReturnSequenceValue) AddOne() (int64, error) {
-	script := s.add.ToSQL()
-	if s.prepare != nil {
-		s.prepare(script)
-	}
+	create := s.ToSQL()
 	ctx := s.ctx
 	if ctx == nil {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.Background(), s.way.cfg.TransactionMaxDuration)
 		defer cancel()
 	}
-	stmt, err := s.way.PrepareContext(ctx, script.Prepare)
+	stmt, err := s.way.PrepareContext(ctx, create.Prepare)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = stmt.Close() }()
-	return s.execute(ctx, stmt, script.Args...)
+	return s.execute(ctx, stmt, create.Args...)
 }
 
 // NewAddOne Insert one and get the last insert sequence value.
