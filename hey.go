@@ -578,12 +578,44 @@ func (s *Stmt) TakeAll(result any, args ...any) error {
 	return s.TakeAllContext(context.Background(), result, args...)
 }
 
+type contextWay string
+
+const contextWayTransaction contextWay = "context_transaction_way"
+
+// SetTransactionWayToContext Wrap the *Way that opens the transaction in a context.
+func SetTransactionWayToContext(ctx context.Context, way *Way) context.Context {
+	if way == nil || !way.IsInTransaction() {
+		return ctx
+	}
+	return context.WithValue(ctx, contextWayTransaction, way)
+}
+
+// GetTransactionWayFromContext Get the *Way that starts the transaction from the context.
+func (s *Way) GetTransactionWayFromContext(ctx context.Context) *Way {
+	if ctx == nil {
+		return nil
+	}
+	if exists := ctx.Value(contextWayTransaction); exists != nil {
+		if way, ok := exists.(*Way); ok && way != nil && way.IsInTransaction() {
+			return way
+		}
+	}
+	return nil
+}
+
 // PrepareContext -> Prepare SQL statement, remember to call *Stmt.Close().
 func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (stmt *Stmt, err error) {
 	stmt = &Stmt{
 		way:     s,
 		caller:  s.caller(caller...),
 		prepare: prepare,
+	}
+	if s.transaction == nil {
+		if length := len(caller); length == 0 {
+			if way := s.GetTransactionWayFromContext(ctx); way != nil {
+				stmt.caller = way.transaction.tx
+			}
+		}
 	}
 	if tmp := s.cfg.Manual; tmp != nil && tmp.Prepare != nil {
 		stmt.prepare = tmp.Prepare(prepare)
@@ -867,8 +899,28 @@ func (s *Way) Setter(caller Caller, prepare string, args ...any) (int64, error) 
 }
 
 // F -> Quickly initialize a filter.
-func (s *Way) F(fs ...Filter) Filter {
-	return F().New(fs...).SetWay(s)
+func (s *Way) F(filters ...Filter) Filter {
+	return F().New(filters...).SetWay(s)
+}
+
+// V -> Prioritize the specified non-empty object, otherwise use the current object.
+func (s *Way) V(values ...*Way) *Way {
+	for i := len(values) - 1; i >= 0; i-- {
+		if values[i] != nil {
+			return values[i]
+		}
+	}
+	return s
+}
+
+// W -> The specified transaction object is used first, otherwise the current object is used.
+func (s *Way) W(values ...*Way) *Way {
+	for i := len(values) - 1; i >= 0; i-- {
+		if values[i] != nil && values[i].IsInTransaction() {
+			return values[i]
+		}
+	}
+	return s
 }
 
 // Add -> Create an instance that executes the INSERT SQL statement.

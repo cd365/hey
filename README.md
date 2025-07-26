@@ -10,6 +10,7 @@ For example: INSERT, DELETE, UPDATE, SELECT ...
 4. When the database table structure changes, your code will be able to feel it immediately.
 5. When you implement a business, focus more on the business rather than on building SQL statements.
 6. Allows the use of custom caches to reduce query request pressure on relational databases.
+7. It (hey) can help you build complex SQL statements, especially complex query SQL statements.
 
 ## INSTALL
 ```shell
