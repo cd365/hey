@@ -23,10 +23,15 @@ type schema struct {
 
 // newSchema new schema with *Way.
 func newSchema(way *Way) *schema {
-	return &schema{
-		ctx: context.Background(),
+	result := &schema{
 		way: way,
 	}
+	if way.IsInTransaction() {
+		result.ctx = way.transaction.ctx
+	} else {
+		result.ctx = context.Background()
+	}
+	return result
 }
 
 // comment make SQL statement builder, SqlPlaceholder `?` should not appear in comments.

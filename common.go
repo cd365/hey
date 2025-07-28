@@ -2181,18 +2181,19 @@ func (s *sqlJoin) ToSQL() *SQL {
 			b.WriteString(SqlSpace)
 		}
 		b.WriteString(tmp.joinType)
-		// prepare, params = tmp.rightTable.ToSQL()
 		right := tmp.rightTable.ToSQL()
 		b.WriteString(SqlSpace)
 		b.WriteString(right.Prepare)
-		script.Args = append(script.Args, right.Args...)
+		if right.Args != nil {
+			script.Args = append(script.Args, right.Args...)
+		}
 		if tmp.condition != nil {
-			// prepare, params = tmp.condition.ToSQL()
-			on := tmp.condition.ToSQL()
-			if !on.Empty() {
+			if on := tmp.condition.ToSQL(); on != nil && !on.Empty() {
 				b.WriteString(SqlSpace)
 				b.WriteString(on.Prepare)
-				script.Args = append(script.Args, on.Args...)
+				if on.Args != nil {
+					script.Args = append(script.Args, on.Args...)
+				}
 			}
 		}
 	}
@@ -3101,25 +3102,25 @@ func sqlCaseString(value string) string {
 	return fmt.Sprintf("'%s'", value)
 }
 
-func sqlCaseParseMaker(maker Maker) (prepare string, args []interface{}) {
+func sqlCaseParseMaker(maker Maker) (string, []any) {
 	if maker == nil {
-		prepare = SqlNull
-		return
+		return SqlNull, nil
 	}
-	emptyString := sqlCaseString(EmptyString)
-	script := maker.ToSQL()
-	if script.Prepare == EmptyString || script.Prepare == emptyString {
-		prepare = emptyString
-		return
+	tmp := maker.ToSQL()
+	if tmp == nil {
+		return SqlNull, nil
 	}
-	return
+	if es := sqlCaseString(EmptyString); tmp.Prepare == EmptyString || tmp.Prepare == es {
+		tmp.Prepare, tmp.Args = es, nil
+	}
+	return tmp.Prepare, tmp.Args
 }
 
 // SQLWhenThen Store multiple pairs of WHEN xxx THEN xxx.
 type SQLWhenThen interface {
 	Maker
 
-	String(value string) string
+	V(value string) string
 
 	When(values ...any) SQLWhenThen
 
@@ -3132,7 +3133,7 @@ type sqlWhenThen struct {
 	then []Maker
 }
 
-func (s *sqlWhenThen) String(value string) string {
+func (s *sqlWhenThen) V(value string) string {
 	return sqlCaseString(value)
 }
 
@@ -3150,23 +3151,15 @@ func (s *sqlWhenThen) ToSQL() *SQL {
 		}
 		b.WriteString(SqlWhen)
 		b.WriteString(SqlSpace)
-		if s.when == nil {
-			b.WriteString(SqlNull)
-		} else {
-			express, params := sqlCaseParseMaker(s.when[i])
-			b.WriteString(express)
-			script.Args = append(script.Args, params...)
-		}
+		prepare, args := sqlCaseParseMaker(s.when[i])
+		b.WriteString(prepare)
+		script.Args = append(script.Args, args...)
 		b.WriteString(SqlSpace)
 		b.WriteString(SqlThen)
 		b.WriteString(SqlSpace)
-		if s.then == nil {
-			b.WriteString(SqlNull)
-		} else {
-			express, params := sqlCaseParseMaker(s.then[i])
-			b.WriteString(express)
-			script.Args = append(script.Args, params...)
-		}
+		prepare, args = sqlCaseParseMaker(s.then[i])
+		b.WriteString(prepare)
+		script.Args = append(script.Args, args...)
 	}
 	script.Prepare = b.String()
 	return script
@@ -3186,7 +3179,7 @@ func (s *sqlWhenThen) Then(values ...any) SQLWhenThen {
 type SQLCase interface {
 	Maker
 
-	String(value string) string
+	V(value string) string
 
 	Alias(alias string) SQLCase
 
@@ -3209,7 +3202,7 @@ type sqlCase struct {
 	way *Way
 }
 
-func (s *sqlCase) String(value string) string {
+func (s *sqlCase) V(value string) string {
 	return sqlCaseString(value)
 }
 
@@ -3404,13 +3397,13 @@ func (s *sqlInsertOnConflict) ToSQL() *SQL {
 		doPrepare, doPrepareArgs = s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs
 	} else {
 		if s.onConflictsDoUpdateSet != nil && s.onConflictsDoUpdateSet.Len() > 0 {
-			script1 := s.onConflictsDoUpdateSet.ToSQL()
+			update := s.onConflictsDoUpdateSet.ToSQL()
 			bus := getStringBuilder()
 			defer putStringBuilder(bus)
 			b.WriteString(ConcatString(SqlUpdate, SqlSpace, SqlSet, SqlSpace))
-			bus.WriteString(script1.Prepare)
+			bus.WriteString(update.Prepare)
 			doPrepare = bus.String()
-			doPrepareArgs = script1.Args
+			doPrepareArgs = update.Args
 		}
 	}
 	b.WriteString(doPrepare)
@@ -3430,7 +3423,7 @@ func (s *sqlInsertOnConflict) SQLInsertOnConflict() (int64, error) {
 	return s.way.ExecContext(ctx, script.Prepare, script.Args...)
 }
 
-func NewSQLInsertOnConflict(way *Way, insertPrepare string, insertArgs []any) SQLInsertOnConflict {
+func NewSQLInsertOnConflict(way *Way, insertPrepare string, insertArgs ...any) SQLInsertOnConflict {
 	return &sqlInsertOnConflict{
 		way:               way,
 		insertPrepare:     insertPrepare,
@@ -3600,13 +3593,18 @@ Possible values for frame_start AND frame_end are:
 	3. CURRENT ROW
 	4. n FOLLOWING
 	5. UNBOUNDED FOLLOWING
+
+ROWS UNBOUNDED PRECEDING <=> ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+... RANGE BETWEEN INTERVAL '7' DAY PRECEDING AND CURRENT ROW ...
 */
 
-// SQLWindowFuncFrame Usually the value calls a method of the current object or two different methods.
-// Call only one method: BETWEEN is omitted by default.
-// Call it twice: Use BETWEEN first AND second.
+// SQLWindowFuncFrame Define a window based on a start and end, the end position can be omitted and SQL defaults to the current row.
+// Allows independent use of custom SQL statements and parameters as values for ROWS or RANGE statements.
 type SQLWindowFuncFrame interface {
 	Maker
+
+	// Prepare Add SQL statement fragment.
+	Prepare(prepare string, args ...any) SQLWindowFuncFrame
 
 	// UnboundedPreceding Start of partition.
 	UnboundedPreceding() SQLWindowFuncFrame
@@ -3622,6 +3620,9 @@ type SQLWindowFuncFrame interface {
 
 	// UnboundedFollowing End of partition.
 	UnboundedFollowing() SQLWindowFuncFrame
+
+	// Maker Custom SQL statement.
+	Maker(maker Maker) SQLWindowFuncFrame
 }
 
 // sqlWindowFuncFrame Implementing the SQLWindowFuncFrame interface.
@@ -3629,61 +3630,89 @@ type sqlWindowFuncFrame struct {
 	// frame Value is RANGE or ROWS.
 	frame string
 
-	// values Frame values.
-	values []string
+	// maker Custom SQL statement.
+	maker Maker
+
+	// prepare Frame values.
+	prepare []string
+
+	// valuesArgs
+	args []any
 }
 
 func (s *sqlWindowFuncFrame) ToSQL() *SQL {
-	length := len(s.values)
-	if length == 0 || s.frame == EmptyString {
+	if s.frame == EmptyString {
 		return NewSQL(EmptyString)
 	}
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString(s.frame)
 	b.WriteString(SqlSpace)
+
+	if maker := s.maker; maker != nil {
+		if script := maker.ToSQL(); script != nil && !script.Empty() {
+			b.WriteString(script.Prepare)
+			script.Prepare = b.String()
+			return script
+		}
+	}
+
+	length := len(s.prepare)
+	if length == 0 {
+		return NewSQL(EmptyString)
+	}
 	if length == 1 {
-		b.WriteString(s.values[0])
-		return NewSQL(b.String())
+		b.WriteString(s.prepare[0])
+		return NewSQL(b.String(), s.args...)
 	}
 	b.WriteString(SqlBetween)
 	b.WriteString(SqlSpace)
-	b.WriteString(s.values[0])
+	b.WriteString(s.prepare[0])
 	b.WriteString(SqlSpace)
 	b.WriteString(SqlAnd)
 	b.WriteString(SqlSpace)
-	b.WriteString(s.values[1])
-	return NewSQL(b.String())
+	b.WriteString(s.prepare[1])
+	return NewSQL(b.String(), s.args...)
 }
 
-func (s *sqlWindowFuncFrame) addValue(value string) SQLWindowFuncFrame {
-	if value != EmptyString {
-		s.values = append(s.values, value)
+func (s *sqlWindowFuncFrame) Prepare(prepare string, args ...any) SQLWindowFuncFrame {
+	prepare = strings.TrimSpace(prepare)
+	if prepare == EmptyString {
+		return s
+	}
+	s.prepare = append(s.prepare, prepare)
+	if args != nil {
+		s.args = append(s.args, args...)
 	}
 	return s
 }
 
 func (s *sqlWindowFuncFrame) UnboundedPreceding() SQLWindowFuncFrame {
-	return s.addValue("UNBOUNDED PRECEDING")
+	return s.Prepare("UNBOUNDED PRECEDING")
 }
 
 func (s *sqlWindowFuncFrame) NPreceding(n int) SQLWindowFuncFrame {
-	return s.addValue(fmt.Sprintf("%d PRECEDING", n))
+	return s.Prepare(fmt.Sprintf("%d PRECEDING", n))
 }
 
 func (s *sqlWindowFuncFrame) CurrentRow() SQLWindowFuncFrame {
-	return s.addValue("CURRENT ROW")
+	return s.Prepare("CURRENT ROW")
 }
 
 func (s *sqlWindowFuncFrame) NFollowing(n int) SQLWindowFuncFrame {
-	return s.addValue(fmt.Sprintf("%d FOLLOWING", n))
+	return s.Prepare(fmt.Sprintf("%d FOLLOWING", n))
 }
 
 func (s *sqlWindowFuncFrame) UnboundedFollowing() SQLWindowFuncFrame {
-	return s.addValue("UNBOUNDED FOLLOWING")
+	return s.Prepare("UNBOUNDED FOLLOWING")
 }
 
-func newSQLWindowFuncFrame(frame string) SQLWindowFuncFrame {
+func (s *sqlWindowFuncFrame) Maker(maker Maker) SQLWindowFuncFrame {
+	s.maker = maker
+	return s
+}
+
+func NewSQLWindowFuncFrame(frame string) SQLWindowFuncFrame {
 	return &sqlWindowFuncFrame{
 		frame: frame,
 	}
@@ -3816,7 +3845,7 @@ func (s *WindowFunc) Desc(column string) *WindowFunc {
 // Range Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
 func (s *WindowFunc) Range(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 	if fc != nil {
-		frame := newSQLWindowFuncFrame(SqlRange)
+		frame := NewSQLWindowFuncFrame(SqlRange)
 		fc(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.Empty() {
 			s.frameRange, s.frameRows = tmp, nil
@@ -3828,7 +3857,7 @@ func (s *WindowFunc) Range(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 // Rows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
 func (s *WindowFunc) Rows(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 	if fc != nil {
-		frame := newSQLWindowFuncFrame(SqlRows)
+		frame := NewSQLWindowFuncFrame(SqlRows)
 		fc(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.Empty() {
 			s.frameRows, s.frameRange = tmp, nil
@@ -3885,16 +3914,12 @@ func (s *WindowFunc) ToSQL() *SQL {
 	if num > 0 {
 		b.WriteString(SqlSpace)
 	}
-
 	b.WriteString(SqlRightSmallBracket)
-
 	if s.alias != EmptyString {
 		b.WriteString(ConcatString(SqlSpace, SqlAs, SqlSpace))
 		b.WriteString(s.way.Replace(s.alias))
 	}
-
 	result.Prepare = b.String()
-
 	return result
 }
 

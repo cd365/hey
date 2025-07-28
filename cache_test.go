@@ -29,11 +29,11 @@ func usingCache(way *Way, cacher Cacher, mutexes *StringMutex) (data []*ExampleA
 
 	get := way.Get("your_table_name").Select("name", "age").Desc("id").Limit(20).Offset(0)
 
-	cacheMaker := NewCacheMaker(cache, get)
+	cacheGet := NewCacheMaker(cache, get)
 
 	data = make([]*ExampleAnyStruct, 0)
 
-	exists, err := cacheMaker.GetUnmarshal(&data)
+	exists, err := cacheGet.GetUnmarshal(&data)
 	if err != nil {
 		return nil, err
 	}
@@ -44,14 +44,14 @@ func usingCache(way *Way, cacher Cacher, mutexes *StringMutex) (data []*ExampleA
 	}
 
 	// Prepare to query data from the database.
-	cacheKey, _ := cacheMaker.GetCacheKey()
+	cacheKey, _ := cacheGet.GetCacheKey()
 
 	mutex := mutexes.Get(cacheKey)
 
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	exists, err = cacheMaker.GetUnmarshal(&data)
+	exists, err = cacheGet.GetUnmarshal(&data)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func usingCache(way *Way, cacher Cacher, mutexes *StringMutex) (data []*ExampleA
 	}
 
 	// Cache query data.
-	if err = cacheMaker.MarshalSet(data, cache.DurationRange(time.Second, 7, 9)); err != nil {
+	if err = cacheGet.MarshalSet(data, cache.DurationRange(time.Second, 7, 9)); err != nil {
 		return nil, err
 	}
 

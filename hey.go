@@ -308,6 +308,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 	}
 
 	tx.transaction = &transaction{
+		ctx: ctx,
 		way: tx,
 	}
 	if conn != nil {
@@ -388,7 +389,7 @@ func (s *Way) TransactionMessage(message string) *Way {
 }
 
 // newTransaction -> Start a new transaction and execute a set of SQL statements atomically.
-func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, conn *sql.Conn, opts ...*sql.TxOptions) (err error) {
+func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	if ctx == nil {
 		timeout := time.Second * 8
 		if s.cfg != nil && s.cfg.TransactionMaxDuration > 0 {
@@ -399,8 +400,8 @@ func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, conn *
 		defer cancel()
 	}
 
-	var tx *Way
-	tx, err = s.begin(ctx, conn, opts...)
+	tx := (*Way)(nil)
+	tx, err = s.begin(ctx, nil, opts...)
 	if err != nil {
 		return
 	}
@@ -429,18 +430,18 @@ func (s *Way) Transaction(ctx context.Context, fc func(tx *Way) error, opts ...*
 	if s.IsInTransaction() {
 		return fc(s)
 	}
-	return s.newTransaction(ctx, fc, nil, opts...)
+	return s.newTransaction(ctx, fc, opts...)
 }
 
 // TransactionNew -> Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
 func (s *Way) TransactionNew(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) error {
-	return s.newTransaction(ctx, fc, nil, opts...)
+	return s.newTransaction(ctx, fc, opts...)
 }
 
 // TransactionRetry Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
 func (s *Way) TransactionRetry(ctx context.Context, retries int, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	for range retries {
-		if err = s.newTransaction(ctx, fc, nil, opts...); err == nil {
+		if err = s.newTransaction(ctx, fc, opts...); err == nil {
 			break
 		}
 	}
@@ -465,33 +466,9 @@ func (s *Way) ScanOne(rows *sql.Rows, dest ...any) error {
 	return ScanOne(rows, dest...)
 }
 
-// Caller The implementation object is usually one of *sql.Conn, *sql.DB, *sql.Tx.
-type Caller interface {
-	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
-
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
-// caller -> *sql.Conn(or other) first, *sql.Tx(s.tx) second, *sql.DB(s.db) last.
-func (s *Way) caller(caller ...Caller) Caller {
-	length := len(caller)
-	for i := length - 1; i >= 0; i-- {
-		if caller[i] != nil {
-			return caller[i]
-		}
-	}
-	if s.transaction != nil {
-		return s.transaction.tx
-	}
-	return s.db
-}
-
 // Stmt Prepare a handle.
 type Stmt struct {
 	way     *Way
-	caller  Caller
 	prepare string
 	stmt    *sql.Stmt
 }
@@ -578,49 +555,20 @@ func (s *Stmt) TakeAll(result any, args ...any) error {
 	return s.TakeAllContext(context.Background(), result, args...)
 }
 
-type contextWay string
-
-const contextWayTransaction contextWay = "context_transaction_way"
-
-// SetTransactionWayToContext Wrap the *Way that opens the transaction in a context.
-func SetTransactionWayToContext(ctx context.Context, way *Way) context.Context {
-	if way == nil || !way.IsInTransaction() {
-		return ctx
-	}
-	return context.WithValue(ctx, contextWayTransaction, way)
-}
-
-// GetTransactionWayFromContext Get the *Way that starts the transaction from the context.
-func (s *Way) GetTransactionWayFromContext(ctx context.Context) *Way {
-	if ctx == nil {
-		return nil
-	}
-	if exists := ctx.Value(contextWayTransaction); exists != nil {
-		if way, ok := exists.(*Way); ok && way != nil && way.IsInTransaction() {
-			return way
-		}
-	}
-	return nil
-}
-
 // PrepareContext -> Prepare SQL statement, remember to call *Stmt.Close().
-func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Caller) (stmt *Stmt, err error) {
+func (s *Way) PrepareContext(ctx context.Context, prepare string) (stmt *Stmt, err error) {
 	stmt = &Stmt{
 		way:     s,
-		caller:  s.caller(caller...),
 		prepare: prepare,
-	}
-	if s.transaction == nil {
-		if length := len(caller); length == 0 {
-			if way := s.GetTransactionWayFromContext(ctx); way != nil {
-				stmt.caller = way.transaction.tx
-			}
-		}
 	}
 	if tmp := s.cfg.Manual; tmp != nil && tmp.Prepare != nil {
 		stmt.prepare = tmp.Prepare(prepare)
 	}
-	stmt.stmt, err = stmt.caller.PrepareContext(ctx, stmt.prepare)
+	if s.IsInTransaction() {
+		stmt.stmt, err = s.transaction.tx.PrepareContext(ctx, stmt.prepare)
+	} else {
+		stmt.stmt, err = s.db.PrepareContext(ctx, stmt.prepare)
+	}
 	if err != nil {
 		if s.log != nil {
 			s.log.Error().Str(logPrepare, stmt.prepare).Msg(err.Error())
@@ -631,8 +579,8 @@ func (s *Way) PrepareContext(ctx context.Context, prepare string, caller ...Call
 }
 
 // Prepare -> Prepare SQL statement, remember to call *Stmt.Close().
-func (s *Way) Prepare(prepare string, caller ...Caller) (*Stmt, error) {
-	return s.PrepareContext(context.Background(), prepare, caller...)
+func (s *Way) Prepare(prepare string) (*Stmt, error) {
+	return s.PrepareContext(context.Background(), prepare)
 }
 
 // QueryContext -> Execute the query sql statement.
@@ -842,13 +790,21 @@ func (s *Way) BatchUpdate(prepare string, argsList [][]any) (affectedRows int64,
 }
 
 // getter -> Query, execute the query SQL statement with args, no prepared is used.
-func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...any) error {
+func (s *Way) getter(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...any) error {
 	if query == nil || prepare == EmptyString {
 		return nil
 	}
 	lg := s.sqlLog(prepare, args)
 	defer lg.Write()
-	rows, err := s.caller(caller).QueryContext(ctx, prepare, args...)
+	var (
+		err  error
+		rows *sql.Rows
+	)
+	if s.IsInTransaction() {
+		rows, err = s.transaction.tx.QueryContext(ctx, prepare, args...)
+	} else {
+		rows, err = s.db.QueryContext(ctx, prepare, args...)
+	}
 	lg.args.endAt = time.Now()
 	if err != nil {
 		lg.err = err
@@ -861,16 +817,21 @@ func (s *Way) getter(ctx context.Context, caller Caller, query func(rows *sql.Ro
 }
 
 // setter -> Execute, execute the execute SQL statement with args, no prepared is used.
-func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ...any) (rowsAffected int64, err error) {
+func (s *Way) setter(ctx context.Context, prepare string, args ...any) (rowsAffected int64, err error) {
 	if prepare == EmptyString {
 		return
 	}
 	lg := s.sqlLog(prepare, args)
 	defer lg.Write()
-	result, rer := s.caller(caller).ExecContext(ctx, prepare, args...)
+	var result sql.Result
+	if s.IsInTransaction() {
+		result, err = s.transaction.tx.ExecContext(ctx, prepare, args...)
+	} else {
+		result, err = s.db.ExecContext(ctx, prepare, args...)
+	}
 	lg.args.endAt = time.Now()
-	if rer != nil {
-		lg.err, err = rer, rer
+	if err != nil {
+		lg.err = err
 		return
 	}
 	rowsAffected, err = result.RowsAffected()
@@ -879,23 +840,23 @@ func (s *Way) setter(ctx context.Context, caller Caller, prepare string, args ..
 }
 
 // GetterContext -> Execute the query SQL statement with args, no prepared is used.
-func (s *Way) GetterContext(ctx context.Context, caller Caller, query func(rows *sql.Rows) error, prepare string, args ...any) (err error) {
-	return s.getter(ctx, caller, query, prepare, args...)
+func (s *Way) GetterContext(ctx context.Context, query func(rows *sql.Rows) error, prepare string, args ...any) (err error) {
+	return s.getter(ctx, query, prepare, args...)
 }
 
 // Getter -> Execute the query SQL statement with args, no prepared is used.
-func (s *Way) Getter(caller Caller, query func(rows *sql.Rows) error, prepare string, args ...any) error {
-	return s.GetterContext(context.Background(), caller, query, prepare, args...)
+func (s *Way) Getter(query func(rows *sql.Rows) error, prepare string, args ...any) error {
+	return s.GetterContext(context.Background(), query, prepare, args...)
 }
 
 // SetterContext -> Execute the execute SQL statement with args, no prepared is used.
-func (s *Way) SetterContext(ctx context.Context, caller Caller, prepare string, args ...any) (int64, error) {
-	return s.setter(ctx, caller, prepare, args...)
+func (s *Way) SetterContext(ctx context.Context, prepare string, args ...any) (int64, error) {
+	return s.setter(ctx, prepare, args...)
 }
 
 // Setter -> Execute the execute SQL statement with args, no prepared is used.
-func (s *Way) Setter(caller Caller, prepare string, args ...any) (int64, error) {
-	return s.SetterContext(context.Background(), caller, prepare, args...)
+func (s *Way) Setter(prepare string, args ...any) (int64, error) {
+	return s.SetterContext(context.Background(), prepare, args...)
 }
 
 // F -> Quickly initialize a filter.

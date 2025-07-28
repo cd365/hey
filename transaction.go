@@ -1,6 +1,7 @@
 package hey
 
 import (
+	"context"
 	"database/sql"
 	"time"
 )
@@ -24,8 +25,10 @@ const (
 
 // transaction Information for transaction.
 type transaction struct {
+	ctx context.Context
 	way *Way
-	tx  *sql.Tx
+
+	tx *sql.Tx
 
 	startAt time.Time
 
