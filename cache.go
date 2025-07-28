@@ -500,3 +500,31 @@ func NewStringMutex(length int) *StringMutex {
 	}
 	return result
 }
+
+type MinMaxDuration struct {
+	minValue int // Range minimum value.
+
+	maxValue int // Range maximum value.
+
+	duration time.Duration // Base duration value.
+}
+
+func (s *MinMaxDuration) init(duration time.Duration, minValue int, maxValue int) *MinMaxDuration {
+	if maxValue < minValue {
+		minValue, maxValue = maxValue, minValue
+	}
+	s.duration, s.minValue, s.maxValue = duration, minValue, maxValue
+	return s
+}
+
+func (s *MinMaxDuration) Get() time.Duration {
+	if s.duration <= 0 || s.minValue <= 0 || s.maxValue <= 0 {
+		return time.Duration(0)
+	}
+	return s.duration * time.Duration(s.minValue+rand.IntN(s.maxValue-s.minValue+1))
+}
+
+// NewMinMaxDuration The minimum value of all values should be granter than 0, unless you want to cache permanently.
+func NewMinMaxDuration(duration time.Duration, minValue int, maxValue int) *MinMaxDuration {
+	return (&MinMaxDuration{}).init(duration, minValue, maxValue)
+}
