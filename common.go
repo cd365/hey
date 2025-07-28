@@ -98,6 +98,9 @@ const (
 	SqlThen = "THEN"
 	SqlElse = "ELSE"
 	SqlEnd  = "END"
+
+	SqlRange = "RANGE"
+	SqlRows  = "ROWS"
 )
 
 const (
@@ -1736,6 +1739,8 @@ type SQLSelect interface {
 
 	Maker
 
+	Distinct() SQLSelect
+
 	Index(column string) int
 
 	Exists(column string) bool
@@ -1744,7 +1749,7 @@ type SQLSelect interface {
 
 	AddAll(columns ...string) SQLSelect
 
-	AddMaker(maker Maker) SQLSelect
+	AddMaker(makers ...Maker) SQLSelect
 
 	DelAll(columns ...string) SQLSelect
 
@@ -1761,6 +1766,8 @@ type SQLSelect interface {
 }
 
 type sqlSelect struct {
+	distinct bool
+
 	columns []string
 
 	columnsMap map[string]int
@@ -1786,22 +1793,38 @@ func (s *sqlSelect) Empty() bool {
 func (s *sqlSelect) ToSQL() *SQL {
 	length := len(s.columns)
 	if length == 0 {
-		return NewSQL(SqlStar)
+		prepare := SqlStar
+		if s.distinct {
+			prepare = ConcatString(SqlDistinct, SqlSpace, prepare)
+		}
+		return NewSQL(prepare)
 	}
-	script := &SQL{}
+	script := NewSQL(EmptyString)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	if s.distinct {
+		b.WriteString(SqlDistinct)
+		b.WriteString(SqlSpace)
+	}
 	columns := make([]string, 0, length)
 	for i := range length {
-		tmpArgs, ok := s.columnsArgs[i]
+		args, ok := s.columnsArgs[i]
 		if !ok {
 			continue
 		}
 		columns = append(columns, s.columns[i])
-		if tmpArgs != nil {
-			script.Args = append(script.Args, tmpArgs...)
+		if args != nil {
+			script.Args = append(script.Args, args...)
 		}
 	}
-	script.Prepare = strings.Join(s.way.Replaces(columns), SqlConcat)
+	b.WriteString(strings.Join(s.way.Replaces(columns), SqlConcat))
+	script.Prepare = b.String()
 	return script
+}
+
+func (s *sqlSelect) Distinct() SQLSelect {
+	s.distinct = !s.distinct
+	return s
 }
 
 func (s *sqlSelect) Index(column string) int {
@@ -1849,10 +1872,12 @@ func (s *sqlSelect) AddAll(columns ...string) SQLSelect {
 	return s
 }
 
-func (s *sqlSelect) AddMaker(maker Maker) SQLSelect {
-	if maker != nil {
-		if script := maker.ToSQL(); !script.Empty() {
-			return s.Add(script.Prepare, script.Args...)
+func (s *sqlSelect) AddMaker(makers ...Maker) SQLSelect {
+	for _, value := range makers {
+		if value != nil {
+			if script := value.ToSQL(); script != nil && !script.Empty() {
+				s.Add(script.Prepare, script.Args...)
+			}
 		}
 	}
 	return s
@@ -3559,16 +3584,117 @@ func NewTableColumn(way *Way, aliases ...string) *TableColumn {
 	return tmp
 }
 
-/**
- * SQL window functions.
- **/
+/*
+SQL WINDOW FUNCTION
+
+function_name() OVER (
+	[PARTITION BY column1, column2, ...]
+	[ORDER BY column3 [ASC|DESC], ...]
+	[RANGE | ROWS frame_specification]
+) [AS alias_name]
+
+RANGE | ROWS BETWEEN frame_start AND frame_end
+Possible values for frame_start AND frame_end are:
+	1. UNBOUNDED PRECEDING
+	2. n PRECEDING
+	3. CURRENT ROW
+	4. n FOLLOWING
+	5. UNBOUNDED FOLLOWING
+*/
+
+// SQLWindowFuncFrame Usually the value calls a method of the current object or two different methods.
+// Call only one method: BETWEEN is omitted by default.
+// Call it twice: Use BETWEEN first AND second.
+type SQLWindowFuncFrame interface {
+	Maker
+
+	// UnboundedPreceding Start of partition.
+	UnboundedPreceding() SQLWindowFuncFrame
+
+	// NPreceding First n rows.
+	NPreceding(n int) SQLWindowFuncFrame
+
+	// CurrentRow Current row.
+	CurrentRow() SQLWindowFuncFrame
+
+	// NFollowing After n rows.
+	NFollowing(n int) SQLWindowFuncFrame
+
+	// UnboundedFollowing End of partition.
+	UnboundedFollowing() SQLWindowFuncFrame
+}
+
+// sqlWindowFuncFrame Implementing the SQLWindowFuncFrame interface.
+type sqlWindowFuncFrame struct {
+	// frame Value is RANGE or ROWS.
+	frame string
+
+	// values Frame values.
+	values []string
+}
+
+func (s *sqlWindowFuncFrame) ToSQL() *SQL {
+	length := len(s.values)
+	if length == 0 || s.frame == EmptyString {
+		return NewSQL(EmptyString)
+	}
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	b.WriteString(s.frame)
+	b.WriteString(SqlSpace)
+	if length == 1 {
+		b.WriteString(s.values[0])
+		return NewSQL(b.String())
+	}
+	b.WriteString(SqlBetween)
+	b.WriteString(SqlSpace)
+	b.WriteString(s.values[0])
+	b.WriteString(SqlSpace)
+	b.WriteString(SqlAnd)
+	b.WriteString(SqlSpace)
+	b.WriteString(s.values[1])
+	return NewSQL(b.String())
+}
+
+func (s *sqlWindowFuncFrame) addValue(value string) SQLWindowFuncFrame {
+	if value != EmptyString {
+		s.values = append(s.values, value)
+	}
+	return s
+}
+
+func (s *sqlWindowFuncFrame) UnboundedPreceding() SQLWindowFuncFrame {
+	return s.addValue("UNBOUNDED PRECEDING")
+}
+
+func (s *sqlWindowFuncFrame) NPreceding(n int) SQLWindowFuncFrame {
+	return s.addValue(fmt.Sprintf("%d PRECEDING", n))
+}
+
+func (s *sqlWindowFuncFrame) CurrentRow() SQLWindowFuncFrame {
+	return s.addValue("CURRENT ROW")
+}
+
+func (s *sqlWindowFuncFrame) NFollowing(n int) SQLWindowFuncFrame {
+	return s.addValue(fmt.Sprintf("%d FOLLOWING", n))
+}
+
+func (s *sqlWindowFuncFrame) UnboundedFollowing() SQLWindowFuncFrame {
+	return s.addValue("UNBOUNDED FOLLOWING")
+}
+
+func newSQLWindowFuncFrame(frame string) SQLWindowFuncFrame {
+	return &sqlWindowFuncFrame{
+		frame: frame,
+	}
+}
 
 // WindowFunc SQL window function.
 type WindowFunc struct {
 	way *Way
 
-	// withFunc The window function used.
-	withFunc string
+	// window The window function used.
+	window *SQL
 
 	// partition Setting up window partitions.
 	partition []string
@@ -3576,87 +3702,97 @@ type WindowFunc struct {
 	// order Sorting data within a group.
 	order []string
 
-	// windowFrame Window frame clause. `ROWS` or `RANGE`.
-	windowFrame string
+	// frameRows Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
+	frameRange *SQL
+
+	// frameRows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
+	frameRows *SQL
 
 	// alias Serial number column alias.
 	alias string
 }
 
-// WithFunc Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...
-func (s *WindowFunc) WithFunc(withFunc string) *WindowFunc {
-	s.withFunc = withFunc
+// Window Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...
+func (s *WindowFunc) Window(window string, args ...any) *WindowFunc {
+	s.window = NewSQL(window, args...)
 	return s
 }
 
 // RowNumber ROW_NUMBER() Assign a unique serial number to each row, in the order specified, starting with 1.
 func (s *WindowFunc) RowNumber() *WindowFunc {
-	return s.WithFunc("ROW_NUMBER()")
+	return s.Window("ROW_NUMBER()")
 }
 
 // Rank RANK() Assign a rank to each row, if there are duplicate values, the rank is skipped.
 func (s *WindowFunc) Rank() *WindowFunc {
-	return s.WithFunc("RANK()")
+	return s.Window("RANK()")
 }
 
 // DenseRank DENSE_RANK() Similar to RANK(), but does not skip rankings.
 func (s *WindowFunc) DenseRank() *WindowFunc {
-	return s.WithFunc("DENSE_RANK()")
+	return s.Window("DENSE_RANK()")
 }
 
-// Ntile NTILE() Divide the rows in the window into n buckets and assign a bucket number to each row.
-func (s *WindowFunc) Ntile(buckets int64) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("NTILE(%d)", buckets))
+// NTile N-TILE Divide the rows in the window into n buckets and assign a bucket number to each row.
+func (s *WindowFunc) NTile(buckets int64) *WindowFunc {
+	return s.Window(fmt.Sprintf("NTILE(%d)", buckets))
 }
 
 // Sum SUM() Returns the sum of all rows in the window.
 func (s *WindowFunc) Sum(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("SUM(%s)", s.way.Replace(column)))
+	return s.Window(s.way.T().Sum(column))
 }
 
 // Max MAX() Returns the maximum value within the window.
 func (s *WindowFunc) Max(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("MAX(%s)", s.way.Replace(column)))
+	return s.Window(s.way.T().Max(column))
 }
 
 // Min MIN() Returns the minimum value within the window.
 func (s *WindowFunc) Min(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("MIN(%s)", s.way.Replace(column)))
+	return s.Window(s.way.T().Min(column))
 }
 
 // Avg AVG() Returns the average of all rows in the window.
 func (s *WindowFunc) Avg(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("AVG(%s)", s.way.Replace(column)))
+	return s.Window(s.way.T().Avg(column))
 }
 
 // Count COUNT() Returns the number of rows in the window.
-func (s *WindowFunc) Count(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("COUNT(%s)", s.way.Replace(column)))
+func (s *WindowFunc) Count(columns ...string) *WindowFunc {
+	column := SqlStar
+	for i := len(columns) - 1; i >= 0; i-- {
+		if columns[i] != EmptyString {
+			column = columns[i]
+			break
+		}
+	}
+	return s.Window(fmt.Sprintf("COUNT(%s)", column))
 }
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAG(%s, %d, %s)", s.way.Replace(column), offset, argValueToString(defaultValue)))
+	return s.Window(fmt.Sprintf("LAG(%s, %d, %s)", s.way.Replace(column), offset, argValueToString(defaultValue)))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, offset int64, defaultValue any) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.Replace(column), offset, argValueToString(defaultValue)))
+	return s.Window(fmt.Sprintf("LEAD(%s, %d, %s)", s.way.Replace(column), offset, argValueToString(defaultValue)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
-func (s *WindowFunc) NthValue(column string, LineNumber int64) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("NTH_VALUE(%s, %d)", s.way.Replace(column), LineNumber))
+func (s *WindowFunc) NthValue(column string, lineNumber int64) *WindowFunc {
+	return s.Window(fmt.Sprintf("NTH_VALUE(%s, %d)", s.way.Replace(column), lineNumber))
 }
 
 // FirstValue FIRST_VALUE() Returns the value of the first row in the window.
 func (s *WindowFunc) FirstValue(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("FIRST_VALUE(%s)", s.way.Replace(column)))
+	return s.Window(fmt.Sprintf("FIRST_VALUE(%s)", s.way.Replace(column)))
 }
 
 // LastValue LAST_VALUE() Returns the value of the last row in the window.
 func (s *WindowFunc) LastValue(column string) *WindowFunc {
-	return s.WithFunc(fmt.Sprintf("LAST_VALUE(%s)", s.way.Replace(column)))
+	return s.Window(fmt.Sprintf("LAST_VALUE(%s)", s.way.Replace(column)))
 }
 
 // Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
@@ -3677,9 +3813,27 @@ func (s *WindowFunc) Desc(column string) *WindowFunc {
 	return s
 }
 
-// WindowFrame Set custom window frame clause.
-func (s *WindowFunc) WindowFrame(windowFrame string) *WindowFunc {
-	s.windowFrame = windowFrame
+// Range Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
+func (s *WindowFunc) Range(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
+	if fc != nil {
+		frame := newSQLWindowFuncFrame(SqlRange)
+		fc(frame)
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.Empty() {
+			s.frameRange, s.frameRows = tmp, nil
+		}
+	}
+	return s
+}
+
+// Rows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
+func (s *WindowFunc) Rows(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
+	if fc != nil {
+		frame := newSQLWindowFuncFrame(SqlRows)
+		fc(frame)
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.Empty() {
+			s.frameRows, s.frameRange = tmp, nil
+		}
+	}
 	return s
 }
 
@@ -3689,25 +3843,59 @@ func (s *WindowFunc) Alias(alias string) *WindowFunc {
 	return s
 }
 
-// Result Query column expressions.
-func (s *WindowFunc) Result() string {
-	if s.withFunc == EmptyString || s.partition == nil || s.order == nil || s.alias == EmptyString {
-		panic("hey: the SQL window function parameters are incomplete")
+func (s *WindowFunc) ToSQL() *SQL {
+	result, window := NewSQL(EmptyString), s.window
+	if window == nil || window.Empty() {
+		return result
 	}
+
 	b := getStringBuilder()
 	defer putStringBuilder(b)
-	b.WriteString(s.withFunc)
-	b.WriteString(ConcatString(SqlSpace, SqlOver, SqlSpace, SqlLeftSmallBracket, SqlSpace, SqlPartitionBy, SqlSpace))
-	b.WriteString(strings.Join(s.partition, SqlConcat))
-	b.WriteString(ConcatString(SqlSpace, SqlOrderBy, SqlSpace))
-	b.WriteString(strings.Join(s.order, SqlConcat))
-	if s.windowFrame != EmptyString {
-		b.WriteString(SqlSpace)
-		b.WriteString(s.windowFrame)
+
+	b.WriteString(window.Prepare)
+	result.Args = append(result.Args, window.Args...)
+	b.WriteString(ConcatString(SqlSpace, SqlOver, SqlSpace, SqlLeftSmallBracket))
+
+	num := 0
+	if len(s.partition) > 0 {
+		num++
+		b.WriteString(ConcatString(SqlSpace, SqlPartitionBy, SqlSpace))
+		b.WriteString(strings.Join(s.partition, SqlConcat))
 	}
-	b.WriteString(ConcatString(SqlSpace, SqlRightSmallBracket, SqlSpace, SqlAs, SqlSpace))
-	b.WriteString(s.alias)
-	return b.String()
+	if len(s.order) > 0 {
+		num++
+		b.WriteString(ConcatString(SqlSpace, SqlOrderBy, SqlSpace))
+		b.WriteString(strings.Join(s.order, SqlConcat))
+	}
+	if frame := s.frameRange; frame != nil {
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.Empty() {
+			num++
+			b.WriteString(ConcatString(SqlSpace, tmp.Prepare))
+			result.Args = append(result.Args, tmp.Args...)
+		}
+	}
+	if frame := s.frameRows; frame != nil {
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.Empty() {
+			num++
+			b.WriteString(ConcatString(SqlSpace, tmp.Prepare))
+			result.Args = append(result.Args, tmp.Args...)
+		}
+	}
+
+	if num > 0 {
+		b.WriteString(SqlSpace)
+	}
+
+	b.WriteString(SqlRightSmallBracket)
+
+	if s.alias != EmptyString {
+		b.WriteString(ConcatString(SqlSpace, SqlAs, SqlSpace))
+		b.WriteString(s.way.Replace(s.alias))
+	}
+
+	result.Prepare = b.String()
+
+	return result
 }
 
 func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {

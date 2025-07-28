@@ -25,7 +25,7 @@ func TestNewAdd(t *testing.T) {
 	// example INSERT ONE AND RETURNING id value
 	if way.GetDatabase() != nil {
 		lastInsertId, err := add.AddOne(func(addOne AddOneReturnSequenceValue) {
-			// MySQL or Sqlite
+			// MySQL or SQLite
 			addOne.Execute(func(ctx context.Context, stmt *Stmt, args ...any) (sequenceValue int64, err error) {
 				result, err := stmt.ExecuteContext(ctx, args...)
 				if err != nil {
@@ -34,7 +34,7 @@ func TestNewAdd(t *testing.T) {
 				return result.LastInsertId()
 			})
 
-			// PostgreSQL
+			// postgresql
 			addOne.Prepare(func(tmp *SQL) {
 				tmp.Prepare = fmt.Sprintf("%s RETURNING %s", tmp.Prepare, "id")
 			}).Execute(func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error) {
@@ -440,7 +440,7 @@ func TestNewGet(t *testing.T) {
 	}
 
 	if way.GetDatabase() != nil {
-		others(way)
+		_ = others(way)
 	}
 
 }
