@@ -1117,7 +1117,7 @@ func MakerGetCount(s *Get, countColumns ...string) *SQL {
 		}
 	}
 
-	selects := s.GetSelect()
+	selects := NewSQLSelect(s.schema.way).Set(s.GetSelect().Get())
 
 	script = s.Select(countColumns...).ToSQL()
 
