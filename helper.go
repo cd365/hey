@@ -1106,11 +1106,6 @@ func MakerGetSQL(s *Get) *SQL {
 // SELECT COUNT(*) AS count FROM ( [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] ) AS a
 // SELECT COUNT(*) AS count FROM ( query1 UNION [ALL] query2 [UNION [ALL] ...] ) AS a
 func MakerGetCount(s *Get, countColumns ...string) *SQL {
-	script := NewSQL(EmptyString)
-	if EmptyMaker(s) {
-		return script
-	}
-
 	if countColumns == nil {
 		countColumns = []string{
 			SqlAlias("COUNT(*)", s.schema.way.Replace(DefaultAliasNameCount)),
@@ -1119,7 +1114,7 @@ func MakerGetCount(s *Get, countColumns ...string) *SQL {
 
 	selects := NewSQLSelect(s.schema.way).Set(s.GetSelect().Get())
 
-	script = s.Select(countColumns...).ToSQL()
+	script := MakerGetTable(s.Select(countColumns...))
 
 	s.SetSelect(selects)
 	return script
