@@ -2048,7 +2048,7 @@ func CmderGetCount(s *Get, countColumns ...string) (prepare string, args []any) 
 		}
 	}
 
-	selects := s.GetSelect()
+	selects := NewSQLSelect(s.schema.way).Set(s.GetSelect().Get())
 
 	prepare, args = s.Select(countColumns...).Cmd()
 
