@@ -1766,6 +1766,7 @@ type SQLSelect interface {
 }
 
 type sqlSelect struct {
+	// distinct Allows multiple columns to be deduplicated, such as: DISTINCT column1, column2, column3 ...
 	distinct bool
 
 	columns []string
