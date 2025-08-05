@@ -981,6 +981,23 @@ func (s *Way) NewAddOne(prepare string, args ...any) AddOneReturnSequenceValue {
 	}
 }
 
+// NewAddOneMaker Insert one and get the last insert sequence value.
+func (s *Way) NewAddOneMaker(insert Maker) AddOneReturnSequenceValue {
+	add := insert.ToSQL()
+	return s.NewAddOne(add.Prepare, add.Args...)
+}
+
+// NewInsertOnConflict Update if exists, insert if not.
+func (s *Way) NewInsertOnConflict(prepare string, args ...any) SQLInsertOnConflict {
+	return NewSQLInsertOnConflict(s, prepare, args...)
+}
+
+// NewInsertOnConflictMaker Update if exists, insert if not.
+func (s *Way) NewInsertOnConflictMaker(insert Maker) SQLInsertOnConflict {
+	add := insert.ToSQL()
+	return s.NewInsertOnConflict(add.Prepare, add.Args...)
+}
+
 // T Table empty alias
 func (s *Way) T() *TableColumn {
 	return NewTableColumn(s)
