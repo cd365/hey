@@ -183,6 +183,16 @@ func TestNewDel(t *testing.T) {
 	})
 	ast.Equal("/*Here is the comment to delete the SQL statement*/DELETE FROM example WHERE ( id = ? )", del.ToSQL().Prepare)
 
+	{
+		/* Some databases allow the DELETE statement to be used in conjunction with WHERE, ORDER BY, and LIMIT clauses. */
+		del = way.Del("example")
+		del.Where(func(f Filter) { f.Equal("status", 1) })
+		limited := way.NewOrderByLimit(del).Limit(1000)
+		ast.Equal("DELETE FROM example WHERE ( status = ? ) LIMIT 1000", limited.ToSQL().Prepare)
+		limited.Desc("id")
+		ast.Equal("DELETE FROM example WHERE ( status = ? ) ORDER BY id DESC LIMIT 1000", limited.ToSQL().Prepare)
+	}
+
 }
 
 /* UPDATE SQL */
@@ -295,6 +305,17 @@ func TestNewMod(t *testing.T) {
 			mod.Compare(old, too, "id", "created_at")
 			ast.Equal("UPDATE example SET email = ?, age = ?, updated_at = ? WHERE ( id = ? )", mod.ToSQL().Prepare)
 		}
+	}
+
+	{
+		/* Some databases allow the UPDATE statement to be used in conjunction with WHERE, ORDER BY, and LIMIT clauses. */
+		mod = way.Mod("example")
+		mod.Where(func(f Filter) { f.Equal("category", 1) })
+		mod.Set("status", 2)
+		limited := way.NewOrderByLimit(mod).Limit(3)
+		ast.Equal("UPDATE example SET status = ? WHERE ( category = ? ) LIMIT 3", limited.ToSQL().Prepare)
+		limited.Desc("id")
+		ast.Equal("UPDATE example SET status = ? WHERE ( category = ? ) ORDER BY id DESC LIMIT 3", limited.ToSQL().Prepare)
 	}
 
 }
