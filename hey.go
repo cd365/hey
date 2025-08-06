@@ -998,6 +998,11 @@ func (s *Way) NewInsertOnConflictMaker(insert Maker) SQLInsertOnConflict {
 	return s.NewInsertOnConflict(add.Prepare, add.Args...)
 }
 
+// NewOrderByLimit Append ORDER BY and LIMIT clauses to the SQL statement.
+func (s *Way) NewOrderByLimit(maker Maker) SQLOrderByLimit {
+	return NewSQLOrderByLimit(s, maker)
+}
+
 // T Table empty alias
 func (s *Way) T() *TableColumn {
 	return NewTableColumn(s)

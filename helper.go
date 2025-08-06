@@ -6,7 +6,6 @@ package hey
 import (
 	"context"
 	"database/sql"
-	"regexp"
 	"strings"
 )
 
@@ -710,6 +709,7 @@ func (s *Mod) SetWay(way *Way) *Mod {
 // Limiter limit and offset.
 type Limiter interface {
 	GetLimit() int64
+
 	GetOffset() int64
 }
 
@@ -727,20 +727,17 @@ type Get struct {
 
 	group SQLGroupBy
 
-	order SQLOrderBy
-
-	limit SQLLimit
+	orderByLimit SQLOrderByLimit
 }
 
 // NewGet for SELECT.
 func NewGet(way *Way) *Get {
 	return &Get{
-		schema:  newSchema(way),
-		columns: NewSQLSelect(way),
-		where:   way.F(),
-		group:   NewSQLGroupBy(way),
-		order:   NewSQLOrderBy(way),
-		limit:   NewSQLLimit(),
+		schema:       newSchema(way),
+		columns:      NewSQLSelect(way),
+		where:        way.F(),
+		group:        NewSQLGroupBy(way),
+		orderByLimit: NewSQLOrderByLimit(way, nil),
 	}
 }
 
@@ -914,86 +911,37 @@ func (s *Get) Select(columns ...string) *Get {
 
 // OrderBy SQL ORDER BY.
 func (s *Get) OrderBy(fc func(o SQLOrderBy)) *Get {
-	if fc != nil {
-		fc(s.order)
-	}
+	s.orderByLimit.OrderBy(fc)
 	return s
 }
 
 // Asc set order by column ASC.
 func (s *Get) Asc(column string) *Get {
-	s.order.Asc(column)
+	s.orderByLimit.Asc(column)
 	return s
 }
 
 // Desc set order by column Desc.
 func (s *Get) Desc(column string) *Get {
-	s.order.Desc(column)
+	s.orderByLimit.Desc(column)
 	return s
 }
 
-var (
-	// orderRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`.
-	orderRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
-)
-
 // Order set the column sorting list in batches through regular expressions according to the request parameter value.
 func (s *Get) Order(order string, replaces ...map[string]string) *Get {
-	columns := make(map[string]string, 8)
-	mapping := make([]string, 0, 8)
-	for _, tmp := range replaces {
-		for column, value := range tmp {
-			if column != EmptyString {
-				columns[column] = value
-			}
-			if value != EmptyString {
-				mapping = append(mapping, value)
-			}
-		}
-	}
-	if len(mapping) > 0 {
-		s.order.Use(mapping...)
-	}
-	orders := strings.Split(order, ",")
-	for _, v := range orders {
-		if len(v) > 32 {
-			continue
-		}
-		match := orderRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
-		length := len(match)
-		if length != 1 {
-			continue
-		}
-		matched := match[0]
-		length = len(matched) // the length should be 4.
-		if length < 4 || matched[3] == EmptyString {
-			continue
-		}
-		column := matched[1]
-		if value, ok := columns[column]; ok {
-			column = value
-		}
-		if matched[3][0] == 97 {
-			s.Asc(column)
-			continue
-		}
-		if matched[3][0] == 100 {
-			s.Desc(column)
-			continue
-		}
-	}
+	s.orderByLimit.Order(order, replaces...)
 	return s
 }
 
 // Limit set limit.
 func (s *Get) Limit(limit int64) *Get {
-	s.limit.Limit(limit)
+	s.orderByLimit.Limit(limit)
 	return s
 }
 
 // Offset set offset.
 func (s *Get) Offset(offset int64) *Get {
-	s.limit.Offset(offset)
+	s.orderByLimit.Offset(offset)
 	return s
 }
 
@@ -1054,32 +1002,6 @@ func MakerGetTable(s *Get) *SQL {
 	return script
 }
 
-// MakerGetOrderLimitOffset Build query table of ORDER BY, LIMIT, OFFSET.
-// [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
-func MakerGetOrderLimitOffset(s *Get) *SQL {
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-	script := NewSQL(EmptyString)
-	if !s.order.Empty() {
-		order := s.order.ToSQL()
-		if !order.Empty() {
-			b.WriteString(SqlSpace)
-			b.WriteString(order.Prepare)
-			script.Args = append(script.Args, order.Args...)
-		}
-	}
-	if !s.limit.Empty() {
-		limit := s.limit.ToSQL()
-		if !limit.Empty() {
-			b.WriteString(SqlSpace)
-			b.WriteString(limit.Prepare)
-			script.Args = append(script.Args, limit.Args...)
-		}
-	}
-	script.Prepare = b.String()
-	return script
-}
-
 // MakerGetSQL Build a complete query.
 // [WITH xxx] SELECT xxx FROM xxx [INNER JOIN xxx ON xxx] [WHERE xxx] [GROUP BY xxx [HAVING xxx]] [ORDER BY xxx] [LIMIT xxx [OFFSET xxx]]
 func MakerGetSQL(s *Get) *SQL {
@@ -1093,8 +1015,7 @@ func MakerGetSQL(s *Get) *SQL {
 	b := getStringBuilder()
 	defer putStringBuilder(b)
 	b.WriteString(script.Prepare)
-	limit := MakerGetOrderLimitOffset(s)
-	if !limit.Empty() {
+	if limit := s.orderByLimit.ToSQL(); limit != nil && !limit.Empty() {
 		b.WriteString(limit.Prepare)
 		script.Args = append(script.Args, limit.Args...)
 	}

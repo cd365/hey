@@ -10,7 +10,7 @@ func TestNewSQLInsertValue(t *testing.T) {
 	ast := assert.New(t)
 	way := testWay()
 
-	v := NewSQLInsertValue()
+	var v SQLInsertValue
 
 	{
 		v = NewSQLInsertValue()
@@ -35,7 +35,7 @@ func TestNewSQLUpdateSet(t *testing.T) {
 	ast := assert.New(t)
 	way := testWay()
 
-	u := NewSQLUpdateSet(way)
+	var u SQLUpdateSet
 
 	{
 		u = NewSQLUpdateSet(way)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -2619,6 +2620,182 @@ func (s *sqlLimit) Page(page int64, limit ...int64) SQLLimit {
 
 func NewSQLLimit() SQLLimit {
 	return &sqlLimit{}
+}
+
+// SQLOrderByLimit Construct the ORDER BY and LIMIT clauses or append the ORDER BY and LIMIT clauses to the end of the SQL statement.
+type SQLOrderByLimit interface {
+	Maker
+
+	// OrderBy Custom ORDER BY
+	OrderBy(fc func(o SQLOrderBy)) SQLOrderByLimit
+
+	// Asc ORDER BY column ASC
+	Asc(column string) SQLOrderByLimit
+
+	// Desc ORDER BY column DSC
+	Desc(column string) SQLOrderByLimit
+
+	// Order Custom ORDER BY parsed-string
+	Order(order string, replaces ...map[string]string) SQLOrderByLimit
+
+	// Limit LIMIT n
+	Limit(limit int64) SQLOrderByLimit
+
+	// Offset OFFSET n
+	Offset(offset int64) SQLOrderByLimit
+
+	// Limiter LIMIT + OFFSET
+	Limiter(limiter Limiter) SQLOrderByLimit
+
+	// Page LIMIT + OFFSET
+	Page(page int64, limit ...int64) SQLOrderByLimit
+}
+
+type sqlOrderByLimit struct {
+	maker Maker
+
+	order SQLOrderBy
+
+	orderRegexp *regexp.Regexp
+
+	limit SQLLimit
+}
+
+func (s *sqlOrderByLimit) ToSQL() *SQL {
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	script := NewSQL(EmptyString)
+	if maker := s.maker; maker != nil {
+		if tmp := maker.ToSQL(); tmp != nil && !tmp.Empty() {
+			b.WriteString(tmp.Prepare)
+			if tmp.Args != nil {
+				script.Args = append(script.Args, tmp.Args...)
+			}
+		}
+	}
+	if !s.order.Empty() {
+		order := s.order.ToSQL()
+		if !order.Empty() {
+			b.WriteString(SqlSpace)
+			b.WriteString(order.Prepare)
+			script.Args = append(script.Args, order.Args...)
+		}
+	}
+	if !s.limit.Empty() {
+		limit := s.limit.ToSQL()
+		if !limit.Empty() {
+			b.WriteString(SqlSpace)
+			b.WriteString(limit.Prepare)
+			script.Args = append(script.Args, limit.Args...)
+		}
+	}
+	script.Prepare = b.String()
+	return script
+}
+
+// OrderBy SQL ORDER BY.
+func (s *sqlOrderByLimit) OrderBy(fc func(o SQLOrderBy)) SQLOrderByLimit {
+	if fc != nil {
+		fc(s.order)
+	}
+	return s
+}
+
+// Asc set order by column ASC.
+func (s *sqlOrderByLimit) Asc(column string) SQLOrderByLimit {
+	s.order.Asc(column)
+	return s
+}
+
+// Desc set order by column DESC.
+func (s *sqlOrderByLimit) Desc(column string) SQLOrderByLimit {
+	s.order.Desc(column)
+	return s
+}
+
+// Order set the column sorting list in batches through regular expressions according to the request parameter value.
+func (s *sqlOrderByLimit) Order(order string, replaces ...map[string]string) SQLOrderByLimit {
+	columns := make(map[string]string, 8)
+	mapping := make([]string, 0, 8)
+	for _, tmp := range replaces {
+		for column, value := range tmp {
+			if column != EmptyString {
+				columns[column] = value
+			}
+			if value != EmptyString {
+				mapping = append(mapping, value)
+			}
+		}
+	}
+	if len(mapping) > 0 {
+		s.order.Use(mapping...)
+	}
+	orders := strings.Split(order, ",")
+	for _, v := range orders {
+		if len(v) > 32 {
+			continue
+		}
+		match := s.orderRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
+		length := len(match)
+		if length != 1 {
+			continue
+		}
+		matched := match[0]
+		length = len(matched) // the length should be 4.
+		if length < 4 || matched[3] == EmptyString {
+			continue
+		}
+		column := matched[1]
+		if value, ok := columns[column]; ok {
+			column = value
+		}
+		if matched[3][0] == 97 {
+			s.Asc(column)
+			continue
+		}
+		if matched[3][0] == 100 {
+			s.Desc(column)
+			continue
+		}
+	}
+	return s
+}
+
+// Limit set limit.
+func (s *sqlOrderByLimit) Limit(limit int64) SQLOrderByLimit {
+	s.limit.Limit(limit)
+	return s
+}
+
+// Offset set offset.
+func (s *sqlOrderByLimit) Offset(offset int64) SQLOrderByLimit {
+	s.limit.Offset(offset)
+	return s
+}
+
+// Limiter set limit and offset at the same time.
+func (s *sqlOrderByLimit) Limiter(limiter Limiter) SQLOrderByLimit {
+	if limiter == nil {
+		return s
+	}
+	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
+}
+
+// Page Setting LIMIT and OFFSET by page number.
+func (s *sqlOrderByLimit) Page(page int64, limit ...int64) SQLOrderByLimit {
+	s.limit.Page(page, limit...)
+	return s
+}
+
+func NewSQLOrderByLimit(way *Way, maker Maker) SQLOrderByLimit {
+	// orderRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`.
+	orderRegexp := regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
+	return &sqlOrderByLimit{
+		maker:       maker,
+		order:       NewSQLOrderBy(way),
+		orderRegexp: orderRegexp,
+		limit:       NewSQLLimit(),
+	}
 }
 
 // SQLUpsertColumn Constructing insert columns.
