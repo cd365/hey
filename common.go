@@ -116,8 +116,6 @@ const (
 
 const (
 	DefaultAliasNameCount = "counts"
-
-	RowsScanStructAllMakeSliceLength = "rows_scan_struct_all_make_slice_length"
 )
 
 type sqlError string
@@ -149,6 +147,12 @@ const (
 
 	StateOn  = "ON"
 	StateOff = "OFF"
+)
+
+type RowsScanMakeSliceLength string
+
+const (
+	MakerScanAllMakeSliceLength RowsScanMakeSliceLength = "maker_scan_all_make_slice_length"
 )
 
 var (
@@ -781,8 +785,8 @@ func basicTypeValue(value any) any {
 }
 
 type insertByStruct struct {
-	// struct tag name value used as table.column name.
-	tag string
+	// struct reflects type, make sure it is the same structure type.
+	structReflectType reflect.Type
 
 	// only allowed fields Hash table.
 	allow map[string]*struct{}
@@ -793,8 +797,8 @@ type insertByStruct struct {
 	// already existing fields Hash table.
 	used map[string]*struct{}
 
-	// struct reflects type, make sure it is the same structure type.
-	structReflectType reflect.Type
+	// struct tag name value used as table.column name.
+	tag string
 }
 
 // setExcept filter the list of unwanted fields, prioritize method calls structFieldsValues() and structValues().
@@ -1309,113 +1313,42 @@ func ParcelCancelMaker(maker Maker) Maker {
 	return NewSQL(ParcelCancelPrepare(script.Prepare), script.Args...)
 }
 
-// ConcatMaker Concat multiple Maker.
-func ConcatMaker(concat string, custom func(index int, maker Maker) Maker, items ...Maker) Maker {
-	length := len(items)
-	lists := make([]Maker, 0, length)
-	index := 0
-	for _, script := range items {
-		if custom != nil {
-			script = custom(index, script)
-		}
-		if EmptyMaker(script) {
-			continue
-		}
-		lists = append(lists, script)
-		index++
-	}
-	if index == 0 {
-		return nil
-	}
-	if index < 2 {
-		return lists[0]
-	}
-
-	b := getStringBuilder()
-	defer putStringBuilder(b)
-	args := make([]any, 0, 32)
-	concat = strings.TrimSpace(concat)
-	for i := 0; i < index; i++ {
-		script := lists[i].ToSQL()
-		if i > 0 {
-			b.WriteString(SqlSpace)
-			if concat != EmptyString {
-				b.WriteString(concat)
-				b.WriteString(SqlSpace)
-			}
-		}
-		b.WriteString(ParcelPrepare(script.Prepare))
-		args = append(args, script.Args...)
-	}
-	prepare := b.String()
-	prepare = ParcelPrepare(prepare)
-	return NewSQL(prepare, args...)
-}
-
 // UnionMaker MakerA, MakerB, MakerC ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C ) ... )
-func UnionMaker(items ...Maker) Maker {
-	return ConcatMaker(SqlUnion, nil, items...)
+func UnionMaker(elements ...Maker) Maker {
+	return JoinMaker(elements, ConcatString(SqlSpace, SqlUnion, SqlSpace))
 }
 
 // UnionAllMaker MakerA, MakerB, MakerC ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C ) ... )
-func UnionAllMaker(items ...Maker) Maker {
-	return ConcatMaker(SqlUnionAll, nil, items...)
+func UnionAllMaker(elements ...Maker) Maker {
+	return JoinMaker(elements, ConcatString(SqlSpace, SqlUnionAll, SqlSpace))
 }
 
 // ExceptMaker MakerA, MakerB ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) ... )
-func ExceptMaker(items ...Maker) Maker {
-	return ConcatMaker(SqlExpect, nil, items...)
+func ExceptMaker(elements ...Maker) Maker {
+	return JoinMaker(elements, ConcatString(SqlSpace, SqlExpect, SqlSpace))
 }
 
 // IntersectMaker MakerA, MakerB ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) ... )
-func IntersectMaker(items ...Maker) Maker {
-	return ConcatMaker(SqlIntersect, nil, items...)
+func IntersectMaker(elements ...Maker) Maker {
+	return JoinMaker(elements, ConcatString(SqlSpace, SqlIntersect, SqlSpace))
 }
 
-// MakerQuery execute the built SQL statement and scan query results.
-func MakerQuery(ctx context.Context, way *Way, maker Maker, query func(rows *sql.Rows) (err error)) error {
+// MakerScanAll Rows scan to any struct, based on struct scan data.
+func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(rows *sql.Rows, v *V) error) ([]*V, error) {
+	if maker == nil || scan == nil {
+		return make([]*V, 0), nil
+	}
 	script := maker.ToSQL()
-	return way.QueryContext(ctx, query, script.Prepare, script.Args...)
-}
-
-// MakerGet execute the built SQL statement and scan query results.
-func MakerGet(ctx context.Context, way *Way, maker Maker, result any) error {
-	script := maker.ToSQL()
-	return way.TakeAllContext(ctx, result, script.Prepare, script.Args...)
-}
-
-// MakerScanAll execute the built SQL statement and scan all from the query results.
-func MakerScanAll(ctx context.Context, way *Way, maker Maker, custom func(rows *sql.Rows) error) error {
-	return MakerQuery(ctx, way, maker, func(rows *sql.Rows) error {
-		return way.ScanAll(rows, custom)
-	})
-}
-
-// MakerScanOne execute the built SQL statement and scan at most once from the query results.
-func MakerScanOne(ctx context.Context, way *Way, maker Maker, dest ...any) error {
-	return MakerQuery(ctx, way, maker, func(rows *sql.Rows) error {
-		return way.ScanOne(rows, dest...)
-	})
-}
-
-// MakerScanMap execute the built SQL statement and scan all from the query results.
-func MakerScanMap(ctx context.Context, way *Way, maker Maker) (result []map[string]any, err error) {
-	err = MakerQuery(ctx, way, maker, func(rows *sql.Rows) (err error) {
-		result, err = ScanMap(rows)
-		return
-	})
-	return
-}
-
-// RowsScanStructAll Rows scan to any struct, based on struct scan data.
-func RowsScanStructAll[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...any) ([]*V, error) {
+	if script == nil || script.Empty() {
+		return make([]*V, 0), nil
+	}
 	length := 16
 	if ctx == nil {
 		ctx = context.Background()
 	} else {
-		if tmp := ctx.Value(RowsScanStructAllMakeSliceLength); tmp != nil {
-			if intValue, ok := tmp.(int); ok && intValue > 0 && intValue <= 10000 {
-				length = intValue
+		if tmp := ctx.Value(MakerScanAllMakeSliceLength); tmp != nil {
+			if val, ok := tmp.(int); ok && val > 0 && val <= 10000 {
+				length = val
 			}
 		}
 	}
@@ -1435,53 +1368,26 @@ func RowsScanStructAll[V any](ctx context.Context, way *Way, scan func(rows *sql
 			}
 		}
 		return nil
-	}, prepare, args...)
+	}, script.Prepare, script.Args...)
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-// RowsScanStructOne Rows scan to any struct, based on struct scan data.
-func RowsScanStructOne[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, prepare string, args ...any) (*V, error) {
-	if ctx == nil {
-		ctx = context.Background()
+// MakerScanOne Rows scan to any struct, based on struct scan data.
+func MakerScanOne[V any](ctx context.Context, way *Way, maker Maker, scan func(rows *sql.Rows, v *V) error) (*V, error) {
+	if get, ok := maker.(*Get); ok && get != nil {
+		maker = get.Limit(1)
 	}
-	var (
-		err error
-		has bool
-		tmp V
-	)
-	err = way.QueryContext(ctx, func(rows *sql.Rows) error {
-		for rows.Next() {
-			if err = scan(rows, &tmp); err != nil {
-				return err
-			}
-			if !has {
-				has = !has
-			}
-		}
-		return nil
-	}, prepare, args...)
+	lists, err := MakerScanAll(context.WithValue(ctx, MakerScanAllMakeSliceLength, 1), way, maker, scan)
 	if err != nil {
 		return nil, err
 	}
-	if !has {
-		return nil, ErrNoRows
+	if len(lists) > 0 {
+		return lists[0], nil
 	}
-	return &tmp, nil
-}
-
-// RowsScanStructAllMaker Rows scan to any struct, based on struct scan data.
-func RowsScanStructAllMaker[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, maker Maker) ([]*V, error) {
-	script := maker.ToSQL()
-	return RowsScanStructAll(ctx, way, scan, script.Prepare, script.Args...)
-}
-
-// RowsScanStructOneMaker Rows scan to any struct, based on struct scan data.
-func RowsScanStructOneMaker[V any](ctx context.Context, way *Way, scan func(rows *sql.Rows, v *V) error, maker Maker) (*V, error) {
-	script := maker.ToSQL()
-	return RowsScanStructOne(ctx, way, scan, script.Prepare, script.Args...)
+	return nil, ErrNoRows
 }
 
 func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
@@ -1677,13 +1583,13 @@ type SQLWith interface {
 }
 
 type sqlWith struct {
-	recursive bool
-
-	alias []string
-
 	column map[string][]string
 
 	prepare map[string]Maker
+
+	alias []string
+
+	recursive bool
 }
 
 func NewSQLWith() SQLWith {
@@ -1805,16 +1711,16 @@ type SQLSelect interface {
 }
 
 type sqlSelect struct {
-	// distinct Allows multiple columns to be deduplicated, such as: DISTINCT column1, column2, column3 ...
-	distinct bool
-
-	columns []string
-
 	columnsMap map[string]int
 
 	columnsArgs map[int][]any
 
 	way *Way
+
+	columns []string
+
+	// distinct Allows multiple columns to be deduplicated, such as: DISTINCT column1, column2, column3 ...
+	distinct bool
 }
 
 func NewSQLSelect(way *Way) SQLSelect {
@@ -2120,11 +2026,11 @@ func newSQLJoinOn(way *Way) SQLJoinOn {
 type SQLJoinAssoc func(leftAlias string, rightAlias string) SQLJoinOn
 
 type sqlJoinSchema struct {
-	joinType string
-
 	rightTable SQLTable
 
 	condition Maker
+
+	joinType string
 }
 
 // SQLJoin Constructing multi-table join queries.
@@ -2175,11 +2081,11 @@ type SQLJoin interface {
 type sqlJoin struct {
 	master SQLTable
 
-	joins []*sqlJoinSchema
-
 	sqlSelect SQLSelect
 
 	way *Way
+
+	joins []*sqlJoinSchema
 }
 
 func NewSQLJoin(way *Way) SQLJoin {
@@ -2392,17 +2298,17 @@ type SQLGroupBy interface {
 }
 
 type sqlGroupBy struct {
+	having Filter
+
+	groupColumnsMap map[string]int
+
+	way *Way
+
 	group string
 
 	groupArgs []any
 
 	groupColumns []string
-
-	groupColumnsMap map[string]int
-
-	having Filter
-
-	way *Way
 }
 
 func (s *sqlGroupBy) Empty() bool {
@@ -2504,11 +2410,11 @@ type SQLOrderBy interface {
 type sqlOrderBy struct {
 	allow map[string]*struct{}
 
-	orderBy []string
-
 	orderMap map[string]int
 
 	way *Way
+
+	orderBy []string
 }
 
 func (s *sqlOrderBy) Empty() bool {
@@ -2862,11 +2768,11 @@ type SQLUpsertColumn interface {
 }
 
 type sqlUpsertColumn struct {
-	columns []string
-
 	columnsMap map[string]int
 
 	way *Way
+
+	columns []string
 }
 
 func NewSQLUpsertColumn(way *Way) SQLUpsertColumn {
@@ -3161,13 +3067,13 @@ type SQLUpdateSet interface {
 }
 
 type sqlUpdateSet struct {
-	updateExpr []string
-
-	updateArgs [][]any
-
 	updateMap map[string]int
 
 	way *Way
+
+	updateExpr []string
+
+	updateArgs [][]any
 }
 
 func NewSQLUpdateSet(way *Way) SQLUpdateSet {
@@ -3407,8 +3313,6 @@ type SQLCase interface {
 }
 
 type sqlCase struct {
-	alias string // alias name for CASE , value is optional
-
 	sqlCase Maker // CASE value , value is optional
 
 	sqlWhen SQLWhenThen // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
@@ -3416,6 +3320,8 @@ type sqlCase struct {
 	sqlElse Maker // ELSE value , value is optional
 
 	way *Way
+
+	alias string // alias name for CASE , value is optional
 }
 
 func (s *sqlCase) V(value string) string {
@@ -3555,18 +3461,21 @@ type SQLInsertOnConflict interface {
 }
 
 type sqlInsertOnConflict struct {
-	way *Way
 	ctx context.Context
 
-	insertPrepare     string
+	onConflictsDoUpdateSet SQLInsertOnConflictUpdateSet
+
+	way *Way
+
+	insertPrepare string
+
+	onConflictsDoPrepare string
+
 	insertPrepareArgs []any
 
 	onConflicts []string
 
-	onConflictsDoPrepare     string
 	onConflictsDoPrepareArgs []any
-
-	onConflictsDoUpdateSet SQLInsertOnConflictUpdateSet
 }
 
 func (s *sqlInsertOnConflict) Context(ctx context.Context) SQLInsertOnConflict {
@@ -3652,9 +3561,8 @@ func NewSQLInsertOnConflict(way *Way, insertPrepare string, insertArgs ...any) S
  **/
 
 type TableColumn struct {
+	way   *Way
 	alias string
-
-	way *Way
 }
 
 // Alias Get the alias name value.
@@ -3941,12 +3849,6 @@ type WindowFunc struct {
 	// window The window function used.
 	window *SQL
 
-	// partition Setting up window partitions.
-	partition []string
-
-	// order Sorting data within a group.
-	order []string
-
 	// frameRows Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
 	frameRange *SQL
 
@@ -3955,6 +3857,12 @@ type WindowFunc struct {
 
 	// alias Serial number column alias.
 	alias string
+
+	// partition Setting up window partitions.
+	partition []string
+
+	// order Sorting data within a group.
+	order []string
 }
 
 // Window Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...

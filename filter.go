@@ -434,11 +434,11 @@ type Filter interface {
 
 // filter Implementing interface Filter.
 type filter struct {
-	not     bool
-	num     int
 	prepare *strings.Builder
-	args    []any
 	way     *Way
+	args    []any
+	num     int
+	not     bool
 }
 
 // filterNew New a Filter.

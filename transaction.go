@@ -25,23 +25,23 @@ const (
 
 // transaction Information for transaction.
 type transaction struct {
+	startAt time.Time
+	endAt   time.Time
+
 	ctx context.Context
+
+	err error
+
 	way *Way
 
 	tx *sql.Tx
 
-	startAt time.Time
-
 	id      string
 	message string
 
-	err error
+	state string
 
 	sqlLog []*sqlLog
-
-	endAt time.Time
-
-	state string
 }
 
 // start Logging when starting a transaction.

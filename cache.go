@@ -464,11 +464,11 @@ func NewCacheMaker(cache *Cache, maker Maker) CacheMaker {
 
 // StringMutex maps string keys to a fixed set of sync.Mutex locks using hashing.
 type StringMutex struct {
-	// length Number of mutexes, fixed after initialization.
-	length int
-
 	// mutexes Slice of mutexes, fixed after initialization.
 	mutexes []*sync.Mutex
+
+	// length Number of mutexes, fixed after initialization.
+	length int
 }
 
 // Get returns the sync.Mutex corresponding to the given key.

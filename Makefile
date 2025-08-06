@@ -10,3 +10,9 @@ mod-tidy:
 
 test:
 	go test -v
+
+install-betteralign:
+	go install github.com/dkorunic/betteralign/cmd/betteralign@latest
+
+betteralign:
+	betteralign -apply -fix ./...

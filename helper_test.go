@@ -580,7 +580,7 @@ func others(way *Way) error {
 		script := mod.ToSQL()
 
 		// Efficiently re-execute the same SQL statement by simply changing the parameters.
-		affectedRows, err := way.BatchUpdateContext(ctx, script.Prepare, args)
+		affectedRows, err := way.StmtBatchExecContext(ctx, script.Prepare, args)
 		if err != nil {
 			return err
 		}

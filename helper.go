@@ -13,11 +13,11 @@ import (
 type schema struct {
 	ctx context.Context
 
+	table SQLTable
+
 	way *Way
 
 	comment string
-
-	table SQLTable
 }
 
 // newSchema new schema with *Way.

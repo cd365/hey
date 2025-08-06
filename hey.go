@@ -70,14 +70,8 @@ func Postgresql() *Manual {
 
 // Cfg Configure of Way.
 type Cfg struct {
-	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
-	DeleteMustUseWhere bool
-
-	// UpdateMustUseWhere Updated data must be filtered using conditions.
-	UpdateMustUseWhere bool
-
-	// _ Memory alignment padding.
-	_ [6]byte
+	// Debugger Debug output SQL script.
+	Debugger Debugger
 
 	// Manual For handling different types of databases.
 	Manual *Manual
@@ -85,11 +79,11 @@ type Cfg struct {
 	// Scan Scan data into structure.
 	Scan func(rows *sql.Rows, result any, tag string) error
 
-	// ScanTag Scan data to tag mapping on structure.
-	ScanTag string
-
 	// TransactionOptions Start transaction.
 	TransactionOptions *sql.TxOptions
+
+	// ScanTag Scan data to tag mapping on structure.
+	ScanTag string
 
 	// TransactionMaxDuration Maximum transaction execution time.
 	TransactionMaxDuration time.Duration
@@ -97,8 +91,11 @@ type Cfg struct {
 	// WarnDuration SQL execution time warning threshold.
 	WarnDuration time.Duration
 
-	// Debugger Debug output SQL script.
-	Debugger Debugger
+	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
+	DeleteMustUseWhere bool
+
+	// UpdateMustUseWhere Updated data must be filtered using conditions.
+	UpdateMustUseWhere bool
 }
 
 // DefaultCfg default configure value.
@@ -115,28 +112,22 @@ func DefaultCfg() Cfg {
 
 // sqlLog Record executed prepare args.
 type sqlLog struct {
+	err error // An error encountered when executing SQL.
+
 	way *Way
 
-	// prepare Preprocess the SQL statements that are executed.
-	prepare string
+	args *sqlLogRun // SQL parameter list.
 
-	// args SQL parameter list.
-	args *sqlLogRun
-
-	// err An error encountered when executing SQL.
-	err error
+	prepare string // Preprocess the SQL statements that are executed.
 }
 
 // sqlLogRun Record executed args of prepare.
 type sqlLogRun struct {
-	// args SQL parameter list.
-	args []any
+	startAt time.Time // The start time of the SQL statement.
 
-	// startAt The start time of the SQL statement.
-	startAt time.Time
+	endAt time.Time // The end time of the SQL statement.
 
-	// endAt The end time of the SQL statement.
-	endAt time.Time
+	args []any // SQL parameter list.
 }
 
 func (s *sqlLogRun) handleArgs() []any {
@@ -213,7 +204,6 @@ type Way struct {
 	reader Reader
 
 	isRead bool
-	_      [7]byte // memory alignment padding
 }
 
 func (s *Way) GetCfg() *Cfg {
@@ -469,8 +459,8 @@ func (s *Way) ScanOne(rows *sql.Rows, dest ...any) error {
 // Stmt Prepare a handle.
 type Stmt struct {
 	way     *Way
-	prepare string
 	stmt    *sql.Stmt
+	prepare string
 }
 
 // Close -> Close prepare a handle.
@@ -655,138 +645,169 @@ func (s *Way) Exec(prepare string, args ...any) (int64, error) {
 
 /* Using Maker */
 
+// MakerQueryContext Execute a DQL statement through the Maker interface.
 func (s *Way) MakerQueryContext(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) error {
 	if maker == nil {
 		return nil
 	}
 	script := maker.ToSQL()
-	if script.Empty() {
+	if script == nil || script.Empty() {
 		return nil
 	}
 	return s.QueryContext(ctx, query, script.Prepare, script.Args...)
 }
 
+// MakerQuery Execute a DQL statement through the Maker interface.
 func (s *Way) MakerQuery(maker Maker, query func(rows *sql.Rows) error) error {
-	if maker == nil {
-		return nil
-	}
-	script := maker.ToSQL()
-	if script.Empty() {
-		return nil
-	}
-	return s.Query(query, script.Prepare, script.Args...)
+	return s.MakerQueryContext(context.Background(), maker, query)
 }
 
+// MakerQueryRowContext Execute a DQL statement through the Maker interface.
 func (s *Way) MakerQueryRowContext(ctx context.Context, maker Maker, query func(row *sql.Row) error) error {
 	if maker == nil {
 		return nil
 	}
 	script := maker.ToSQL()
-	if script.Empty() {
+	if script == nil || script.Empty() {
 		return nil
 	}
 	return s.QueryRowContext(ctx, query, script.Prepare, script.Args...)
 }
 
+// MakerQueryRow Execute a DQL statement through the Maker interface.
 func (s *Way) MakerQueryRow(maker Maker, query func(row *sql.Row) error) error {
-	if maker == nil {
-		return nil
-	}
-	script := maker.ToSQL()
-	if script.Empty() {
-		return nil
-	}
-	return s.QueryRow(query, script.Prepare, script.Args...)
+	return s.MakerQueryRowContext(context.Background(), maker, query)
 }
 
+// MakerTakeAllContext Execute a DQL statement through the Maker interface.
 func (s *Way) MakerTakeAllContext(ctx context.Context, maker Maker, result any) error {
 	if maker == nil {
 		return nil
 	}
 	script := maker.ToSQL()
-	if script.Empty() {
+	if script == nil || script.Empty() {
 		return nil
 	}
 	return s.TakeAllContext(ctx, result, script.Prepare, script.Args...)
 }
 
+// MakerTakeAll Execute a DQL statement through the Maker interface.
 func (s *Way) MakerTakeAll(maker Maker, result any) error {
-	if maker == nil {
-		return nil
-	}
-	script := maker.ToSQL()
-	if script.Empty() {
-		return nil
-	}
-	return s.TakeAll(result, script.Prepare, script.Args...)
+	return s.MakerTakeAllContext(context.Background(), maker, result)
 }
 
+// MakerExecuteContext Execute a DML statement through the Maker interface.
 func (s *Way) MakerExecuteContext(ctx context.Context, maker Maker) (sql.Result, error) {
 	if maker == nil {
 		return nil, nil
 	}
 	script := maker.ToSQL()
-	if script.Empty() {
+	if script == nil || script.Empty() {
 		return nil, nil
 	}
 	return s.ExecuteContext(ctx, script.Prepare, script.Args...)
 }
 
+// MakerExecute Execute a DML statement through the Maker interface.
 func (s *Way) MakerExecute(maker Maker) (sql.Result, error) {
-	if maker == nil {
-		return nil, nil
-	}
-	script := maker.ToSQL()
-	if script.Empty() {
-		return nil, nil
-	}
-	return s.Execute(script.Prepare, script.Args...)
+	return s.MakerExecuteContext(context.Background(), maker)
 }
 
+// MakerExecContext Execute a DML statement through the Maker interface.
 func (s *Way) MakerExecContext(ctx context.Context, maker Maker) (int64, error) {
 	if maker == nil {
 		return 0, nil
 	}
 	script := maker.ToSQL()
-	if script.Empty() {
+	if script == nil || script.Empty() {
 		return 0, nil
 	}
 	return s.ExecContext(ctx, script.Prepare, script.Args...)
 }
 
+// MakerExec Execute a DML statement through the Maker interface.
 func (s *Way) MakerExec(maker Maker) (int64, error) {
-	if maker == nil {
-		return 0, nil
-	}
-	script := maker.ToSQL()
-	if script.Empty() {
-		return 0, nil
-	}
-	return s.Exec(script.Prepare, script.Args...)
+	return s.MakerExecContext(context.Background(), maker)
 }
 
-/* Batch Update */
+// StmtBatchTakeAllContext Executing a DQL statement multiple times using the same prepared statement.
+func (s *Way) StmtBatchTakeAllContext(ctx context.Context, prepare string, lists [][]any, results []any) (err error) {
+	stmt := (*Stmt)(nil)
+	stmt, err = s.PrepareContext(ctx, prepare)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+	for index, value := range lists {
+		err = stmt.TakeAllContext(ctx, results[index], value...)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-func (s *Way) BatchUpdateContext(ctx context.Context, prepare string, argsList [][]any) (affectedRows int64, err error) {
-	var stmt *Stmt
+// StmtBatchTakeAll Executing a DQL statement multiple times using the same prepared statement.
+func (s *Way) StmtBatchTakeAll(prepare string, lists [][]any, results []any) error {
+	return s.StmtBatchTakeAllContext(context.Background(), prepare, lists, results)
+}
+
+// StmtBatchExecContext Executing a DML statement multiple times using the same prepared statement.
+func (s *Way) StmtBatchExecContext(ctx context.Context, prepare string, lists [][]any) (affectedRows int64, err error) {
+	stmt := (*Stmt)(nil)
 	stmt, err = s.PrepareContext(ctx, prepare)
 	if err != nil {
 		return affectedRows, err
 	}
 	defer func() { _ = stmt.Close() }()
-	var rows int64
-	for _, args := range argsList {
-		if rows, err = stmt.Exec(args...); err != nil {
+	rows := int64(0)
+	for _, args := range lists {
+		rows, err = stmt.ExecContext(ctx, args...)
+		if err != nil {
 			return affectedRows, err
-		} else {
-			affectedRows += rows
 		}
+		affectedRows += rows
 	}
 	return affectedRows, nil
 }
 
-func (s *Way) BatchUpdate(prepare string, argsList [][]any) (affectedRows int64, err error) {
-	return s.BatchUpdateContext(context.Background(), prepare, argsList)
+// StmtBatchExec Executing a DML statement multiple times using the same prepared statement.
+func (s *Way) StmtBatchExec(prepare string, lists [][]any) (affectedRows int64, err error) {
+	return s.StmtBatchExecContext(context.Background(), prepare, lists)
+}
+
+// MakersTakeAllContext Execute multiple DQL statements.
+func (s *Way) MakersTakeAllContext(ctx context.Context, makers []Maker, results []any) (err error) {
+	for index, maker := range makers {
+		err = s.MakerTakeAllContext(ctx, maker, results[index])
+		if err != nil {
+			break
+		}
+	}
+	return
+}
+
+// MakersTakeAll Execute multiple DQL statements.
+func (s *Way) MakersTakeAll(makers []Maker, results []any) error {
+	return s.MakersTakeAllContext(context.Background(), makers, results)
+}
+
+// MakersExecContext Execute multiple DML statements.
+func (s *Way) MakersExecContext(ctx context.Context, makers []Maker) (affectedRows int64, err error) {
+	rows := int64(0)
+	for _, maker := range makers {
+		rows, err = s.MakerExecContext(ctx, maker)
+		if err != nil {
+			return affectedRows, err
+		}
+		affectedRows += rows
+	}
+	return affectedRows, nil
+}
+
+// MakersExec Execute multiple DML statements.
+func (s *Way) MakersExec(makers []Maker) (affectedRows int64, err error) {
+	return s.MakersExecContext(context.Background(), makers)
 }
 
 // getter -> Query, execute the query SQL statement with args, no prepared is used.
@@ -1074,14 +1095,14 @@ func (s *Way) Debug(maker Maker) *Way {
 
 // read Implement Reader.
 type read struct {
+	// choose Gets a read-only object from the read list.
+	choose func(n int) int
+
 	// reads Read list.
 	reads []*Way
 
 	// total Length of a read list.
 	total int
-
-	// choose Gets a read-only object from the read list.
-	choose func(n int) int
 }
 
 // Read Get an instance for querying.
@@ -1277,7 +1298,7 @@ func prepareArgsToString(prepare string, args []any) string {
 
 // Debugger Debug output SQL script.
 type Debugger interface {
-	// Debug Debug output SQL script
+	// Debug Output SQL script to the specified output stream.
 	Debug(maker Maker) Debugger
 
 	GetLogger() *logger.Logger
