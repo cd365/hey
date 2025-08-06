@@ -193,6 +193,22 @@ func TestNewDel(t *testing.T) {
 		ast.Equal("DELETE FROM example WHERE ( status = ? ) ORDER BY id DESC LIMIT 1000", limited.ToSQL().Prepare)
 	}
 
+	{
+		/* Using CTE (Common Table Expression) in DELETE statement. */
+		getWhere := way.F().Equal("status", 1)
+		del = way.Del("example")
+		del.With(func(w SQLWith) {
+			w.Set(
+				AliasA,
+				way.Get("table1").Select("id").Filter(getWhere).Desc("id").Limit(100),
+			)
+		})
+		del.Where(func(f Filter) {
+			f.InQuery("id", way.Get(AliasA).Select("id"))
+		})
+		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 100 ) DELETE FROM example WHERE ( id IN ( SELECT id FROM a ) )", del.ToSQL().Prepare)
+	}
+
 }
 
 /* UPDATE SQL */
@@ -316,6 +332,23 @@ func TestNewMod(t *testing.T) {
 		ast.Equal("UPDATE example SET status = ? WHERE ( category = ? ) LIMIT 3", limited.ToSQL().Prepare)
 		limited.Desc("id")
 		ast.Equal("UPDATE example SET status = ? WHERE ( category = ? ) ORDER BY id DESC LIMIT 3", limited.ToSQL().Prepare)
+	}
+
+	{
+		/* Using CTE (Common Table Expression) in UPDATE statement. */
+		getWhere := way.F().Equal("status", 1)
+		mod = way.Mod("example")
+		mod.Set("category", 1)
+		mod.With(func(w SQLWith) {
+			w.Set(
+				AliasA,
+				way.Get("table1").Select("id").Filter(getWhere).Desc("id").Limit(100),
+			)
+		})
+		mod.Where(func(f Filter) {
+			f.InQuery("id", way.Get(AliasA).Select("id"))
+		})
+		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 100 ) UPDATE example SET category = ? WHERE ( id IN ( SELECT id FROM a ) )", mod.ToSQL().Prepare)
 	}
 
 }

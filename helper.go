@@ -52,6 +52,8 @@ func comment(schema *schema) (b *strings.Builder) {
 type Del struct {
 	schema *schema
 
+	with SQLWith
+
 	where Filter
 }
 
@@ -77,6 +79,18 @@ func (s *Del) Context(ctx context.Context) *Del {
 // GetContext get context.
 func (s *Del) GetContext() context.Context {
 	return s.schema.ctx
+}
+
+// With for with query, COMMON TABLE EXPRESSION.
+func (s *Del) With(fc func(w SQLWith)) *Del {
+	if fc == nil {
+		return s
+	}
+	if s.with == nil {
+		s.with = NewSQLWith()
+	}
+	fc(s.with)
+	return s
 }
 
 // Table set table name.
@@ -122,6 +136,13 @@ func (s *Del) ToSQL() *SQL {
 
 	b := comment(s.schema)
 	defer putStringBuilder(b)
+	if with := s.with; with != nil {
+		if tmp := with.ToSQL(); tmp != nil && !tmp.Empty() {
+			b.WriteString(tmp.Prepare)
+			b.WriteString(SqlSpace)
+			script.Args = append(script.Args, tmp.Args...)
+		}
+	}
 	b.WriteString(ConcatString(SqlDelete, SqlSpace, SqlFrom, SqlSpace))
 
 	tableSQL := s.schema.table.ToSQL()
@@ -448,6 +469,8 @@ func (s *Add) SetWay(way *Way) *Add {
 type Mod struct {
 	schema *schema
 
+	with SQLWith
+
 	except SQLUpsertColumn
 
 	permit SQLUpsertColumn
@@ -482,6 +505,18 @@ func (s *Mod) Context(ctx context.Context) *Mod {
 // GetContext get context.
 func (s *Mod) GetContext() context.Context {
 	return s.schema.ctx
+}
+
+// With for with query, COMMON TABLE EXPRESSION.
+func (s *Mod) With(fc func(w SQLWith)) *Mod {
+	if fc == nil {
+		return s
+	}
+	if s.with == nil {
+		s.with = NewSQLWith()
+	}
+	fc(s.with)
+	return s
 }
 
 // Table set table name.
@@ -658,6 +693,13 @@ func (s *Mod) ToSQL() *SQL {
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
+	if with := s.with; with != nil {
+		if tmp := with.ToSQL(); tmp != nil && !tmp.Empty() {
+			b.WriteString(tmp.Prepare)
+			b.WriteString(SqlSpace)
+			script.Args = append(script.Args, tmp.Args...)
+		}
+	}
 	b.WriteString(ConcatString(SqlUpdate, SqlSpace))
 
 	table := s.schema.table.ToSQL()
@@ -962,12 +1004,11 @@ func MakerGetTable(s *Get) *SQL {
 	}
 	b := comment(s.schema)
 	defer putStringBuilder(b)
-	if s.with != nil {
-		with := s.with.ToSQL()
-		if !with.Empty() {
-			b.WriteString(with.Prepare)
+	if with := s.with; with != nil {
+		if tmp := with.ToSQL(); tmp != nil && !tmp.Empty() {
+			b.WriteString(tmp.Prepare)
 			b.WriteString(SqlSpace)
-			script.Args = append(script.Args, with.Args...)
+			script.Args = append(script.Args, tmp.Args...)
 		}
 	}
 	if s.join != nil {
