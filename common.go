@@ -214,6 +214,44 @@ func EmptyMaker(maker Maker) bool {
 	return maker.ToSQL().Empty()
 }
 
+// JoinMaker Use the specified separator to splice multiple Makers.
+func JoinMaker(elements []Maker, separators ...string) Maker {
+	separator := SqlSpace
+	for i := len(separators) - 1; i >= 0; i-- {
+		if separator != separators[i] {
+			separator = separators[i]
+			break
+		}
+	}
+	result := NewSQL(EmptyString)
+	b := getStringBuilder()
+	defer putStringBuilder(b)
+	num := 0
+	for _, maker := range elements {
+		if maker == nil {
+			continue
+		}
+		tmp := maker.ToSQL()
+		if tmp == nil || tmp.Empty() {
+			continue
+		}
+		num++
+		if num > 1 {
+			b.WriteString(separator)
+		}
+		b.WriteString(tmp.Prepare)
+		if tmp.Args != nil {
+			result.Args = append(result.Args, tmp.Args...)
+		}
+	}
+	result.Prepare = b.String()
+	return result
+}
+
+func Makers(elements ...Maker) []Maker {
+	return elements
+}
+
 // Replace For replacement identifiers in SQL statements. Replace by default, concurrent reads and writes are not safe.
 // If you need concurrent read and write security, you can implement Replace by yourself.
 type Replace interface {
