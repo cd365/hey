@@ -7,7 +7,6 @@ import (
 )
 
 func TestF(t *testing.T) {
-
 	ast := assert.New(t)
 	way := testWay()
 
@@ -92,5 +91,4 @@ func TestF(t *testing.T) {
 		f.Exists(exists)
 		ast.Equal("( status = ? AND EXISTS ( SELECT 1 FROM table2 WHERE ( table1.id = table2.id AND table1.key = table2.key ) ) )", f.ToSQL().Prepare, equalMessage)
 	}
-
 }

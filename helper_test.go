@@ -12,7 +12,6 @@ import (
 
 /* INSERT SQL */
 func TestNewAdd(t *testing.T) {
-
 	ast := assert.New(t)
 	way := testWay()
 
@@ -159,12 +158,10 @@ func TestNewAdd(t *testing.T) {
 		add.MakerValues(NewSQL("SELECT email, username, age FROM example WHERE ( status = 1 )"), []string{"email", "username", "age"})
 		ast.Equal("INSERT INTO example ( email, username, age ) SELECT email, username, age FROM example WHERE ( status = 1 )", add.ToSQL().Prepare, equalMessage)
 	}
-
 }
 
 /* DELETE SQL */
 func TestNewDel(t *testing.T) {
-
 	ast := assert.New(t)
 	way := testWay()
 
@@ -208,12 +205,10 @@ func TestNewDel(t *testing.T) {
 		})
 		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 100 ) DELETE FROM example WHERE ( id IN ( SELECT id FROM a ) )", del.ToSQL().Prepare)
 	}
-
 }
 
 /* UPDATE SQL */
 func TestNewMod(t *testing.T) {
-
 	ast := assert.New(t)
 	way := testWay()
 
@@ -350,12 +345,10 @@ func TestNewMod(t *testing.T) {
 		})
 		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 100 ) UPDATE example SET category = ? WHERE ( id IN ( SELECT id FROM a ) )", mod.ToSQL().Prepare)
 	}
-
 }
 
 /* SELECT SQL */
 func TestNewGet(t *testing.T) {
-
 	ast := assert.New(t)
 	way := testWay()
 
@@ -496,7 +489,6 @@ func TestNewGet(t *testing.T) {
 	if way.GetDatabase() != nil {
 		_ = others(way)
 	}
-
 }
 
 func others(way *Way) error {

@@ -155,13 +155,11 @@ const (
 	MakerScanAllMakeSliceLength RowsScanMakeSliceLength = "maker_scan_all_make_slice_length"
 )
 
-var (
-	stringBuilder = &sync.Pool{
-		New: func() any {
-			return &strings.Builder{}
-		},
-	}
-)
+var stringBuilder = &sync.Pool{
+	New: func() any {
+		return &strings.Builder{}
+	},
+}
 
 func getStringBuilder() *strings.Builder {
 	return stringBuilder.Get().(*strings.Builder)
@@ -336,14 +334,12 @@ func NewReplace() Replace {
 	}
 }
 
-var (
-	// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
-	insertByStructPool = &sync.Pool{
-		New: func() any {
-			return &insertByStruct{}
-		},
-	}
-)
+// insertByStructPool insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
+var insertByStructPool = &sync.Pool{
+	New: func() any {
+		return &insertByStruct{}
+	},
+}
 
 // getInsertByStruct get *insertByStruct from pool.
 func getInsertByStruct() *insertByStruct {
@@ -408,13 +404,11 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 
 /* Implement scanning *sql.Rows data into STRUCT or []STRUCT */
 
-var (
-	bindScanStructPool = &sync.Pool{
-		New: func() any {
-			return &bindScanStruct{}
-		},
-	}
-)
+var bindScanStructPool = &sync.Pool{
+	New: func() any {
+		return &bindScanStruct{}
+	},
+}
 
 func getBindScanStruct() *bindScanStruct {
 	return bindScanStructPool.Get().(*bindScanStruct).init()
@@ -513,7 +507,6 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 		}
 
 	}
-
 }
 
 // Prepare The preparatory work before executing rows.Scan.

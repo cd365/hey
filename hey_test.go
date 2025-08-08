@@ -16,7 +16,6 @@ func testWay() *Way {
 }
 
 func TestWayTransaction(t *testing.T) {
-
 	way := NewWay(nil)
 
 	if way.db != nil {
@@ -62,5 +61,4 @@ func TestWayTransaction(t *testing.T) {
 		// Manually control transactions.
 		// way.Begin(context.Background())
 	}
-
 }
