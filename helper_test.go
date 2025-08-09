@@ -158,6 +158,25 @@ func TestNewAdd(t *testing.T) {
 		add.MakerValues(NewSQL("SELECT email, username, age FROM example WHERE ( status = 1 )"), []string{"email", "username", "age"})
 		ast.Equal("INSERT INTO example ( email, username, age ) SELECT email, username, age FROM example WHERE ( status = 1 )", add.ToSQL().Prepare, equalMessage)
 	}
+
+	{
+		add = way.Add(EmptyString)
+		ast.Equal("", add.ToSQL().Prepare)
+		add.Default(nil)
+		ast.Equal("", add.ToSQL().Prepare)
+		add.Table("example")
+		add.ColumnsValues([]string{"column1", "column2", "column3"}, nil)
+		ast.Equal("", add.ToSQL().Prepare)
+		add.ColumnsValues([]string{"column1", "column2", "column3"}, [][]any{{1, 2, 3}})
+		add.Default(func(add *Add) {
+			add.ColumnValue("column1", "value1")
+		})
+		add.ExceptPermit(nil)
+		add.ExceptPermit(func(except SQLUpsertColumn, permit SQLUpsertColumn) {
+			permit.Add("column1", "column2", "column3")
+		})
+		ast.Equal("INSERT INTO example ( column1, column2, column3 ) VALUES ( ?, ?, ? )", add.ToSQL().Prepare)
+	}
 }
 
 /* DELETE SQL */
@@ -204,6 +223,10 @@ func TestNewDel(t *testing.T) {
 			f.InQuery("id", way.Get(AliasA).Select("id"))
 		})
 		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 100 ) DELETE FROM example WHERE ( id IN ( SELECT id FROM a ) )", del.ToSQL().Prepare)
+	}
+
+	{
+		ast.Equal("", way.Del(EmptyString).ToSQL().Prepare)
 	}
 }
 
@@ -345,6 +368,13 @@ func TestNewMod(t *testing.T) {
 		})
 		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 100 ) UPDATE example SET category = ? WHERE ( id IN ( SELECT id FROM a ) )", mod.ToSQL().Prepare)
 	}
+
+	{
+		mod = way.Mod(EmptyString)
+		ast.Equal("", mod.ToSQL().Prepare)
+		mod.Table("example")
+		ast.Equal("", mod.ToSQL().Prepare)
+	}
 }
 
 /* SELECT SQL */
@@ -361,6 +391,7 @@ func TestNewGet(t *testing.T) {
 
 	{
 		get = way.Get().Table("example")
+		get.Select()
 		get.Select("id", "username", "age")
 		ast.Equal("SELECT id, username, age FROM example", get.ToSQL().Prepare)
 	}
@@ -370,6 +401,14 @@ func TestNewGet(t *testing.T) {
 		get.Select("id", "username", "age")
 		get.Desc("id")
 		ast.Equal("SELECT id, username, age FROM example ORDER BY id DESC", get.ToSQL().Prepare)
+	}
+
+	{
+		get = way.Get().Table("example")
+		get.Select("id", "username", "age")
+		get.GetSelect().Distinct()
+		get.Desc("id")
+		ast.Equal("SELECT DISTINCT id, username, age FROM example ORDER BY id DESC", get.ToSQL().Prepare)
 	}
 
 	{
@@ -405,7 +444,10 @@ func TestNewGet(t *testing.T) {
 		get = way.Get().Table("example")
 		get.Select("age", "COUNT(*) AS counts")
 		get.Group("age")
-		ast.Equal("SELECT age, COUNT(*) AS counts FROM example GROUP BY age", get.ToSQL().Prepare)
+		get.Having(func(f Filter) {
+			f.MoreThan("COUNT(*)", 1)
+		})
+		ast.Equal("SELECT age, COUNT(*) AS counts FROM example GROUP BY age HAVING ( COUNT(*) > ? )", get.ToSQL().Prepare)
 	}
 
 	whereA := way.F().Equal("status", 0).Equal("deleted_at", 0)
@@ -579,4 +621,22 @@ func others(way *Way) error {
 		_ = affectedRows
 	}
 	return nil
+}
+
+func TestMakerGetTable(t *testing.T) {
+	ast := assert.New(t)
+	way := testWay()
+	get := way.Get()
+
+	script := MakerGetTable(get)
+
+	ast.Equal("", script.Prepare)
+}
+
+func TestMakerGetSQL(t *testing.T) {
+	ast := assert.New(t)
+	way := testWay()
+	get := way.Get()
+	script := MakerGetSQL(get)
+	ast.Equal("", script.ToSQL().Prepare)
 }

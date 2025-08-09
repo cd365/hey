@@ -27,6 +27,7 @@ func TestNewSQLInsertValue(t *testing.T) {
 
 	{
 		v = NewSQLInsertValue()
+		v.SetSubquery(way.Get())
 		v.SetSubquery(way.Get("example").Select("username", "salary").Where(func(f Filter) { f.Equal("status", 1) }).Desc("salary").Limit(5))
 		ast.Equal("SELECT username, salary FROM example WHERE ( status = ? ) ORDER BY salary DESC LIMIT 5", v.ToSQL().Prepare)
 	}
@@ -258,4 +259,43 @@ func TestNewWindowFunc(t *testing.T) {
 		frame.Prepare("INTERVAL '7' DAY PRECEDING").CurrentRow()
 	})
 	ast.Equal("AVG(salary) OVER ( PARTITION BY department ORDER BY salary ASC ROWS BETWEEN INTERVAL '7' DAY PRECEDING AND CURRENT ROW ) AS sliding_avg_salary", windowFunc.ToSQL().Prepare, equalMessage)
+}
+
+func TestSqlWhenThen(t *testing.T) {
+	ast := assert.New(t)
+	way := testWay()
+	script := NewSQLCase(way)
+	ast.Equal("", script.ToSQL().Prepare)
+	script.When(func(w SQLWhenThen) {})
+	ast.Equal("", script.ToSQL().Prepare)
+	script.When(func(w SQLWhenThen) { w.When(1).Then(1) })
+	script.Else(0)
+	ast.Equal("CASE WHEN 1 THEN 1 ELSE 0 END", script.ToSQL().Prepare)
+}
+
+func TestNewSQLLimit(t *testing.T) {
+	ast := assert.New(t)
+	script := NewSQLLimit()
+	ast.Equal("", script.ToSQL().Prepare)
+}
+
+func TestNewSQLUpsertColumn(t *testing.T) {
+	ast := assert.New(t)
+	way := testWay()
+	script := NewSQLUpsertColumn(way)
+	script.ColumnExists(EmptyString)
+	ast.Equal("", script.ToSQL().Prepare)
+}
+
+func TestNewSQLOrderBy(t *testing.T) {
+	ast := assert.New(t)
+	way := testWay()
+	script := NewSQLOrderBy(way)
+	ast.Equal("", script.ToSQL().Prepare)
+}
+
+func TestParcelFilter(t *testing.T) {
+	ast := assert.New(t)
+	f := ParcelFilter(nil)
+	ast.Equal("", f.ToSQL().Prepare)
 }

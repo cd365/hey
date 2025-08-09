@@ -1273,7 +1273,7 @@ func ParcelMaker(maker Maker) Maker {
 // ParcelFilter Parcel the SQL filter statement. `SQL_FILTER_STATEMENT` => ( `SQL_FILTER_STATEMENT` )
 func ParcelFilter(tmp Filter) Filter {
 	if tmp == nil {
-		return tmp
+		return filterNew()
 	}
 
 	if num := tmp.Num(); num != 1 {
@@ -1812,14 +1812,8 @@ func (s *sqlSelect) AddAll(columns ...string) SQLSelect {
 }
 
 func (s *sqlSelect) AddMaker(makers ...Maker) SQLSelect {
-	for _, value := range makers {
-		if value != nil {
-			if script := value.ToSQL(); script != nil && !script.Empty() {
-				s.Add(script.Prepare, script.Args...)
-			}
-		}
-	}
-	return s
+	tmp := JoinMaker(makers).ToSQL()
+	return s.Add(tmp.Prepare, tmp.Args...)
 }
 
 func (s *sqlSelect) DelAll(columns ...string) SQLSelect {
@@ -3744,16 +3738,16 @@ type SQLWindowFuncFrame interface {
 
 // sqlWindowFuncFrame Implementing the SQLWindowFuncFrame interface.
 type sqlWindowFuncFrame struct {
-	// frame Value is RANGE or ROWS.
+	// frame Value is `RANGE` or `ROWS`.
 	frame string
 
-	// maker Custom SQL statement.
+	// maker Custom SQL statement, priority is higher than prepare + args.
 	maker Maker
 
 	// prepare Frame values.
 	prepare []string
 
-	// valuesArgs
+	// args Prepare's args.
 	args []any
 }
 

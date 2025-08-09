@@ -37,6 +37,7 @@ func TestF(t *testing.T) {
 
 		f.In("status", 1, 2, 3)
 		f.In("name", []string{"Alice", "Bob", "Jeery"})
+		f.AnyQuantifier(nil)
 		f.AnyQuantifier(func(q Quantifier) {
 			q.LessThanEqual("money", NewSQL("SELECT money FROM example WHERE ( age = ? )", 18))
 		})
@@ -90,5 +91,11 @@ func TestF(t *testing.T) {
 		f.Equal("status", 1)
 		f.Exists(exists)
 		ast.Equal("( status = ? AND EXISTS ( SELECT 1 FROM table2 WHERE ( table1.id = table2.id AND table1.key = table2.key ) ) )", f.ToSQL().Prepare, equalMessage)
+	}
+
+	{
+		f.Clean()
+		f.Use(nil)
+		ast.Equal("", f.ToSQL().Prepare, equalMessage)
 	}
 }
