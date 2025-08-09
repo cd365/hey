@@ -45,6 +45,16 @@ type Cache struct {
 	cacher Cacher
 }
 
+// NewCache Create a new *Cache object.
+func NewCache(cacher Cacher) *Cache {
+	if cacher == nil {
+		panic("hey: cacher is nil")
+	}
+	return &Cache{
+		cacher: cacher,
+	}
+}
+
 // GetCacher Read Cacher.
 func (s *Cache) GetCacher() Cacher {
 	return s.cacher
@@ -106,10 +116,10 @@ func (s *Cache) MarshalSet(key string, value any, duration ...time.Duration) err
 func (s *Cache) GetString(key string) (value string, exists bool, err error) {
 	result, exists, err := s.Get(key)
 	if err != nil {
-		return EmptyString, exists, err
+		return StrEmpty, exists, err
 	}
 	if !exists {
-		return EmptyString, exists, nil
+		return StrEmpty, exists, nil
 	}
 	return string(result), exists, nil
 }
@@ -187,16 +197,6 @@ func (s *Cache) DurationRange(duration time.Duration, minValue int, maxValue int
 	return time.Duration(minValue+rand.IntN(maxValue-minValue+1)) * duration
 }
 
-// NewCache Create a new *Cache object.
-func NewCache(cacher Cacher) *Cache {
-	if cacher == nil {
-		panic("hey: cacher is nil")
-	}
-	return &Cache{
-		cacher: cacher,
-	}
-}
-
 // CacheMaker Cache SQL statement related data, including but not limited to cache query data.
 type CacheMaker interface {
 	// GetCacheKey Use prepare and args to calculate the hash value as the cache key.
@@ -266,15 +266,26 @@ type cacheMaker struct {
 	key string
 }
 
+// NewCacheMaker Create a new CacheMaker object.
+func NewCacheMaker(cache *Cache, maker Maker) CacheMaker {
+	if cache == nil || maker == nil {
+		return nil
+	}
+	return &cacheMaker{
+		cache: cache,
+		maker: maker,
+	}
+}
+
 // getCacheKey Default method for building cache key.
 func (s *cacheMaker) getCacheKey() (string, error) {
-	if s.key != EmptyString {
+	if s.key != StrEmpty {
 		return s.key, nil
 	}
 
 	script := s.maker.ToSQL()
-	if script == nil || script.Empty() {
-		return EmptyString, errors.New("SQL is empty")
+	if script.IsEmpty() {
+		return StrEmpty, errors.New("SQL is empty")
 	}
 
 	for index, value := range script.Args {
@@ -284,11 +295,11 @@ func (s *cacheMaker) getCacheKey() (string, error) {
 	}
 	args, err := s.cache.GetCacher().Marshal(script.Args)
 	if err != nil {
-		return EmptyString, err
+		return StrEmpty, err
 	}
 
-	b := getStringBuilder()
-	defer putStringBuilder(b)
+	b := poolGetStringBuilder()
+	defer poolPutStringBuilder(b)
 
 	b.WriteString(script.Prepare)
 	b.WriteString(";")
@@ -296,7 +307,7 @@ func (s *cacheMaker) getCacheKey() (string, error) {
 
 	hash := sha256.New()
 	if _, err = hash.Write([]byte(b.String())); err != nil {
-		return EmptyString, err
+		return StrEmpty, err
 	}
 	s.key = hex.EncodeToString(hash.Sum(nil))
 	return s.key, nil
@@ -308,12 +319,12 @@ func (s *cacheMaker) GetCacheKey() (string, error) {
 	if cacheKey == nil {
 		return s.getCacheKey()
 	}
-	if s.key != EmptyString {
+	if s.key != StrEmpty {
 		return s.key, nil
 	}
 	key, err := cacheKey()
 	if err != nil {
-		return EmptyString, err
+		return StrEmpty, err
 	}
 	s.key = key
 	return s.key, nil
@@ -329,7 +340,7 @@ func (s *cacheMaker) UseCacheKey(cacheKey func(maker Maker) (string, error)) Cac
 
 // Reset Resetting cache related properties.
 func (s *cacheMaker) Reset(maker ...Maker) CacheMaker {
-	s.key = EmptyString
+	s.key = StrEmpty
 	for _, tmp := range maker {
 		if tmp != nil {
 			s.maker = tmp
@@ -390,7 +401,7 @@ func (s *cacheMaker) MarshalSet(value any, duration ...time.Duration) error {
 // GetString Get string value.
 func (s *cacheMaker) GetString() (string, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
-		return EmptyString, false, err
+		return StrEmpty, false, err
 	}
 	return s.cache.GetString(s.key)
 }
@@ -451,17 +462,6 @@ func (s *cacheMaker) SetBool(value bool, duration ...time.Duration) error {
 	return s.cache.SetBool(s.key, value, duration...)
 }
 
-// NewCacheMaker Create a new CacheMaker object.
-func NewCacheMaker(cache *Cache, maker Maker) CacheMaker {
-	if cache == nil || maker == nil {
-		return nil
-	}
-	return &cacheMaker{
-		cache: cache,
-		maker: maker,
-	}
-}
-
 // StringMutex maps string keys to a fixed set of sync.Mutex locks using hashing.
 type StringMutex struct {
 	// mutexes Slice of mutexes, fixed after initialization.
@@ -469,20 +469,6 @@ type StringMutex struct {
 
 	// length Number of mutexes, fixed after initialization.
 	length int
-}
-
-// Get returns the sync.Mutex corresponding to the given key.
-func (s *StringMutex) Get(key string) *sync.Mutex {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(key))
-	value := h.Sum64()
-	index := value % uint64(s.length)
-	return s.mutexes[index]
-}
-
-// Len returns the number of mutexes.
-func (s *StringMutex) Len() int {
-	return s.length
 }
 
 // NewStringMutex creates a new StringMutex with the specified number of mutexes.
@@ -501,12 +487,31 @@ func NewStringMutex(length int) *StringMutex {
 	return result
 }
 
+// Get returns the sync.Mutex corresponding to the given key.
+func (s *StringMutex) Get(key string) *sync.Mutex {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	value := h.Sum64()
+	index := value % uint64(s.length)
+	return s.mutexes[index]
+}
+
+// Len returns the number of mutexes.
+func (s *StringMutex) Len() int {
+	return s.length
+}
+
 type MinMaxDuration struct {
 	minValue int // Range minimum value.
 
 	maxValue int // Range maximum value.
 
 	duration time.Duration // Base duration value.
+}
+
+// NewMinMaxDuration The minimum value of all values should be granter than 0, unless you want to cache permanently.
+func NewMinMaxDuration(duration time.Duration, minValue int, maxValue int) *MinMaxDuration {
+	return (&MinMaxDuration{}).init(duration, minValue, maxValue)
 }
 
 func (s *MinMaxDuration) init(duration time.Duration, minValue int, maxValue int) *MinMaxDuration {
@@ -522,9 +527,4 @@ func (s *MinMaxDuration) Get() time.Duration {
 		return time.Duration(0)
 	}
 	return s.duration * time.Duration(s.minValue+rand.IntN(s.maxValue-s.minValue+1))
-}
-
-// NewMinMaxDuration The minimum value of all values should be granter than 0, unless you want to cache permanently.
-func NewMinMaxDuration(duration time.Duration, minValue int, maxValue int) *MinMaxDuration {
-	return (&MinMaxDuration{}).init(duration, minValue, maxValue)
 }

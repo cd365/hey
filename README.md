@@ -14,12 +14,10 @@ For example: INSERT, DELETE, UPDATE, SELECT ...
 
 ## INSTALL
 ```shell
-go get github.com/cd365/hey/v4@latest
+go get github.com/cd365/hey/v5@latest
 ```
 
-## How to use hey?
-Here are some examples of use:
-
+## EXAMPLE
 ```go
 package main
 
@@ -28,7 +26,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/cd365/hey/v4"
+	"github.com/cd365/hey/v5"
 	"github.com/cd365/logger/v9"
 	_ "github.com/go-sql-driver/mysql" /* Registering the database driver */
 	_ "github.com/lib/pq"              /* Registering the database driver */
@@ -52,7 +50,7 @@ func Postgresql() (*hey.Way, error) {
 	cfg := way.GetCfg()
 
 	cfg.Manual = hey.Postgresql()
-	cfg.Manual.Replace = hey.NewReplace() // Optional, You can customize it by using "table_or_column_name" instead of table_or_column_name
+	cfg.Manual.Replacer = hey.NewReplacer() // Optional, You can customize it by using "table_or_column_name" instead of table_or_column_name
 
 	cfg.DeleteMustUseWhere = true
 	cfg.UpdateMustUseWhere = true
@@ -82,7 +80,7 @@ func Mysql() (*hey.Way, error) {
 	cfg := way.GetCfg()
 
 	cfg.Manual = hey.Mysql()
-	cfg.Manual.Replace = hey.NewReplace() // Optional, You can customize it by using `table_or_column_name` instead of table_or_column_name
+	cfg.Manual.Replacer = hey.NewReplacer() // Optional, You can customize it by using `table_or_column_name` instead of table_or_column_name
 
 	cfg.DeleteMustUseWhere = true
 	cfg.UpdateMustUseWhere = true
@@ -112,7 +110,7 @@ func Sqlite() (*hey.Way, error) {
 	cfg := way.GetCfg()
 
 	cfg.Manual = hey.Mysql()
-	cfg.Manual.Replace = hey.NewReplace() // Optional, You can customize it by using `table_or_column_name` instead of table_or_column_name
+	cfg.Manual.Replacer = hey.NewReplacer() // Optional, You can customize it by using `table_or_column_name` instead of table_or_column_name
 
 	cfg.DeleteMustUseWhere = true
 	cfg.UpdateMustUseWhere = true

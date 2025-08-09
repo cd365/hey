@@ -1,6 +1,6 @@
 .PHONY: all fmt mod-tidy test test-coverage install-tools code betteralign gofumpt
 
-all: mod-tidy fmt test
+all: mod-tidy fmt test test-coverage
 
 fmt:
 	for file in $$(find . -name "*.go"); do go fmt "$${file}"; done
