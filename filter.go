@@ -40,8 +40,8 @@ func InGroupValues[T any](values []T, fc func(tmp T) []any) [][]any {
 	return result
 }
 
-// toInterfaceSlice Convert any type of slice to []any.
-func toInterfaceSlice[T any](slice []T) []any {
+// AnyAny Convert any type of slice to []any.
+func AnyAny[T any](slice []T) []any {
 	result := make([]any, len(slice))
 	for i, v := range slice {
 		result[i] = v
@@ -60,61 +60,61 @@ func argsCompatible(args ...any) []any {
 	case []any:
 		return argsCompatible(v...)
 	case []string:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []int:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []int8:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []int16:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []int32:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []int64:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []uint:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []uint8: // []byte
 		return args
 	case []uint16:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []uint32:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []uint64:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []bool:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []float32:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []float64:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*string:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*int:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*int8:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*int16:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*int32:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*int64:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*uint:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*uint8:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*uint16:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*uint32:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*uint64:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*bool:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*float32:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	case []*float64:
-		return toInterfaceSlice(v)
+		return AnyAny(v)
 	default:
 		rt := reflect.TypeOf(args[0])
 		if rt.Kind() != reflect.Slice {
@@ -658,10 +658,10 @@ func (s *filter) getAll(keys []string) []string {
 
 func (s *filter) columnCompareSubquery(logic string, column string, compare string, subquery any) bool {
 	maker, ok := subquery.(Maker)
-	if !ok {
-		return ok
+	if !ok || maker == nil {
+		return false
 	}
-	script := ParcelMaker(maker).ToSQL()
+	script := ParcelSQL(maker.ToSQL())
 	script.Prepare = Strings(s.get(column), StrSpace, compare, StrSpace, script.Prepare)
 	s.addSQL(logic, script)
 	return ok

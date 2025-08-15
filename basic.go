@@ -17,7 +17,7 @@ import (
 	"github.com/cd365/logger/v9"
 )
 
-// DiscardDuplicate discard duplicate element.
+// DiscardDuplicate Slice deduplication.
 func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (result []T) {
 	length := len(dynamic)
 	mp := make(map[T]*struct{}, length)
@@ -38,6 +38,7 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 	return
 }
 
+// MergeAssoc Merge maps.
 func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
 	length := len(values)
 	result := make(map[K]V, 8)
@@ -53,6 +54,7 @@ func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
 	return result
 }
 
+// MergeArray Merge slices.
 func MergeArray[V any](values ...[]V) []V {
 	length := len(values)
 	result := make([]V, 0)
@@ -66,6 +68,7 @@ func MergeArray[V any](values ...[]V) []V {
 	return result
 }
 
+// AssocToAssoc Create a map based on another map.
 func AssocToAssoc[K comparable, V any, X comparable, Y any](values map[K]V, fc func(k K, v V) (X, Y)) map[X]Y {
 	if fc == nil {
 		return nil
@@ -78,6 +81,7 @@ func AssocToAssoc[K comparable, V any, X comparable, Y any](values map[K]V, fc f
 	return result
 }
 
+// AssocToArray Create a slice from a map.
 func AssocToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) W) []W {
 	if fc == nil {
 		return nil
@@ -90,6 +94,7 @@ func AssocToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) 
 	return result
 }
 
+// ArrayToAssoc Create a map from a slice.
 func ArrayToAssoc[V any, K comparable, W any](values []V, fc func(v V) (K, W)) map[K]W {
 	if fc == nil {
 		return nil
@@ -103,6 +108,7 @@ func ArrayToAssoc[V any, K comparable, W any](values []V, fc func(v V) (K, W)) m
 	return result
 }
 
+// ArrayToArray Create a slice from another slice.
 func ArrayToArray[V any, W any](values []V, fc func(k int, v V) W) []W {
 	if fc == nil {
 		return nil
@@ -114,6 +120,7 @@ func ArrayToArray[V any, W any](values []V, fc func(k int, v V) W) []W {
 	return result
 }
 
+// AssocDiscard Delete some elements from the map.
 func AssocDiscard[K comparable, V any](values map[K]V, discard func(k K, v V) bool) map[K]V {
 	if values == nil || discard == nil {
 		return values
@@ -127,6 +134,7 @@ func AssocDiscard[K comparable, V any](values map[K]V, discard func(k K, v V) bo
 	return result
 }
 
+// ArrayDiscard Delete some elements from a slice.
 func ArrayDiscard[V any](values []V, discard func(k int, v V) bool) []V {
 	if values == nil || discard == nil {
 		return values
@@ -148,7 +156,7 @@ const (
 
 // MakerScanAll Rows scan to any struct, based on struct scan data.
 func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(rows *sql.Rows, v *V) error) ([]*V, error) {
-	if maker == nil || scan == nil {
+	if way == nil || maker == nil || scan == nil {
 		return make([]*V, 0), nil
 	}
 	script := maker.ToSQL()
@@ -192,7 +200,7 @@ func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 }
 
 // MakerScanOne Rows scan to any struct, based on struct scan data.
-// Don't forget to use LIMIT 1 in your SQL statement.
+// Scan a piece of data, don't forget to use LIMIT 1 in your SQL statement.
 func MakerScanOne[V any](ctx context.Context, way *Way, maker Maker, scan func(rows *sql.Rows, v *V) error) (*V, error) {
 	lists, err := MakerScanAll(context.WithValue(ctx, MakerScanAllMakeSliceLength, 1), way, maker, scan)
 	if err != nil {
@@ -323,9 +331,11 @@ const (
 // Maker Build SQL fragments or SQL statements, which may include corresponding parameter lists.
 // Notice: The ToSQL method must return a non-nil value for *SQL.
 type Maker interface {
+	// ToSQL Construct SQL statements that may contain parameters, the return value cannot be nil.
 	ToSQL() *SQL
 }
 
+// SQL Prepare SQL statements and parameter lists corresponding to placeholders.
 type SQL struct {
 	// Prepare SQL fragments or SQL statements, which may contain SQL placeholders.
 	Prepare string
@@ -433,7 +443,7 @@ func poolPutStringBuilder(s *strings.Builder) {
 	poolStringBuilder.Put(s)
 }
 
-// JoinMaker Use separator to join multiple SQL fragments. The default is StrSpace.
+// JoinMaker Concatenate multiple SQL scripts and their parameter lists using a specified delimiter.
 func JoinMaker(separator string, makers ...Maker) Maker {
 	script := NewEmptySQL()
 	builder := poolGetStringBuilder()
@@ -457,14 +467,14 @@ func JoinMaker(separator string, makers ...Maker) Maker {
 	return script
 }
 
-func firstFollow(first any, follows ...any) []any {
-	result := make([]any, 0, len(follows)+1)
+func firstFollow(first any, follow ...any) []any {
+	result := make([]any, 0, len(follow)+1)
 	result = append(result, first)
-	result = append(result, follows...)
+	result = append(result, follow...)
 	return result
 }
 
-// JoinSQL Connect multiple SQL scripts and parameters.
+// JoinSQL Use `separator` to concatenate multiple SQL scripts and parameters.
 func JoinSQL(separator string, values ...any) *SQL {
 	length := len(values)
 	makers := make([]Maker, length)
@@ -474,22 +484,22 @@ func JoinSQL(separator string, values ...any) *SQL {
 	return JoinMaker(separator, makers...).ToSQL()
 }
 
-// JoinSQLComma Connecting multiple *SQLs using StrComma.
+// JoinSQLComma Use StrComma to concatenate multiple SQL scripts and parameters.
 func JoinSQLComma(values ...any) *SQL {
 	return JoinSQL(StrComma, values...)
 }
 
-// JoinSQLEmpty Connecting multiple *SQLs using StrEmpty.
+// JoinSQLEmpty Use StrEmpty to concatenate multiple SQL scripts and parameters.
 func JoinSQLEmpty(values ...any) *SQL {
 	return JoinSQL(StrEmpty, values...)
 }
 
-// JoinSQLSpace Connecting multiple *SQLs using StrSpace.
+// JoinSQLSpace Use StrSpace to concatenate multiple SQL scripts and parameters.
 func JoinSQLSpace(values ...any) *SQL {
 	return JoinSQL(StrSpace, values...)
 }
 
-// JoinSQLCommaSpace Connecting multiple *SQLs using StrCommaSpace.
+// JoinSQLCommaSpace Use StrCommaSpace to concatenate multiple SQL scripts and parameters.
 func JoinSQLCommaSpace(values ...any) *SQL {
 	return JoinSQL(StrCommaSpace, values...)
 }
@@ -513,32 +523,32 @@ func FuncSQL(funcName string, funcArgs ...any) *SQL {
 	).ToSQL()
 }
 
-// Coalesce Common SQL function.
+// Coalesce Building SQL function COALESCE.
 func Coalesce(values ...any) *SQL {
 	return FuncSQL(StrCoalesce, values...)
 }
 
-// Count Common SQL function.
+// Count Building SQL function COUNT.
 func Count(values ...any) *SQL {
 	return FuncSQL(StrCount, values...)
 }
 
-// Avg Common SQL function.
+// Avg Building SQL function AVG.
 func Avg(values ...any) *SQL {
 	return FuncSQL(StrAvg, values...)
 }
 
-// Max Common SQL function.
+// Max Building SQL function MAX.
 func Max(values ...any) *SQL {
 	return FuncSQL(StrMax, values...)
 }
 
-// Min Common SQL function.
+// Min Building SQL function MIN.
 func Min(values ...any) *SQL {
 	return FuncSQL(StrMin, values...)
 }
 
-// Sum Common SQL function.
+// Sum Building SQL function SUM.
 func Sum(values ...any) *SQL {
 	return FuncSQL(StrSum, values...)
 }
@@ -595,16 +605,22 @@ func (s *replacer) GetAll(keys []string) []string {
 type SQLAlias interface {
 	Maker
 
+	// GetSQL Get SQL statement.
 	GetSQL() *SQL
 
+	// SetSQL Set SQL statement.
 	SetSQL(script *SQL) SQLAlias
 
+	// GetAlias Get alias name value.
 	GetAlias() string
 
+	// SetAlias Set alias name value.
 	SetAlias(alias string) SQLAlias
 
+	// IsEmpty Verify whether the SQL statement is empty.
 	IsEmpty() bool
 
+	// ToEmpty Set both the SQL statement and the alias to empty values.
 	ToEmpty() SQLAlias
 }
 
@@ -733,20 +749,20 @@ func ParcelPrepare(prepare string) string {
 	return Strings(StrLeftSmallBracket, StrSpace, prepare, StrSpace, StrRightSmallBracket)
 }
 
-// ParcelMaker Parcel the SQL statement. `subquery` => ( `subquery` )
-func ParcelMaker(maker Maker) Maker {
-	script := maker.ToSQL()
-	if script.IsEmpty() {
-		return script
+// ParcelSQL Parcel the SQL statement. `subquery` => ( `subquery` )
+func ParcelSQL(script *SQL) *SQL {
+	if script == nil || script.IsEmpty() {
+		return NewEmptySQL()
 	}
-	prepare := strings.TrimSpace(script.Prepare)
+	result := script.Copy()
+	prepare := strings.TrimSpace(result.Prepare)
 	if prepare == StrEmpty {
-		return script.ToEmpty()
+		return result.ToEmpty()
 	}
 	if prepare[0] != StrLeftSmallBracket[0] {
-		prepare = ParcelPrepare(prepare)
+		result.Prepare = ParcelPrepare(prepare)
 	}
-	return NewSQL(prepare, script.Args...)
+	return result
 }
 
 // ParcelFilter Parcel the SQL filter statement. `SQL_FILTER_STATEMENT` => ( `SQL_FILTER_STATEMENT` )
@@ -757,7 +773,7 @@ func ParcelFilter(tmp Filter) Filter {
 	if num := tmp.Num(); num != 1 {
 		return tmp
 	}
-	script := ParcelMaker(tmp).ToSQL()
+	script := ParcelSQL(tmp.ToSQL())
 	return tmp.New().And(script.Prepare, script.Args...)
 }
 
@@ -768,46 +784,50 @@ func ParcelCancelPrepare(prepare string) string {
 	return strings.TrimSuffix(prepare, Strings(StrSpace, StrRightSmallBracket))
 }
 
-// ParcelCancelMaker Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
-func ParcelCancelMaker(maker Maker) Maker {
-	script := maker.ToSQL()
-	return NewSQL(ParcelCancelPrepare(script.Prepare), script.Args...)
+// ParcelCancelSQL Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
+func ParcelCancelSQL(script *SQL) *SQL {
+	if script == nil || script.IsEmpty() {
+		return NewEmptySQL()
+	}
+	result := script.Copy()
+	result.Prepare = ParcelCancelPrepare(result.Prepare)
+	return result
 }
 
-// UnionMaker MakerA, MakerB, MakerC ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C ) ... )
-func UnionMaker(makers ...Maker) Maker {
-	result := make([]Maker, len(makers))
-	for index, maker := range makers {
-		result[index] = ParcelMaker(maker)
+// UnionSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C ) ... )
+func UnionSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
 	}
-	return JoinMaker(Strings(StrSpace, StrUnion, StrSpace), result...)
+	return JoinSQL(Strings(StrSpace, StrUnion, StrSpace), result...)
 }
 
-// UnionAllMaker MakerA, MakerB, MakerC ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C ) ... )
-func UnionAllMaker(makers ...Maker) Maker {
-	result := make([]Maker, len(makers))
-	for index, maker := range makers {
-		result[index] = ParcelMaker(maker)
+// UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C ) ... )
+func UnionAllSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
 	}
-	return JoinMaker(Strings(StrSpace, StrUnionAll, StrSpace), result...)
+	return JoinSQL(Strings(StrSpace, StrUnionAll, StrSpace), result...)
 }
 
-// ExceptMaker MakerA, MakerB ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) ... )
-func ExceptMaker(makers ...Maker) Maker {
-	result := make([]Maker, len(makers))
-	for index, maker := range makers {
-		result[index] = ParcelMaker(maker)
+// ExceptSQL *SQL1, *SQL2 ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) ... )
+func ExceptSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
 	}
-	return JoinMaker(Strings(StrSpace, StrExpect, StrSpace), result...)
+	return JoinSQL(Strings(StrSpace, StrExpect, StrSpace), result...)
 }
 
-// IntersectMaker MakerA, MakerB ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) ... )
-func IntersectMaker(makers ...Maker) Maker {
-	result := make([]Maker, len(makers))
-	for index, maker := range makers {
-		result[index] = ParcelMaker(maker)
+// IntersectSQL *SQL1, *SQL2 ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) ... )
+func IntersectSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
 	}
-	return JoinMaker(Strings(StrSpace, StrIntersect, StrSpace), result...)
+	return JoinSQL(Strings(StrSpace, StrIntersect, StrSpace), result...)
 }
 
 // hexEncodeToString Convert binary byte array to hexadecimal string.
@@ -2658,10 +2678,13 @@ func ScanMap(rows *sql.Rows) ([]map[string]any, error) {
 	return result, nil
 }
 
+// ToEmpty Sets the property value of an object to empty value.
 type ToEmpty interface {
+	// ToEmpty Sets the property value of an object to empty value.
 	ToEmpty()
 }
 
+// SQLComment Constructing SQL statement comments.
 type SQLComment interface {
 	Maker
 
@@ -2837,25 +2860,34 @@ func (s *sqlWith) Del(alias string) SQLWith {
 	return s
 }
 
+// SQLSelect Build the query column set.
 type SQLSelect interface {
 	Maker
 
 	ToEmpty
 
+	// Distinct DISTINCT column1, column2, column3 ...
 	Distinct() SQLSelect
 
+	// Add Put Maker to the query list.
 	Add(maker Maker) SQLSelect
 
+	// Del Delete some columns from the query list. If not specified, delete all.
 	Del(columns ...string) SQLSelect
 
+	// Has Does the column exist in the query list?
 	Has(column string) bool
 
+	// Len Query list length.
 	Len() int
 
+	// Get Query list and its corresponding column parameter list.
 	Get() (columns []string, args map[int][]any)
 
+	// Set Query list and its corresponding column parameter list.
 	Set(columns []string, args map[int][]any) SQLSelect
 
+	// Select Add one or more query lists. If no parameter is provided, all existing query lists will be deleted.
 	Select(columns ...any) SQLSelect
 }
 
@@ -2927,16 +2959,9 @@ func (s *sqlSelect) Distinct() SQLSelect {
 	return s
 }
 
-func (s *sqlSelect) Index(column string) int {
-	index, ok := s.columnsMap[column]
-	if !ok {
-		return -1
-	}
-	return index
-}
-
 func (s *sqlSelect) Has(column string) bool {
-	return s.Index(column) >= 0
+	_, ok := s.columnsMap[column]
+	return ok
 }
 
 func (s *sqlSelect) add(column string, args ...any) *sqlSelect {
@@ -2988,7 +3013,7 @@ func (s *sqlSelect) Del(columns ...string) SQLSelect {
 		s.ToEmpty()
 		return s
 	}
-	deleteIndex := make(map[int]*struct{}, len(columns))
+	deletes := make(map[int]*struct{}, len(columns))
 	for _, column := range columns {
 		if column == StrEmpty {
 			continue
@@ -2997,12 +3022,12 @@ func (s *sqlSelect) Del(columns ...string) SQLSelect {
 		if !ok {
 			continue
 		}
-		deleteIndex[index] = &struct{}{}
+		deletes[index] = nil
 	}
 	length := len(s.columns)
 	result := make([]string, 0, length)
 	for index, column := range s.columns {
-		if _, ok := deleteIndex[index]; ok {
+		if _, ok := deletes[index]; ok {
 			delete(s.columnsMap, column)
 			delete(s.columnsArgs, index)
 		} else {
@@ -3048,7 +3073,6 @@ func (s *sqlSelect) use(columns ...SQLSelect) SQLSelect {
 	return s
 }
 
-// Select Get all columns of the query results.
 func (s *sqlSelect) Select(columns ...any) SQLSelect {
 	if len(columns) == 0 {
 		return s.Del()
@@ -3061,16 +3085,16 @@ func (s *sqlSelect) Select(columns ...any) SQLSelect {
 			for _, column := range v {
 				s.add(column)
 			}
-		case SQLSelect:
-			s.use(v)
-		case []SQLSelect:
-			s.use(v...)
 		case *SQL:
 			s.Add(v)
 		case []*SQL:
 			for _, w := range v {
 				s.Add(w)
 			}
+		case SQLSelect:
+			s.use(v)
+		case []SQLSelect:
+			s.use(v...)
 		case Maker:
 			s.Add(v)
 		case []Maker:
@@ -3083,6 +3107,7 @@ func (s *sqlSelect) Select(columns ...any) SQLSelect {
 	return s
 }
 
+// SQLJoinOn Construct the connection query conditions.
 type SQLJoinOn interface {
 	Maker
 
@@ -3165,37 +3190,48 @@ type sqlJoinSchema struct {
 	joinType string
 }
 
+// SQLJoin Build a join query.
 type SQLJoin interface {
 	Maker
 
 	ToEmpty
 
+	// GetTable Get join query the main table.
 	GetTable() SQLAlias
 
+	// SetTable Set join query the main table.
 	SetTable(table SQLAlias) SQLJoin
 
+	// Table Create a table for join query.
 	Table(table any, alias string) SQLAlias
 
+	// On Set the join query conditions.
 	On(on func(on SQLJoinOn, table1alias string, table2alias string)) SQLJoinAssoc
 
+	// Using The conditions for the join query use USING.
 	Using(columns ...string) SQLJoinAssoc
 
+	// OnEqual The join query conditions uses table1.column = table2.column.
 	OnEqual(table1column string, table2column string) SQLJoinAssoc
 
+	// Join Use the join type to set the table join relationship, if the table1 value is nil, use the main table.
 	Join(join string, table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
 
+	// InnerJoin Set the table join relationship, if the table1 value is nil, use the main table.
 	InnerJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
 
+	// LeftJoin Set the table join relationship, if the table1 value is nil, use the main table.
 	LeftJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
 
+	// RightJoin Set the table join relationship, if the table1 value is nil, use the main table.
 	RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
 
-	// Select Add the queried column list based on the table's alias prefix.
+	// Select Add a column list to the query based on the table alias or table name prefix.
 	Select(table SQLAlias, columns ...string) []string
 }
 
 type sqlJoin struct {
-	master SQLAlias
+	table SQLAlias
 
 	sqlSelect *sqlSelect
 
@@ -3216,15 +3252,15 @@ func newSqlJoin(way *Way) *sqlJoin {
 func (s *sqlJoin) ToEmpty() {
 	s.joins = make([]*sqlJoinSchema, 0, 1<<1)
 	s.sqlSelect.ToEmpty()
-	s.master = nil
+	s.table = nil
 }
 
 func (s *sqlJoin) GetTable() SQLAlias {
-	return s.master
+	return s.table
 }
 
 func (s *sqlJoin) SetTable(table SQLAlias) SQLJoin {
-	s.master = table
+	s.table = table
 	return s
 }
 
@@ -3235,7 +3271,7 @@ func (s *sqlJoin) ToSQL() *SQL {
 	b.WriteString(Strings(StrSelect, StrSpace))
 	b.WriteString(script.Prepare)
 	b.WriteString(Strings(StrSpace, StrFrom, StrSpace))
-	master := s.master.ToSQL()
+	master := s.table.ToSQL()
 	b.WriteString(master.Prepare)
 	b.WriteString(StrSpace)
 	script.Args = append(script.Args, master.Args...)
@@ -3302,7 +3338,7 @@ func (s *sqlJoin) Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQL
 		joinType = StrJoinInner
 	}
 	if table1 == nil || table1.ToSQL().IsEmpty() {
-		table1 = s.master
+		table1 = s.table
 	}
 	if table2 == nil || table2.ToSQL().IsEmpty() {
 		return s
@@ -3331,16 +3367,23 @@ func (s *sqlJoin) RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) S
 }
 
 func (s *sqlJoin) Select(table SQLAlias, columns ...string) []string {
-	return s.way.T().SetAlias(table.GetAlias()).ColumnAll(columns...)
+	alias := table.GetAlias()
+	if alias == StrEmpty {
+		alias = table.GetSQL().Prepare
+	}
+	return s.way.T().SetAlias(alias).ColumnAll(columns...)
 }
 
+// SQLGroupBy Build GROUP BY statements.
 type SQLGroupBy interface {
 	Maker
 
 	ToEmpty
 
+	// Group Set the grouping column, allowing string, []string, *SQL, []*SQL, Maker, []Maker.
 	Group(group ...any) SQLGroupBy
 
+	// Having Set the conditions filter HAVING statement after GROUP BY.
 	Having(having func(having Filter)) SQLGroupBy
 }
 
@@ -3399,7 +3442,7 @@ func (s *sqlGroupBy) add(script *SQL) *sqlGroupBy {
 	if script == nil || script.IsEmpty() {
 		return s
 	}
-	column, args := script.Prepare, script.Args
+	column, args := strings.TrimSpace(script.Prepare), script.Args
 	if _, ok := s.groupColumnsMap[column]; ok {
 		return s
 	}
@@ -3416,12 +3459,24 @@ func (s *sqlGroupBy) Group(group ...any) SQLGroupBy {
 		case string:
 			s.add(NewSQL(v))
 		case []string:
-			s.Group(v)
+			for _, w := range v {
+				s.add(NewSQL(w))
+			}
 		case *SQL:
 			s.add(v)
+		case []*SQL:
+			for _, w := range v {
+				s.add(w)
+			}
 		case Maker:
 			if v != nil {
 				s.add(v.ToSQL())
+			}
+		case []Maker:
+			for _, w := range v {
+				if w != nil {
+					s.add(w.ToSQL())
+				}
 			}
 		default:
 		}
@@ -3436,13 +3491,16 @@ func (s *sqlGroupBy) Having(having func(having Filter)) SQLGroupBy {
 	return s
 }
 
+// SQLOrderBy Build ORDER BY statements.
 type SQLOrderBy interface {
 	Maker
 
 	ToEmpty
 
+	// Asc Build column1 ASC, column2 ASC, column3 ASC...
 	Asc(columns ...string) SQLOrderBy
 
+	// Desc Build column1 DESC, column2 DESC, column3 DESC...
 	Desc(columns ...string) SQLOrderBy
 }
 
@@ -3509,15 +3567,19 @@ func (s *sqlOrderBy) Desc(columns ...string) SQLOrderBy {
 	return s.add(StrDesc, columns...)
 }
 
+// SQLLimit Build LIMIT n[ OFFSET m] statements.
 type SQLLimit interface {
 	Maker
 
 	ToEmpty
 
+	// Limit SQL LIMIT.
 	Limit(limit int64) SQLLimit
 
+	// Offset SQL OFFSET.
 	Offset(offset int64) SQLLimit
 
+	// Page SQL LIMIT and OFFSET.
 	Page(page int64, limit ...int64) SQLLimit
 }
 
@@ -3589,11 +3651,18 @@ type Limiter interface {
 	GetOffset() int64
 }
 
+// SQLValues Build INSERT-VALUES statements.
 type SQLValues interface {
 	Maker
 
 	ToEmpty
 
+	IsEmpty() bool
+
+	// Subquery The inserted data is a subquery.
+	Subquery(subquery Maker) SQLValues
+
+	// Values The inserted data of VALUES.
 	Values(values ...[]any) SQLValues
 }
 
@@ -3618,7 +3687,7 @@ func (s *sqlValues) IsEmpty() bool {
 	return s.subquery == nil && (len(s.values) == 0 || len(s.values[0]) == 0)
 }
 
-func (s *sqlValues) ValuesToSQL(values [][]any) *SQL {
+func (s *sqlValues) valuesToSQL(values [][]any) *SQL {
 	script := NewEmptySQL()
 	count := len(values)
 	if count == 0 {
@@ -3647,7 +3716,7 @@ func (s *sqlValues) ToSQL() *SQL {
 	if s.subquery != nil {
 		return s.subquery.ToSQL()
 	}
-	return s.ValuesToSQL(s.values)
+	return s.valuesToSQL(s.values)
 }
 
 func (s *sqlValues) Subquery(subquery Maker) SQLValues {
@@ -3665,74 +3734,18 @@ func (s *sqlValues) Values(values ...[]any) SQLValues {
 	return s
 }
 
-func (s *sqlValues) Set(index int, value any) SQLValues {
-	if index < 0 {
-		return s
-	}
-	if s.values == nil {
-		s.values = make([][]any, 1)
-	}
-	for num, tmp := range s.values {
-		length := len(tmp)
-		if index > length {
-			continue
-		}
-		if index == length {
-			s.values[num] = append(s.values[num], value)
-		} else {
-			s.values[num][index] = value
-		}
-	}
-	return s
-}
-
-func (s *sqlValues) Del(indexes ...int) SQLValues {
-	if s.values == nil {
-		return s
-	}
-	length := len(indexes)
-	if length == 0 {
-		return s
-	}
-	deletedIndex := make(map[int]*struct{}, length)
-	for _, index := range indexes {
-		if index < 0 {
-			continue
-		}
-		deletedIndex[index] = &struct{}{}
-	}
-	length = len(deletedIndex)
-	if length == 0 {
-		return s
-	}
-	values := make([][]any, len(s.values))
-	for index, value := range s.values {
-		values[index] = make([]any, 0, len(value))
-		for num, tmp := range value {
-			if _, ok := deletedIndex[num]; !ok {
-				values[index] = append(values[index], tmp)
-			}
-		}
-	}
-	s.values = values
-	return s
-}
-
-func (s *sqlValues) LenValues() int {
-	return len(s.values)
-}
-
-func (s *sqlValues) GetValues() [][]any {
-	return s.values
-}
-
+// SQLReturning Build INSERT INTO xxx RETURNING xxx
 type SQLReturning interface {
 	Maker
 
 	ToEmpty
 
+	// Prepare When constructing a SQL statement that insert a row of data and return the id,
+	// you may need to adjust the SQL statement, such as adding `RETURNING id` to the end of the insert statement.
 	Prepare(prepare func(tmp *SQL)) SQLReturning
 
+	// Execute When constructing a SQL statement that inserts a row of data and returns the id,
+	// get the id value of the inserted row (this may vary depending on the database driver)
 	Execute(execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)) SQLReturning
 }
 
@@ -3777,6 +3790,7 @@ func (s *sqlReturning) Execute(execute func(ctx context.Context, stmt *Stmt, arg
 	return s
 }
 
+// SQLUpdateSet Build UPDATE-SET statements.
 type SQLUpdateSet interface {
 	Maker
 
@@ -3784,28 +3798,40 @@ type SQLUpdateSet interface {
 
 	Len() int
 
+	// Forbid Set a list of columns that cannot be updated.
 	Forbid(columns ...string) SQLUpdateSet
 
+	// GetForbid Get a list of columns that are prohibited from updating.
 	GetForbid() []string
 
+	// Set Update column assignment.
 	Set(column string, value any) SQLUpdateSet
 
+	// Decr Update column decrement.
 	Decr(column string, decr any) SQLUpdateSet
 
+	// Incr Update column increment.
 	Incr(column string, incr any) SQLUpdateSet
 
+	// SetMap Update column assignment by map.
 	SetMap(columnValue map[string]any) SQLUpdateSet
 
+	// SetSlice Update column assignment by slice.
 	SetSlice(columns []string, values []any) SQLUpdateSet
 
+	// Update Parse the given update data and assign the update value.
 	Update(update any) SQLUpdateSet
 
+	// Compare Compare struct assignment update.
 	Compare(old, new any, except ...string) SQLUpdateSet
 
+	// Default Set the default columns that need to be updated, such as update timestamp.
 	Default(column string, value any) SQLUpdateSet
 
+	// GetUpdate Get a list of existing updates.
 	GetUpdate() ([]string, [][]any)
 
+	// SetUpdate Delete the existing update list and set the update list.
 	SetUpdate(updates []string, params [][]any) SQLUpdateSet
 }
 
@@ -4181,33 +4207,46 @@ func (s *sqlOnConflict) ToSQL() *SQL {
 	return script
 }
 
+// SQLInsert Build INSERT statements.
 type SQLInsert interface {
 	Maker
 
 	ToEmpty
 
+	// Table Insert data into the target table.
 	Table(table Maker) SQLInsert
 
+	// Forbid When inserting data, it is forbidden to set certain columns, such as: auto-increment id.
 	Forbid(columns ...string) SQLInsert
 
+	// GetForbid Get a list of columns that have been prohibited from insertion.
 	GetForbid() []string
 
+	// Column Set the inserted column list. An empty value will delete the set field list.
 	Column(columns ...string) SQLInsert
 
+	// Values Set the list of values to be inserted.
 	Values(values ...[]any) SQLInsert
 
+	// ColumnValue Set a single column and value.
 	ColumnValue(column string, value any) SQLInsert
 
+	// Create Parses the given insert data and sets the insert data.
 	Create(create any) SQLInsert
 
+	// Remove Delete a column and value.
 	Remove(columns ...string) SQLInsert
 
+	// Default Set the default column for inserted data, such as the creation timestamp.
 	Default(column string, value any) SQLInsert
 
+	// Returning Insert a piece of data and get the auto-increment value.
 	Returning(fc func(r SQLReturning)) SQLInsert
 
+	// GetColumn Get the list of inserted columns that have been set.
 	GetColumn(excludes ...string) []string
 
+	// OnConflict When inserting data, set the execution logic when there is a conflict.
 	OnConflict(fc func(o SQLOnConflict)) SQLInsert
 }
 
@@ -4263,7 +4302,8 @@ func (s *sqlInsert) ToSQL() *SQL {
 	makers := []any{NewSQL(StrInsert), NewSQL(StrInto), s.table}
 
 	columns1, params1 := s.columns.Get()
-	values1 := s.values.GetValues()
+	values1 := make([][]any, len(s.values.values))
+	copy(values1, s.values.values)
 
 	columns, values := make([]string, len(columns1)), make([][]any, len(values1))
 	copy(columns, columns1)
@@ -4274,7 +4314,8 @@ func (s *sqlInsert) ToSQL() *SQL {
 		if len(values) > 0 {
 			// add default columns and values.
 			defaultColumns, defaultParams := s.defaults.columns.Get()
-			defaultValues := s.defaults.values.GetValues()
+			defaultValues := make([][]any, len(s.defaults.values.values))
+			copy(defaultValues, s.defaults.values.values)
 			defaultColumnsLength := len(defaultColumns)
 			defaultValuesLength := len(defaultValues)
 			if defaultColumnsLength > 0 && defaultValuesLength > 0 && defaultColumnsLength == len(defaultValues[0]) {
@@ -4312,7 +4353,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 	if !ok {
 		if len(values) > 0 {
 			makers = append(makers, NewSQL(StrValues))
-			makers = append(makers, s.values.ValuesToSQL(values))
+			makers = append(makers, s.values.valuesToSQL(values))
 			ok = true
 		}
 	}
@@ -4537,6 +4578,7 @@ type Table struct {
 	updateSet *sqlUpdateSet
 }
 
+// Table Create a *Table object to execute SELECT, INSERT, UPDATE, and DELETE statements.
 func (s *Way) Table(table any) *Table {
 	return &Table{
 		way:       s,
@@ -4575,16 +4617,19 @@ func (s *Table) Comment(comment string) *Table {
 	return s
 }
 
+// With Custom common table expression (CTE).
 func (s *Table) With(fc func(w SQLWith)) *Table {
 	fc(s.with)
 	return s
 }
 
+// Select Add one or more query lists. If no parameter is provided, all existing query lists will be deleted.
 func (s *Table) Select(selects ...any) *Table {
 	s.selects.Select(selects...)
 	return s
 }
 
+// Table Set the table name, or possibly a subquery with an alias.
 func (s *Table) Table(table any) *Table {
 	if table == nil {
 		s.table = newSqlAlias(StrEmpty)
@@ -4598,41 +4643,49 @@ func (s *Table) Table(table any) *Table {
 	return s
 }
 
+// Alias Set the table alias name.
 func (s *Table) Alias(alias string) *Table {
 	s.table.SetAlias(alias)
 	return s
 }
 
+// Join Custom join query.
 func (s *Table) Join(fc func(j SQLJoin)) *Table {
 	fc(s.joins)
 	return s
 }
 
+// Where Set the WHERE condition.
 func (s *Table) Where(fc func(f Filter)) *Table {
 	fc(s.where)
 	return s
 }
 
+// Group Set up grouping.
 func (s *Table) Group(fc func(g SQLGroupBy)) *Table {
 	fc(s.groupBy)
 	return s
 }
 
+// Asc Sort ascending.
 func (s *Table) Asc(column string) *Table {
 	s.orderBy.Asc(column)
 	return s
 }
 
+// Desc Sort descending.
 func (s *Table) Desc(column string) *Table {
 	s.orderBy.Desc(column)
 	return s
 }
 
+// Limit Set the maximum number of query result sets.
 func (s *Table) Limit(limit int64) *Table {
 	s.limit.Limit(limit)
 	return s
 }
 
+// Offset Set the offset of the query target data.
 func (s *Table) Offset(offset int64) *Table {
 	s.limit.Offset(offset)
 	return s
@@ -4998,7 +5051,7 @@ type SQLWindowFuncFrame interface {
 	// UnboundedFollowing End of partition.
 	UnboundedFollowing() *SQL
 
-	// Between BETWEEN start AND end
+	// Between Build BETWEEN start AND end.
 	Between(fc func(ff SQLWindowFuncFrame) (*SQL, *SQL)) SQLWindowFuncFrame
 }
 
@@ -5097,6 +5150,10 @@ func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
 		way:   way,
 		alias: LastNotEmptyString(aliases),
 	}
+}
+
+func (s *Way) WindowFunc(alias string) *WindowFunc {
+	return NewWindowFunc(s, alias)
 }
 
 // Window Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...
@@ -5328,10 +5385,13 @@ func sqlCaseParseMaker(script *SQL) (string, []any) {
 type SQLWhenThen interface {
 	Maker
 
+	// V Set the go string as a SQL string.
 	V(value string) string
 
+	// When SQL WHEN.
 	When(values ...any) SQLWhenThen
 
+	// Then SQL THEN.
 	Then(values ...any) SQLWhenThen
 }
 
@@ -5387,14 +5447,19 @@ func (s *sqlWhenThen) Then(values ...any) SQLWhenThen {
 type SQLCase interface {
 	Maker
 
+	// V Set the go string as a SQL string.
 	V(value string) string
 
+	// Alias Set alias name.
 	Alias(alias string) SQLCase
 
+	// Case SQL CASE.
 	Case(values ...any) SQLCase
 
+	// When SQL WHEN xxx THEN xxx.
 	When(fc func(w SQLWhenThen)) SQLCase
 
+	// Else SQL CASE xxx ELSE xxx.
 	Else(values ...any) SQLCase
 }
 
@@ -5414,6 +5479,10 @@ func NewSQLCase(way *Way) SQLCase {
 	return &sqlCase{
 		way: way,
 	}
+}
+
+func (s *Way) Case() SQLCase {
+	return NewSQLCase(s)
 }
 
 func (s *sqlCase) V(value string) string {
