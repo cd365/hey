@@ -5370,28 +5370,16 @@ func sqlCaseString(value string) string {
 	return fmt.Sprintf("'%s'", value)
 }
 
-// sqlCaseValuesToMaker Convert the go parameter values to *SQL.
-func sqlCaseValuesToMaker(values ...any) *SQL {
-	length := len(values)
-	if length == 0 {
-		return nil
+// sqlCaseValueToSQL Convert the go parameter value to *SQL.
+func sqlCaseValueToSQL(value any) *SQL {
+	if value == nil {
+		return NewSQL(StrNull)
 	}
-	if length == 1 {
-		if values[0] == nil {
-			return nil
-		}
-		return any2sql(values[0])
-	}
-	switch v := values[0].(type) {
-	case string:
-		return NewSQL(v, values[1:]...)
-	default:
-		return nil
-	}
+	return any2sql(value)
 }
 
-// sqlCaseParseMaker Get SQL script and args.
-func sqlCaseParseMaker(script *SQL) (string, []any) {
+// sqlCaseSQLToPrepareArgs Get SQL script and args.
+func sqlCaseSQLToPrepareArgs(script *SQL) (string, []any) {
 	if script == nil {
 		return StrNull, nil
 	}
@@ -5408,11 +5396,8 @@ type SQLWhenThen interface {
 	// V Set the go string as a SQL string.
 	V(value string) string
 
-	// When SQL WHEN.
-	When(values ...any) SQLWhenThen
-
-	// Then SQL THEN.
-	Then(values ...any) SQLWhenThen
+	// WhenThen SQL WHEN and THEN.
+	WhenThen(when, then any) SQLWhenThen
 }
 
 type sqlWhenThen struct {
@@ -5439,13 +5424,13 @@ func (s *sqlWhenThen) ToSQL() *SQL {
 		}
 		b.WriteString(StrWhen)
 		b.WriteString(StrSpace)
-		prepare, args := sqlCaseParseMaker(s.when[i])
+		prepare, args := sqlCaseSQLToPrepareArgs(s.when[i])
 		b.WriteString(prepare)
 		script.Args = append(script.Args, args...)
 		b.WriteString(StrSpace)
 		b.WriteString(StrThen)
 		b.WriteString(StrSpace)
-		prepare, args = sqlCaseParseMaker(s.then[i])
+		prepare, args = sqlCaseSQLToPrepareArgs(s.then[i])
 		b.WriteString(prepare)
 		script.Args = append(script.Args, args...)
 	}
@@ -5453,13 +5438,9 @@ func (s *sqlWhenThen) ToSQL() *SQL {
 	return script
 }
 
-func (s *sqlWhenThen) When(values ...any) SQLWhenThen {
-	s.when = append(s.when, sqlCaseValuesToMaker(values...))
-	return s
-}
-
-func (s *sqlWhenThen) Then(values ...any) SQLWhenThen {
-	s.then = append(s.then, sqlCaseValuesToMaker(values...))
+func (s *sqlWhenThen) WhenThen(when, then any) SQLWhenThen {
+	s.when = append(s.when, sqlCaseValueToSQL(when))
+	s.then = append(s.then, sqlCaseValueToSQL(then))
 	return s
 }
 
@@ -5474,13 +5455,13 @@ type SQLCase interface {
 	Alias(alias string) SQLCase
 
 	// Case SQL CASE.
-	Case(values ...any) SQLCase
+	Case(value any) SQLCase
 
 	// When SQL WHEN xxx THEN xxx.
 	When(fc func(w SQLWhenThen)) SQLCase
 
 	// Else SQL CASE xxx ELSE xxx.
-	Else(values ...any) SQLCase
+	Else(value any) SQLCase
 }
 
 type sqlCase struct {
@@ -5523,7 +5504,7 @@ func (s *sqlCase) ToSQL() *SQL {
 	b.WriteString(StrCase)
 	if tmp := s.sqlCase; tmp != nil && !tmp.IsEmpty() {
 		b.WriteString(StrSpace)
-		prepare, args := sqlCaseParseMaker(tmp)
+		prepare, args := sqlCaseSQLToPrepareArgs(tmp)
 		b.WriteString(prepare)
 		script.Args = append(script.Args, args...)
 	}
@@ -5534,7 +5515,7 @@ func (s *sqlCase) ToSQL() *SQL {
 		b.WriteString(StrSpace)
 		b.WriteString(StrElse)
 		b.WriteString(StrSpace)
-		prepare, args := sqlCaseParseMaker(tmp)
+		prepare, args := sqlCaseSQLToPrepareArgs(tmp)
 		b.WriteString(prepare)
 		script.Args = append(script.Args, args...)
 	}
@@ -5549,10 +5530,8 @@ func (s *sqlCase) Alias(alias string) SQLCase {
 	return s
 }
 
-func (s *sqlCase) Case(values ...any) SQLCase {
-	if tmp := sqlCaseValuesToMaker(values...); tmp != nil {
-		s.sqlCase = tmp
-	}
+func (s *sqlCase) Case(value any) SQLCase {
+	s.sqlCase = sqlCaseValueToSQL(value)
 	return s
 }
 
@@ -5567,9 +5546,7 @@ func (s *sqlCase) When(fc func(w SQLWhenThen)) SQLCase {
 	return s
 }
 
-func (s *sqlCase) Else(values ...any) SQLCase {
-	if tmp := sqlCaseValuesToMaker(values...); tmp != nil {
-		s.sqlElse = tmp
-	}
+func (s *sqlCase) Else(value any) SQLCase {
+	s.sqlElse = sqlCaseValueToSQL(value)
 	return s
 }
