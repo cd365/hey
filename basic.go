@@ -225,12 +225,17 @@ const (
 	StrSpace      = " "
 	StrCommaSpace = ", "
 
-	StrNull     = "NULL"
-	StrAs       = "AS"
-	StrAsc      = "ASC"
-	StrDesc     = "DESC"
-	StrUnion    = "UNION"
-	StrUnionAll = "UNION ALL"
+	StrNull = "NULL"
+	StrAs   = "AS"
+	StrAsc  = "ASC"
+	StrDesc = "DESC"
+
+	StrUnion        = "UNION"
+	StrUnionAll     = "UNION ALL"
+	StrIntersect    = "INTERSECT"
+	StrIntersectAll = "INTERSECT ALL"
+	StrExpect       = "EXCEPT"
+	StrExpectAll    = "EXCEPT ALL"
 
 	StrJoinInner = "INNER JOIN"
 	StrJoinLeft  = "LEFT JOIN"
@@ -253,9 +258,6 @@ const (
 
 	StrLeftSmallBracket  = "("
 	StrRightSmallBracket = ")"
-
-	StrExpect    = "EXCEPT"
-	StrIntersect = "INTERSECT"
 
 	StrCoalesce = "COALESCE"
 	StrCount    = "COUNT"
@@ -794,7 +796,7 @@ func ParcelCancelSQL(script *SQL) *SQL {
 	return result
 }
 
-// UnionSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C ) ... )
+// UnionSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )... )
 func UnionSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -803,7 +805,7 @@ func UnionSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(Strings(StrSpace, StrUnion, StrSpace), result...)
 }
 
-// UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C ) ... )
+// UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )... )
 func UnionAllSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -812,7 +814,25 @@ func UnionAllSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(Strings(StrSpace, StrUnionAll, StrSpace), result...)
 }
 
-// ExceptSQL *SQL1, *SQL2 ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) ... )
+// IntersectSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) INTERSECT ( QUERY_C )... )
+func IntersectSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(Strings(StrSpace, StrIntersect, StrSpace), result...)
+}
+
+// IntersectAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ALL ( QUERY_B ) INTERSECT ALL ( QUERY_C )... )
+func IntersectAllSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(Strings(StrSpace, StrIntersectAll, StrSpace), result...)
+}
+
+// ExceptSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) EXCEPT ( QUERY_C )... )
 func ExceptSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -821,13 +841,13 @@ func ExceptSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(Strings(StrSpace, StrExpect, StrSpace), result...)
 }
 
-// IntersectSQL *SQL1, *SQL2 ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) ... )
-func IntersectSQL(scripts ...*SQL) *SQL {
+// ExceptAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ALL ( QUERY_B ) EXCEPT ALL ( QUERY_C )... )
+func ExceptAllSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
 		result[index] = ParcelSQL(value)
 	}
-	return JoinSQL(Strings(StrSpace, StrIntersect, StrSpace), result...)
+	return JoinSQL(Strings(StrSpace, StrExpectAll, StrSpace), result...)
 }
 
 // hexEncodeToString Convert binary byte array to hexadecimal string.
