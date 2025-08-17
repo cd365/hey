@@ -217,6 +217,11 @@ const (
 
 	StrEmpty = ""
 	Str36    = "$"
+	Str37    = "%"
+	Str39    = "'"
+	Str43    = "+"
+	Str45    = "-"
+	Str47    = "/"
 	Str63    = "?"
 	StrComma = ","
 	StrPoint = "."
