@@ -43,12 +43,6 @@ func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
 	length := len(values)
 	result := make(map[K]V, 8)
 	for i := range length {
-		if i == 0 {
-			if values[i] != nil {
-				result = values[i]
-			}
-			continue
-		}
 		maps.Copy(result, values[i])
 	}
 	return result
@@ -3838,6 +3832,9 @@ type SQLUpdateSet interface {
 	// GetForbid Get a list of columns that are prohibited from updating.
 	GetForbid() []string
 
+	// Select Set columns that only allow updates, not including defaults.
+	Select(columns ...string) SQLUpdateSet
+
 	// Set Update column assignment.
 	Set(column string, value any) SQLUpdateSet
 
@@ -3862,6 +3859,9 @@ type SQLUpdateSet interface {
 	// Default Set the default columns that need to be updated, such as update timestamp.
 	Default(column string, value any) SQLUpdateSet
 
+	// Remove Delete a column-value.
+	Remove(columns ...string) SQLUpdateSet
+
 	// GetUpdate Get a list of existing updates.
 	GetUpdate() ([]string, [][]any)
 
@@ -3871,6 +3871,10 @@ type SQLUpdateSet interface {
 
 type sqlUpdateSet struct {
 	forbidSet map[string]*struct{}
+
+	exists map[string][]string // column => expression lists
+
+	onlyAllow map[string]*struct{} // Set columns that only allow updates.
 
 	updateMap map[string]int
 
@@ -3883,35 +3887,39 @@ type sqlUpdateSet struct {
 	updateArgs [][]any
 }
 
+func (s *sqlUpdateSet) init() {
+	s.forbidSet = make(map[string]*struct{}, 1<<3)
+	s.exists = make(map[string][]string, 1<<3)
+	s.updateMap = make(map[string]int, 1<<3)
+	s.updateExpr = make([]string, 0, 1<<3)
+	s.updateArgs = make([][]any, 0, 1<<3)
+}
+
+func (s *sqlUpdateSet) toEmpty() {
+	s.forbidSet = make(map[string]*struct{}, 1<<3)
+	s.exists = make(map[string][]string, 1<<3)
+	s.onlyAllow = nil
+	s.updateMap = make(map[string]int, 1<<3)
+	s.updateExpr = make([]string, 0, 1<<3)
+	s.updateArgs = make([][]any, 0, 1<<3)
+}
+
 func newSqlUpdateSet(way *Way) *sqlUpdateSet {
 	result := &sqlUpdateSet{
-		forbidSet:  make(map[string]*struct{}, 1<<3),
-		updateMap:  make(map[string]int, 1<<3),
-		way:        way,
-		updateExpr: make([]string, 0, 1<<3),
-		updateArgs: make([][]any, 0, 1<<3),
+		way: way,
 	}
 	defaults := &sqlUpdateSet{
-		forbidSet:  make(map[string]*struct{}, 1<<2),
-		updateMap:  make(map[string]int, 1<<2),
-		way:        way,
-		updateExpr: make([]string, 0, 1<<2),
-		updateArgs: make([][]any, 0, 1<<2),
+		way: way,
 	}
+	result.init()
+	defaults.init()
 	result.defaults = defaults
 	return result
 }
 
 func (s *sqlUpdateSet) ToEmpty() {
-	s.forbidSet = make(map[string]*struct{}, 1<<3)
-	s.updateMap = make(map[string]int, 1<<3)
-	s.updateExpr = make([]string, 0, 1<<3)
-	s.updateArgs = make([][]any, 0, 1<<3)
-
-	s.defaults.forbidSet = make(map[string]*struct{}, 1<<2)
-	s.defaults.updateMap = make(map[string]int, 1<<2)
-	s.defaults.updateExpr = make([]string, 0, 1<<2)
-	s.defaults.updateArgs = make([][]any, 0, 1<<2)
+	s.toEmpty()
+	s.defaults.toEmpty()
 }
 
 func (s *sqlUpdateSet) IsEmpty() bool {
@@ -4000,28 +4008,53 @@ func (s *sqlUpdateSet) GetForbid() []string {
 	return columns
 }
 
+func (s *sqlUpdateSet) Select(columns ...string) SQLUpdateSet {
+	onlyAllow := make(map[string]*struct{}, len(columns))
+	for _, column := range columns {
+		onlyAllow[column] = nil
+	}
+	if s.onlyAllow == nil {
+		s.onlyAllow = make(map[string]*struct{}, 1<<3)
+	}
+	maps.Copy(s.onlyAllow, onlyAllow)
+	return s
+}
+
+func (s *sqlUpdateSet) columnUpdate(column string, script *SQL) SQLUpdateSet {
+	if s.onlyAllow != nil {
+		if _, ok := s.onlyAllow[column]; !ok {
+			return s
+		}
+	}
+	s.exists[column] = append(s.exists[column], script.Prepare)
+	return s.exprArgs(script)
+}
+
 func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	column = s.way.Replace(column)
-	return s.exprArgs(NewSQL(fmt.Sprintf("%s = %s", column, StrPlaceholder), value))
+	replace := s.way.Replace(column)
+	script := NewSQL(fmt.Sprintf("%s = %s", replace, StrPlaceholder), value)
+	return s.columnUpdate(column, script)
 }
 
 func (s *sqlUpdateSet) Decr(column string, decrement any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	column = s.way.Replace(column)
-	return s.exprArgs(NewSQL(fmt.Sprintf("%s = %s - %s", column, column, StrPlaceholder), decrement))
+	replace := s.way.Replace(column)
+	script := NewSQL(fmt.Sprintf("%s = %s - %s", replace, replace, StrPlaceholder), decrement)
+	return s.columnUpdate(column, script)
 }
 
 func (s *sqlUpdateSet) Incr(column string, increment any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	s.way.Replace(column)
-	return s.exprArgs(NewSQL(fmt.Sprintf("%s = %s + %s", column, column, StrPlaceholder), increment))
+	replace := s.way.Replace(column)
+	script := NewSQL(fmt.Sprintf("%s = %s + %s", replace, replace, StrPlaceholder), increment)
+	return s.columnUpdate(column, script)
 }
 
 func (s *sqlUpdateSet) SetMap(columnValue map[string]any) SQLUpdateSet {
@@ -4079,12 +4112,48 @@ func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	column = s.way.Replace(column)
-	script := NewSQL(fmt.Sprintf("%s = %s", column, StrPlaceholder), value)
+	replace := s.way.Replace(column)
+	script := NewSQL(fmt.Sprintf("%s = %s", replace, StrPlaceholder), value)
 	if _, ok := s.updateMap[script.Prepare]; ok {
 		return s
 	}
-	s.defaults.exprArgs(script)
+	s.defaults.columnUpdate(column, script)
+	return s
+}
+
+func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
+	s.Forbid(columns...)
+	removes := make(map[string]*struct{}, 1<<3)
+	for _, column := range columns {
+		if tmp, ok := s.exists[column]; ok {
+			removes = MergeAssoc(removes, ArrayToAssoc(tmp, func(v string) (string, *struct{}) { return v, nil }))
+		}
+	}
+	dropExpr := make(map[string]*struct{}, 1<<3)
+	dropArgs := make(map[int]*struct{}, 1<<3)
+	for index, value := range s.updateExpr {
+		if _, ok := removes[value]; ok {
+			dropExpr[value] = nil
+			dropArgs[index] = nil
+		}
+	}
+	updateExpr := ArrayDiscard(s.updateExpr, func(k int, v string) bool {
+		_, ok := dropExpr[v]
+		return ok
+	})
+
+	updateArgs := ArrayDiscard(s.updateArgs, func(k int, v []any) bool {
+		_, ok := dropArgs[k]
+		return ok
+	})
+	updateMap := AssocDiscard(s.updateMap, func(k string, v int) bool {
+		_, ok := dropExpr[k]
+		return ok
+	})
+	s.updateExpr, s.updateArgs, s.updateMap = updateExpr, updateArgs, updateMap
+	if s.defaults != nil {
+		s.defaults.Remove(columns...)
+	}
 	return s
 }
 
@@ -4095,7 +4164,8 @@ func (s *sqlUpdateSet) GetUpdate() ([]string, [][]any) {
 func (s *sqlUpdateSet) SetUpdate(updates []string, params [][]any) SQLUpdateSet {
 	s.ToEmpty()
 	for index, value := range updates {
-		s.exprArgs(NewSQL(value, params[index]...))
+		script := NewSQL(value, params[index]...)
+		s.exprArgs(script)
 	}
 	return s
 }
@@ -4256,6 +4326,9 @@ type SQLInsert interface {
 	// GetForbid Get a list of columns that have been prohibited from insertion.
 	GetForbid() []string
 
+	// Select Set the columns to allow inserts only, not including defaults.
+	Select(columns ...string) SQLInsert
+
 	// Column Set the inserted column list. An empty value will delete the set field list.
 	Column(columns ...string) SQLInsert
 
@@ -4268,11 +4341,11 @@ type SQLInsert interface {
 	// Create Parses the given insert data and sets the insert data.
 	Create(create any) SQLInsert
 
-	// Remove Delete a column and value.
-	Remove(columns ...string) SQLInsert
-
 	// Default Set the default column for inserted data, such as the creation timestamp.
 	Default(column string, value any) SQLInsert
+
+	// Remove Delete a column-value.
+	Remove(columns ...string) SQLInsert
 
 	// Returning Insert a piece of data and get the auto-increment value.
 	Returning(fc func(r SQLReturning)) SQLInsert
@@ -4288,6 +4361,7 @@ type sqlInsert struct {
 	forbidSet  map[string]*struct{}
 	way        *Way
 	table      *SQL
+	onlyAllow  map[string]*struct{} // Set the columns to allow inserts only.
 	columns    *sqlSelect
 	values     *sqlValues
 	returning  *sqlReturning
@@ -4295,41 +4369,40 @@ type sqlInsert struct {
 	defaults   *sqlInsert
 }
 
+func (s *sqlInsert) init() {
+	s.forbidSet = make(map[string]*struct{}, 1<<3)
+	s.table = NewEmptySQL()
+	s.columns = newSqlSelect(s.way)
+	s.values = newSqlValues()
+	s.returning = newReturning(s.way, NewEmptySQL())
+	s.onConflict = newSqlOnConflict(s.way, NewEmptySQL())
+}
+
+func (s *sqlInsert) toEmpty() {
+	s.forbidSet = make(map[string]*struct{}, 1<<3)
+	s.onlyAllow = nil
+	s.columns.ToEmpty()
+	s.values.ToEmpty()
+	s.returning.ToEmpty()
+	s.onConflict.ToEmpty()
+}
+
 func newSqlInsert(way *Way) *sqlInsert {
 	result := &sqlInsert{
-		forbidSet:  make(map[string]*struct{}, 1<<3),
-		way:        way,
-		table:      NewEmptySQL(),
-		columns:    newSqlSelect(way),
-		values:     newSqlValues(),
-		returning:  newReturning(way, NewEmptySQL()),
-		onConflict: newSqlOnConflict(way, NewEmptySQL()),
+		way: way,
 	}
 	defaults := &sqlInsert{
-		forbidSet:  make(map[string]*struct{}, 1<<3),
-		way:        way,
-		table:      NewEmptySQL(),
-		columns:    newSqlSelect(way),
-		values:     newSqlValues(),
-		returning:  newReturning(way, NewEmptySQL()),
-		onConflict: newSqlOnConflict(way, NewEmptySQL()),
+		way: way,
 	}
+	result.init()
+	defaults.init()
 	result.defaults = defaults
 	return result
 }
 
 func (s *sqlInsert) ToEmpty() {
-	s.forbidSet = make(map[string]*struct{}, 1<<3)
-	s.columns.ToEmpty()
-	s.values.ToEmpty()
-	s.returning.ToEmpty()
-	s.onConflict.ToEmpty()
-
-	s.defaults.forbidSet = make(map[string]*struct{}, 1<<3)
-	s.defaults.columns.ToEmpty()
-	s.defaults.values.ToEmpty()
-	s.defaults.returning.ToEmpty()
-	s.defaults.onConflict.ToEmpty()
+	s.toEmpty()
+	s.defaults.toEmpty()
 }
 
 func (s *sqlInsert) ToSQL() *SQL {
@@ -4442,6 +4515,18 @@ func (s *sqlInsert) GetForbid() []string {
 	return columns
 }
 
+func (s *sqlInsert) Select(columns ...string) SQLInsert {
+	onlyAllow := make(map[string]*struct{}, len(columns))
+	for _, column := range columns {
+		onlyAllow[column] = nil
+	}
+	if s.onlyAllow == nil {
+		s.onlyAllow = make(map[string]*struct{}, 1<<3)
+	}
+	maps.Copy(s.onlyAllow, onlyAllow)
+	return s
+}
+
 func (s *sqlInsert) Column(columns ...string) SQLInsert {
 	if len(columns) == 0 {
 		return s
@@ -4465,6 +4550,11 @@ func (s *sqlInsert) ColumnValue(column string, value any) SQLInsert {
 	}
 	if s.columns.Has(column) {
 		return s
+	}
+	if s.onlyAllow != nil {
+		if _, ok := s.onlyAllow[column]; !ok {
+			return s
+		}
 	}
 	s.columns.AddAll(column)
 	for index := range s.values.values {
@@ -4512,7 +4602,30 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 			})
 		}
 	}
+	if s.onlyAllow != nil {
+		indexes := make(map[int]*struct{}, 1<<3)
+		for index, column := range columns {
+			if _, ok := s.onlyAllow[column]; ok {
+				indexes[index] = nil
+			}
+		}
+		columns = ArrayDiscard(columns, func(k int, v string) bool {
+			_, ok := indexes[k]
+			return ok
+		})
+		for index, value := range values {
+			values[index] = ArrayDiscard(value, func(k int, v any) bool {
+				_, ok := indexes[k]
+				return ok
+			})
+		}
+	}
 	return s.Column(columns...).Values(values...)
+}
+
+func (s *sqlInsert) Default(column string, value any) SQLInsert {
+	s.defaults.ColumnValue(column, value)
+	return s
 }
 
 func (s *sqlInsert) Remove(columns ...string) SQLInsert {
@@ -4533,13 +4646,13 @@ func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 		return s
 	}
 
-	del := make(map[string]*struct{}, len(columns))
+	removes := make(map[string]*struct{}, len(columns))
 	for _, column := range columns {
-		del[column] = nil
+		removes[column] = nil
 	}
 	assoc := make(map[int]*struct{}, length1)
 	for index, field := range fields {
-		if _, ok = del[field]; ok {
+		if _, ok = removes[field]; ok {
 			assoc[index] = nil
 		}
 	}
@@ -4559,11 +4672,9 @@ func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 			return ok
 		})
 	}
-	return s
-}
-
-func (s *sqlInsert) Default(column string, value any) SQLInsert {
-	s.defaults.ColumnValue(column, value)
+	if s.defaults != nil {
+		s.defaults.Remove(columns...)
+	}
 	return s
 }
 
