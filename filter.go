@@ -146,22 +146,6 @@ func filterNotEqual(column string) string {
 	return filterExpression(column, StrNotEqual)
 }
 
-func filterMoreThan(column string) string {
-	return filterExpression(column, StrMoreThan)
-}
-
-func filterMoreThanEqual(column string) string {
-	return filterExpression(column, StrMoreThanEqual)
-}
-
-func filterLessThan(column string) string {
-	return filterExpression(column, StrLessThan)
-}
-
-func filterLessThanEqual(column string) string {
-	return filterExpression(column, StrLessThanEqual)
-}
-
 func filterIn(column string, values []any, not bool) *SQL {
 	if column == StrEmpty || values == nil {
 		return NewEmptySQL()
@@ -203,18 +187,6 @@ func filterIn(column string, values []any, not bool) *SQL {
 	tmp = append(tmp, StrSpace, StrRightSmallBracket)
 	script.Prepare = Strings(tmp...)
 	return script
-}
-
-func filterInSQL(column string, value *SQL, not bool) *SQL {
-	if value == nil || value.IsEmpty() {
-		return NewEmptySQL()
-	}
-	result := column
-	if not {
-		result = Strings(result, StrSpace, StrNot)
-	}
-	result = Strings(result, StrSpace, StrIn, StrSpace, StrLeftSmallBracket, StrSpace, value.Prepare, StrSpace, StrRightSmallBracket)
-	return NewSQL(result, value.Args...)
 }
 
 func filterInGroupColumns(columns ...string) string {
@@ -301,30 +273,6 @@ func filterBetween(column string, not bool) (prepare string) {
 	return
 }
 
-func filterLike(column string, not bool) (prepare string) {
-	if column == StrEmpty {
-		return
-	}
-	prepare = column
-	if not {
-		prepare = Strings(prepare, StrSpace, StrNot)
-	}
-	prepare = Strings(prepare, StrSpace, StrLike, StrSpace, StrPlaceholder)
-	return
-}
-
-func filterIsNull(column string, not bool) (prepare string) {
-	if column == StrEmpty {
-		return
-	}
-	prepare = Strings(column, StrSpace, StrIs)
-	if not {
-		prepare = Strings(prepare, StrSpace, StrNot)
-	}
-	prepare = Strings(prepare, StrSpace, StrNull)
-	return
-}
-
 // filterUsingValue Get value's current value as an any, otherwise return nil.
 func filterUsingValue(value any) any {
 	if value == nil {
@@ -390,19 +338,19 @@ type Filter interface {
 	New(filters ...Filter) Filter
 
 	// Equal Implement conditional filtering: column = value .
-	Equal(column string, value any, usingNull ...bool) Filter
+	Equal(subject any, value any, null ...bool) Filter
 
 	// LessThan Implement conditional filtering: column < value .
-	LessThan(column string, value any) Filter
+	LessThan(subject any, value any) Filter
 
 	// LessThanEqual Implement conditional filtering: column <= value .
-	LessThanEqual(column string, value any) Filter
+	LessThanEqual(subject any, value any) Filter
 
 	// MoreThan Implement conditional filtering: column > value.
-	MoreThan(column string, value any) Filter
+	MoreThan(subject any, value any) Filter
 
 	// MoreThanEqual Implement conditional filtering: column >= value .
-	MoreThanEqual(column string, value any) Filter
+	MoreThanEqual(subject any, value any) Filter
 
 	// Between Implement conditional filtering: column BETWEEN value1 AND value2 .
 	Between(column string, start any, end any) Filter
@@ -411,16 +359,16 @@ type Filter interface {
 	In(column string, values ...any) Filter
 
 	// InQuery Implement conditional filtering: column IN (subquery).
-	InQuery(column string, subquery Maker) Filter
+	InQuery(subject any, subquery Maker) Filter
 
 	// Exists Implement conditional filtering: EXISTS (subquery) .
 	Exists(subquery Maker) Filter
 
 	// Like Implement conditional filtering: column LIKE value.
-	Like(column string, value any) Filter
+	Like(subject any, value any) Filter
 
 	// IsNull Implement conditional filtering: column IS NULL .
-	IsNull(column string) Filter
+	IsNull(subject any) Filter
 
 	// InGroup Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
 	InGroup(columns []string, values ...[]any) Filter
@@ -429,7 +377,7 @@ type Filter interface {
 	InGroupQuery(columns []string, subquery Maker) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
-	NotEqual(column string, value any, notUsingNull ...bool) Filter
+	NotEqual(subject any, value any, null ...bool) Filter
 
 	// NotBetween Implement conditional filtering: column NOT BETWEEN value1 AND value2 .
 	NotBetween(column string, start any, end any) Filter
@@ -441,10 +389,10 @@ type Filter interface {
 	NotInGroup(columns []string, values ...[]any) Filter
 
 	// NotLike Implement conditional filtering: column NOT LIKE value .
-	NotLike(column string, value any) Filter
+	NotLike(subject any, value any) Filter
 
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
-	IsNotNull(column string) Filter
+	IsNotNull(subject any) Filter
 
 	// AllQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
 	AllQuantifier(fc func(q Quantifier)) Filter
@@ -549,7 +497,6 @@ func (s *filter) toEmpty() *filter {
 	s.num = 0
 	s.prepare.Reset()
 	s.args = nil
-	s.replacer = nil
 	return s
 }
 
@@ -608,6 +555,31 @@ func (s *filter) addSQL(logic string, value *SQL) *filter {
 	return s.add(logic, value.Prepare, value.Args...)
 }
 
+func (s *filter) joinSubjectSpace(subject *SQL, follows ...any) *SQL {
+	if subject == nil || subject.IsEmpty() {
+		return NewEmptySQL()
+	}
+	return JoinSQLSpace(firstFollow(subject, follows...)...)
+}
+
+func (s *filter) parcel(value any) *SQL {
+	if value == nil {
+		return NewEmptySQL()
+	}
+	switch v := value.(type) {
+	case *SQL:
+		return ParcelSQL(v)
+	case Maker:
+		if script := v.ToSQL(); script == nil || script.IsEmpty() {
+			return NewEmptySQL()
+		} else {
+			return ParcelSQL(script)
+		}
+	default:
+		return any2sql(value)
+	}
+}
+
 func (s *filter) And(prepare string, args ...any) Filter {
 	return s.add(StrAnd, prepare, args...)
 }
@@ -646,6 +618,9 @@ func (s *filter) get(key string) string {
 	if s.replacer == nil {
 		return key
 	}
+	if strings.Contains(key, StrSpace) {
+		return key
+	}
 	return s.replacer.Get(key)
 }
 
@@ -653,76 +628,76 @@ func (s *filter) getAll(keys []string) []string {
 	if s.replacer == nil {
 		return keys
 	}
-	return s.replacer.GetAll(keys)
+	return ArrayToArray(keys, func(k int, v string) string { return s.get(v) })
 }
 
-func (s *filter) columnCompareSubquery(logic string, column string, compare string, subquery any) bool {
-	maker, ok := subquery.(Maker)
-	if !ok || maker == nil {
-		return false
+func (s *filter) Equal(subject any, value any, null ...bool) Filter {
+	if subject == nil {
+		return s
 	}
-	script := ParcelSQL(maker.ToSQL())
-	script.Prepare = Strings(s.get(column), StrSpace, compare, StrSpace, script.Prepare)
-	s.addSQL(logic, script)
-	return ok
-}
-
-func (s *filter) andColumnCompareSubquery(column string, compare string, subquery any) bool {
-	return s.columnCompareSubquery(StrAnd, column, compare, subquery)
-}
-
-func (s *filter) Equal(column string, value any, usingNull ...bool) Filter {
 	if value == nil {
-		if length := len(usingNull); length > 0 && usingNull[length-1] {
-			return s.IsNull(s.get(column))
+		if length := len(null); length > 0 && null[length-1] {
+			return s.IsNull(subject)
 		}
 		return s
 	}
-	if s.andColumnCompareSubquery(column, StrEqual, value) {
-		return s
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
 	}
 	if value = filterUsingValue(value); value != nil {
-		s.add(StrAnd, filterEqual(s.get(column)), value)
+		return s.addSQL(StrAnd, s.joinSubjectSpace(any2sql(subject), StrEqual, s.parcel(value)))
 	}
 	return s
 }
 
-func (s *filter) LessThan(column string, value any) Filter {
-	if s.andColumnCompareSubquery(column, StrLessThan, value) {
+func (s *filter) LessThan(subject any, value any) Filter {
+	if subject == nil || value == nil {
 		return s
 	}
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
 	if value = filterUsingValue(value); value != nil {
-		s.add(StrAnd, filterLessThan(s.get(column)), value)
+		return s.addSQL(StrAnd, s.joinSubjectSpace(any2sql(subject), StrLessThan, s.parcel(value)))
 	}
 	return s
 }
 
-func (s *filter) LessThanEqual(column string, value any) Filter {
-	if s.andColumnCompareSubquery(column, StrLessThanEqual, value) {
+func (s *filter) LessThanEqual(subject any, value any) Filter {
+	if subject == nil || value == nil {
 		return s
 	}
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
 	if value = filterUsingValue(value); value != nil {
-		s.add(StrAnd, filterLessThanEqual(s.get(column)), value)
+		return s.addSQL(StrAnd, s.joinSubjectSpace(any2sql(subject), StrLessThanEqual, s.parcel(value)))
 	}
 	return s
 }
 
-func (s *filter) MoreThan(column string, value any) Filter {
-	if s.andColumnCompareSubquery(column, StrMoreThan, value) {
+func (s *filter) MoreThan(subject any, value any) Filter {
+	if subject == nil || value == nil {
 		return s
 	}
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
 	if value = filterUsingValue(value); value != nil {
-		s.add(StrAnd, filterMoreThan(s.get(column)), value)
+		return s.addSQL(StrAnd, s.joinSubjectSpace(any2sql(subject), StrMoreThan, s.parcel(value)))
 	}
 	return s
 }
 
-func (s *filter) MoreThanEqual(column string, value any) Filter {
-	if s.andColumnCompareSubquery(column, StrMoreThanEqual, value) {
+func (s *filter) MoreThanEqual(subject any, value any) Filter {
+	if subject == nil || value == nil {
 		return s
 	}
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
 	if value = filterUsingValue(value); value != nil {
-		s.add(StrAnd, filterMoreThanEqual(s.get(column)), value)
+		return s.addSQL(StrAnd, s.joinSubjectSpace(any2sql(subject), StrMoreThanEqual, s.parcel(value)))
 	}
 	return s
 }
@@ -738,41 +713,43 @@ func (s *filter) In(column string, values ...any) Filter {
 	return s.addSQL(StrAnd, filterIn(s.get(column), values, false))
 }
 
-func (s *filter) InQuery(column string, subquery Maker) Filter {
-	if subquery == nil {
+func (s *filter) InQuery(subject any, subquery Maker) Filter {
+	if subject == nil || subquery == nil {
 		return s
 	}
-	return s.addSQL(StrAnd, filterInSQL(s.get(column), subquery.ToSQL(), false))
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
+	value := subquery.ToSQL()
+	if value == nil || value.IsEmpty() {
+		return s
+	}
+	return s.addSQL(StrAnd, s.joinSubjectSpace(nil1any2sql(subject), StrIn, ParcelSQL(value)))
 }
 
 func (s *filter) Exists(subquery Maker) Filter {
-	if subquery == nil {
-		return s
-	}
 	return s.addSQL(StrAnd, filterExists(subquery, false))
 }
 
-func (s *filter) Like(column string, value any) Filter {
-	value = filterUsingValue(value)
-	if value == nil {
+func (s *filter) Like(subject any, value any) Filter {
+	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	like := StrEmpty
-	if tmp, ok := value.(string); !ok {
-		if item := reflect.ValueOf(value); item.Kind() == reflect.String {
-			like = item.String()
-		}
-	} else {
-		like = tmp
+	likeValue := nil1any2sql(value)
+	if likeValue.IsEmpty() {
+		return s
 	}
-	if like != StrEmpty {
-		s.add(StrAnd, filterLike(s.get(column), false), like)
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
 	}
-	return s
+	return s.addSQL(StrAnd, s.joinSubjectSpace(nil1any2sql(subject), StrLike, likeValue))
 }
 
-func (s *filter) IsNull(column string) Filter {
-	return s.add(StrAnd, filterIsNull(s.get(column), false))
+func (s *filter) IsNull(subject any) Filter {
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
+	return s.addSQL(StrAnd, s.joinSubjectSpace(nil1any2sql(subject), StrIs, StrNull))
 }
 
 func (s *filter) InGroup(columns []string, values ...[]any) Filter {
@@ -786,15 +763,21 @@ func (s *filter) InGroupQuery(columns []string, subquery Maker) Filter {
 	return s.addSQL(StrAnd, filterInGroupSQL(s.getAll(columns), subquery.ToSQL(), false))
 }
 
-func (s *filter) NotEqual(column string, value any, notUsingNull ...bool) Filter {
+func (s *filter) NotEqual(subject any, value any, null ...bool) Filter {
+	if subject == nil {
+		return s
+	}
 	if value == nil {
-		if length := len(notUsingNull); length > 0 && notUsingNull[length-1] {
-			return s.IsNotNull(s.get(column))
+		if length := len(null); length > 0 && null[length-1] {
+			return s.IsNotNull(subject)
 		}
 		return s
 	}
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
 	if value = filterUsingValue(value); value != nil {
-		s.add(StrAnd, filterNotEqual(s.get(column)), value)
+		return s.addSQL(StrAnd, s.joinSubjectSpace(any2sql(subject), StrNotEqual, s.parcel(value)))
 	}
 	return s
 }
@@ -814,27 +797,25 @@ func (s *filter) NotInGroup(columns []string, values ...[]any) Filter {
 	return s.addSQL(StrAnd, filterInGroup(s.getAll(columns), values, true))
 }
 
-func (s *filter) NotLike(column string, value any) Filter {
-	value = filterUsingValue(value)
-	if value == nil {
+func (s *filter) NotLike(subject any, value any) Filter {
+	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	like := StrEmpty
-	if tmp, ok := value.(string); !ok {
-		if item := reflect.ValueOf(value); item.Kind() == reflect.String {
-			like = item.String()
-		}
-	} else {
-		like = tmp
+	likeValue := nil1any2sql(value)
+	if likeValue.IsEmpty() {
+		return s
 	}
-	if like != StrEmpty {
-		s.add(StrAnd, filterLike(s.get(column), true), like)
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
 	}
-	return s
+	return s.addSQL(StrAnd, s.joinSubjectSpace(nil1any2sql(subject), StrNot, StrLike, likeValue))
 }
 
-func (s *filter) IsNotNull(column string) Filter {
-	return s.add(StrAnd, filterIsNull(s.get(column), true))
+func (s *filter) IsNotNull(subject any) Filter {
+	if column, ok := subject.(string); ok {
+		subject = s.get(column)
+	}
+	return s.addSQL(StrAnd, s.joinSubjectSpace(nil1any2sql(subject), StrIs, StrNot, StrNull))
 }
 
 func (s *filter) AllQuantifier(fc func(q Quantifier)) Filter {
@@ -947,8 +928,8 @@ func (s *quantifier) build(column string, logic string, subquery Maker) Quantifi
 	if script.IsEmpty() {
 		return s
 	}
-	if replacer := s.filter.GetReplacer(); replacer != nil {
-		column = replacer.Get(column)
+	if tmp := s.filter.GetReplacer(); tmp != nil {
+		column = tmp.Get(column)
 	}
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)

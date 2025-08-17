@@ -437,6 +437,14 @@ func any2sql(i any) *SQL {
 	return result
 }
 
+// nil1any2sql Prioritize converting nil to NULL.
+func nil1any2sql(i any) *SQL {
+	if i == nil {
+		return NewSQL(StrNull)
+	}
+	return any2sql(i)
+}
+
 var poolStringBuilder = &sync.Pool{
 	New: func() any { return &strings.Builder{} },
 }
@@ -5377,14 +5385,6 @@ func sqlCaseString(value string) string {
 	return fmt.Sprintf("'%s'", value)
 }
 
-// sqlCaseValueToSQL Convert the go parameter value to *SQL.
-func sqlCaseValueToSQL(value any) *SQL {
-	if value == nil {
-		return NewSQL(StrNull)
-	}
-	return any2sql(value)
-}
-
 // sqlCaseSQLToPrepareArgs Get SQL script and args.
 func sqlCaseSQLToPrepareArgs(script *SQL) (string, []any) {
 	if script == nil {
@@ -5491,18 +5491,18 @@ func (s *sqlCase) Alias(alias string) SQLCase {
 
 // Case SQL CASE xxx.
 func (s *sqlCase) Case(value any) SQLCase {
-	s.sqlCase = sqlCaseValueToSQL(value)
+	s.sqlCase = nil1any2sql(value)
 	return s
 }
 
 // WhenThen Add WHEN xxx THEN xxx.
 func (s *sqlCase) WhenThen(when, then any) SQLCase {
-	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, sqlCaseValueToSQL(when), StrThen, sqlCaseValueToSQL(then)))
+	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, nil1any2sql(when), StrThen, nil1any2sql(then)))
 	return s
 }
 
 // Else SQL ELSE xxx.
 func (s *sqlCase) Else(value any) SQLCase {
-	s.sqlElse = sqlCaseValueToSQL(value)
+	s.sqlElse = nil1any2sql(value)
 	return s
 }
