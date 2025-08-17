@@ -482,10 +482,10 @@ func JoinMaker(separator string, makers ...Maker) Maker {
 	return script
 }
 
-func firstFollow(first any, follow ...any) []any {
-	result := make([]any, 0, len(follow)+1)
-	result = append(result, first)
-	result = append(result, follow...)
+func headBody(head any, body ...any) []any {
+	result := make([]any, 0, len(body)+1)
+	result = append(result, head)
+	result = append(result, body...)
 	return result
 }
 
@@ -788,8 +788,7 @@ func ParcelFilter(tmp Filter) Filter {
 	if num := tmp.Num(); num != 1 {
 		return tmp
 	}
-	script := ParcelSQL(tmp.ToSQL())
-	return tmp.New().And(script.Prepare, script.Args...)
+	return tmp.New().And(ParcelSQL(tmp.ToSQL()))
 }
 
 // ParcelCancelPrepare Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
@@ -3172,7 +3171,7 @@ func newSQLJoinOn(way *Way) *sqlJoinOn {
 }
 
 func (s *sqlJoinOn) Equal(alias1 string, column1 string, alias2 string, column2 string) SQLJoinOn {
-	s.on.And(Strings(Prefix(alias1, column1), StrSpace, StrEqual, StrSpace, Prefix(alias2, column2)))
+	s.on.And(JoinSQLSpace(Prefix(alias1, column1), StrEqual, Prefix(alias2, column2)))
 	return s
 }
 
@@ -4754,20 +4753,13 @@ func (s *Table) AboutUpdateSet(fc func(f Filter, u SQLUpdateSet)) *Table {
 
 // ToSelect Build SELECT statement.
 func (s *Table) ToSelect() *SQL {
-	return JoinSQLSpace(
-		s.comment,
-		s.with,
-		StrSelect,
-		s.selects,
-		StrFrom,
-		s.table,
-		s.joins,
-		StrWhere,
-		s.where,
-		s.groupBy,
-		s.orderBy,
-		s.limit,
-	).ToSQL()
+	lists := make([]any, 0, 16)
+	lists = append(lists, s.comment, s.with, StrSelect, s.selects, StrFrom, s.table, s.joins)
+	if !s.where.IsEmpty() {
+		lists = append(lists, StrWhere, s.where)
+	}
+	lists = append(lists, s.groupBy, s.orderBy, s.limit)
+	return JoinSQLSpace(lists...).ToSQL()
 }
 
 // ToInsert Build INSERT statement.
@@ -4781,35 +4773,25 @@ func (s *Table) ToInsert() *SQL {
 
 // ToUpdate Build UPDATE statement.
 func (s *Table) ToUpdate() *SQL {
-	return JoinSQLSpace(
-		s.comment,
-		s.with,
-		StrUpdate,
-		s.table,
-		s.joins,
-		StrSet,
-		s.updateSet,
-		StrWhere,
-		s.where,
-		s.orderBy,
-		s.limit,
-	).ToSQL()
+	lists := make([]any, 0, 16)
+	lists = append(lists, s.comment, s.with, StrUpdate, s.table, s.joins)
+	lists = append(lists, StrSet, s.updateSet)
+	if !s.where.IsEmpty() {
+		lists = append(lists, StrWhere, s.where)
+	}
+	lists = append(lists, s.orderBy, s.limit)
+	return JoinSQLSpace(lists...).ToSQL()
 }
 
 // ToDelete Build DELETE statement.
 func (s *Table) ToDelete() *SQL {
-	return JoinSQLSpace(
-		s.comment,
-		s.with,
-		StrDelete,
-		StrFrom,
-		s.table,
-		s.joins,
-		StrWhere,
-		s.where,
-		s.orderBy,
-		s.limit,
-	).ToSQL()
+	lists := make([]any, 0, 16)
+	lists = append(lists, s.comment, s.with, StrDelete, StrFrom, s.table, s.joins)
+	if !s.where.IsEmpty() {
+		lists = append(lists, StrWhere, s.where)
+	}
+	lists = append(lists, s.orderBy, s.limit)
+	return JoinSQLSpace(lists...).ToSQL()
 }
 
 // Query Execute a SELECT statement.
@@ -4825,17 +4807,12 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 		}
 	}
 	count := int64(0)
-	script := JoinSQLSpace(
-		s.comment,
-		s.with,
-		StrSelect,
-		newSqlSelect(s.way).AddAll(counts...),
-		StrFrom,
-		s.table,
-		s.joins,
-		StrWhere,
-		s.where,
-	).ToSQL()
+	lists := make([]any, 0, 16)
+	lists = append(lists, s.comment, s.with, StrSelect, newSqlSelect(s.way).AddAll(counts...), StrFrom, s.table, s.joins)
+	if !s.where.IsEmpty() {
+		lists = append(lists, StrWhere, s.where)
+	}
+	script := JoinSQLSpace(lists...).ToSQL()
 	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
 		for rows.Next() {
 			if err := rows.Scan(&count); err != nil {
@@ -5256,32 +5233,32 @@ func (s *WindowFunc) Count(columns ...string) *WindowFunc {
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, args ...any) *WindowFunc {
-	return s.Window("LAG", firstFollow(s.way.Replace(column), args...))
+	return s.Window("LAG", headBody(s.way.Replace(column), args...))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, args ...any) *WindowFunc {
-	return s.Window("LEAD", firstFollow(s.way.Replace(column), args...))
+	return s.Window("LEAD", headBody(s.way.Replace(column), args...))
 }
 
 // NTile N-TILE Divide the rows in the window into n buckets and assign a bucket number to each row.
 func (s *WindowFunc) NTile(buckets int64, args ...any) *WindowFunc {
-	return s.Window("NTILE", firstFollow(buckets, args...))
+	return s.Window("NTILE", headBody(buckets, args...))
 }
 
 // FirstValue FIRST_VALUE() Returns the value of the first row in the window.
 func (s *WindowFunc) FirstValue(column string) *WindowFunc {
-	return s.Window("FIRST_VALUE", firstFollow(s.way.Replace(column)))
+	return s.Window("FIRST_VALUE", headBody(s.way.Replace(column)))
 }
 
 // LastValue LAST_VALUE() Returns the value of the last row in the window.
 func (s *WindowFunc) LastValue(column string) *WindowFunc {
-	return s.Window("LAST_VALUE", firstFollow(s.way.Replace(column)))
+	return s.Window("LAST_VALUE", headBody(s.way.Replace(column)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
 func (s *WindowFunc) NthValue(column string, args ...any) *WindowFunc {
-	return s.Window("NTH_VALUE", firstFollow(s.way.Replace(column), args...))
+	return s.Window("NTH_VALUE", headBody(s.way.Replace(column), args...))
 }
 
 // Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
