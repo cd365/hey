@@ -568,7 +568,11 @@ func (s *filter) parcel(value any) *SQL {
 	}
 	switch v := value.(type) {
 	case *SQL:
-		return ParcelSQL(v)
+		if v.IsEmpty() {
+			return NewEmptySQL()
+		} else {
+			return ParcelSQL(v)
+		}
 	case Maker:
 		if script := v.ToSQL(); script == nil || script.IsEmpty() {
 			return NewEmptySQL()
