@@ -901,10 +901,12 @@ func argValueToString(i any) string {
 	}
 }
 
-// MakerToString Use parameter values to replace placeholders in SQL statements and build a visual SQL script.
+// SQLToString Use parameter values to replace placeholders in SQL statements and build a visual SQL script.
 // Warning: Binary byte slice will be converted to hexadecimal strings.
-func MakerToString(maker Maker) string {
-	script := maker.ToSQL()
+func SQLToString(script *SQL) string {
+	if script == nil {
+		return StrEmpty
+	}
 	counts := len(script.Args)
 	if counts == 0 {
 		return script.Prepare
@@ -976,7 +978,7 @@ func (s *debugMaker) Debug(maker Maker) DebugMaker {
 	}
 	script := maker.ToSQL()
 	s.log.Debug().
-		Str(strScript, MakerToString(script)).
+		Str(strScript, SQLToString(script)).
 		Str(strPrepare, script.Prepare).
 		Any(strArgs, binaryByteSliceToString(script.Args)).
 		Msg("debugger SQL script")
@@ -1885,11 +1887,11 @@ func (s *transaction) write() {
 		if v.err != nil {
 			lg = s.way.log.Error()
 			lg.Str(strError, v.err.Error())
-			lg.Str(strScript, MakerToString(NewSQL(v.prepare, v.args.args...)))
+			lg.Str(strScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
 		} else {
 			if v.args.endAt.Sub(v.args.startAt) > s.way.cfg.WarnDuration {
 				lg = s.way.log.Warn()
-				lg.Str(strScript, MakerToString(NewSQL(v.prepare, v.args.args...)))
+				lg.Str(strScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
 			}
 		}
 		lg.Str(strId, s.id).Str(strMsg, s.message)
@@ -2048,11 +2050,11 @@ func (s *sqlLog) Write() {
 	if s.err != nil {
 		lg = s.way.log.Error()
 		lg.Str(strError, s.err.Error())
-		lg.Str(strScript, MakerToString(NewSQL(s.prepare, s.args.args...)))
+		lg.Str(strScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
 	} else {
 		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.WarnDuration {
 			lg = s.way.log.Warn()
-			lg.Str(strScript, MakerToString(NewSQL(s.prepare, s.args.args...)))
+			lg.Str(strScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
 		}
 	}
 	lg.Str(strPrepare, s.prepare)
@@ -5389,61 +5391,6 @@ func sqlCaseSQLToPrepareArgs(script *SQL) (string, []any) {
 	return script.Prepare, script.Args
 }
 
-// SQLWhenThen Store multiple pairs of WHEN xxx THEN xxx.
-type SQLWhenThen interface {
-	Maker
-
-	// V Set the go string as a SQL string.
-	V(value string) string
-
-	// WhenThen SQL WHEN and THEN.
-	WhenThen(when, then any) SQLWhenThen
-}
-
-type sqlWhenThen struct {
-	when []*SQL
-
-	then []*SQL
-}
-
-func (s *sqlWhenThen) V(value string) string {
-	return sqlCaseString(value)
-}
-
-func (s *sqlWhenThen) ToSQL() *SQL {
-	b := poolGetStringBuilder()
-	defer poolPutStringBuilder(b)
-	length1, length2 := len(s.when), len(s.then)
-	script := NewSQL(StrEmpty)
-	if length1 != length2 || length1 == 0 {
-		return script
-	}
-	for i := range length1 {
-		if i > 0 {
-			b.WriteString(StrSpace)
-		}
-		b.WriteString(StrWhen)
-		b.WriteString(StrSpace)
-		prepare, args := sqlCaseSQLToPrepareArgs(s.when[i])
-		b.WriteString(prepare)
-		script.Args = append(script.Args, args...)
-		b.WriteString(StrSpace)
-		b.WriteString(StrThen)
-		b.WriteString(StrSpace)
-		prepare, args = sqlCaseSQLToPrepareArgs(s.then[i])
-		b.WriteString(prepare)
-		script.Args = append(script.Args, args...)
-	}
-	script.Prepare = b.String()
-	return script
-}
-
-func (s *sqlWhenThen) WhenThen(when, then any) SQLWhenThen {
-	s.when = append(s.when, sqlCaseValueToSQL(when))
-	s.then = append(s.then, sqlCaseValueToSQL(then))
-	return s
-}
-
 // SQLCase Implementing SQL CASE.
 type SQLCase interface {
 	Maker
@@ -5457,23 +5404,27 @@ type SQLCase interface {
 	// Case SQL CASE.
 	Case(value any) SQLCase
 
-	// When SQL WHEN xxx THEN xxx.
-	When(fc func(w SQLWhenThen)) SQLCase
+	// WhenThen Add WHEN xxx THEN xxx.
+	WhenThen(when, then any) SQLCase
 
 	// Else SQL CASE xxx ELSE xxx.
 	Else(value any) SQLCase
 }
 
 type sqlCase struct {
-	sqlCase *SQL // CASE value , value is optional
+	// sqlCase CASE value , value is optional.
+	sqlCase *SQL
 
-	sqlWhen *sqlWhenThen // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
-
-	sqlElse *SQL // ELSE value , value is optional
+	// sqlElse ELSE value , value is optional.
+	sqlElse *SQL
 
 	way *Way
 
-	alias string // alias name for CASE , value is optional
+	// alias Alias-name for CASE , value is optional.
+	alias string
+
+	// whenThen WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
+	whenThen []*SQL
 }
 
 func NewSQLCase(way *Way) SQLCase {
@@ -5486,16 +5437,18 @@ func (s *Way) Case() SQLCase {
 	return NewSQLCase(s)
 }
 
+// V Set the go string as a SQL string.
 func (s *sqlCase) V(value string) string {
 	return sqlCaseString(value)
 }
 
+// ToSQL Build CASE Statement.
 func (s *sqlCase) ToSQL() *SQL {
 	script := NewSQL(StrEmpty)
-	if s.sqlWhen == nil {
+	if len(s.whenThen) == 0 {
 		return script
 	}
-	whenThen := s.sqlWhen.ToSQL()
+	whenThen := JoinSQLSpace(AnyAny(s.whenThen)...).ToSQL()
 	if whenThen.IsEmpty() {
 		return script
 	}
@@ -5525,27 +5478,25 @@ func (s *sqlCase) ToSQL() *SQL {
 	return newSqlAlias(script).v(s.way).SetAlias(s.alias).ToSQL()
 }
 
+// Alias Set the alias of the CASE.
 func (s *sqlCase) Alias(alias string) SQLCase {
 	s.alias = alias
 	return s
 }
 
+// Case SQL CASE xxx.
 func (s *sqlCase) Case(value any) SQLCase {
 	s.sqlCase = sqlCaseValueToSQL(value)
 	return s
 }
 
-func (s *sqlCase) When(fc func(w SQLWhenThen)) SQLCase {
-	if fc == nil {
-		return s
-	}
-	if s.sqlWhen == nil {
-		s.sqlWhen = &sqlWhenThen{}
-	}
-	fc(s.sqlWhen)
+// WhenThen Add WHEN xxx THEN xxx.
+func (s *sqlCase) WhenThen(when, then any) SQLCase {
+	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, sqlCaseValueToSQL(when), StrThen, sqlCaseValueToSQL(then)))
 	return s
 }
 
+// Else SQL ELSE xxx.
 func (s *sqlCase) Else(value any) SQLCase {
 	s.sqlElse = sqlCaseValueToSQL(value)
 	return s
