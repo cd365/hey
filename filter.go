@@ -859,8 +859,7 @@ func (s *filter) Compare(column1 string, compare string, column2 string, args ..
 	if column1 == StrEmpty || compare == StrEmpty || column2 == StrEmpty {
 		return s
 	}
-	column1, column2 = s.get(column1), s.get(column2)
-	return s.And(Strings(column1, StrSpace, compare, StrSpace, column2), args...)
+	return s.And(JoinSQLSpace(s.get(column1), compare, s.get(column2)).Prepare, args...)
 }
 
 func (s *filter) CompareEqual(column1 string, column2 string, args ...any) Filter {
@@ -935,22 +934,8 @@ func (s *quantifier) build(column string, logic string, subquery Maker) Quantifi
 	if tmp := s.filter.GetReplacer(); tmp != nil {
 		column = tmp.Get(column)
 	}
-	b := poolGetStringBuilder()
-	defer poolPutStringBuilder(b)
-	b.WriteString(column)
-	b.WriteString(StrSpace)
-	b.WriteString(logic)
-	b.WriteString(StrSpace)
-	if s.quantifier != StrEmpty {
-		b.WriteString(s.quantifier)
-		b.WriteString(StrSpace)
-	}
-	b.WriteString(StrLeftSmallBracket)
-	b.WriteString(StrSpace)
-	b.WriteString(script.Prepare)
-	b.WriteString(StrSpace)
-	b.WriteString(StrRightSmallBracket)
-	s.filter.And(b.String(), script.Args...)
+	script = JoinSQLSpace(column, logic, s.quantifier, ParcelSQL(script))
+	s.filter.And(script.Prepare, script.Args...)
 	return s
 }
 
