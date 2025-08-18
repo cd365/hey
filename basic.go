@@ -3772,6 +3772,9 @@ type SQLReturning interface {
 	// you may need to adjust the SQL statement, such as adding `RETURNING id` to the end of the insert statement.
 	Prepare(prepare func(tmp *SQL)) SQLReturning
 
+	// Returning Set the RETURNING statement to return one or more columns.
+	Returning(columns ...string) SQLReturning
+
 	// Execute When constructing a SQL statement that inserts a row of data and returns the id,
 	// get the id value of the inserted row (this may vary depending on the database driver)
 	Execute(execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)) SQLReturning
@@ -3801,6 +3804,17 @@ func (s *sqlReturning) ToEmpty() {
 func (s *sqlReturning) Prepare(prepare func(tmp *SQL)) SQLReturning {
 	s.prepare = prepare
 	return s
+}
+
+// Returning Set the RETURNING statement to return one or more columns.
+func (s *sqlReturning) Returning(columns ...string) SQLReturning {
+	columns = ArrayDiscard(columns, func(k int, v string) bool { return strings.TrimSpace(v) == StrEmpty })
+	if len(columns) == 0 {
+		columns = []string{StrStar}
+	}
+	return s.Prepare(func(tmp *SQL) {
+		tmp.Prepare = JoinSQLSpace(tmp.Prepare, StrReturning, JoinSQLCommaSpace(AnyAny(columns)...)).Prepare
+	})
 }
 
 // ToSQL Make SQL.
@@ -4227,11 +4241,9 @@ type sqlOnConflict struct {
 
 	insert Maker
 
-	onConflictsDoPrepare string
+	onConflictsDo Maker
 
 	onConflicts []string
-
-	onConflictsDoPrepareArgs []any
 }
 
 func newSqlOnConflict(way *Way, insert Maker) *sqlOnConflict {
@@ -4244,9 +4256,8 @@ func newSqlOnConflict(way *Way, insert Maker) *sqlOnConflict {
 func (s *sqlOnConflict) ToEmpty() {
 	s.onConflictsDoUpdateSet = nil
 	s.insert = nil
-	s.onConflictsDoPrepare = StrEmpty
+	s.onConflictsDo = nil
 	s.onConflicts = make([]string, 0, 1<<1)
-	s.onConflictsDoPrepareArgs = make([]any, 0, 1<<1)
 }
 
 func (s *sqlOnConflict) OnConflict(onConflicts ...string) SQLOnConflict {
@@ -4255,14 +4266,7 @@ func (s *sqlOnConflict) OnConflict(onConflicts ...string) SQLOnConflict {
 }
 
 func (s *sqlOnConflict) Do(maker Maker) SQLOnConflict {
-	if maker == nil {
-		return s
-	}
-	script := maker.ToSQL()
-	if script.IsEmpty() {
-		return s
-	}
-	s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs = strings.TrimSpace(script.Prepare), script.Args
+	s.onConflictsDo = maker
 	return s
 }
 
@@ -4291,22 +4295,22 @@ func (s *sqlOnConflict) ToSQL() *SQL {
 	b.WriteString(StrSpace)
 	b.WriteString(StrDo)
 	b.WriteString(StrSpace)
-	doPrepare, doPrepareArgs := StrNothing, make([]any, 0)
-	if s.onConflictsDoPrepare != StrEmpty {
-		doPrepare, doPrepareArgs = s.onConflictsDoPrepare, s.onConflictsDoPrepareArgs
-	} else {
-		if s.onConflictsDoUpdateSet != nil && s.onConflictsDoUpdateSet.Len() > 0 {
-			update := s.onConflictsDoUpdateSet.ToSQL()
-			bu := poolGetStringBuilder()
-			defer poolPutStringBuilder(bu)
-			b.WriteString(Strings(StrUpdate, StrSpace, StrSet, StrSpace))
-			bu.WriteString(update.Prepare)
-			doPrepare = bu.String()
-			doPrepareArgs = update.Args
+	prepare, args := StrNothing, make([]any, 0)
+	if onConflictsDo := s.onConflictsDo; onConflictsDo != nil {
+		if tmp := onConflictsDo.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			prepare, args = tmp.Prepare, tmp.Args[:]
 		}
 	}
-	b.WriteString(doPrepare)
-	script.Args = append(script.Args, doPrepareArgs...)
+	if prepare == StrNothing && s.onConflictsDoUpdateSet != nil && s.onConflictsDoUpdateSet.Len() > 0 {
+		update := s.onConflictsDoUpdateSet.ToSQL()
+		b1 := poolGetStringBuilder()
+		defer poolPutStringBuilder(b1)
+		b.WriteString(Strings(StrUpdate, StrSpace, StrSet, StrSpace))
+		b1.WriteString(update.Prepare)
+		prepare, args = b1.String(), update.Args[:]
+	}
+	b.WriteString(prepare)
+	script.Args = append(script.Args, args...)
 	script.Prepare = b.String()
 	return script
 }
