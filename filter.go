@@ -410,28 +410,6 @@ func (s *filter) spaceHeadCompareBody(head *SQL, body ...any) *SQL {
 	return JoinSQLSpace(headBody(head, body...)...)
 }
 
-func (s *filter) parcel(value any) *SQL {
-	if value == nil {
-		return NewEmptySQL()
-	}
-	switch v := value.(type) {
-	case *SQL:
-		if v.IsEmpty() {
-			return NewEmptySQL()
-		} else {
-			return ParcelSQL(v)
-		}
-	case Maker:
-		if script := v.ToSQL(); script == nil || script.IsEmpty() {
-			return NewEmptySQL()
-		} else {
-			return ParcelSQL(script)
-		}
-	default:
-		return any2sql(value)
-	}
-}
-
 func (s *filter) And(script *SQL) Filter {
 	return s.add(StrAnd, script)
 }
@@ -471,13 +449,6 @@ func (s *filter) get(key string) string {
 	return s.replacer.Get(key)
 }
 
-func (s *filter) tryString(value any) any {
-	if tmp, ok := value.(string); ok {
-		return sqlCaseString(tmp)
-	}
-	return value
-}
-
 func (s *filter) compare(logic string, script any, compare string, value any) Filter {
 	if script == nil || value == nil {
 		return s
@@ -488,8 +459,34 @@ func (s *filter) compare(logic string, script any, compare string, value any) Fi
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	value = s.tryString(value)
-	return s.add(logic, s.spaceHeadCompareBody(any2sql(script), compare, s.parcel(value)))
+	head := any2sql(script)
+	if head.IsEmpty() {
+		return s
+	}
+	body := make([]any, 0, 2)
+	body = append(body, compare)
+	args := ([]any)(nil)
+	switch v := value.(type) {
+	case *SQL:
+		body = append(body, ParcelSQL(v))
+	case Maker:
+		if v == nil {
+			return s
+		}
+		tmp := v.ToSQL()
+		if tmp == nil || tmp.IsEmpty() {
+			return s
+		}
+		body = append(body, ParcelSQL(tmp))
+	default:
+		body = append(body, StrPlaceholder)
+		args = []any{value}
+	}
+	result := s.spaceHeadCompareBody(head, body...)
+	if args != nil {
+		result.Args = append(result.Args, args...)
+	}
+	return s.add(logic, result)
 }
 
 func (s *filter) Equal(script any, value any, null ...bool) Filter {
@@ -529,14 +526,13 @@ func (s *filter) between(logic string, script any, start any, end any, not bool)
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	start, end = s.tryString(start), s.tryString(end)
 	body := make([]any, 0, 5)
 	if not {
 		body = append(body, StrNot)
 	}
 	body = append(body, StrBetween, StrPlaceholder, StrAnd, StrPlaceholder)
 	result := s.spaceHeadCompareBody(any2sql(script), body...)
-	result.Args = []any{start, end}
+	result.Args = append(result.Args, start, end)
 	return s.add(logic, result)
 }
 
@@ -555,12 +551,6 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 	}
 	values = DiscardDuplicate(nil, values...)
 	length = len(values)
-	first := values[0]
-	if _, ok := first.(string); ok {
-		for index, value := range values {
-			values[index] = s.tryString(value)
-		}
-	}
 	if length == 1 {
 		if not {
 			return s.NotEqual(script, values[0])
@@ -673,9 +663,6 @@ func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
 		args := make([]any, 0, length*count)
 		lines := make([]string, length)
 		for i := range length {
-			for k, v := range values[i] {
-				values[i][k] = s.tryString(v)
-			}
 			args = append(args, values[i]...)
 			lines[i] = line
 		}
