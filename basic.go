@@ -476,10 +476,10 @@ func JoinMaker(separator string, makers ...Maker) Maker {
 	return script
 }
 
-func headBody(head any, body ...any) []any {
-	result := make([]any, 0, len(body)+1)
-	result = append(result, head)
-	result = append(result, body...)
+func firstNext(first any, next ...any) []any {
+	result := make([]any, 0, len(next)+1)
+	result = append(result, first)
+	result = append(result, next...)
 	return result
 }
 
@@ -5399,32 +5399,32 @@ func (s *WindowFunc) Count(columns ...string) *WindowFunc {
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, args ...any) *WindowFunc {
-	return s.Window("LAG", headBody(s.way.Replace(column), args...))
+	return s.Window("LAG", firstNext(s.way.Replace(column), args...))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, args ...any) *WindowFunc {
-	return s.Window("LEAD", headBody(s.way.Replace(column), args...))
+	return s.Window("LEAD", firstNext(s.way.Replace(column), args...))
 }
 
 // NTile N-TILE Divide the rows in the window into n buckets and assign a bucket number to each row.
 func (s *WindowFunc) NTile(buckets int64, args ...any) *WindowFunc {
-	return s.Window("NTILE", headBody(buckets, args...))
+	return s.Window("NTILE", firstNext(buckets, args...))
 }
 
 // FirstValue FIRST_VALUE() Returns the value of the first row in the window.
 func (s *WindowFunc) FirstValue(column string) *WindowFunc {
-	return s.Window("FIRST_VALUE", headBody(s.way.Replace(column)))
+	return s.Window("FIRST_VALUE", firstNext(s.way.Replace(column)))
 }
 
 // LastValue LAST_VALUE() Returns the value of the last row in the window.
 func (s *WindowFunc) LastValue(column string) *WindowFunc {
-	return s.Window("LAST_VALUE", headBody(s.way.Replace(column)))
+	return s.Window("LAST_VALUE", firstNext(s.way.Replace(column)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
 func (s *WindowFunc) NthValue(column string, args ...any) *WindowFunc {
-	return s.Window("NTH_VALUE", headBody(s.way.Replace(column), args...))
+	return s.Window("NTH_VALUE", firstNext(s.way.Replace(column), args...))
 }
 
 // Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.

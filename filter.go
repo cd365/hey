@@ -1,5 +1,3 @@
-// Implementing SQL filter
-
 package hey
 
 import (
@@ -403,11 +401,11 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	return s
 }
 
-func (s *filter) spaceHeadCompareBody(head *SQL, body ...any) *SQL {
-	if head == nil || head.IsEmpty() {
+func (s *filter) firstNext(first *SQL, next ...any) *SQL {
+	if first == nil || first.IsEmpty() {
 		return NewEmptySQL()
 	}
-	return JoinSQLSpace(headBody(head, body...)...)
+	return JoinSQLSpace(firstNext(first, next...)...)
 }
 
 func (s *filter) And(script *SQL) Filter {
@@ -459,16 +457,16 @@ func (s *filter) compare(logic string, script any, compare string, value any) Fi
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	head := any2sql(script)
-	if head.IsEmpty() {
+	first := any2sql(script)
+	if first.IsEmpty() {
 		return s
 	}
-	body := make([]any, 0, 2)
-	body = append(body, compare)
+	next := make([]any, 0, 2)
+	next = append(next, compare)
 	args := ([]any)(nil)
 	switch v := value.(type) {
 	case *SQL:
-		body = append(body, ParcelSQL(v))
+		next = append(next, ParcelSQL(v))
 	case Maker:
 		if v == nil {
 			return s
@@ -477,12 +475,12 @@ func (s *filter) compare(logic string, script any, compare string, value any) Fi
 		if tmp == nil || tmp.IsEmpty() {
 			return s
 		}
-		body = append(body, ParcelSQL(tmp))
+		next = append(next, ParcelSQL(tmp))
 	default:
-		body = append(body, StrPlaceholder)
+		next = append(next, StrPlaceholder)
 		args = []any{value}
 	}
-	result := s.spaceHeadCompareBody(head, body...)
+	result := s.firstNext(first, next...)
 	if args != nil {
 		result.Args = append(result.Args, args...)
 	}
@@ -526,12 +524,16 @@ func (s *filter) between(logic string, script any, start any, end any, not bool)
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	body := make([]any, 0, 5)
-	if not {
-		body = append(body, StrNot)
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
 	}
-	body = append(body, StrBetween, StrPlaceholder, StrAnd, StrPlaceholder)
-	result := s.spaceHeadCompareBody(any2sql(script), body...)
+	next := make([]any, 0, 5)
+	if not {
+		next = append(next, StrNot)
+	}
+	next = append(next, StrBetween, StrPlaceholder, StrAnd, StrPlaceholder)
+	result := s.firstNext(first, next...)
 	result.Args = append(result.Args, start, end)
 	return s.add(logic, result)
 }
@@ -561,16 +563,20 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
+	}
 	places := make([]any, length)
 	for i := range length {
 		places[i] = StrPlaceholder
 	}
-	body := make([]any, 0, 5)
+	next := make([]any, 0, 5)
 	if not {
-		body = append(body, StrNot)
+		next = append(next, StrNot)
 	}
-	body = append(body, StrIn, StrLeftSmallBracket, JoinSQLCommaSpace(places), StrRightSmallBracket)
-	result := s.spaceHeadCompareBody(any2sql(script), body...)
+	next = append(next, StrIn, StrLeftSmallBracket, JoinSQLCommaSpace(places), StrRightSmallBracket)
+	result := s.firstNext(first, next...)
 	result.Args = append(result.Args, values...)
 	return s.add(logic, result)
 }
@@ -586,11 +592,15 @@ func (s *filter) InQuery(script any, subquery Maker) Filter {
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
+	}
 	value := subquery.ToSQL()
 	if value == nil || value.IsEmpty() {
 		return s
 	}
-	return s.add(StrAnd, s.spaceHeadCompareBody(any2sql(script), StrIn, ParcelSQL(value)))
+	return s.add(StrAnd, s.firstNext(first, StrIn, ParcelSQL(value)))
 }
 
 func (s *filter) exists(subquery Maker, not bool) Filter {
@@ -601,12 +611,12 @@ func (s *filter) exists(subquery Maker, not bool) Filter {
 	if script == nil || script.IsEmpty() {
 		return s
 	}
-	body := make([]any, 0, 3)
+	next := make([]any, 0, 3)
 	if not {
-		body = append(body, StrNot)
+		next = append(next, StrNot)
 	}
-	body = append(body, StrExists, ParcelSQL(script))
-	return s.add(StrAnd, JoinSQLSpace(body...))
+	next = append(next, StrExists, ParcelSQL(script))
+	return s.add(StrAnd, JoinSQLSpace(next...))
 }
 
 func (s *filter) Exists(subquery Maker) Filter {
@@ -624,14 +634,24 @@ func (s *filter) Like(script any, value any) Filter {
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	return s.add(StrAnd, s.spaceHeadCompareBody(any2sql(script), StrLike, likeValue))
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
+	}
+	result := s.firstNext(first, StrLike, StrPlaceholder)
+	result.Args = append(result.Args, likeValue)
+	return s.add(StrAnd, result)
 }
 
 func (s *filter) IsNull(script any) Filter {
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	return s.add(StrAnd, s.spaceHeadCompareBody(any2sql(script), StrIs, StrNull))
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
+	}
+	return s.add(StrAnd, s.firstNext(first, StrIs, StrNull))
 }
 
 func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
@@ -647,14 +667,17 @@ func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
 		}
 		script = ParcelSQL(NewSQL(strings.Join(columns, StrCommaSpace)))
 	}
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
+	}
 	switch values := value.(type) {
 	case [][]any:
 		length := len(values)
 		if length == 0 {
 			return s
 		}
-		first := values[0]
-		count := len(first)
+		count := len(values[0])
 		group := make([]string, count)
 		for i := range count {
 			group[i] = StrPlaceholder
@@ -681,12 +704,12 @@ func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
 	default:
 		return s
 	}
-	body := make([]any, 0, 3)
+	next := make([]any, 0, 3)
 	if not {
-		body = append(body, StrNot)
+		next = append(next, StrNot)
 	}
-	body = append(body, StrIn, ParcelSQL(value.(*SQL)))
-	return s.add(logic, s.spaceHeadCompareBody(any2sql(script), body...))
+	next = append(next, StrIn, ParcelSQL(value.(*SQL)))
+	return s.add(logic, s.firstNext(first, next...))
 }
 
 func (s *filter) InGroup(script any, values ...[]any) Filter {
@@ -737,14 +760,24 @@ func (s *filter) NotLike(script any, value any) Filter {
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	return s.add(StrAnd, s.spaceHeadCompareBody(any2sql(script), StrNot, StrLike, likeValue))
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
+	}
+	result := s.firstNext(first, StrNot, StrLike, StrPlaceholder)
+	result.Args = append(result.Args, likeValue)
+	return s.add(StrAnd, result)
 }
 
 func (s *filter) IsNotNull(script any) Filter {
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
-	return s.add(StrAnd, s.spaceHeadCompareBody(any2sql(script), StrIs, StrNot, StrNull))
+	first := any2sql(script)
+	if first.IsEmpty() {
+		return s
+	}
+	return s.add(StrAnd, s.firstNext(first, StrIs, StrNot, StrNull))
 }
 
 func (s *filter) AllQuantifier(fc func(q Quantifier)) Filter {
