@@ -646,7 +646,7 @@ func newSqlAlias(script any, aliases ...string) *sqlAlias {
 	}
 }
 
-func NewSQLAlias(script any, aliases ...string) SQLAlias {
+func Alias(script any, aliases ...string) SQLAlias {
 	return newSqlAlias(script, aliases...)
 }
 
@@ -3254,14 +3254,20 @@ type SQLJoin interface {
 	// RightJoin Set the table join relationship, if the table1 value is nil, use the main table.
 	RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
 
-	// Select Add a column list to the query based on the table alias or table name prefix.
-	Select(table SQLAlias, columns ...string) []string
+	// Select Set the query column list.
+	Select(columns ...any) SQLJoin
+
+	// Prefix Set column prefix with the table name or table alias.
+	Prefix(prefix SQLAlias, column string, aliases ...string) string
+
+	// PrefixSelect Add a column list to the query based on the table alias or table name prefix.
+	PrefixSelect(prefix SQLAlias, columns ...string) SQLJoin
 }
 
 type sqlJoin struct {
 	table SQLAlias
 
-	sqlSelect *sqlSelect
+	selects *sqlSelect
 
 	way *Way
 
@@ -3270,16 +3276,16 @@ type sqlJoin struct {
 
 func newSqlJoin(way *Way) *sqlJoin {
 	tmp := &sqlJoin{
-		sqlSelect: newSqlSelect(way),
-		way:       way,
-		joins:     make([]*sqlJoinSchema, 0, 1<<1),
+		selects: newSqlSelect(way),
+		way:     way,
+		joins:   make([]*sqlJoinSchema, 0, 1<<1),
 	}
 	return tmp
 }
 
 func (s *sqlJoin) ToEmpty() {
 	s.joins = make([]*sqlJoinSchema, 0, 1<<1)
-	s.sqlSelect.ToEmpty()
+	s.selects.ToEmpty()
 	s.table = nil
 }
 
@@ -3293,13 +3299,19 @@ func (s *sqlJoin) SetTable(table SQLAlias) SQLJoin {
 }
 
 func (s *sqlJoin) ToSQL() *SQL {
-	script := s.sqlSelect.ToSQL()
+	if s.table == nil {
+		return NewEmptySQL()
+	}
+	master := s.table.ToSQL()
+	if master == nil || master.IsEmpty() {
+		return NewEmptySQL()
+	}
+	script := s.selects.ToSQL()
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
 	b.WriteString(Strings(StrSelect, StrSpace))
 	b.WriteString(script.Prepare)
 	b.WriteString(Strings(StrSpace, StrFrom, StrSpace))
-	master := s.table.ToSQL()
 	b.WriteString(master.Prepare)
 	b.WriteString(StrSpace)
 	script.Args = append(script.Args, master.Args...)
@@ -3394,12 +3406,28 @@ func (s *sqlJoin) RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) S
 	return s.Join(StrJoinRight, table1, table2, on)
 }
 
-func (s *sqlJoin) Select(table SQLAlias, columns ...string) []string {
-	alias := table.GetAlias()
+func (s *sqlJoin) Select(columns ...any) SQLJoin {
+	s.selects.Select(columns...)
+	return s
+}
+
+func (s *sqlJoin) prefixColumnAll(prefix SQLAlias, columns []string) []string {
+	if prefix == nil {
+		return columns
+	}
+	alias := prefix.GetAlias()
 	if alias == StrEmpty {
-		alias = table.GetSQL().Prepare
+		alias = prefix.GetSQL().Prepare
 	}
 	return s.way.T().SetAlias(alias).ColumnAll(columns...)
+}
+
+func (s *sqlJoin) Prefix(prefix SQLAlias, column string, aliases ...string) string {
+	return s.way.Alias(s.prefixColumnAll(prefix, []string{column})[0], aliases...).ToSQL().Prepare
+}
+
+func (s *sqlJoin) PrefixSelect(prefix SQLAlias, columns ...string) SQLJoin {
+	return s.Select(s.prefixColumnAll(prefix, columns))
 }
 
 // SQLGroupBy Build GROUP BY statements.
@@ -3748,10 +3776,11 @@ func (s *sqlValues) ToSQL() *SQL {
 }
 
 func (s *sqlValues) Subquery(subquery Maker) SQLValues {
-	if subquery != nil {
-		if script := subquery.ToSQL(); script.IsEmpty() {
-			return s
-		}
+	if subquery == nil {
+		return s
+	}
+	if script := subquery.ToSQL(); script == nil || script.IsEmpty() {
+		return s
 	}
 	s.subquery = subquery
 	return s
@@ -3941,20 +3970,15 @@ func (s *sqlUpdateSet) IsEmpty() bool {
 }
 
 func (s *sqlUpdateSet) ToSQL() *SQL {
-	script := NewSQL(StrEmpty)
-	if s.IsEmpty() {
-		return script
-	}
-
+	script := NewEmptySQL()
 	length := len(s.updateExpr)
 	if length == 0 {
 		return script
 	}
 
-	lengths := length + 8
-	updates := make([]string, lengths)
+	updates := make([]string, length)
 	copy(updates, s.updateExpr)
-	params := make([][]any, lengths)
+	params := make([][]any, length)
 	copy(params, s.updateArgs)
 
 	defaultUpdates := s.defaults.updateExpr
@@ -4225,7 +4249,7 @@ type SQLOnConflict interface {
 	ToEmpty
 
 	// OnConflict The column causing the conflict, such as a unique key or primary key, which can be a single column or multiple columns.
-	OnConflict(conflicts ...string) SQLOnConflict
+	OnConflict(onConflicts ...string) SQLOnConflict
 
 	// Do The SQL statement that needs to be executed when a data conflict occurs. By default, nothing is done.
 	Do(maker Maker) SQLOnConflict
@@ -4303,11 +4327,13 @@ func (s *sqlOnConflict) ToSQL() *SQL {
 	}
 	if prepare == StrNothing && s.onConflictsDoUpdateSet != nil && s.onConflictsDoUpdateSet.Len() > 0 {
 		update := s.onConflictsDoUpdateSet.ToSQL()
-		b1 := poolGetStringBuilder()
-		defer poolPutStringBuilder(b1)
-		b.WriteString(Strings(StrUpdate, StrSpace, StrSet, StrSpace))
-		b1.WriteString(update.Prepare)
-		prepare, args = b1.String(), update.Args[:]
+		if update != nil && !update.IsEmpty() {
+			b1 := poolGetStringBuilder()
+			defer poolPutStringBuilder(b1)
+			b.WriteString(Strings(StrUpdate, StrSpace, StrSet, StrSpace))
+			b1.WriteString(update.Prepare)
+			prepare, args = b1.String(), update.Args[:]
+		}
 	}
 	b.WriteString(prepare)
 	script.Args = append(script.Args, args...)
@@ -4338,6 +4364,9 @@ type SQLInsert interface {
 
 	// Values Set the list of values to be inserted.
 	Values(values ...[]any) SQLInsert
+
+	// Subquery Use the query result as the values of the insert statement.
+	Subquery(subquery Maker) SQLInsert
 
 	// ColumnValue Set a single column and value.
 	ColumnValue(column string, value any) SQLInsert
@@ -4545,6 +4574,11 @@ func (s *sqlInsert) Values(values ...[]any) SQLInsert {
 		return s
 	}
 	s.values.Values(values...)
+	return s
+}
+
+func (s *sqlInsert) Subquery(subquery Maker) SQLInsert {
+	s.values.Subquery(subquery)
 	return s
 }
 
@@ -4800,6 +4834,9 @@ func (s *Table) Alias(alias string) *Table {
 
 // Join Custom join query.
 func (s *Table) Join(fc func(j SQLJoin)) *Table {
+	if s.joins.table == nil {
+		s.joins.table = s.table
+	}
 	fc(s.joins)
 	return s
 }
@@ -4868,10 +4905,15 @@ func (s *Table) AboutUpdateSet(fc func(f Filter, u SQLUpdateSet)) *Table {
 
 // ToSelect Build SELECT statement.
 func (s *Table) ToSelect() *SQL {
-	lists := make([]any, 0, 16)
-	lists = append(lists, s.comment, s.with, StrSelect, s.selects, StrFrom, s.table, s.joins)
+	lists := make([]any, 0, 12)
+	lists = append(lists, s.comment, s.with)
+	if s.joins != nil && len(s.joins.joins) > 0 {
+		lists = append(lists, s.joins)
+	} else {
+		lists = append(lists, StrSelect, s.selects, StrFrom, s.table)
+	}
 	if !s.where.IsEmpty() {
-		lists = append(lists, StrWhere, s.where)
+		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
 	lists = append(lists, s.groupBy, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
@@ -4892,7 +4934,7 @@ func (s *Table) ToUpdate() *SQL {
 	lists = append(lists, s.comment, s.with, StrUpdate, s.table, s.joins)
 	lists = append(lists, StrSet, s.updateSet)
 	if !s.where.IsEmpty() {
-		lists = append(lists, StrWhere, s.where)
+		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
 	lists = append(lists, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
@@ -4903,7 +4945,7 @@ func (s *Table) ToDelete() *SQL {
 	lists := make([]any, 0, 16)
 	lists = append(lists, s.comment, s.with, StrDelete, StrFrom, s.table, s.joins)
 	if !s.where.IsEmpty() {
-		lists = append(lists, StrWhere, s.where)
+		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
 	lists = append(lists, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
@@ -4922,10 +4964,19 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 		}
 	}
 	count := int64(0)
-	lists := make([]any, 0, 16)
-	lists = append(lists, s.comment, s.with, StrSelect, newSqlSelect(s.way).AddAll(counts...), StrFrom, s.table, s.joins)
+	lists := make([]any, 0, 8)
+	lists = append(lists, s.comment, s.with)
+	if s.joins != nil && len(s.joins.joins) > 0 {
+		origin := s.joins.selects
+		defer func() { s.joins.selects = origin }()
+		s.joins.selects = newSqlSelect(s.way)
+		s.joins.selects.AddAll(counts...)
+		lists = append(lists, s.joins)
+	} else {
+		lists = append(lists, StrSelect, newSqlSelect(s.way).AddAll(counts...), StrFrom, s.table)
+	}
 	if !s.where.IsEmpty() {
-		lists = append(lists, StrWhere, s.where)
+		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
 	script := JoinSQLSpace(lists...).ToSQL()
 	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {

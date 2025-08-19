@@ -468,17 +468,14 @@ func (s *filter) get(key string) string {
 	if s.replacer == nil {
 		return key
 	}
-	if strings.Contains(key, StrSpace) {
-		return key
-	}
 	return s.replacer.Get(key)
 }
 
-func (s *filter) getAll(keys []string) []string {
-	if s.replacer == nil {
-		return keys
+func (s *filter) tryString(value any) any {
+	if tmp, ok := value.(string); ok {
+		return sqlCaseString(tmp)
 	}
-	return ArrayToArray(keys, func(k int, v string) string { return s.get(v) })
+	return value
 }
 
 func (s *filter) compare(logic string, script any, compare string, value any) Filter {
@@ -491,6 +488,7 @@ func (s *filter) compare(logic string, script any, compare string, value any) Fi
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
+	value = s.tryString(value)
 	return s.add(logic, s.spaceHeadCompareBody(any2sql(script), compare, s.parcel(value)))
 }
 
@@ -531,6 +529,7 @@ func (s *filter) between(logic string, script any, start any, end any, not bool)
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
+	start, end = s.tryString(start), s.tryString(end)
 	body := make([]any, 0, 5)
 	if not {
 		body = append(body, StrNot)
@@ -556,6 +555,12 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 	}
 	values = DiscardDuplicate(nil, values...)
 	length = len(values)
+	first := values[0]
+	if _, ok := first.(string); ok {
+		for index, value := range values {
+			values[index] = s.tryString(value)
+		}
+	}
 	if length == 1 {
 		if not {
 			return s.NotEqual(script, values[0])
@@ -668,6 +673,9 @@ func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
 		args := make([]any, 0, length*count)
 		lines := make([]string, length)
 		for i := range length {
+			for k, v := range values[i] {
+				values[i][k] = s.tryString(v)
+			}
 			args = append(args, values[i]...)
 			lines[i] = line
 		}
