@@ -4451,14 +4451,14 @@ func (s *sqlInsert) ToSQL() *SQL {
 	params := make(map[int][]any, len(params1))
 	maps.Copy(params, params1)
 	if len(columns) > 0 {
-		if len(values) > 0 {
+		if len(values) > 0 && len(s.defaults.values.values) == 1 {
 			// add default columns and values.
 			defaultColumns, defaultParams := s.defaults.columns.Get()
-			defaultValues := make([][]any, len(s.defaults.values.values))
-			copy(defaultValues, s.defaults.values.values)
-			defaultColumnsLength := len(defaultColumns)
-			defaultValuesLength := len(defaultValues)
-			if defaultColumnsLength > 0 && defaultValuesLength > 0 && defaultColumnsLength == len(defaultValues[0]) {
+			defaultValuesSlice := s.defaults.values.values[0]
+			defaultValues := make([]any, len(defaultValuesSlice))
+			copy(defaultValues, defaultValuesSlice)
+			defaultColumnsLength, defaultValuesLength := len(defaultColumns), len(defaultValues)
+			if defaultColumnsLength > 0 && defaultValuesLength > 0 && defaultColumnsLength == len(defaultValues) {
 				had := make(map[string]*struct{}, len(columns))
 				for _, column := range columns {
 					had[column] = nil
@@ -4467,10 +4467,13 @@ func (s *sqlInsert) ToSQL() *SQL {
 					if _, ok := had[column]; ok {
 						continue
 					}
+					next := len(columns)
 					columns = append(columns, column)
-					params[len(columns)] = defaultParams[index]
+					if len(defaultParams[index]) > 0 {
+						params[next] = defaultParams[index]
+					}
 					for i := range values {
-						values[i] = append(values[i], defaultValues[index]...)
+						values[i] = append(values[i], defaultValues[index])
 					}
 				}
 			}

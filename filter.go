@@ -575,7 +575,7 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 	if not {
 		next = append(next, StrNot)
 	}
-	next = append(next, StrIn, StrLeftSmallBracket, JoinSQLCommaSpace(places), StrRightSmallBracket)
+	next = append(next, StrIn, StrLeftSmallBracket, JoinSQLCommaSpace(places...), StrRightSmallBracket)
 	result := s.firstNext(first, next...)
 	result.Args = append(result.Args, values...)
 	return s.add(logic, result)
