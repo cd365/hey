@@ -5524,27 +5524,14 @@ func (s *WindowFunc) ToSQL() *SQL {
 
 /* CASE [xxx] WHEN xxx THEN XXX [WHEN yyy THEN YYY] [ELSE xxx] END [AS xxx] */
 
-func sqlCaseString(value string) string {
+// SQLString Convert a go string to a sql string.
+func SQLString(value string) string {
 	return fmt.Sprintf("'%s'", value)
-}
-
-// sqlCaseSQLToPrepareArgs Get SQL script and args.
-func sqlCaseSQLToPrepareArgs(script *SQL) (string, []any) {
-	if script == nil {
-		return StrNull, nil
-	}
-	if prepare := sqlCaseString(StrEmpty); script.Prepare == StrEmpty || script.Prepare == prepare {
-		script.Prepare, script.Args = prepare, nil
-	}
-	return script.Prepare, script.Args
 }
 
 // SQLCase Implementing SQL CASE.
 type SQLCase interface {
 	Maker
-
-	// V Set the go string as a SQL string.
-	V(value string) string
 
 	// Alias Set alias name.
 	Alias(alias string) SQLCase
@@ -5560,19 +5547,11 @@ type SQLCase interface {
 }
 
 type sqlCase struct {
-	// sqlCase CASE value , value is optional.
-	sqlCase *SQL
-
-	// sqlElse ELSE value , value is optional.
-	sqlElse *SQL
-
-	way *Way
-
-	// alias Alias-name for CASE , value is optional.
-	alias string
-
-	// whenThen WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
-	whenThen []*SQL
+	sqlCase  *SQL // CASE value, value is optional.
+	sqlElse  *SQL // ELSE value, value is optional.
+	way      *Way
+	alias    string // Alias-name for CASE , value is optional.
+	whenThen []*SQL // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
 }
 
 func NewSQLCase(way *Way) SQLCase {
@@ -5583,11 +5562,6 @@ func NewSQLCase(way *Way) SQLCase {
 
 func (s *Way) Case() SQLCase {
 	return NewSQLCase(s)
-}
-
-// V Set the go string as a SQL string.
-func (s *sqlCase) V(value string) string {
-	return sqlCaseString(value)
 }
 
 // ToSQL Build CASE Statement.
@@ -5605,9 +5579,8 @@ func (s *sqlCase) ToSQL() *SQL {
 	b.WriteString(StrCase)
 	if tmp := s.sqlCase; tmp != nil && !tmp.IsEmpty() {
 		b.WriteString(StrSpace)
-		prepare, args := sqlCaseSQLToPrepareArgs(tmp)
-		b.WriteString(prepare)
-		script.Args = append(script.Args, args...)
+		b.WriteString(tmp.Prepare)
+		script.Args = append(script.Args, tmp.Args...)
 	}
 	b.WriteString(StrSpace)
 	b.WriteString(whenThen.Prepare)
@@ -5616,9 +5589,8 @@ func (s *sqlCase) ToSQL() *SQL {
 		b.WriteString(StrSpace)
 		b.WriteString(StrElse)
 		b.WriteString(StrSpace)
-		prepare, args := sqlCaseSQLToPrepareArgs(tmp)
-		b.WriteString(prepare)
-		script.Args = append(script.Args, args...)
+		b.WriteString(tmp.Prepare)
+		script.Args = append(script.Args, tmp.Args...)
 	}
 	b.WriteString(StrSpace)
 	b.WriteString(StrEnd)
@@ -5632,20 +5604,27 @@ func (s *sqlCase) Alias(alias string) SQLCase {
 	return s
 }
 
-// Case SQL CASE xxx.
+func handleCaseEmptyString(script *SQL) *SQL {
+	if script == nil {
+		return NewSQL(StrNull)
+	}
+	if prepare := SQLString(StrEmpty); script.Prepare == StrEmpty {
+		script.Prepare, script.Args = prepare, nil
+	}
+	return script
+}
+
 func (s *sqlCase) Case(value any) SQLCase {
-	s.sqlCase = nil1any2sql(value)
+	s.sqlCase = handleCaseEmptyString(nil1any2sql(value))
 	return s
 }
 
-// WhenThen Add WHEN xxx THEN xxx.
 func (s *sqlCase) WhenThen(when, then any) SQLCase {
-	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, nil1any2sql(when), StrThen, nil1any2sql(then)))
+	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, handleCaseEmptyString(nil1any2sql(when)), StrThen, handleCaseEmptyString(nil1any2sql(then))))
 	return s
 }
 
-// Else SQL ELSE xxx.
 func (s *sqlCase) Else(value any) SQLCase {
-	s.sqlElse = nil1any2sql(value)
+	s.sqlElse = handleCaseEmptyString(nil1any2sql(value))
 	return s
 }
