@@ -627,10 +627,6 @@ func (s *filter) Like(script any, value any) Filter {
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	likeValue := any2sql(value)
-	if likeValue.IsEmpty() {
-		return s
-	}
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
@@ -638,9 +634,15 @@ func (s *filter) Like(script any, value any) Filter {
 	if first.IsEmpty() {
 		return s
 	}
-	result := s.firstNext(first, StrLike, StrPlaceholder)
-	result.Args = append(result.Args, likeValue)
-	return s.add(StrAnd, result)
+	if like, ok := value.(string); ok {
+		result := s.firstNext(first, StrLike, StrPlaceholder)
+		result.Args = append(result.Args, like)
+		return s.add(StrAnd, result)
+	}
+	if like := any2sql(value); !like.IsEmpty() {
+		return s.add(StrAnd, s.firstNext(first, StrLike, like))
+	}
+	return s
 }
 
 func (s *filter) IsNull(script any) Filter {
@@ -753,10 +755,6 @@ func (s *filter) NotLike(script any, value any) Filter {
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	likeValue := any2sql(value)
-	if likeValue.IsEmpty() {
-		return s
-	}
 	if column, ok := script.(string); ok {
 		script = s.get(column)
 	}
@@ -764,9 +762,15 @@ func (s *filter) NotLike(script any, value any) Filter {
 	if first.IsEmpty() {
 		return s
 	}
-	result := s.firstNext(first, StrNot, StrLike, StrPlaceholder)
-	result.Args = append(result.Args, likeValue)
-	return s.add(StrAnd, result)
+	if like, ok := value.(string); ok {
+		result := s.firstNext(first, StrNot, StrLike, StrPlaceholder)
+		result.Args = append(result.Args, like)
+		return s.add(StrAnd, result)
+	}
+	if like := any2sql(value); !like.IsEmpty() {
+		return s.add(StrAnd, s.firstNext(first, StrNot, StrLike, like))
+	}
+	return s
 }
 
 func (s *filter) IsNotNull(script any) Filter {
