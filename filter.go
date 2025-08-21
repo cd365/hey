@@ -567,7 +567,7 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 	if first.IsEmpty() {
 		return s
 	}
-	places := make([]any, length)
+	places := make([]string, length)
 	for i := range length {
 		places[i] = StrPlaceholder
 	}
@@ -575,7 +575,7 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 	if not {
 		next = append(next, StrNot)
 	}
-	next = append(next, StrIn, StrLeftSmallBracket, JoinSQLCommaSpace(places...), StrRightSmallBracket)
+	next = append(next, StrIn, StrLeftSmallBracket, strings.Join(places, StrCommaSpace), StrRightSmallBracket)
 	result := s.firstNext(first, next...)
 	result.Args = append(result.Args, values...)
 	return s.add(logic, result)
@@ -689,17 +689,17 @@ func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
 			args = append(args, values[i]...)
 			lines[i] = line
 		}
-		value = NewSQL(strings.Join(lines, StrCommaSpace), args...)
+		value = NewSQL(ParcelPrepare(strings.Join(lines, StrCommaSpace)), args...)
 	case *SQL:
 		if values == nil || values.IsEmpty() {
 			return s
 		}
-		value = values
+		value = ParcelSQL(values)
 	case Maker:
 		if tmp := values.ToSQL(); tmp == nil || tmp.IsEmpty() {
 			return s
 		} else {
-			value = tmp
+			value = ParcelSQL(tmp)
 		}
 	default:
 		return s
@@ -708,7 +708,7 @@ func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
 	if not {
 		next = append(next, StrNot)
 	}
-	next = append(next, StrIn, ParcelSQL(value.(*SQL)))
+	next = append(next, StrIn, value)
 	return s.add(logic, s.firstNext(first, next...))
 }
 

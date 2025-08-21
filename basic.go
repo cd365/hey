@@ -782,7 +782,9 @@ func ParcelFilter(tmp Filter) Filter {
 	if num := tmp.Num(); num != 1 {
 		return tmp
 	}
-	return tmp.New().And(ParcelSQL(tmp.ToSQL()))
+	script := tmp.ToSQL()
+	script.Prepare = ParcelPrepare(script.Prepare)
+	return tmp.New().And(script)
 }
 
 // ParcelCancelPrepare Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
