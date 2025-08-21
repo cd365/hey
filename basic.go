@@ -618,7 +618,7 @@ type SQLAlias interface {
 	GetSQL() *SQL
 
 	// SetSQL Set SQL statement.
-	SetSQL(script *SQL) SQLAlias
+	SetSQL(script any) SQLAlias
 
 	// GetAlias Get alias name value.
 	GetAlias() string
@@ -670,11 +670,12 @@ func (s *sqlAlias) GetSQL() *SQL {
 	return s.script
 }
 
-func (s *sqlAlias) SetSQL(script *SQL) SQLAlias {
+func (s *sqlAlias) SetSQL(script any) SQLAlias {
 	if script == nil {
-		script = NewEmptySQL()
+		s.script = NewEmptySQL()
+	} else {
+		s.script = any2sql(script).ToSQL()
 	}
-	s.script = script
 	return s
 }
 
@@ -4805,40 +4806,46 @@ func (s *Table) Comment(comment string) *Table {
 	return s
 }
 
-// With Custom common table expression (CTE).
-func (s *Table) With(fc func(w SQLWith)) *Table {
+// WITH Custom common table expression (CTE).
+func (s *Table) WITH(fc func(w SQLWith)) *Table {
 	fc(s.with)
 	return s
 }
 
+// SELECT Set SELECT through func.
+func (s *Table) SELECT(fc func(q SQLSelect)) *Table {
+	fc(s.selects)
+	return s
+}
+
+// Distinct SQL DISTINCT columns.
+func (s *Table) Distinct() *Table {
+	return s.SELECT(func(q SQLSelect) { q.Distinct() })
+}
+
 // Select Add one or more query lists. If no parameter is provided, all existing query lists will be deleted.
 func (s *Table) Select(selects ...any) *Table {
-	s.selects.Select(selects...)
+	return s.SELECT(func(q SQLSelect) { q.Select(selects...) })
+}
+
+// TABLE Set query table through func.
+func (s *Table) TABLE(fc func(t SQLAlias)) *Table {
+	fc(s.table)
 	return s
 }
 
 // Table Set the table name, or possibly a subquery with an alias.
 func (s *Table) Table(table any) *Table {
-	if table == nil {
-		s.table = newSqlAlias(StrEmpty)
-		return s
-	}
-	if tmp, ok := table.(*sqlAlias); ok && tmp != nil {
-		s.table = tmp
-		return s
-	}
-	s.table = newSqlAlias(table)
-	return s
+	return s.TABLE(func(t SQLAlias) { t.SetSQL(table) })
 }
 
 // Alias Set the table alias name.
 func (s *Table) Alias(alias string) *Table {
-	s.table.SetAlias(alias)
-	return s
+	return s.TABLE(func(t SQLAlias) { t.SetAlias(alias) })
 }
 
-// Join Custom join query.
-func (s *Table) Join(fc func(j SQLJoin)) *Table {
+// JOIN Custom join query.
+func (s *Table) JOIN(fc func(j SQLJoin)) *Table {
 	if s.joins.table == nil {
 		s.joins.table = s.table
 	}
@@ -4846,40 +4853,68 @@ func (s *Table) Join(fc func(j SQLJoin)) *Table {
 	return s
 }
 
-// Where Set the WHERE condition.
-func (s *Table) Where(fc func(f Filter)) *Table {
+// WHERE Set WHERE through func.
+func (s *Table) WHERE(fc func(f Filter)) *Table {
 	fc(s.where)
 	return s
 }
 
-// Group Set up grouping.
-func (s *Table) Group(fc func(g SQLGroupBy)) *Table {
+// Where Set the WHERE condition.
+func (s *Table) Where(filters ...Filter) *Table {
+	return s.WHERE(func(f Filter) { f.ToEmpty().Use(filters...) })
+}
+
+// GROUP Set GROUP BY through func.
+func (s *Table) GROUP(fc func(g SQLGroupBy)) *Table {
 	fc(s.groupBy)
+	return s
+}
+
+// Group Set GROUP BY condition.
+func (s *Table) Group(groups ...any) *Table {
+	return s.GROUP(func(g SQLGroupBy) { g.Group(groups...) })
+}
+
+// HAVING Set HAVING through func.
+func (s *Table) HAVING(fc func(h Filter)) *Table {
+	return s.GROUP(func(g SQLGroupBy) { g.Having(fc) })
+}
+
+// Having Set the HAVING condition.
+func (s *Table) Having(filters ...Filter) *Table {
+	return s.HAVING(func(f Filter) { f.ToEmpty().Use(filters...) })
+}
+
+// ORDER Set ORDER BY through func.
+func (s *Table) ORDER(fc func(o SQLOrderBy)) *Table {
+	fc(s.orderBy)
 	return s
 }
 
 // Asc Sort ascending.
 func (s *Table) Asc(column string) *Table {
-	s.orderBy.Asc(column)
-	return s
+	return s.ORDER(func(o SQLOrderBy) { o.Asc(column) })
 }
 
 // Desc Sort descending.
 func (s *Table) Desc(column string) *Table {
-	s.orderBy.Desc(column)
+	return s.ORDER(func(o SQLOrderBy) { o.Desc(column) })
+}
+
+// LIMIT Set LIMIT x [OFFSET x] through func.
+func (s *Table) LIMIT(fc func(o SQLLimit)) *Table {
+	fc(s.limit)
 	return s
 }
 
 // Limit Set the maximum number of query result sets.
 func (s *Table) Limit(limit int64) *Table {
-	s.limit.Limit(limit)
-	return s
+	return s.LIMIT(func(o SQLLimit) { o.Limit(limit) })
 }
 
 // Offset Set the offset of the query target data.
 func (s *Table) Offset(offset int64) *Table {
-	s.limit.Offset(offset)
-	return s
+	return s.LIMIT(func(o SQLLimit) { o.Offset(offset) })
 }
 
 // Limiter Set limit and offset at the same time.
@@ -4887,23 +4922,28 @@ func (s *Table) Limiter(limiter Limiter) *Table {
 	if limiter == nil {
 		return s
 	}
-	return s.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
+	return s.LIMIT(func(o SQLLimit) {
+		limit := limiter.GetLimit()
+		if limit <= 0 {
+			return
+		}
+		o.Limit(limit).Offset(limiter.GetOffset())
+	})
 }
 
 // Page Pagination query, page number + page limit.
 func (s *Table) Page(page int64, limit ...int64) *Table {
-	s.limit.Page(page, limit...)
-	return s
+	return s.LIMIT(func(o SQLLimit) { o.Page(page, limit...) })
 }
 
-// AboutInsert About inserting data.
-func (s *Table) AboutInsert(fc func(i SQLInsert)) *Table {
+// INSERT Set inserting data through func.
+func (s *Table) INSERT(fc func(i SQLInsert)) *Table {
 	fc(s.insert)
 	return s
 }
 
-// AboutUpdateSet About updating data.
-func (s *Table) AboutUpdateSet(fc func(f Filter, u SQLUpdateSet)) *Table {
+// UPDATE Set updating data through func.
+func (s *Table) UPDATE(fc func(f Filter, u SQLUpdateSet)) *Table {
 	fc(s.where, s.updateSet)
 	return s
 }
@@ -4954,6 +4994,11 @@ func (s *Table) ToDelete() *SQL {
 	}
 	lists = append(lists, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
+}
+
+// ToSQL Implementing the Maker interface using query statement.
+func (s *Table) ToSQL() *SQL {
+	return s.ToSelect()
 }
 
 // Query Execute a SELECT statement.
@@ -5036,12 +5081,12 @@ func (s *Table) Delete(ctx context.Context) (int64, error) {
 
 // Create Quickly insert data into the table.
 func (s *Table) Create(ctx context.Context, create any) (int64, error) {
-	return s.AboutInsert(func(i SQLInsert) { i.Create(create) }).Insert(ctx)
+	return s.INSERT(func(i SQLInsert) { i.Create(create) }).Insert(ctx)
 }
 
 // Modify Quickly update data in the table.
 func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
-	return s.AboutUpdateSet(func(f Filter, u SQLUpdateSet) { u.Update(modify) }).Update(ctx)
+	return s.UPDATE(func(f Filter, u SQLUpdateSet) { u.Update(modify) }).Update(ctx)
 }
 
 type TableColumn struct {
