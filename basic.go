@@ -567,6 +567,21 @@ func (s *Way) Func(funcName string, funcArgs ...any) *SQL {
 	return FuncSQL(funcName, funcArgs...)
 }
 
+// Replacer SQL Identifier Replacer.
+// All identifier mapping relationships should be set before the program is initialized.
+// They cannot be set again while the program is running to avoid concurrent reading and writing of the map.
+type Replacer interface {
+	Get(key string) string
+
+	Set(key string, value string) Replacer
+
+	Del(key string) Replacer
+
+	Map() map[string]string
+
+	GetAll(keys []string) []string
+}
+
 // replacer Implementing the Replacer interface.
 type replacer struct {
 	replaces map[string]string
@@ -2582,6 +2597,43 @@ func (s *Way) Debug(maker Maker) *Way {
 		s.cfg.Debug.Debug(maker)
 	}
 	return s
+}
+
+// ExecuteScript Execute SQL script.
+func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any) error {
+	if execute = strings.TrimSpace(execute); execute == StrEmpty {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, execute, args...); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DropTable DROP TABLE. Data is priceless! You should back up your data before calling this function unless you are very sure what you are doing.
+func DropTable(ctx context.Context, db *sql.DB, tables ...string) error {
+	for _, table := range tables {
+		if table = strings.TrimSpace(table); table == StrEmpty {
+			continue
+		}
+		if err := ExecuteScript(ctx, db, fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TruncateTable TRUNCATE TABLE. Data is priceless! You should back up your data before calling this function unless you are very sure what you are doing.
+func TruncateTable(ctx context.Context, db *sql.DB, tables ...string) error {
+	for _, table := range tables {
+		if table = strings.TrimSpace(table); table == StrEmpty {
+			continue
+		}
+		if err := ExecuteScript(ctx, db, fmt.Sprintf("TRUNCATE TABLE %s", table)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // databaseRead Implement DatabaseReader.

@@ -144,21 +144,6 @@ func filterUsingValue(value any) any {
 	return v.Interface()
 }
 
-// Replacer SQL Identifier Replacer.
-// All identifier mapping relationships should be set before the program is initialized.
-// They cannot be set again while the program is running to avoid concurrent reading and writing of the map.
-type Replacer interface {
-	Get(key string) string
-
-	Set(key string, value string) Replacer
-
-	Del(key string) Replacer
-
-	Map() map[string]string
-
-	GetAll(keys []string) []string
-}
-
 // Filter Implement SQL statement conditional filtering (general conditional filtering).
 type Filter interface {
 	Maker
