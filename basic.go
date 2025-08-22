@@ -689,7 +689,7 @@ func (s *sqlAlias) SetSQL(script any) SQLAlias {
 	if script == nil {
 		s.script = NewEmptySQL()
 	} else {
-		s.script = any2sql(script).ToSQL()
+		s.script = any2sql(script)
 	}
 	return s
 }
@@ -3219,8 +3219,8 @@ func newSQLJoinOn(way *Way) *sqlJoinOn {
 	}
 }
 
-func (s *sqlJoinOn) Equal(alias1 string, column1 string, alias2 string, column2 string) SQLJoinOn {
-	s.on.And(JoinSQLSpace(Prefix(alias1, column1), StrEqual, Prefix(alias2, column2)))
+func (s *sqlJoinOn) Equal(table1alias string, table1column string, table2alias string, table2column string) SQLJoinOn {
+	s.on.And(JoinSQLSpace(Prefix(table1alias, table1column), StrEqual, Prefix(table2alias, table2column)))
 	return s
 }
 
@@ -3298,7 +3298,7 @@ type SQLJoin interface {
 	OnEqual(table1column string, table2column string) SQLJoinAssoc
 
 	// Join Use the join type to set the table join relationship, if the table1 value is nil, use the main table.
-	Join(join string, table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
+	Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
 
 	// InnerJoin Set the table join relationship, if the table1 value is nil, use the main table.
 	InnerJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
@@ -3399,11 +3399,11 @@ func (s *sqlJoin) Table(table any, alias string) SQLAlias {
 }
 
 // On For `... JOIN ON ...`
-func (s *sqlJoin) On(on func(o SQLJoinOn, alias1 string, alias2 string)) SQLJoinAssoc {
-	return func(alias1 string, alias2 string) SQLJoinOn {
+func (s *sqlJoin) On(on func(on SQLJoinOn, table1alias string, table2alias string)) SQLJoinAssoc {
+	return func(table1alias string, table2alias string) SQLJoinOn {
 		return newSQLJoinOn(s.way).On(func(o Filter) {
 			newAssoc := newSQLJoinOn(s.way)
-			on(newAssoc, alias1, alias2)
+			on(newAssoc, table1alias, table2alias)
 			newAssoc.On(func(f Filter) { o.Use(f) })
 		})
 	}
@@ -3417,13 +3417,13 @@ func (s *sqlJoin) Using(columns ...string) SQLJoinAssoc {
 }
 
 // OnEqual For `... JOIN ON ... = ... [...]`
-func (s *sqlJoin) OnEqual(column1 string, column2 string) SQLJoinAssoc {
-	if column1 == StrEmpty || column2 == StrEmpty {
+func (s *sqlJoin) OnEqual(table1column string, table2column string) SQLJoinAssoc {
+	if table1column == StrEmpty || table2column == StrEmpty {
 		return nil
 	}
 	return func(alias1 string, alias2 string) SQLJoinOn {
 		return newSQLJoinOn(s.way).On(func(f Filter) {
-			f.CompareEqual(Prefix(alias1, column1), Prefix(alias2, column2))
+			f.CompareEqual(Prefix(alias1, table1column), Prefix(alias2, table2column))
 		})
 	}
 }
@@ -4852,6 +4852,12 @@ func (s *Table) ToEmpty() *Table {
 	return s
 }
 
+// W Use *Way that has already opened a transaction.
+func (s *Table) W(way *Way) *Table {
+	s.way = s.way.W(way)
+	return s
+}
+
 // Comment SQL statement notes.
 func (s *Table) Comment(comment string) *Table {
 	s.comment.Comment(comment)
@@ -4862,6 +4868,11 @@ func (s *Table) Comment(comment string) *Table {
 func (s *Table) WITH(fc func(w SQLWith)) *Table {
 	fc(s.with)
 	return s
+}
+
+// With Add a common table expression.
+func (s *Table) With(alias string, maker Maker, columns ...string) *Table {
+	return s.WITH(func(w SQLWith) { w.Set(alias, maker, columns...) })
 }
 
 // SELECT Set SELECT through func.
@@ -4903,6 +4914,48 @@ func (s *Table) JOIN(fc func(j SQLJoin)) *Table {
 	}
 	fc(s.joins)
 	return s
+}
+
+// InnerJoin INNER JOIN.
+func (s *Table) InnerJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQLAlias, joinOn SQLJoinAssoc)) *Table {
+	return s.JOIN(func(j SQLJoin) {
+		left, right, on := fc(j)
+		if on == nil || right == nil || right.IsEmpty() {
+			return
+		}
+		if left == nil || left.IsEmpty() {
+			left = j.GetTable()
+		}
+		j.InnerJoin(left, right, on)
+	})
+}
+
+// LeftJoin LEFT JOIN.
+func (s *Table) LeftJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQLAlias, joinOn SQLJoinAssoc)) *Table {
+	return s.JOIN(func(j SQLJoin) {
+		left, right, on := fc(j)
+		if on == nil || right == nil || right.IsEmpty() {
+			return
+		}
+		if left == nil || left.IsEmpty() {
+			left = j.GetTable()
+		}
+		j.LeftJoin(left, right, on)
+	})
+}
+
+// RightJoin RIGHT JOIN.
+func (s *Table) RightJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQLAlias, joinOn SQLJoinAssoc)) *Table {
+	return s.JOIN(func(j SQLJoin) {
+		left, right, on := fc(j)
+		if on == nil || right == nil || right.IsEmpty() {
+			return
+		}
+		if left == nil || left.IsEmpty() {
+			left = j.GetTable()
+		}
+		j.RightJoin(left, right, on)
+	})
 }
 
 // WHERE Set WHERE through func.
