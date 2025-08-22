@@ -2581,16 +2581,6 @@ func (s *Way) V(values ...*Way) *Way {
 	return s
 }
 
-// W -> The specified transaction object is used first, otherwise the current object is used.
-func (s *Way) W(values ...*Way) *Way {
-	for i := len(values) - 1; i >= 0; i-- {
-		if values[i] != nil && values[i].IsInTransaction() {
-			return values[i]
-		}
-	}
-	return s
-}
-
 // Debug Debugging output SQL script.
 func (s *Way) Debug(maker Maker) *Way {
 	if s.cfg.Debug != nil {
@@ -4801,7 +4791,114 @@ func (s *sqlInsert) OnConflict(fc func(o SQLOnConflict)) SQLInsert {
 	return s
 }
 
-// Table Represents a SQL table operation, such as SELECT, INSERT, UPDATE, DELETE.
+/* CASE [xxx] WHEN x THEN X [WHEN xx THEN XX] [ELSE xxx] END [AS xxx] */
+
+// SQLString Convert a go string to a sql string.
+func SQLString(value string) string {
+	return fmt.Sprintf("'%s'", value)
+}
+
+// SQLCase Implementing SQL CASE.
+type SQLCase interface {
+	Maker
+
+	// Alias Set alias name.
+	Alias(alias string) SQLCase
+
+	// Case SQL CASE.
+	Case(value any) SQLCase
+
+	// WhenThen Add WHEN xxx THEN xxx.
+	WhenThen(when, then any) SQLCase
+
+	// Else SQL CASE xxx ELSE xxx.
+	Else(value any) SQLCase
+}
+
+type sqlCase struct {
+	sqlCase  *SQL // CASE value, value is optional.
+	sqlElse  *SQL // ELSE value, value is optional.
+	way      *Way
+	alias    string // Alias-name for CASE , value is optional.
+	whenThen []*SQL // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
+}
+
+func NewSQLCase(way *Way) SQLCase {
+	return &sqlCase{
+		way: way,
+	}
+}
+
+func (s *Way) Case() SQLCase {
+	return NewSQLCase(s)
+}
+
+// ToSQL Build CASE statement.
+func (s *sqlCase) ToSQL() *SQL {
+	script := NewSQL(StrEmpty)
+	if len(s.whenThen) == 0 {
+		return script
+	}
+	whenThen := JoinSQLSpace(AnyAny(s.whenThen)...).ToSQL()
+	if whenThen.IsEmpty() {
+		return script
+	}
+	b := poolGetStringBuilder()
+	defer poolPutStringBuilder(b)
+	b.WriteString(StrCase)
+	if tmp := s.sqlCase; tmp != nil && !tmp.IsEmpty() {
+		b.WriteString(StrSpace)
+		b.WriteString(tmp.Prepare)
+		script.Args = append(script.Args, tmp.Args...)
+	}
+	b.WriteString(StrSpace)
+	b.WriteString(whenThen.Prepare)
+	script.Args = append(script.Args, whenThen.Args...)
+	if tmp := s.sqlElse; tmp != nil && !tmp.IsEmpty() {
+		b.WriteString(StrSpace)
+		b.WriteString(StrElse)
+		b.WriteString(StrSpace)
+		b.WriteString(tmp.Prepare)
+		script.Args = append(script.Args, tmp.Args...)
+	}
+	b.WriteString(StrSpace)
+	b.WriteString(StrEnd)
+	script.Prepare = b.String()
+	return newSqlAlias(script).v(s.way).SetAlias(s.alias).ToSQL()
+}
+
+// Alias Set the alias for the entire CASE.
+func (s *sqlCase) Alias(alias string) SQLCase {
+	s.alias = alias
+	return s
+}
+
+func handleCaseEmptyString(script *SQL) *SQL {
+	if script == nil {
+		return NewSQL(StrNull)
+	}
+	if prepare := SQLString(StrEmpty); script.Prepare == StrEmpty {
+		script.Prepare, script.Args = prepare, nil
+	}
+	return script
+}
+
+func (s *sqlCase) Case(value any) SQLCase {
+	s.sqlCase = handleCaseEmptyString(nil1any2sql(value))
+	return s
+}
+
+func (s *sqlCase) WhenThen(when, then any) SQLCase {
+	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, handleCaseEmptyString(nil1any2sql(when)), StrThen, handleCaseEmptyString(nil1any2sql(then))))
+	return s
+}
+
+func (s *sqlCase) Else(value any) SQLCase {
+	s.sqlElse = handleCaseEmptyString(nil1any2sql(value))
+	return s
+}
+
+// Table Quickly build SELECT, INSERT, UPDATE, DELETE statements and support immediate execution of them.
 type Table struct {
 	way *Way
 
@@ -4852,9 +4949,14 @@ func (s *Table) ToEmpty() *Table {
 	return s
 }
 
-// W Use *Way that has already opened a transaction.
-func (s *Table) W(way *Way) *Table {
-	s.way = s.way.W(way)
+// F Quickly create a Filter.
+func (s *Table) F(filters ...Filter) Filter {
+	return s.way.F(filters...)
+}
+
+// V Use *Way given a non-nil value.
+func (s *Table) V(values ...*Way) *Table {
+	s.way = s.way.V(values...)
 	return s
 }
 
@@ -5024,16 +5126,7 @@ func (s *Table) Offset(offset int64) *Table {
 
 // Limiter Set limit and offset at the same time.
 func (s *Table) Limiter(limiter Limiter) *Table {
-	if limiter == nil {
-		return s
-	}
-	return s.LIMIT(func(o SQLLimit) {
-		limit := limiter.GetLimit()
-		if limit <= 0 {
-			return
-		}
-		o.Limit(limit).Offset(limiter.GetOffset())
-	})
+	return s.LIMIT(func(o SQLLimit) { o.Limit(limiter.GetLimit()).Offset(limiter.GetOffset()) })
 }
 
 // Page Pagination query, page number + page limit.
@@ -5192,152 +5285,6 @@ func (s *Table) Create(ctx context.Context, create any) (int64, error) {
 // Modify Quickly update data in the table.
 func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	return s.UPDATE(func(f Filter, u SQLUpdateSet) { u.Update(modify) }).Update(ctx)
-}
-
-type TableColumn struct {
-	way   *Way
-	alias string
-}
-
-func NewTableColumn(way *Way, aliases ...string) *TableColumn {
-	tmp := &TableColumn{
-		way: way,
-	}
-	tmp.alias = LastNotEmptyString(aliases)
-	return tmp
-}
-
-// T Table empty alias
-func (s *Way) T() *TableColumn {
-	return NewTableColumn(s)
-}
-
-// Alias Get the alias name value.
-func (s *TableColumn) Alias() string {
-	return s.alias
-}
-
-// SetAlias Set the alias name value.
-func (s *TableColumn) SetAlias(alias string) *TableColumn {
-	s.alias = alias
-	return s
-}
-
-// Adjust Batch adjust columns.
-func (s *TableColumn) Adjust(adjust func(column string) string, columns ...string) []string {
-	if adjust != nil {
-		for index, column := range columns {
-			columns[index] = s.way.Replace(adjust(column))
-		}
-	}
-	return columns
-}
-
-// ColumnAll Add table name prefix to column names in batches.
-func (s *TableColumn) ColumnAll(columns ...string) []string {
-	if s.alias == StrEmpty {
-		return s.way.ReplaceAll(columns)
-	}
-	alias := s.way.Replace(s.alias)
-	result := make([]string, len(columns))
-	for index, column := range columns {
-		result[index] = Prefix(alias, s.way.Replace(column))
-	}
-	return result
-}
-
-// columnAlias Set an alias for the column.
-// "column_name + alias_name" -> "column_name"
-// "column_name + alias_name" -> "column_name AS alias_name"
-func (s *TableColumn) columnAlias(column string, aliases ...string) string {
-	if alias := LastNotEmptyString(aliases); alias != StrEmpty {
-		return newSqlAlias(column).v(s.way).SetAlias(alias).ToSQL().Prepare
-	}
-	return column
-}
-
-// Column Add table name prefix to single column name, allowing column alias to be set.
-func (s *TableColumn) Column(column string, aliases ...string) string {
-	return s.columnAlias(s.ColumnAll(column)[0], aliases...)
-}
-
-// Sum SUM(column[, alias])
-func (s *TableColumn) Sum(column string, aliases ...string) string {
-	return s.columnAlias(Sum(s.Column(column)).Prepare, aliases...)
-}
-
-// Max MAX(column[, alias])
-func (s *TableColumn) Max(column string, aliases ...string) string {
-	return s.columnAlias(Max(s.Column(column)).Prepare, aliases...)
-}
-
-// Min MIN(column[, alias])
-func (s *TableColumn) Min(column string, aliases ...string) string {
-	return s.columnAlias(Min(s.Column(column)).Prepare, aliases...)
-}
-
-// Avg AVG(column[, alias])
-func (s *TableColumn) Avg(column string, aliases ...string) string {
-	return s.columnAlias(Avg(s.Column(column)).Prepare, aliases...)
-}
-
-const DefaultAliasNameCount = "counts"
-
-// Count Example
-// Count(): COUNT(*) AS `counts`
-// Count("total"): COUNT(*) AS `total`
-// Count("1", "total"): COUNT(1) AS `total`
-// Count("id", "counts"): COUNT(`id`) AS `counts`
-func (s *TableColumn) Count(counts ...string) string {
-	count := "COUNT(*)"
-	length := len(counts)
-	if length == 0 {
-		// using default expression: COUNT(*) AS `counts`
-		return s.columnAlias(count, s.way.Replace(DefaultAliasNameCount))
-	}
-	if length == 1 && counts[0] != StrEmpty {
-		// only set alias name
-		return s.columnAlias(count, s.way.Replace(counts[0]))
-	}
-	// set COUNT function parameters and alias name
-	countAlias := s.way.Replace(DefaultAliasNameCount)
-	column := false
-	for i := range length {
-		if counts[i] == StrEmpty {
-			continue
-		}
-		if column {
-			countAlias = s.way.Replace(counts[i])
-			break
-		}
-		count, column = fmt.Sprintf("COUNT(%s)", s.Column(counts[i])), true
-	}
-	return s.columnAlias(count, countAlias)
-}
-
-// aggregate Perform an aggregate function on the column and set a default value to replace NULL values.
-func (s *TableColumn) aggregate(column string, defaultValue any, aliases ...string) string {
-	return s.columnAlias(Coalesce(s.Column(column), defaultValue).Prepare, aliases...)
-}
-
-// SUM COALESCE(SUM(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) SUM(column string, aliases ...string) string {
-	return s.aggregate(s.Sum(column), 0, aliases...)
-}
-
-// MAX COALESCE(MAX(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) MAX(column string, aliases ...string) string {
-	return s.aggregate(s.Max(column), 0, aliases...)
-}
-
-// MIN COALESCE(MIN(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) MIN(column string, aliases ...string) string {
-	return s.aggregate(s.Min(column), 0, aliases...)
-}
-
-// AVG COALESCE(AVG(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) AVG(column string, aliases ...string) string {
-	return s.aggregate(s.Avg(column), 0, aliases...)
 }
 
 /*
@@ -5677,109 +5624,148 @@ func (s *WindowFunc) ToSQL() *SQL {
 	return newSqlAlias(result).v(s.way).SetAlias(s.alias).ToSQL()
 }
 
-/* CASE [xxx] WHEN xxx THEN XXX [WHEN yyy THEN YYY] [ELSE xxx] END [AS xxx] */
-
-// SQLString Convert a go string to a sql string.
-func SQLString(value string) string {
-	return fmt.Sprintf("'%s'", value)
+type TableColumn struct {
+	way   *Way
+	alias string
 }
 
-// SQLCase Implementing SQL CASE.
-type SQLCase interface {
-	Maker
-
-	// Alias Set alias name.
-	Alias(alias string) SQLCase
-
-	// Case SQL CASE.
-	Case(value any) SQLCase
-
-	// WhenThen Add WHEN xxx THEN xxx.
-	WhenThen(when, then any) SQLCase
-
-	// Else SQL CASE xxx ELSE xxx.
-	Else(value any) SQLCase
-}
-
-type sqlCase struct {
-	sqlCase  *SQL // CASE value, value is optional.
-	sqlElse  *SQL // ELSE value, value is optional.
-	way      *Way
-	alias    string // Alias-name for CASE , value is optional.
-	whenThen []*SQL // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
-}
-
-func NewSQLCase(way *Way) SQLCase {
-	return &sqlCase{
+func NewTableColumn(way *Way, aliases ...string) *TableColumn {
+	tmp := &TableColumn{
 		way: way,
 	}
+	tmp.alias = LastNotEmptyString(aliases)
+	return tmp
 }
 
-func (s *Way) Case() SQLCase {
-	return NewSQLCase(s)
+// T Table empty alias
+func (s *Way) T() *TableColumn {
+	return NewTableColumn(s)
 }
 
-// ToSQL Build CASE Statement.
-func (s *sqlCase) ToSQL() *SQL {
-	script := NewSQL(StrEmpty)
-	if len(s.whenThen) == 0 {
-		return script
-	}
-	whenThen := JoinSQLSpace(AnyAny(s.whenThen)...).ToSQL()
-	if whenThen.IsEmpty() {
-		return script
-	}
-	b := poolGetStringBuilder()
-	defer poolPutStringBuilder(b)
-	b.WriteString(StrCase)
-	if tmp := s.sqlCase; tmp != nil && !tmp.IsEmpty() {
-		b.WriteString(StrSpace)
-		b.WriteString(tmp.Prepare)
-		script.Args = append(script.Args, tmp.Args...)
-	}
-	b.WriteString(StrSpace)
-	b.WriteString(whenThen.Prepare)
-	script.Args = append(script.Args, whenThen.Args...)
-	if tmp := s.sqlElse; tmp != nil && !tmp.IsEmpty() {
-		b.WriteString(StrSpace)
-		b.WriteString(StrElse)
-		b.WriteString(StrSpace)
-		b.WriteString(tmp.Prepare)
-		script.Args = append(script.Args, tmp.Args...)
-	}
-	b.WriteString(StrSpace)
-	b.WriteString(StrEnd)
-	script.Prepare = b.String()
-	return newSqlAlias(script).v(s.way).SetAlias(s.alias).ToSQL()
+// Alias Get the alias name value.
+func (s *TableColumn) Alias() string {
+	return s.alias
 }
 
-// Alias Set the alias of the CASE.
-func (s *sqlCase) Alias(alias string) SQLCase {
+// SetAlias Set the alias name value.
+func (s *TableColumn) SetAlias(alias string) *TableColumn {
 	s.alias = alias
 	return s
 }
 
-func handleCaseEmptyString(script *SQL) *SQL {
-	if script == nil {
-		return NewSQL(StrNull)
+// Adjust Batch adjust columns.
+func (s *TableColumn) Adjust(adjust func(column string) string, columns ...string) []string {
+	if adjust != nil {
+		for index, column := range columns {
+			columns[index] = s.way.Replace(adjust(column))
+		}
 	}
-	if prepare := SQLString(StrEmpty); script.Prepare == StrEmpty {
-		script.Prepare, script.Args = prepare, nil
+	return columns
+}
+
+// ColumnAll Add table name prefix to column names in batches.
+func (s *TableColumn) ColumnAll(columns ...string) []string {
+	if s.alias == StrEmpty {
+		return s.way.ReplaceAll(columns)
 	}
-	return script
+	alias := s.way.Replace(s.alias)
+	result := make([]string, len(columns))
+	for index, column := range columns {
+		result[index] = Prefix(alias, s.way.Replace(column))
+	}
+	return result
 }
 
-func (s *sqlCase) Case(value any) SQLCase {
-	s.sqlCase = handleCaseEmptyString(nil1any2sql(value))
-	return s
+// columnAlias Set an alias for the column.
+// "column_name + alias_name" -> "column_name"
+// "column_name + alias_name" -> "column_name AS alias_name"
+func (s *TableColumn) columnAlias(column string, aliases ...string) string {
+	if alias := LastNotEmptyString(aliases); alias != StrEmpty {
+		return newSqlAlias(column).v(s.way).SetAlias(alias).ToSQL().Prepare
+	}
+	return column
 }
 
-func (s *sqlCase) WhenThen(when, then any) SQLCase {
-	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, handleCaseEmptyString(nil1any2sql(when)), StrThen, handleCaseEmptyString(nil1any2sql(then))))
-	return s
+// Column Add table name prefix to single column name, allowing column alias to be set.
+func (s *TableColumn) Column(column string, aliases ...string) string {
+	return s.columnAlias(s.ColumnAll(column)[0], aliases...)
 }
 
-func (s *sqlCase) Else(value any) SQLCase {
-	s.sqlElse = handleCaseEmptyString(nil1any2sql(value))
-	return s
+// Sum SUM(column[, alias])
+func (s *TableColumn) Sum(column string, aliases ...string) string {
+	return s.columnAlias(Sum(s.Column(column)).Prepare, aliases...)
+}
+
+// Max MAX(column[, alias])
+func (s *TableColumn) Max(column string, aliases ...string) string {
+	return s.columnAlias(Max(s.Column(column)).Prepare, aliases...)
+}
+
+// Min MIN(column[, alias])
+func (s *TableColumn) Min(column string, aliases ...string) string {
+	return s.columnAlias(Min(s.Column(column)).Prepare, aliases...)
+}
+
+// Avg AVG(column[, alias])
+func (s *TableColumn) Avg(column string, aliases ...string) string {
+	return s.columnAlias(Avg(s.Column(column)).Prepare, aliases...)
+}
+
+const DefaultAliasNameCount = "counts"
+
+// Count Example
+// Count(): COUNT(*) AS `counts`
+// Count("total"): COUNT(*) AS `total`
+// Count("1", "total"): COUNT(1) AS `total`
+// Count("id", "counts"): COUNT(`id`) AS `counts`
+func (s *TableColumn) Count(counts ...string) string {
+	count := "COUNT(*)"
+	length := len(counts)
+	if length == 0 {
+		// using default expression: COUNT(*) AS `counts`
+		return s.columnAlias(count, s.way.Replace(DefaultAliasNameCount))
+	}
+	if length == 1 && counts[0] != StrEmpty {
+		// only set alias name
+		return s.columnAlias(count, s.way.Replace(counts[0]))
+	}
+	// set COUNT function parameters and alias name
+	countAlias := s.way.Replace(DefaultAliasNameCount)
+	column := false
+	for i := range length {
+		if counts[i] == StrEmpty {
+			continue
+		}
+		if column {
+			countAlias = s.way.Replace(counts[i])
+			break
+		}
+		count, column = fmt.Sprintf("COUNT(%s)", s.Column(counts[i])), true
+	}
+	return s.columnAlias(count, countAlias)
+}
+
+// aggregate Perform an aggregate function on the column and set a default value to replace NULL values.
+func (s *TableColumn) aggregate(column string, defaultValue any, aliases ...string) string {
+	return s.columnAlias(Coalesce(s.Column(column), defaultValue).Prepare, aliases...)
+}
+
+// SUM COALESCE(SUM(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) SUM(column string, aliases ...string) string {
+	return s.aggregate(s.Sum(column), 0, aliases...)
+}
+
+// MAX COALESCE(MAX(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) MAX(column string, aliases ...string) string {
+	return s.aggregate(s.Max(column), 0, aliases...)
+}
+
+// MIN COALESCE(MIN(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) MIN(column string, aliases ...string) string {
+	return s.aggregate(s.Min(column), 0, aliases...)
+}
+
+// AVG COALESCE(AVG(column) ,0)[ AS column_alias_name]
+func (s *TableColumn) AVG(column string, aliases ...string) string {
+	return s.aggregate(s.Avg(column), 0, aliases...)
 }
