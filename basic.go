@@ -2939,6 +2939,8 @@ type SQLSelect interface {
 
 	ToEmpty
 
+	IsEmpty() bool
+
 	// Distinct DISTINCT column1, column2, column3 ...
 	Distinct() SQLSelect
 
