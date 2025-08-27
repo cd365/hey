@@ -229,6 +229,9 @@ type Filter interface {
 	// NotInGroup Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) .
 	NotInGroup(script any, values ...[]any) Filter
 
+	// NotInGroupQuery Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( subquery ) .
+	NotInGroupQuery(script any, subquery Maker) Filter
+
 	// NotExists Implement conditional filtering: NOT EXISTS (subquery) .
 	NotExists(subquery Maker) Filter
 
@@ -730,6 +733,10 @@ func (s *filter) NotIn(script any, values ...any) Filter {
 
 func (s *filter) NotInGroup(script any, values ...[]any) Filter {
 	return s.inGroup(StrAnd, script, values, true)
+}
+
+func (s *filter) NotInGroupQuery(script any, subquery Maker) Filter {
+	return s.inGroup(StrAnd, script, subquery, true)
 }
 
 func (s *filter) NotExists(subquery Maker) Filter {
