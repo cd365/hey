@@ -3323,9 +3323,8 @@ type sqlJoin struct {
 
 func newSqlJoin(way *Way) *sqlJoin {
 	tmp := &sqlJoin{
-		selects: newSqlSelect(way),
-		way:     way,
-		joins:   make([]*sqlJoinSchema, 0, 1<<1),
+		way:   way,
+		joins: make([]*sqlJoinSchema, 0, 1<<1),
 	}
 	return tmp
 }
@@ -3346,22 +3345,12 @@ func (s *sqlJoin) SetTable(table SQLAlias) SQLJoin {
 }
 
 func (s *sqlJoin) ToSQL() *SQL {
-	if s.table == nil {
+	if s.table == nil || s.table.IsEmpty() {
 		return NewEmptySQL()
 	}
-	master := s.table.ToSQL()
-	if master == nil || master.IsEmpty() {
-		return NewEmptySQL()
-	}
-	script := s.selects.ToSQL()
+	script := NewEmptySQL()
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
-	b.WriteString(Strings(StrSelect, StrSpace))
-	b.WriteString(script.Prepare)
-	b.WriteString(Strings(StrSpace, StrFrom, StrSpace))
-	b.WriteString(master.Prepare)
-	b.WriteString(StrSpace)
-	script.Args = append(script.Args, master.Args...)
 	for index, tmp := range s.joins {
 		if tmp == nil {
 			continue
@@ -3952,6 +3941,9 @@ type SQLUpdateSet interface {
 	// Remove Delete a column-value.
 	Remove(columns ...string) SQLUpdateSet
 
+	// Assign Assigning values through other column.
+	Assign(dst string, src string) SQLUpdateSet
+
 	// GetUpdate Get a list of existing updates.
 	GetUpdate() ([]string, [][]any)
 
@@ -4119,8 +4111,7 @@ func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	replace := s.way.Replace(column)
-	script := NewSQL(fmt.Sprintf("%s = %s", replace, StrPlaceholder), value)
+	script := NewSQL(fmt.Sprintf("%s = %s", s.way.Replace(column), StrPlaceholder), value)
 	return s.columnUpdate(column, script)
 }
 
@@ -4189,6 +4180,7 @@ func (s *sqlUpdateSet) Compare(old, new any, except ...string) SQLUpdateSet {
 	return s.SetSlice(StructUpdate(old, new, s.way.cfg.ScanTag, except...))
 }
 
+// Default Set the default columns that need to be updated, such as update timestamp.
 func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 	column = strings.TrimSpace(column)
 	if column == StrEmpty {
@@ -4197,8 +4189,7 @@ func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	replace := s.way.Replace(column)
-	script := NewSQL(fmt.Sprintf("%s = %s", replace, StrPlaceholder), value)
+	script := NewSQL(fmt.Sprintf("%s = %s", s.way.Replace(column), StrPlaceholder), value)
 	if _, ok := s.updateMap[script.Prepare]; ok {
 		return s
 	}
@@ -4206,6 +4197,7 @@ func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 	return s
 }
 
+// Remove Delete a column-value.
 func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 	s.Forbid(columns...)
 	removes := make(map[string]*struct{}, 1<<3)
@@ -4240,6 +4232,11 @@ func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 		s.defaults.Remove(columns...)
 	}
 	return s
+}
+
+// Assign Assigning values through other column; [a.]dst_column_name = [b.]src_column_name
+func (s *sqlUpdateSet) Assign(dst string, src string) SQLUpdateSet {
+	return s.Update(JoinSQLSpace(s.way.Replace(dst), StrEqual, s.way.Replace(src)))
 }
 
 func (s *sqlUpdateSet) GetUpdate() ([]string, [][]any) {
@@ -4920,11 +4917,12 @@ type Table struct {
 
 // Table Create a *Table object to execute SELECT, INSERT, UPDATE, and DELETE statements.
 func (s *Way) Table(table any) *Table {
-	return &Table{
+	selects := newSqlSelect(s)
+	result := &Table{
 		way:       s,
 		comment:   newSqlComment(),
 		with:      newSqlWith(),
-		selects:   newSqlSelect(s),
+		selects:   selects,
 		table:     newSqlAlias(table),
 		joins:     newSqlJoin(s),
 		where:     s.F(),
@@ -4934,20 +4932,22 @@ func (s *Way) Table(table any) *Table {
 		insert:    newSqlInsert(s),
 		updateSet: newSqlUpdateSet(s),
 	}
+	result.joins.selects = selects
+	return result
 }
 
 // ToEmpty Do not reset table.
 func (s *Table) ToEmpty() *Table {
-	s.comment = newSqlComment()
-	s.with = newSqlWith()
-	s.selects = newSqlSelect(s.way)
-	s.joins = newSqlJoin(s.way)
-	s.where = s.way.F()
-	s.groupBy = newSqlGroupBy(s.way)
-	s.orderBy = newSqlOrderBy(s.way)
-	s.limit = newSqlLimit()
-	s.insert = newSqlInsert(s.way)
-	s.updateSet = newSqlUpdateSet(s.way)
+	s.comment.ToEmpty()
+	s.with.ToEmpty()
+	s.selects.ToEmpty()
+	s.joins.ToEmpty()
+	s.where.ToEmpty()
+	s.groupBy.ToEmpty()
+	s.orderBy.ToEmpty()
+	s.limit.ToEmpty()
+	s.insert.ToEmpty()
+	s.updateSet.ToEmpty()
 	return s
 }
 
@@ -5151,11 +5151,10 @@ func (s *Table) UPDATE(fc func(f Filter, u SQLUpdateSet)) *Table {
 // ToSelect Build SELECT statement.
 func (s *Table) ToSelect() *SQL {
 	lists := make([]any, 0, 12)
-	lists = append(lists, s.comment, s.with)
-	if s.joins != nil && len(s.joins.joins) > 0 {
+	lists = append(lists, s.comment, s.with, StrSelect)
+	lists = append(lists, s.selects, StrFrom, s.table)
+	if len(s.joins.joins) > 0 {
 		lists = append(lists, s.joins)
-	} else {
-		lists = append(lists, StrSelect, s.selects, StrFrom, s.table)
 	}
 	if !s.where.IsEmpty() {
 		lists = append(lists, StrWhere, ParcelFilter(s.where))
@@ -5214,16 +5213,10 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 		}
 	}
 	count := int64(0)
-	lists := make([]any, 0, 8)
-	lists = append(lists, s.comment, s.with)
-	if s.joins != nil && len(s.joins.joins) > 0 {
-		origin := s.joins.selects
-		defer func() { s.joins.selects = origin }()
-		s.joins.selects = newSqlSelect(s.way)
-		s.joins.selects.AddAll(counts...)
+	lists := make([]any, 0, 1<<3)
+	lists = append(lists, s.comment, s.with, StrSelect, newSqlSelect(s.way).AddAll(counts...), StrFrom, s.table)
+	if len(s.joins.joins) > 0 {
 		lists = append(lists, s.joins)
-	} else {
-		lists = append(lists, StrSelect, newSqlSelect(s.way).AddAll(counts...), StrFrom, s.table)
 	}
 	if !s.where.IsEmpty() {
 		lists = append(lists, StrWhere, ParcelFilter(s.where))
