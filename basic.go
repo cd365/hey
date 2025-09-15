@@ -4962,6 +4962,11 @@ func (s *Table) V(values ...*Way) *Table {
 	return s
 }
 
+// W Get the currently used *Way object.
+func (s *Table) W() *Way {
+	return s.way
+}
+
 // Comment SQL statement notes.
 func (s *Table) Comment(comment string) *Table {
 	s.comment.Comment(comment)
