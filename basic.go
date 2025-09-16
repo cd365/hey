@@ -5026,7 +5026,7 @@ func (s *Table) JOIN(fc func(j SQLJoin)) *Table {
 }
 
 // InnerJoin INNER JOIN.
-func (s *Table) InnerJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQLAlias, joinOn SQLJoinAssoc)) *Table {
+func (s *Table) InnerJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JOIN(func(j SQLJoin) {
 		left, right, on := fc(j)
 		if on == nil || right == nil || right.IsEmpty() {
@@ -5040,7 +5040,7 @@ func (s *Table) InnerJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQL
 }
 
 // LeftJoin LEFT JOIN.
-func (s *Table) LeftJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQLAlias, joinOn SQLJoinAssoc)) *Table {
+func (s *Table) LeftJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JOIN(func(j SQLJoin) {
 		left, right, on := fc(j)
 		if on == nil || right == nil || right.IsEmpty() {
@@ -5054,7 +5054,7 @@ func (s *Table) LeftJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQLA
 }
 
 // RightJoin RIGHT JOIN.
-func (s *Table) RightJoin(fc func(j SQLJoin) (tableLeft SQLAlias, tableRight SQLAlias, joinOn SQLJoinAssoc)) *Table {
+func (s *Table) RightJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JOIN(func(j SQLJoin) {
 		left, right, on := fc(j)
 		if on == nil || right == nil || right.IsEmpty() {
