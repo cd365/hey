@@ -208,7 +208,7 @@ func MakerScanOne[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 
 const (
 	StrDefaultTag      = "db"
-	StrTableMethodName = "Table"
+	StrTableMethodName = "TableName"
 
 	StrEmpty = ""
 	Str36    = "$"
@@ -4902,6 +4902,12 @@ func (s *sqlCase) Else(value any) SQLCase {
 	return s
 }
 
+// TableNamer Generic interface for getting table name.
+type TableNamer interface {
+	// Table Get the table name.
+	Table() string
+}
+
 // Table Quickly build SELECT, INSERT, UPDATE, DELETE statements and support immediate execution of them.
 type Table struct {
 	way *Way
@@ -4944,6 +4950,10 @@ func (s *Way) getTable(table any) *sqlAlias {
 	result := newSqlAlias(StrEmpty).v(s)
 	if value, ok := table.(string); ok {
 		result.SetSQL(s.Replace(value))
+		return result
+	}
+	if value, ok := table.(TableNamer); ok && value != nil {
+		result.SetSQL(s.Replace(value.Table()))
 		return result
 	}
 	switch example := table.(type) {
