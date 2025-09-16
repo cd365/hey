@@ -207,7 +207,8 @@ func MakerScanOne[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 }
 
 const (
-	StrDefaultTag = "db"
+	StrDefaultTag      = "db"
+	StrTableMethodName = "Table"
 
 	StrEmpty = ""
 	Str36    = "$"
@@ -669,7 +670,7 @@ func (s *Way) Alias(script any, aliases ...string) SQLAlias {
 	return newSqlAlias(script, aliases...).v(s)
 }
 
-func (s *sqlAlias) v(way *Way) SQLAlias {
+func (s *sqlAlias) v(way *Way) *sqlAlias {
 	s.way = way
 	return s
 }
@@ -2003,6 +2004,9 @@ type Cfg struct {
 	// ScanTag Scan data to tag mapping on structure.
 	ScanTag string
 
+	// TableMethodName Custom method name to get table name.
+	TableMethodName string
+
 	// TransactionMaxDuration Maximum transaction execution time.
 	TransactionMaxDuration time.Duration
 
@@ -2021,6 +2025,7 @@ func DefaultCfg() Cfg {
 	return Cfg{
 		Scan:                   RowsScan,
 		ScanTag:                StrDefaultTag,
+		TableMethodName:        StrTableMethodName,
 		DeleteMustUseWhere:     true,
 		UpdateMustUseWhere:     true,
 		TransactionMaxDuration: time.Second * 5,
@@ -3376,7 +3381,7 @@ func (s *sqlJoin) ToSQL() *SQL {
 }
 
 func (s *sqlJoin) Table(table any, alias string) SQLAlias {
-	return newSqlAlias(table).v(s.way).SetAlias(alias)
+	return s.way.getTable(table).SetAlias(alias)
 }
 
 // On For `... JOIN ON ...`
@@ -4915,6 +4920,52 @@ type Table struct {
 	updateSet *sqlUpdateSet
 }
 
+// optimizeTableSQL Optimize table SQL.
+func optimizeTableSQL(way *Way, table *SQL) *SQL {
+	result := NewEmptySQL()
+	if way == nil || table == nil || table.IsEmpty() {
+		return result
+	}
+	latest := table.Copy()
+	latest.Prepare = strings.TrimSpace(latest.Prepare)
+	if latest.IsEmpty() {
+		return result
+	}
+	if strings.Contains(latest.Prepare, StrSpace) {
+		latest.Prepare = ParcelPrepare(latest.Prepare)
+	} else {
+		latest.Prepare = way.Replace(latest.Prepare)
+	}
+	return latest
+}
+
+// getTable Extract table names from any type.
+func (s *Way) getTable(table any) *sqlAlias {
+	result := newSqlAlias(StrEmpty).v(s)
+	if value, ok := table.(string); ok {
+		result.SetSQL(s.Replace(value))
+		return result
+	}
+	switch example := table.(type) {
+	case *SQL:
+		result.SetSQL(optimizeTableSQL(s, example))
+	case Maker:
+		if example != nil {
+			result.SetSQL(optimizeTableSQL(s, example.ToSQL()))
+		}
+	default:
+		if value := reflect.ValueOf(table); !value.IsNil() {
+			if method := value.MethodByName(s.cfg.TableMethodName); method.IsValid() {
+				if values := method.Call(nil); len(values) == 1 {
+					return s.getTable(values[0].Interface())
+				}
+			}
+		}
+		result.SetSQL(any2sql(table))
+	}
+	return result
+}
+
 // Table Create a *Table object to execute SELECT, INSERT, UPDATE, and DELETE statements.
 func (s *Way) Table(table any) *Table {
 	selects := newSqlSelect(s)
@@ -4923,7 +4974,7 @@ func (s *Way) Table(table any) *Table {
 		comment:   newSqlComment(),
 		with:      newSqlWith(),
 		selects:   selects,
-		table:     newSqlAlias(table),
+		table:     s.getTable(table),
 		joins:     newSqlJoin(s),
 		where:     s.F(),
 		groupBy:   newSqlGroupBy(s),
@@ -5008,7 +5059,7 @@ func (s *Table) TABLE(fc func(t SQLAlias)) *Table {
 
 // Table Set the table name, or possibly a subquery with an alias.
 func (s *Table) Table(table any) *Table {
-	return s.TABLE(func(t SQLAlias) { t.SetSQL(table) })
+	return s.TABLE(func(t SQLAlias) { t.SetSQL(s.way.getTable(table).GetSQL()) })
 }
 
 // Alias Set the table alias name.
