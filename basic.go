@@ -5240,24 +5240,22 @@ func (s *Table) ToInsert() *SQL {
 
 // ToUpdate Build UPDATE statement.
 func (s *Table) ToUpdate() *SQL {
-	lists := make([]any, 0, 16)
-	lists = append(lists, s.comment, s.with, StrUpdate, s.table, s.joins)
+	lists := make([]any, 0, 8)
+	lists = append(lists, s.comment, s.with, StrUpdate, s.table)
 	lists = append(lists, StrSet, s.updateSet)
 	if !s.where.IsEmpty() {
 		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
-	lists = append(lists, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
 // ToDelete Build DELETE statement.
 func (s *Table) ToDelete() *SQL {
-	lists := make([]any, 0, 16)
+	lists := make([]any, 0, 8)
 	lists = append(lists, s.comment, s.with, StrDelete, StrFrom, s.table, s.joins)
 	if !s.where.IsEmpty() {
 		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
-	lists = append(lists, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
