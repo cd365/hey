@@ -4527,9 +4527,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 				}
 			}
 		}
-		makers = append(makers, NewSQL(StrLeftSmallBracket))
-		makers = append(makers, NewSQL(strings.Join(columns, StrCommaSpace)))
-		makers = append(makers, NewSQL(StrRightSmallBracket))
+		makers = append(makers, NewSQL(ParcelPrepare(strings.Join(columns, StrCommaSpace))))
 	}
 
 	ok := false
@@ -5264,19 +5262,13 @@ func (s *Table) ToSQL() *SQL {
 	return s.ToSelect()
 }
 
-// Query Execute a SELECT statement.
-func (s *Table) Query(ctx context.Context, query func(rows *sql.Rows) error) error {
-	return s.way.Query(ctx, s.ToSelect(), query)
-}
-
-// Count Total number of statistics.
-func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
+// countToSQL Build SELECT-COUNT statement.
+func (s *Table) countToSQL(counts ...string) *SQL {
 	if len(counts) == 0 {
 		counts = []string{
 			Strings("COUNT(*)", StrSpace, StrAs, StrSpace, s.way.Replace(DefaultAliasNameCount)),
 		}
 	}
-	count := int64(0)
 	lists := make([]any, 0, 1<<3)
 	lists = append(lists, s.comment, s.with, StrSelect, newSqlSelect(s.way).AddAll(counts...), StrFrom, s.table)
 	if len(s.joins.joins) > 0 {
@@ -5285,7 +5277,18 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 	if !s.where.IsEmpty() {
 		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
-	script := JoinSQLSpace(lists...).ToSQL()
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
+// Query Execute a SELECT statement.
+func (s *Table) Query(ctx context.Context, query func(rows *sql.Rows) error) error {
+	return s.way.Query(ctx, s.ToSelect(), query)
+}
+
+// Count Total number of statistics.
+func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
+	count := int64(0)
+	script := s.countToSQL(counts...)
 	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
 		for rows.Next() {
 			if err := rows.Scan(&count); err != nil {

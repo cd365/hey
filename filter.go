@@ -167,10 +167,10 @@ type Filter interface {
 	Or(script *SQL) Filter
 
 	// Group Add a new condition group, which is connected by the `AND` logical operator by default.
-	Group(group func(f Filter)) Filter
+	Group(group func(g Filter)) Filter
 
 	// OrGroup Add a new condition group, which is connected by the `OR` logical operator by default.
-	OrGroup(group func(f Filter)) Filter
+	OrGroup(group func(g Filter)) Filter
 
 	// Use Implement import a set of conditional filter objects into the current object.
 	Use(filters ...Filter) Filter
@@ -179,58 +179,58 @@ type Filter interface {
 	New(filters ...Filter) Filter
 
 	// Equal Implement conditional filtering: column = value .
-	Equal(script any, value any, null ...bool) Filter
+	Equal(column any, value any, null ...bool) Filter
 
 	// LessThan Implement conditional filtering: column < value .
-	LessThan(script any, value any) Filter
+	LessThan(column any, value any) Filter
 
 	// LessThanEqual Implement conditional filtering: column <= value .
-	LessThanEqual(script any, value any) Filter
+	LessThanEqual(column any, value any) Filter
 
 	// MoreThan Implement conditional filtering: column > value.
-	MoreThan(script any, value any) Filter
+	MoreThan(column any, value any) Filter
 
 	// MoreThanEqual Implement conditional filtering: column >= value .
-	MoreThanEqual(script any, value any) Filter
+	MoreThanEqual(column any, value any) Filter
 
 	// Between Implement conditional filtering: column BETWEEN value1 AND value2 .
-	Between(script any, start any, end any) Filter
+	Between(column any, start any, end any) Filter
 
 	// In Implement conditional filtering: column IN ( value1, value2, value3... ) || column IN ( subquery ) .
-	In(script any, values ...any) Filter
+	In(column any, values ...any) Filter
 
 	// InGroup Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) || ( column1, column2, column3... ) IN ( subquery ) .
-	InGroup(script any, value any) Filter
+	InGroup(columns any, values any) Filter
 
 	// Exists Implement conditional filtering: EXISTS (subquery) .
 	Exists(subquery Maker) Filter
 
 	// Like Implement conditional filtering: column LIKE value.
-	Like(script any, value any) Filter
+	Like(column any, value any) Filter
 
 	// IsNull Implement conditional filtering: column IS NULL .
-	IsNull(script any) Filter
+	IsNull(column any) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
-	NotEqual(script any, value any, null ...bool) Filter
+	NotEqual(column any, value any, null ...bool) Filter
 
 	// NotBetween Implement conditional filtering: column NOT BETWEEN value1 AND value2 .
-	NotBetween(script any, start any, end any) Filter
+	NotBetween(column any, start any, end any) Filter
 
 	// NotIn Implement conditional filtering: column NOT IN ( value1, value2, value3... ) .
-	NotIn(script any, values ...any) Filter
+	NotIn(column any, values ...any) Filter
 
 	// NotInGroup Implement conditional filtering: ( column1, column2, column3... ) NOT IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) || ( column1, column2, column3... ) NOT IN ( subquery ) .
-	NotInGroup(script any, value any) Filter
+	NotInGroup(columns any, values any) Filter
 
 	// NotExists Implement conditional filtering: NOT EXISTS (subquery) .
 	NotExists(subquery Maker) Filter
 
 	// NotLike Implement conditional filtering: column NOT LIKE value .
-	NotLike(script any, value any) Filter
+	NotLike(column any, value any) Filter
 
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
-	IsNotNull(script any) Filter
+	IsNotNull(column any) Filter
 
 	// AllQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
 	AllQuantifier(fc func(q Quantifier)) Filter
@@ -244,26 +244,23 @@ type Filter interface {
 	// SetReplacer For set *Way.
 	SetReplacer(replacer Replacer) Filter
 
-	// Compare Implement conditional filtering: script1 {=||<>||>||>=||<||<=} script2 .
-	Compare(script1 any, compare string, script2 any) Filter
-
 	// CompareEqual Implement conditional filtering: script1 = script2 .
-	CompareEqual(script1 any, script2 any) Filter
+	CompareEqual(column1 any, column2 any) Filter
 
 	// CompareNotEqual Implement conditional filtering: script1 <> script2 .
-	CompareNotEqual(script1 any, script2 any) Filter
+	CompareNotEqual(column1 any, column2 any) Filter
 
 	// CompareMoreThan Implement conditional filtering: script1 > script2 .
-	CompareMoreThan(script1 any, script2 any) Filter
+	CompareMoreThan(column1 any, column2 any) Filter
 
 	// CompareMoreThanEqual Implement conditional filtering: script1 >= script2 .
-	CompareMoreThanEqual(script1 any, script2 any) Filter
+	CompareMoreThanEqual(column1 any, column2 any) Filter
 
 	// CompareLessThan Implement conditional filtering: script1 < script2.
-	CompareLessThan(script1 any, script2 any) Filter
+	CompareLessThan(column1 any, column2 any) Filter
 
 	// CompareLessThanEqual Implement conditional filtering: script1 <= script2 .
-	CompareLessThanEqual(script1 any, script2 any) Filter
+	CompareLessThanEqual(column1 any, column2 any) Filter
 
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
@@ -306,19 +303,24 @@ func (s *filter) ToSQL() *SQL {
 	if s.IsEmpty() {
 		return NewSQL(StrEmpty)
 	}
+
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
+
 	if s.not {
 		b.WriteString(StrNot)
 		b.WriteString(StrSpace)
 	}
+
 	if s.num > 1 {
 		b.WriteString(ParcelPrepare(s.prepare.String()))
 	} else {
 		b.WriteString(s.prepare.String())
 	}
+
 	args := make([]any, len(s.args))
 	copy(args, s.args)
+
 	return NewSQL(b.String(), args...)
 }
 
@@ -351,22 +353,26 @@ func (s *filter) add(logic string, script *SQL) *filter {
 	if script == nil || script.IsEmpty() {
 		return s
 	}
+
 	length := len(script.Args)
 	args := make([]any, length)
 	if length > 0 {
 		copy(args, script.Args)
 	}
+
 	if s.num == 0 {
 		s.prepare.WriteString(script.Prepare)
 		s.args = args
 		s.num++
 		return s
 	}
+
 	s.prepare.WriteString(Strings(StrSpace, logic, StrSpace, script.Prepare))
 	if length > 0 {
 		s.args = append(s.args, args...)
 	}
 	s.num++
+
 	return s
 }
 
@@ -374,13 +380,18 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	if group == nil {
 		return s
 	}
+
 	tmp := poolGetFilter().SetReplacer(s.replacer)
 	defer poolPutFilter(tmp)
+
 	group(tmp)
+
 	if tmp.IsEmpty() {
 		return s
 	}
+
 	s.add(logic, tmp.ToSQL())
+
 	return s
 }
 
@@ -399,11 +410,11 @@ func (s *filter) Or(script *SQL) Filter {
 	return s.add(StrOr, script)
 }
 
-func (s *filter) Group(group func(f Filter)) Filter {
+func (s *filter) Group(group func(g Filter)) Filter {
 	return s.addGroup(StrAnd, group)
 }
 
-func (s *filter) OrGroup(group func(f Filter)) Filter {
+func (s *filter) OrGroup(group func(g Filter)) Filter {
 	return s.addGroup(StrOr, group)
 }
 
@@ -430,20 +441,24 @@ func (s *filter) get(key string) string {
 	return s.replacer.Get(key)
 }
 
-func (s *filter) compare(logic string, script any, compare string, value any) Filter {
-	if script == nil || value == nil {
+func (s *filter) compare(logic string, column any, compare string, value any) Filter {
+	if column == nil || value == nil {
 		return s
 	}
+
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	if column, ok := script.(string); ok {
-		script = s.get(column)
+
+	if script, ok := column.(string); ok {
+		column = s.get(script)
 	}
-	first := any2sql(script)
+
+	first := any2sql(column)
 	if first.IsEmpty() {
 		return s
 	}
+
 	next := make([]any, 0, 2)
 	next = append(next, compare)
 	args := ([]any)(nil)
@@ -463,54 +478,59 @@ func (s *filter) compare(logic string, script any, compare string, value any) Fi
 		next = append(next, StrPlaceholder)
 		args = []any{value}
 	}
+
 	result := s.firstNext(first, next...)
 	if args != nil {
 		result.Args = append(result.Args, args...)
 	}
+
 	return s.add(logic, result)
 }
 
-func (s *filter) Equal(script any, value any, null ...bool) Filter {
-	if script == nil {
+func (s *filter) Equal(column any, value any, null ...bool) Filter {
+	if column == nil {
 		return s
 	}
 	if value == nil {
 		if length := len(null); length > 0 && null[length-1] {
-			return s.IsNull(script)
+			return s.IsNull(column)
 		}
 		return s
 	}
-	return s.compare(StrAnd, script, StrEqual, value)
+	return s.compare(StrAnd, column, StrEqual, value)
 }
 
-func (s *filter) LessThan(script any, value any) Filter {
-	return s.compare(StrAnd, script, StrLessThan, value)
+func (s *filter) LessThan(column any, value any) Filter {
+	return s.compare(StrAnd, column, StrLessThan, value)
 }
 
-func (s *filter) LessThanEqual(script any, value any) Filter {
-	return s.compare(StrAnd, script, StrLessThanEqual, value)
+func (s *filter) LessThanEqual(column any, value any) Filter {
+	return s.compare(StrAnd, column, StrLessThanEqual, value)
 }
 
-func (s *filter) MoreThan(script any, value any) Filter {
-	return s.compare(StrAnd, script, StrMoreThan, value)
+func (s *filter) MoreThan(column any, value any) Filter {
+	return s.compare(StrAnd, column, StrMoreThan, value)
 }
 
-func (s *filter) MoreThanEqual(script any, value any) Filter {
-	return s.compare(StrAnd, script, StrMoreThanEqual, value)
+func (s *filter) MoreThanEqual(column any, value any) Filter {
+	return s.compare(StrAnd, column, StrMoreThanEqual, value)
 }
 
-func (s *filter) between(logic string, script any, start any, end any, not bool) Filter {
+func (s *filter) between(logic string, column any, start any, end any, not bool) Filter {
 	start, end = filterUsingValue(start), filterUsingValue(end)
-	if script == nil || start == nil || end == nil {
+	if column == nil || start == nil || end == nil {
 		return s
 	}
-	if column, ok := script.(string); ok {
-		script = s.get(column)
+
+	if script, ok := column.(string); ok {
+		column = s.get(script)
 	}
-	first := any2sql(script)
+
+	first := any2sql(column)
 	if first.IsEmpty() {
 		return s
 	}
+
 	next := make([]any, 0, 5)
 	if not {
 		next = append(next, StrNot)
@@ -530,27 +550,30 @@ func (s *filter) between(logic string, script any, start any, end any, not bool)
 		next = append(next, StrPlaceholder)
 		args = append(args, end)
 	}
+
 	result := s.firstNext(first, next...)
 	if len(args) > 0 {
 		result.Args = append(result.Args, args...)
 	}
+
 	return s.add(logic, result)
 }
 
-func (s *filter) Between(script any, start any, end any) Filter {
-	return s.between(StrAnd, script, start, end, false)
+func (s *filter) Between(column any, start any, end any) Filter {
+	return s.between(StrAnd, column, start, end, false)
 }
 
-func (s *filter) in(logic string, script any, values []any, not bool) Filter {
-	if script == nil || values == nil {
+func (s *filter) in(logic string, column any, values []any, not bool) Filter {
+	if column == nil || values == nil {
 		return s
 	}
 
-	if column, ok := script.(string); ok {
-		script = s.get(column)
+	if script, ok := column.(string); ok {
+		column = s.get(script)
 	}
-	column := any2sql(script)
-	if column.IsEmpty() {
+
+	script := any2sql(column)
+	if script.IsEmpty() {
 		return s
 	}
 
@@ -570,7 +593,7 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 						lists = append(lists, StrNot)
 					}
 					lists = append(lists, StrIn, latest)
-					return s.add(logic, s.firstNext(column, lists...))
+					return s.add(logic, s.firstNext(script, lists...))
 				}
 			}
 			return s
@@ -588,9 +611,8 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 	if length == 1 {
 		if not {
 			return s.NotEqual(script, values[0])
-		} else {
-			return s.Equal(script, values[0])
 		}
+		return s.Equal(script, values[0])
 	}
 
 	places := make([]string, length)
@@ -602,90 +624,100 @@ func (s *filter) in(logic string, script any, values []any, not bool) Filter {
 		next = append(next, StrNot)
 	}
 	next = append(next, StrIn, NewSQL(ParcelPrepare(strings.Join(places, StrCommaSpace))))
-	result := s.firstNext(column, next...)
+
+	result := s.firstNext(script, next...)
 	result.Args = append(result.Args, values...)
+
 	return s.add(logic, result)
 }
 
-func (s *filter) In(script any, values ...any) Filter {
-	return s.in(StrAnd, script, values, false)
+func (s *filter) In(column any, values ...any) Filter {
+	return s.in(StrAnd, column, values, false)
 }
 
-func (s *filter) inGroup(logic string, script any, value any, not bool) Filter {
-	if script == nil || value == nil {
+func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter {
+	if columns == nil || values == nil {
 		return s
 	}
-	if columns, ok := script.([]string); ok {
-		if length := len(columns); length == 0 {
+
+	if lists, ok := columns.([]string); ok {
+		if length := len(lists); length == 0 {
 			return s
 		}
-		for index, column := range columns {
-			columns[index] = s.get(column)
+		for key, val := range lists {
+			lists[key] = s.get(val)
 		}
-		script = NewSQL(ParcelPrepare(strings.Join(columns, StrCommaSpace)))
+		columns = NewSQL(ParcelPrepare(strings.Join(lists, StrCommaSpace)))
 	}
-	columns := any2sql(script)
-	if columns.IsEmpty() {
+
+	fields := any2sql(columns)
+	if fields.IsEmpty() {
 		return s
 	}
-	switch values := value.(type) {
+
+	switch value := values.(type) {
 	case [][]any:
-		length := len(values)
+		length := len(value)
 		if length == 0 {
 			return s
 		}
-		count := len(values[0])
+		count := len(value[0])
 		group := make([]string, count)
 		for i := range count {
 			group[i] = StrPlaceholder
 		}
-		line := Strings(StrLeftSmallBracket, StrSpace, strings.Join(group, StrCommaSpace), StrSpace, StrRightSmallBracket)
 		args := make([]any, 0, length*count)
 		lines := make([]string, length)
+		place := ParcelPrepare(strings.Join(group, StrCommaSpace))
 		for i := range length {
-			args = append(args, values[i]...)
-			lines[i] = line
+			args = append(args, value[i]...)
+			lines[i] = place
 		}
-		value = NewSQL(ParcelPrepare(strings.Join(lines, StrCommaSpace)), args...)
+		values = NewSQL(ParcelPrepare(strings.Join(lines, StrCommaSpace)), args...)
 	case *SQL:
-		if values == nil || values.IsEmpty() {
+		if value == nil || value.IsEmpty() {
 			return s
 		}
-		value = ParcelSQL(values)
+		values = ParcelSQL(value)
 	case Maker:
-		if tmp := values.ToSQL(); tmp == nil || tmp.IsEmpty() {
+		if tmp := value.ToSQL(); tmp == nil || tmp.IsEmpty() {
 			return s
 		} else {
-			value = ParcelSQL(tmp)
+			values = ParcelSQL(tmp)
 		}
 	default:
 		return s
 	}
+
 	next := make([]any, 0, 3)
 	if not {
 		next = append(next, StrNot)
 	}
-	next = append(next, StrIn, value)
-	return s.add(logic, s.firstNext(columns, next...))
+	next = append(next, StrIn, values)
+
+	return s.add(logic, s.firstNext(fields, next...))
 }
 
-func (s *filter) InGroup(script any, value any) Filter {
-	return s.inGroup(StrAnd, script, value, false)
+func (s *filter) InGroup(columns any, values any) Filter {
+	return s.inGroup(StrAnd, columns, values, false)
 }
 
 func (s *filter) exists(subquery Maker, not bool) Filter {
 	if subquery == nil {
 		return s
 	}
+
 	script := subquery.ToSQL()
 	if script == nil || script.IsEmpty() {
 		return s
 	}
+
 	next := make([]any, 0, 3)
 	if not {
 		next = append(next, StrNot)
 	}
 	next = append(next, StrExists, ParcelSQL(script))
+
 	return s.add(StrAnd, JoinSQLSpace(next...))
 }
 
@@ -693,17 +725,19 @@ func (s *filter) Exists(subquery Maker) Filter {
 	return s.exists(subquery, false)
 }
 
-func (s *filter) like(logic string, script any, value any, not bool) Filter {
+func (s *filter) like(logic string, column any, value any, not bool) Filter {
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	if column, ok := script.(string); ok {
-		script = s.get(column)
+
+	if script, ok := column.(string); ok {
+		column = s.get(script)
 	}
-	column := any2sql(script)
-	if column.IsEmpty() {
+	script := any2sql(column)
+	if script.IsEmpty() {
 		return s
 	}
+
 	lists := make([]any, 0, 3)
 	if not {
 		lists = append(lists, StrNot)
@@ -713,83 +747,85 @@ func (s *filter) like(logic string, script any, value any, not bool) Filter {
 	if like, ok := value.(string); ok {
 		lists = append(lists, StrPlaceholder)
 		args = append(args, like)
-		result := s.firstNext(column, lists...)
+		result := s.firstNext(script, lists...)
 		result.Args = append(result.Args, args...)
 		return s.add(logic, result)
 	}
 	if like := any2sql(value); !like.IsEmpty() {
 		lists = append(lists, like)
-		return s.add(logic, s.firstNext(column, lists...))
+		return s.add(logic, s.firstNext(script, lists...))
 	}
 	return s
 }
 
-func (s *filter) Like(script any, value any) Filter {
+func (s *filter) Like(column any, value any) Filter {
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	return s.like(StrAnd, script, value, false)
+	return s.like(StrAnd, column, value, false)
 }
 
-func (s *filter) isNull(script any, not bool) Filter {
-	if column, ok := script.(string); ok {
-		script = s.get(column)
+func (s *filter) isNull(column any, not bool) Filter {
+	if script, ok := column.(string); ok {
+		column = s.get(script)
 	}
-	column := any2sql(script)
-	if column.IsEmpty() {
+
+	script := any2sql(column)
+	if script.IsEmpty() {
 		return s
 	}
+
 	lists := make([]any, 0, 3)
 	lists = append(lists, StrIs)
 	if not {
 		lists = append(lists, StrNot)
 	}
 	lists = append(lists, StrNull)
-	return s.add(StrAnd, s.firstNext(column, lists...))
+	return s.add(StrAnd, s.firstNext(script, lists...))
 }
 
-func (s *filter) IsNull(script any) Filter {
-	return s.isNull(script, false)
+func (s *filter) IsNull(column any) Filter {
+	return s.isNull(column, false)
 }
 
-func (s *filter) NotEqual(script any, value any, null ...bool) Filter {
-	if script == nil {
+func (s *filter) NotEqual(column any, value any, null ...bool) Filter {
+	if column == nil {
 		return s
 	}
 	if value == nil {
 		if length := len(null); length > 0 && null[length-1] {
-			return s.IsNotNull(script)
+			return s.IsNotNull(column)
 		}
 		return s
 	}
-	return s.compare(StrAnd, script, StrNotEqual, value)
+	return s.compare(StrAnd, column, StrNotEqual, value)
 }
 
-func (s *filter) NotBetween(script any, start any, end any) Filter {
-	return s.between(StrAnd, script, start, end, true)
+func (s *filter) NotBetween(column any, start any, end any) Filter {
+	return s.between(StrAnd, column, start, end, true)
 }
 
-func (s *filter) NotIn(script any, values ...any) Filter {
-	return s.in(StrAnd, script, values, true)
+func (s *filter) NotIn(column any, values ...any) Filter {
+	return s.in(StrAnd, column, values, true)
 }
 
-func (s *filter) NotInGroup(script any, value any) Filter {
-	return s.inGroup(StrAnd, script, value, true)
+func (s *filter) NotInGroup(columns any, values any) Filter {
+	return s.inGroup(StrAnd, columns, values, true)
 }
 
 func (s *filter) NotExists(subquery Maker) Filter {
 	return s.exists(subquery, true)
 }
 
-func (s *filter) NotLike(script any, value any) Filter {
+func (s *filter) NotLike(column any, value any) Filter {
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	return s.like(StrAnd, script, value, true)
+	return s.like(StrAnd, column, value, true)
 }
 
-func (s *filter) IsNotNull(script any) Filter {
-	return s.isNull(script, true)
+func (s *filter) IsNotNull(column any) Filter {
+	return s.isNull(column, true)
 }
 
 func (s *filter) AllQuantifier(fc func(q Quantifier)) Filter {
@@ -819,51 +855,55 @@ func (s *filter) SetReplacer(replacer Replacer) Filter {
 	return s
 }
 
-func (s *filter) Compare(script1 any, compare string, script2 any) Filter {
-	if script1 == nil || compare == StrEmpty || script2 == nil {
+func (s *filter) compares(column1 any, compare string, column2 any) Filter {
+	if column1 == nil || compare == StrEmpty || column2 == nil {
 		return s
 	}
-	if column, ok := script1.(string); ok {
+
+	if column, ok := column1.(string); ok {
 		if column = s.get(column); column == StrEmpty {
 			return s
 		}
-		script1 = column
+		column1 = column
 	}
-	if column, ok := script2.(string); ok {
+
+	if column, ok := column2.(string); ok {
 		if column = s.get(column); column == StrEmpty {
 			return s
 		}
-		script2 = column
+		column2 = column
 	}
-	prefix, suffix := any2sql(script1), any2sql(script2)
+
+	prefix, suffix := any2sql(column1), any2sql(column2)
 	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
 		return s
 	}
+
 	return s.And(JoinSQLSpace(prefix, compare, suffix))
 }
 
-func (s *filter) CompareEqual(script1 any, script2 any) Filter {
-	return s.Compare(script1, StrEqual, script2)
+func (s *filter) CompareEqual(column1 any, column2 any) Filter {
+	return s.compares(column1, StrEqual, column2)
 }
 
-func (s *filter) CompareNotEqual(script1 any, script2 any) Filter {
-	return s.Compare(script1, StrNotEqual, script2)
+func (s *filter) CompareNotEqual(column1 any, column2 any) Filter {
+	return s.compares(column1, StrNotEqual, column2)
 }
 
-func (s *filter) CompareMoreThan(script1 any, script2 any) Filter {
-	return s.Compare(script1, StrMoreThan, script2)
+func (s *filter) CompareMoreThan(column1 any, column2 any) Filter {
+	return s.compares(column1, StrMoreThan, column2)
 }
 
-func (s *filter) CompareMoreThanEqual(script1 any, script2 any) Filter {
-	return s.Compare(script1, StrMoreThanEqual, script2)
+func (s *filter) CompareMoreThanEqual(column1 any, column2 any) Filter {
+	return s.compares(column1, StrMoreThanEqual, column2)
 }
 
-func (s *filter) CompareLessThan(script1 any, script2 any) Filter {
-	return s.Compare(script1, StrLessThan, script2)
+func (s *filter) CompareLessThan(column1 any, column2 any) Filter {
+	return s.compares(column1, StrLessThan, column2)
 }
 
-func (s *filter) CompareLessThanEqual(script1 any, script2 any) Filter {
-	return s.Compare(script1, StrLessThanEqual, script2)
+func (s *filter) CompareLessThanEqual(column1 any, column2 any) Filter {
+	return s.compares(column1, StrLessThanEqual, column2)
 }
 
 // Quantifier Implement the filter condition: column {=||<>||>||>=||<||<=} [QUANTIFIER ]( subquery ) .
@@ -873,21 +913,22 @@ type Quantifier interface {
 
 	SetQuantifier(quantifierString string) Quantifier
 
-	Equal(script any, subquery Maker) Quantifier
+	Equal(column any, subquery Maker) Quantifier
 
-	NotEqual(script any, subquery Maker) Quantifier
+	NotEqual(column any, subquery Maker) Quantifier
 
-	LessThan(script any, subquery Maker) Quantifier
+	LessThan(column any, subquery Maker) Quantifier
 
-	LessThanEqual(script any, subquery Maker) Quantifier
+	LessThanEqual(column any, subquery Maker) Quantifier
 
-	MoreThan(script any, subquery Maker) Quantifier
+	MoreThan(column any, subquery Maker) Quantifier
 
-	MoreThanEqual(script any, subquery Maker) Quantifier
+	MoreThanEqual(column any, subquery Maker) Quantifier
 }
 
 type quantifier struct {
-	filter     Filter
+	filter Filter
+
 	quantifier string // The value is usually one of ALL, ANY, SOME.
 }
 
@@ -903,16 +944,16 @@ func (s *quantifier) SetQuantifier(quantifierString string) Quantifier {
 }
 
 // build Add SQL filter statement.
-func (s *quantifier) build(script any, logic string, subquery Maker) Quantifier {
-	if script == nil || logic == StrEmpty || subquery == nil {
+func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier {
+	if column == nil || logic == StrEmpty || subquery == nil {
 		return s
 	}
-	if column, ok := script.(string); ok {
+	if script, ok := column.(string); ok {
 		if tmp := s.filter.GetReplacer(); tmp != nil {
-			script = tmp.Get(column)
+			column = tmp.Get(script)
 		}
 	}
-	prefix, suffix := any2sql(script), subquery.ToSQL()
+	prefix, suffix := any2sql(column), subquery.ToSQL()
 	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
 		return s
 	}
@@ -921,31 +962,31 @@ func (s *quantifier) build(script any, logic string, subquery Maker) Quantifier 
 }
 
 // Equal Implement the filter condition: column = QUANTIFIER ( subquery ) .
-func (s *quantifier) Equal(script any, subquery Maker) Quantifier {
-	return s.build(script, StrEqual, subquery)
+func (s *quantifier) Equal(column any, subquery Maker) Quantifier {
+	return s.build(column, StrEqual, subquery)
 }
 
 // NotEqual Implement the filter condition: column <> QUANTIFIER ( subquery ) .
-func (s *quantifier) NotEqual(script any, subquery Maker) Quantifier {
-	return s.build(script, StrNotEqual, subquery)
+func (s *quantifier) NotEqual(column any, subquery Maker) Quantifier {
+	return s.build(column, StrNotEqual, subquery)
 }
 
 // LessThan Implement the filter condition: column < QUANTIFIER ( subquery ) .
-func (s *quantifier) LessThan(script any, subquery Maker) Quantifier {
-	return s.build(script, StrLessThan, subquery)
+func (s *quantifier) LessThan(column any, subquery Maker) Quantifier {
+	return s.build(column, StrLessThan, subquery)
 }
 
 // LessThanEqual Implement the filter condition: column <= QUANTIFIER ( subquery ) .
-func (s *quantifier) LessThanEqual(script any, subquery Maker) Quantifier {
-	return s.build(script, StrLessThanEqual, subquery)
+func (s *quantifier) LessThanEqual(column any, subquery Maker) Quantifier {
+	return s.build(column, StrLessThanEqual, subquery)
 }
 
 // MoreThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
-func (s *quantifier) MoreThan(script any, subquery Maker) Quantifier {
-	return s.build(script, StrMoreThan, subquery)
+func (s *quantifier) MoreThan(column any, subquery Maker) Quantifier {
+	return s.build(column, StrMoreThan, subquery)
 }
 
 // MoreThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
-func (s *quantifier) MoreThanEqual(script any, subquery Maker) Quantifier {
-	return s.build(script, StrMoreThanEqual, subquery)
+func (s *quantifier) MoreThanEqual(column any, subquery Maker) Quantifier {
+	return s.build(column, StrMoreThanEqual, subquery)
 }
