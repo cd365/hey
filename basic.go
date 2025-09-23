@@ -35,7 +35,7 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 		mp[dynamic[i]] = &struct{}{}
 		result = append(result, dynamic[i])
 	}
-	return
+	return result
 }
 
 // MergeAssoc Merge maps.
@@ -1511,7 +1511,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 		fields = append(fields, valueIndexFieldTag)
 		values = append(values, basicTypeValue(valueIndexField.Interface()))
 	}
-	return
+	return fields, values
 }
 
 // structValues Checkout values.
@@ -1556,13 +1556,13 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 
 		values = append(values, basicTypeValue(valueIndexField.Interface()))
 	}
-	return
+	return values
 }
 
 // Insert Object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *insertByStruct) Insert(object any, tag string, except []string, allow []string) (fields []string, values [][]any) {
 	if object == nil || tag == StrEmpty {
-		return
+		return fields, values
 	}
 
 	s.tag = tag
@@ -1602,7 +1602,7 @@ func (s *insertByStruct) Insert(object any, tag string, except []string, allow [
 			}
 		}
 	}
-	return
+	return fields, values
 }
 
 // StructInsert Object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
@@ -1611,13 +1611,13 @@ func StructInsert(object any, tag string, except []string, allow []string) (fiel
 	b := poolGetInsertByStruct()
 	defer poolPutInsertByStruct(b)
 	fields, values = b.Insert(object, tag, except, allow)
-	return
+	return fields, values
 }
 
 // StructModify Object should be one of anyStruct, *anyStruct get the fields and values that need to be modified.
 func StructModify(object any, tag string, except ...string) (fields []string, values []any) {
 	if object == nil || tag == StrEmpty {
-		return
+		return fields, values
 	}
 	ofType := reflect.TypeOf(object)
 	ofValue := reflect.ValueOf(object)
@@ -1627,7 +1627,7 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 		ofValue = ofValue.Elem()
 	}
 	if ofKind != reflect.Struct {
-		return
+		return fields, values
 	}
 	excepted := make(map[string]*struct{}, 1<<5)
 	for _, field := range except {
@@ -1727,13 +1727,13 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 			fieldValue = fieldValue.Elem()
 		}
 	}
-	return
+	return fields, values
 }
 
 // StructObtain Object should be one of anyStruct, *anyStruct for get all fields and values.
 func StructObtain(object any, tag string, except ...string) (fields []string, values []any) {
 	if object == nil || tag == StrEmpty {
-		return
+		return fields, values
 	}
 	ofType := reflect.TypeOf(object)
 	ofValue := reflect.ValueOf(object)
@@ -1743,7 +1743,7 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 		ofValue = ofValue.Elem()
 	}
 	if ofKind != reflect.Struct {
-		return
+		return fields, values
 	}
 	excepted := make(map[string]*struct{}, 1<<5)
 	for _, field := range except {
@@ -1813,13 +1813,13 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 
 		add(column, ofValue.Field(i).Interface())
 	}
-	return
+	return fields, values
 }
 
 // StructUpdate Compare origin and latest for update.
 func StructUpdate(origin any, latest any, tag string, except ...string) (fields []string, values []any) {
 	if origin == nil || latest == nil || tag == StrEmpty {
-		return
+		return fields, values
 	}
 
 	originFields, originValues := StructObtain(origin, tag, except...)
@@ -1863,7 +1863,7 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (fields 
 		add(v, bvl)
 	}
 
-	return
+	return fields, values
 }
 
 // transaction Information for transaction.
@@ -2233,12 +2233,12 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 	}
 	if err != nil {
 		tx = nil
-		return
+		return tx, err
 	}
 	tx.transaction.startAt = time.Now()
 	tx.transaction.id = fmt.Sprintf("%d%s%d%s%p", tx.transaction.startAt.UnixNano(), StrPoint, os.Getpid(), StrPoint, tx.transaction)
 	tx.transaction.start()
-	return
+	return tx, err
 }
 
 // commit -> Commit transaction.
@@ -2251,7 +2251,7 @@ func (s *Way) commit() (err error) {
 	defer tx.write()
 	tx.err = tx.tx.Commit()
 	s.transaction, err = nil, tx.err
-	return
+	return err
 }
 
 // rollback -> Rollback transaction.
@@ -2264,7 +2264,7 @@ func (s *Way) rollback() (err error) {
 	defer tx.write()
 	tx.err = tx.tx.Rollback()
 	s.transaction, err = nil, tx.err
-	return
+	return err
 }
 
 // Begin -> Open transaction.
@@ -2318,7 +2318,7 @@ func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts .
 	tx := (*Way)(nil)
 	tx, err = s.begin(ctx, nil, opts...)
 	if err != nil {
-		return
+		return err
 	}
 
 	ok := false
@@ -2332,12 +2332,12 @@ func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts .
 	}()
 
 	if err = fc(tx); err != nil {
-		return
+		return err
 	}
 
 	ok = true
 
-	return
+	return err
 }
 
 // Transaction -> Atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
@@ -2360,7 +2360,7 @@ func (s *Way) TransactionRetry(ctx context.Context, retries int, fc func(tx *Way
 			break
 		}
 	}
-	return
+	return err
 }
 
 // Now -> Get current time, the transaction open status will get the same time.
@@ -2383,7 +2383,7 @@ func (s *Stmt) Close() (err error) {
 	if s.stmt != nil {
 		err = s.stmt.Close()
 	}
-	return
+	return err
 }
 
 // Query -> Query prepared, that can be called repeatedly.
@@ -2519,7 +2519,7 @@ func (s *Way) MultiFetch(ctx context.Context, makers []Maker, results []any) (er
 			break
 		}
 	}
-	return
+	return err
 }
 
 // MultiExecute Execute multiple DML statements.
@@ -4076,7 +4076,9 @@ func (s *sqlUpdateSet) Len() int {
 func (s *sqlUpdateSet) Forbid(columns ...string) SQLUpdateSet {
 	for _, column := range columns {
 		s.forbidSet[column] = nil
-		s.defaults.forbidSet[column] = nil
+		if s.defaults != nil {
+			s.defaults.forbidSet[column] = nil
+		}
 	}
 	return s
 }
