@@ -413,7 +413,7 @@ func any2sql(i any) *SQL {
 		v := reflect.ValueOf(i)
 		t := v.Type()
 		k := t.Kind()
-		for k == reflect.Ptr {
+		for k == reflect.Pointer {
 			if v.IsNil() {
 				return result
 			}
@@ -896,7 +896,7 @@ func argValueToString(i any) string {
 	}
 	t, v := reflect.TypeOf(i), reflect.ValueOf(i)
 	k := t.Kind()
-	for k == reflect.Ptr {
+	for k == reflect.Pointer {
 		if v.IsNil() {
 			return StrNull
 		}
@@ -1127,7 +1127,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 			dst = append(dst, i)
 			s.binding(at, dst, tag)
 			continue
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if at.Elem().Kind() == reflect.Struct {
 				dst := depth[:]
 				dst = append(dst, i)
@@ -1169,7 +1169,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("hey: column `%s` cann't set value", columns[i])
 			}
-			if field.Kind() == reflect.Ptr && field.IsNil() {
+			if field.Kind() == reflect.Pointer && field.IsNil() {
 				field.Set(reflect.New(field.Type()).Elem())
 				rowsScan[i] = field.Addr().Interface()
 				continue
@@ -1195,7 +1195,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 			if serial+1 < total {
 				// Middle layer structures.
 				next := using.Field(indexChain[serial])
-				if next.Type().Kind() == reflect.Ptr {
+				if next.Type().Kind() == reflect.Pointer {
 					if next.IsNil() {
 						next.Set(reflect.New(next.Type().Elem()))
 					}
@@ -1210,7 +1210,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 			if !field.CanAddr() || !field.CanSet() {
 				return fmt.Errorf("hey: column `%s` cann't set value, multi-level", columns[i])
 			}
-			if field.Kind() == reflect.Ptr && field.IsNil() {
+			if field.Kind() == reflect.Pointer && field.IsNil() {
 				field.Set(reflect.New(field.Type()).Elem())
 				rowsScan[i] = field.Addr().Interface()
 				continue
@@ -1228,7 +1228,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 	depth1 := 0
 	refType1 := refType
 	kind1 := refType1.Kind()
-	for kind1 == reflect.Ptr {
+	for kind1 == reflect.Pointer {
 		depth1++
 		refType1 = refType1.Elem()
 		kind1 = refType1.Kind()
@@ -1277,7 +1277,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				return nil
 			default:
 				current := refValue.Elem()
-				for current.Kind() == reflect.Ptr {
+				for current.Kind() == reflect.Pointer {
 					if current.IsNil() {
 						tmp := reflect.New(current.Type().Elem())
 						current.Set(tmp)
@@ -1304,7 +1304,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 	refStructType := sliceItemType
 
 	kind2 := refStructType.Kind()
-	for kind2 == reflect.Ptr {
+	for kind2 == reflect.Pointer {
 		depth2++
 		refStructType = refStructType.Elem()
 		kind2 = refStructType.Kind()
@@ -1378,7 +1378,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 	}
 
 	current := refValue.Elem()
-	for current.Kind() == reflect.Ptr {
+	for current.Kind() == reflect.Pointer {
 		if current.IsNil() {
 			tmp := reflect.New(current.Type().Elem())
 			current.Set(tmp)
@@ -1399,9 +1399,9 @@ func basicTypeValue(value any) any {
 	}
 	t, v := reflect.TypeOf(value), reflect.ValueOf(value)
 	k := t.Kind()
-	for k == reflect.Ptr {
+	for k == reflect.Pointer {
 		if v.IsNil() {
-			for k == reflect.Ptr {
+			for k == reflect.Pointer {
 				t = t.Elem()
 				k = t.Kind()
 			}
@@ -1477,7 +1477,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 
 		valueIndexField := structReflectValue.Field(i)
 		valueIndexFieldKind := valueIndexField.Kind()
-		for valueIndexFieldKind == reflect.Ptr {
+		for valueIndexFieldKind == reflect.Pointer {
 			if valueIndexField.IsNil() {
 				break
 			}
@@ -1529,7 +1529,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 
 		valueIndexField := structReflectValue.Field(i)
 		valueIndexFieldKind := valueIndexField.Kind()
-		for valueIndexFieldKind == reflect.Ptr {
+		for valueIndexFieldKind == reflect.Pointer {
 			if valueIndexField.IsNil() {
 				break
 			}
@@ -1575,7 +1575,7 @@ func (s *insertByStruct) Insert(object any, tag string, except []string, allow [
 
 	reflectValue := reflect.ValueOf(object)
 	kind := reflectValue.Kind()
-	for ; kind == reflect.Ptr; kind = reflectValue.Kind() {
+	for ; kind == reflect.Pointer; kind = reflectValue.Kind() {
 		reflectValue = reflectValue.Elem()
 	}
 
@@ -1589,7 +1589,7 @@ func (s *insertByStruct) Insert(object any, tag string, except []string, allow [
 		values = make([][]any, sliceLength)
 		for i := range sliceLength {
 			indexValue := reflectValue.Index(i)
-			for indexValue.Kind() == reflect.Ptr {
+			for indexValue.Kind() == reflect.Pointer {
 				indexValue = indexValue.Elem()
 			}
 			if indexValue.Kind() != reflect.Struct {
@@ -1622,7 +1622,7 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 	ofType := reflect.TypeOf(object)
 	ofValue := reflect.ValueOf(object)
 	ofKind := ofType.Kind()
-	for ; ofKind == reflect.Ptr; ofKind = ofType.Kind() {
+	for ; ofKind == reflect.Pointer; ofKind = ofType.Kind() {
 		ofType = ofType.Elem()
 		ofValue = ofValue.Elem()
 	}
@@ -1738,7 +1738,7 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 	ofType := reflect.TypeOf(object)
 	ofValue := reflect.ValueOf(object)
 	ofKind := ofType.Kind()
-	for ; ofKind == reflect.Ptr; ofKind = ofType.Kind() {
+	for ; ofKind == reflect.Pointer; ofKind = ofType.Kind() {
 		ofType = ofType.Elem()
 		ofValue = ofValue.Elem()
 	}
