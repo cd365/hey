@@ -1,4 +1,4 @@
-.PHONY: all fmt mod-tidy test test-coverage install-tools code betteralign gofumpt
+.PHONY: all fmt mod-tidy install-tools test test-coverage betteralign gofumpt code
 
 all: mod-tidy fmt test test-coverage
 
@@ -8,22 +8,22 @@ fmt:
 mod-tidy:
 	go mod tidy
 
-test:
-	go test -v
-
-test-coverage:
-	gocov test ./... | gocov-html > .coverage.html
-
 install-tools:
 	go install github.com/dkorunic/betteralign/cmd/betteralign@latest
 	go install mvdan.cc/gofumpt@latest
 	go install github.com/axw/gocov/gocov@latest
 	go install github.com/matm/gocov-html/cmd/gocov-html@latest
 
-code: betteralign fmt gofumpt
+test:
+	cd _examples;go test -v
+
+test-coverage:
+	cd _examples;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v5,examples;gocov convert .coverage.out | gocov-html > .coverage.html
 
 betteralign:
 	betteralign -apply -fix ./...
 
 gofumpt:
 	gofumpt -w .
+
+code: betteralign fmt gofumpt
