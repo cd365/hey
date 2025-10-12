@@ -990,3 +990,20 @@ func (s *quantifier) MoreThan(column any, subquery Maker) Quantifier {
 func (s *quantifier) MoreThanEqual(column any, subquery Maker) Quantifier {
 	return s.build(column, StrMoreThanEqual, subquery)
 }
+
+// LikeSearch Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
+func LikeSearch(filter Filter, value any, columns ...string) {
+	if filter == nil {
+		return
+	}
+	columns = DiscardDuplicate(func(tmp string) bool { return tmp == StrEmpty }, columns...)
+	count := len(columns)
+	if count == 0 {
+		return
+	}
+	filter.Group(func(g Filter) {
+		for _, column := range columns {
+			g.OrGroup(func(tmp Filter) { tmp.Like(column, value) })
+		}
+	})
+}

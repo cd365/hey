@@ -28,9 +28,9 @@ func newSqlite3() (*hey.Way, error) {
 	db.SetMaxOpenConns(2)
 	db.SetMaxIdleConns(2)
 
-	way := hey.NewWay(db)
+	newWay := hey.NewWay(db)
 
-	cfg := way.GetCfg()
+	cfg := newWay.GetCfg()
 
 	cfg.Manual = hey.Mysql()
 	cfg.Manual.Replacer = hey.NewReplacer() // Optional, You can customize it by using `table_or_column_name` instead of table_or_column_name
@@ -41,7 +41,7 @@ func newSqlite3() (*hey.Way, error) {
 	cfg.WarnDuration = time.Millisecond * 200
 	// cfg.TransactionOptions = &sql.TxOptions{Isolation: sql.LevelReadCommitted}
 
-	way.SetLogger(logger.NewLogger(os.Stdout)) // Optional, Record SQL call log
+	newWay.SetLogger(logger.NewLogger(os.Stdout)) // Optional, Record SQL call log
 
-	return way, nil
+	return newWay, nil
 }

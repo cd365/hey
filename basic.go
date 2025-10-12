@@ -1221,7 +1221,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 	return nil
 }
 
-// RowsScan Scan the query result set into the receiving object. Support type *AnyStruct, **AnyStruct, *[]AnyStruct, *[]*AnyStruct, **[]AnyStruct, **[]*AnyStruct ...
+// RowsScan Scan the query result set into the receiving object. Support type *AnyStruct, **AnyStruct, *[]AnyStruct, *[]*AnyStruct, **[]AnyStruct, **[]*AnyStruct, *[]int, *[]float64, *[]string ...
 func RowsScan(rows *sql.Rows, result any, tag string) error {
 	refType, refValue := reflect.TypeOf(result), reflect.ValueOf(result)
 
@@ -1300,18 +1300,31 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 	// the type of slice elements.
 	sliceItemType := refType1.Elem()
 
-	// slice element struct type.
-	refStructType := sliceItemType
+	// slice element type.
+	refItemType := sliceItemType
 
-	kind2 := refStructType.Kind()
+	kind2 := refItemType.Kind()
 	for kind2 == reflect.Pointer {
 		depth2++
-		refStructType = refStructType.Elem()
-		kind2 = refStructType.Kind()
+		refItemType = refItemType.Elem()
+		kind2 = refItemType.Kind()
 	}
 
-	if kind2 != reflect.Struct {
-		return fmt.Errorf("hey: the basic type of slice elements must be a struct, yours is `%s`", refStructType.String())
+	isSingle := false
+	isStruct := false
+	switch kind2 {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64,
+		reflect.String:
+		isSingle = true
+	case reflect.Struct:
+		isStruct = true
+	default:
+	}
+
+	if !(isSingle || isStruct) {
+		return fmt.Errorf("hey: the basic type of slice elements must be a struct, int, float64, string, *struct, *int, *float64, *string... yours is `%s`", refItemType.String())
 	}
 
 	// initialize slice object.
@@ -1324,59 +1337,78 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 		refValueSlice = refValueSlice.Elem()
 	}
 
-	var (
-		b        *bindScanStruct
-		columns  []string
-		err      error
-		length   int
-		rowsScan []any
-	)
-
-	defer func() {
-		if b != nil {
-			poolPutBindScanStruct(b)
-		}
-	}()
-
-	for rows.Next() {
-
-		if b == nil {
-			// initialize variable values
-			b = poolGetBindScanStruct()
-			b.binding(refStructType, nil, tag)
-
-			columns, err = rows.Columns()
-			if err != nil {
+	if isSingle {
+		for rows.Next() {
+			item := reflect.New(sliceItemType)
+			next := item
+			for range depth2 {
+				if next = next.Elem(); next.IsNil() {
+					next = reflect.New(next.Type())
+				}
+			}
+			if err := rows.Scan(item.Interface()); err != nil {
 				return err
 			}
-			length = len(columns)
-			rowsScan = make([]any, length)
-		}
-
-		refStructPtr := reflect.New(refStructType)
-		refStructVal := reflect.Indirect(refStructPtr)
-		if err = b.prepare(columns, rowsScan, refStructVal, length); err != nil {
-			return err
-		}
-		if err = rows.Scan(rowsScan...); err != nil {
-			return err
-		}
-		switch depth2 {
-		case 0:
-			refValueSlice = reflect.Append(refValueSlice, refStructVal)
-		case 1:
-			refValueSlice = reflect.Append(refValueSlice, refStructPtr)
-		default:
-			leap := refStructPtr
-			for i := 1; i < depth2; i++ {
-				tmp := reflect.New(leap.Type()) // creates a pointer to the current type
-				tmp.Elem().Set(leap)            // assign the current value to the new pointer
-				leap = tmp                      // update to a new pointer
-			}
-			refValueSlice = reflect.Append(refValueSlice, leap)
+			refValueSlice = reflect.Append(refValueSlice, reflect.Indirect(item))
 		}
 	}
 
+	if isStruct {
+		var (
+			b        *bindScanStruct
+			columns  []string
+			err      error
+			length   int
+			rowsScan []any
+		)
+
+		defer func() {
+			if b != nil {
+				poolPutBindScanStruct(b)
+			}
+		}()
+
+		for rows.Next() {
+
+			if b == nil {
+				// initialize variable values
+				b = poolGetBindScanStruct()
+				b.binding(refItemType, nil, tag)
+
+				columns, err = rows.Columns()
+				if err != nil {
+					return err
+				}
+				length = len(columns)
+				rowsScan = make([]any, length)
+			}
+
+			refStructPtr := reflect.New(refItemType)
+			refStructVal := reflect.Indirect(refStructPtr)
+			if err = b.prepare(columns, rowsScan, refStructVal, length); err != nil {
+				return err
+			}
+			if err = rows.Scan(rowsScan...); err != nil {
+				return err
+			}
+			switch depth2 {
+			case 0:
+				refValueSlice = reflect.Append(refValueSlice, refStructVal)
+			case 1:
+				refValueSlice = reflect.Append(refValueSlice, refStructPtr)
+			default:
+				leap := refStructPtr
+				for i := 1; i < depth2; i++ {
+					tmp := reflect.New(leap.Type()) // creates a pointer to the current type
+					tmp.Elem().Set(leap)            // assign the current value to the new pointer
+					leap = tmp                      // update to a new pointer
+				}
+				refValueSlice = reflect.Append(refValueSlice, leap)
+			}
+		}
+	}
+
+	// Set the value of the slice.
 	current := refValue.Elem()
 	for current.Kind() == reflect.Pointer {
 		if current.IsNil() {
