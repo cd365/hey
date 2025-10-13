@@ -743,12 +743,10 @@ func (s *filter) like(logic string, column any, value any, not bool) Filter {
 		lists = append(lists, StrNot)
 	}
 	lists = append(lists, StrLike)
-	args := make([]any, 0, 1)
-	if like, ok := value.(string); ok {
+	if like, ok := value.(string); ok && like != StrEmpty {
 		lists = append(lists, StrPlaceholder)
-		args = append(args, like)
 		result := s.firstNext(script, lists...)
-		result.Args = append(result.Args, args...)
+		result.Args = append(result.Args, like)
 		return s.add(logic, result)
 	}
 	if like := any2sql(value); !like.IsEmpty() {
@@ -996,9 +994,10 @@ func LikeSearch(filter Filter, value any, columns ...string) {
 	if filter == nil {
 		return
 	}
-	columns = DiscardDuplicate(func(tmp string) bool { return tmp == StrEmpty }, columns...)
-	count := len(columns)
-	if count == 0 {
+	columns = DiscardDuplicate(func(tmp string) bool {
+		return tmp == StrEmpty
+	}, columns...)
+	if len(columns) == 0 {
 		return
 	}
 	filter.Group(func(g Filter) {
