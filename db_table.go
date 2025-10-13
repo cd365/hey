@@ -505,3 +505,67 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 		u.Update(modify)
 	}).Update(ctx)
 }
+
+// Create Quick insert, the first method in options will serve as the pre-method, and all the subsequent methods will serve as post-methods.
+func (s *Way) Create(ctx context.Context, table any, values any, options ...func(t *Table)) (int64, error) {
+	tmp := s.Table(table)
+	length := len(options)
+	if length == 0 {
+		return tmp.INSERT(func(i SQLInsert) { i.Create(values) }).Insert(ctx)
+	}
+	if first := options[0]; first != nil {
+		first(tmp)
+	}
+	tmp.INSERT(func(i SQLInsert) { i.Create(values) })
+	for _, fc := range options[1:] {
+		if fc != nil {
+			fc(tmp)
+		}
+	}
+	return tmp.Insert(ctx)
+}
+
+// Delete Quick delete.
+func (s *Way) Delete(ctx context.Context, table any, column string, values any, options ...func(f Filter)) (int64, error) {
+	where := s.F().In(column, values)
+	for _, fc := range options {
+		if fc != nil {
+			fc(where)
+		}
+	}
+	return s.Table(table).Where(where).Delete(ctx)
+}
+
+// Update Quick update, the first method in options will serve as the pre-method, and all the subsequent methods will serve as post-methods.
+func (s *Way) Update(ctx context.Context, table any, column string, value any, update any, options ...func(f Filter, u SQLUpdateSet)) (int64, error) {
+	return s.Table(table).UPDATE(func(f Filter, u SQLUpdateSet) {
+		length := len(options)
+		if length == 0 {
+			f.Equal(column, value)
+			u.Update(update)
+			return
+		}
+		if first := options[0]; first != nil {
+			first(f, u)
+		}
+		f.Equal(column, value)
+		u.Update(update)
+		for _, fc := range options[1:] {
+			if fc != nil {
+				fc(f, u)
+			}
+		}
+	}).Update(ctx)
+}
+
+const StrId = "id"
+
+// DeleteById Delete data according to one or more id values.
+func (s *Way) DeleteById(ctx context.Context, table any, values any, options ...func(f Filter)) (int64, error) {
+	return s.Delete(ctx, table, StrId, values, options...)
+}
+
+// UpdateById Update by id value, the first method in options will serve as the pre-method, and all the subsequent methods will serve as post-methods.
+func (s *Way) UpdateById(ctx context.Context, table any, value any, update any, options ...func(f Filter, u SQLUpdateSet)) (int64, error) {
+	return s.Update(ctx, table, StrId, value, update, options...)
+}

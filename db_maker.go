@@ -1417,6 +1417,9 @@ func (s *sqlUpdateSet) SetSlice(columns []string, values []any) SQLUpdateSet {
 
 // Update Value of update should be one of anyStruct, *anyStruct, map[string]any.
 func (s *sqlUpdateSet) Update(update any) SQLUpdateSet {
+	if update == nil {
+		return s
+	}
 	if columnValue, ok := update.(map[string]any); ok {
 		columns := make([]string, 0, len(columnValue))
 		for column := range columnValue {
