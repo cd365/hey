@@ -461,6 +461,22 @@ func (s *Table) Fetch(ctx context.Context, result any) error {
 	return s.way.Fetch(ctx, s.ToSelect(), result)
 }
 
+// CountFetch Merge statistics and scan data.
+func (s *Table) CountFetch(ctx context.Context, result any, counts ...string) (count int64, err error) {
+	count, err = s.Count(ctx, counts...)
+	if err != nil {
+		return count, err
+	}
+	if count == 0 {
+		return count, err
+	}
+	err = s.Fetch(ctx, result)
+	if err != nil {
+		return count, err
+	}
+	return count, err
+}
+
 // Insert Execute an INSERT INTO statement.
 func (s *Table) Insert(ctx context.Context) (int64, error) {
 	script := s.ToInsert()
