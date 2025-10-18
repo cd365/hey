@@ -501,6 +501,9 @@ func (s *Table) CountFetch(ctx context.Context, result any, counts ...string) (c
 // Insert Execute an INSERT INTO statement.
 func (s *Table) Insert(ctx context.Context) (int64, error) {
 	script := s.ToInsert()
+	if script.IsEmpty() {
+		return 0, ErrEmptyPrepare
+	}
 	if insert := s.insert; insert != nil {
 		if returning := insert.returning; returning != nil && returning.execute != nil {
 			stmt, err := s.way.Prepare(ctx, script.Prepare)
@@ -516,7 +519,7 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 // Update Execute an UPDATE statement.
 func (s *Table) Update(ctx context.Context) (int64, error) {
 	if s.way.cfg.UpdateMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
-		return 0, nil
+		return 0, ErrNoRowsAffected
 	}
 	return s.way.Execute(ctx, s.ToUpdate())
 }
@@ -524,7 +527,7 @@ func (s *Table) Update(ctx context.Context) (int64, error) {
 // Delete Execute a DELETE statement.
 func (s *Table) Delete(ctx context.Context) (int64, error) {
 	if s.way.cfg.DeleteMustUseWhere && (s.where == nil || s.where.IsEmpty()) {
-		return 0, nil
+		return 0, ErrNoRowsAffected
 	}
 	return s.way.Execute(ctx, s.ToDelete())
 }

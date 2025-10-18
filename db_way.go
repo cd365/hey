@@ -752,6 +752,9 @@ func (s *Way) Prepare(ctx context.Context, prepare string) (stmt *Stmt, err erro
 // Query -> Execute the query sql statement.
 func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) error {
 	script := maker.ToSQL()
+	if script.IsEmpty() {
+		return ErrEmptyPrepare
+	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
 		return err
@@ -765,6 +768,9 @@ func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows)
 // QueryRow -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
 func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) error {
 	script := maker.ToSQL()
+	if script.IsEmpty() {
+		return ErrEmptyPrepare
+	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
 		return err
@@ -783,6 +789,9 @@ func (s *Way) Fetch(ctx context.Context, maker Maker, result any) error {
 // Exec -> Execute the execute sql statement.
 func (s *Way) Exec(ctx context.Context, maker Maker) (sql.Result, error) {
 	script := maker.ToSQL()
+	if script.IsEmpty() {
+		return nil, ErrEmptyPrepare
+	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
 		return nil, err
@@ -796,6 +805,9 @@ func (s *Way) Exec(ctx context.Context, maker Maker) (sql.Result, error) {
 // Execute -> Execute the execute sql statement.
 func (s *Way) Execute(ctx context.Context, maker Maker) (int64, error) {
 	script := maker.ToSQL()
+	if script.IsEmpty() {
+		return 0, ErrEmptyPrepare
+	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
 		return 0, err
@@ -832,6 +844,9 @@ func (s *Way) MultiExecute(ctx context.Context, makers []Maker) (affectedRows in
 
 // MultiStmtFetch Executing a DQL statement multiple times using the same prepared statement.
 func (s *Way) MultiStmtFetch(ctx context.Context, prepare string, lists [][]any, results []any) (err error) {
+	if prepare == StrEmpty {
+		return ErrEmptyPrepare
+	}
 	stmt := (*Stmt)(nil)
 	stmt, err = s.Prepare(ctx, prepare)
 	if err != nil {
@@ -851,6 +866,9 @@ func (s *Way) MultiStmtFetch(ctx context.Context, prepare string, lists [][]any,
 
 // MultiStmtExecute Executing a DML statement multiple times using the same prepared statement.
 func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]any) (affectedRows int64, err error) {
+	if prepare == StrEmpty {
+		return 0, ErrEmptyPrepare
+	}
 	stmt := (*Stmt)(nil)
 	stmt, err = s.Prepare(ctx, prepare)
 	if err != nil {
