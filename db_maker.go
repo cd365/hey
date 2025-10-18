@@ -1756,6 +1756,9 @@ func (s *sqlInsert) ToEmpty() {
 }
 
 func (s *sqlInsert) ToSQL() *SQL {
+	if s.table.IsEmpty() {
+		return NewEmptySQL()
+	}
 	makers := []any{NewSQL(StrInsert), NewSQL(StrInto), s.table}
 
 	columns1, params1 := s.columns.Get()

@@ -367,6 +367,9 @@ func (s *Table) UPDATE(fc func(f Filter, u SQLUpdateSet)) *Table {
 
 // ToSelect Build SELECT statement.
 func (s *Table) ToSelect() *SQL {
+	if s.table.IsEmpty() {
+		return NewEmptySQL()
+	}
 	lists := make([]any, 0, 12)
 	lists = append(lists, s.comment, s.with, StrSelect)
 	lists = append(lists, s.selects, StrFrom, s.table)
@@ -386,15 +389,26 @@ func (s *Table) ToInsert() *SQL {
 	if insert.table == nil || insert.table.IsEmpty() {
 		insert.table = s.table.ToSQL()
 	}
-	return JoinSQLSpace(s.comment, insert).ToSQL()
+	script := insert.ToSQL()
+	if script.IsEmpty() {
+		return NewEmptySQL()
+	}
+	return JoinSQLSpace(s.comment, script).ToSQL()
 }
 
 // ToUpdate Build UPDATE statement.
 func (s *Table) ToUpdate() *SQL {
+	if s.table.IsEmpty() || s.updateSet.IsEmpty() {
+		return NewEmptySQL()
+	}
 	lists := make([]any, 0, 8)
 	lists = append(lists, s.comment, s.with, StrUpdate, s.table)
 	lists = append(lists, StrSet, s.updateSet)
-	if !s.where.IsEmpty() {
+	if s.where.IsEmpty() {
+		if s.way.cfg.UpdateMustUseWhere {
+			return NewEmptySQL()
+		}
+	} else {
 		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
 	return JoinSQLSpace(lists...).ToSQL()
@@ -402,9 +416,16 @@ func (s *Table) ToUpdate() *SQL {
 
 // ToDelete Build DELETE statement.
 func (s *Table) ToDelete() *SQL {
+	if s.table.IsEmpty() {
+		return NewEmptySQL()
+	}
 	lists := make([]any, 0, 8)
 	lists = append(lists, s.comment, s.with, StrDelete, StrFrom, s.table, s.joins)
-	if !s.where.IsEmpty() {
+	if s.where.IsEmpty() {
+		if s.way.cfg.UpdateMustUseWhere {
+			return NewEmptySQL()
+		}
+	} else {
 		lists = append(lists, StrWhere, ParcelFilter(s.where))
 	}
 	return JoinSQLSpace(lists...).ToSQL()
