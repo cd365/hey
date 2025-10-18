@@ -751,6 +751,9 @@ type MyHidden interface {
 	// HiddenFilterValue Custom hidden logic Filter value.
 	HiddenFilterValue() func(f Filter)
 
+	// HiddenUpdate Set pseudo-delete logic method.
+	HiddenUpdate(fc func(u SQLUpdateSet))
+
 	// ResetHidden Reset the default Hidden method.
 	ResetHidden(fc func(ctx context.Context, where Filter) (affectedRows int64, err error))
 
@@ -806,6 +809,10 @@ func (s *myHidden) HiddenFilter(fc func(f Filter)) {
 
 func (s *myHidden) HiddenFilterValue() func(f Filter) {
 	return s.filter
+}
+
+func (s *myHidden) HiddenUpdate(fc func(u SQLUpdateSet)) {
+	s.update = fc
 }
 
 func (s *myHidden) ResetHidden(fc func(ctx context.Context, where Filter) (affectedRows int64, err error)) {
