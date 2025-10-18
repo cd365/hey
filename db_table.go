@@ -436,8 +436,11 @@ func (s *Table) ToSQL() *SQL {
 	return s.ToSelect()
 }
 
-// countToSQL Build SELECT-COUNT statement.
-func (s *Table) countToSQL(counts ...string) *SQL {
+// ToCount Build COUNT-SELECT statement.
+func (s *Table) ToCount(counts ...string) *SQL {
+	if s.table.IsEmpty() {
+		return NewEmptySQL()
+	}
 	if len(counts) == 0 {
 		counts = []string{
 			Strings("COUNT(*)", StrSpace, StrAs, StrSpace, s.way.Replace(DefaultAliasNameCount)),
@@ -462,7 +465,7 @@ func (s *Table) Query(ctx context.Context, query func(rows *sql.Rows) error) err
 // Count Total number of statistics.
 func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 	count := int64(0)
-	script := s.countToSQL(counts...)
+	script := s.ToCount(counts...)
 	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
 		for rows.Next() {
 			if err := rows.Scan(&count); err != nil {
