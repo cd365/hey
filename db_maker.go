@@ -1204,6 +1204,9 @@ type SQLUpdateSet interface {
 	// Assign Assigning values through other column.
 	Assign(dst string, src string) SQLUpdateSet
 
+	// SetNull Set the value of the column to NULL.
+	SetNull(column string) SQLUpdateSet
+
 	// GetUpdate Get a list of existing updates.
 	GetUpdate() ([]string, [][]any)
 
@@ -1502,6 +1505,11 @@ func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 // Assign Assigning values through other column; [a.]dst_column_name = [b.]src_column_name
 func (s *sqlUpdateSet) Assign(dst string, src string) SQLUpdateSet {
 	return s.Update(JoinSQLSpace(s.way.Replace(dst), StrEqual, s.way.Replace(src)))
+}
+
+// SetNull Set the value of the column to NULL.
+func (s *sqlUpdateSet) SetNull(column string) SQLUpdateSet {
+	return s.Assign(column, StrNull)
 }
 
 func (s *sqlUpdateSet) GetUpdate() ([]string, [][]any) {

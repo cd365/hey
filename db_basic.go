@@ -145,11 +145,11 @@ const (
 // MakerScanAll Rows scan to any struct, based on struct scan data.
 func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(rows *sql.Rows, v *V) error) ([]*V, error) {
 	if way == nil || maker == nil || scan == nil {
-		return make([]*V, 0), nil
+		return nil, Err("hey: unexpected parameter value")
 	}
 	script := maker.ToSQL()
 	if script == nil || script.IsEmpty() {
-		return make([]*V, 0), nil
+		return nil, ErrEmptyPrepare
 	}
 	length := 16
 	if ctx == nil {
