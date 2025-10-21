@@ -157,6 +157,7 @@ func (s *myInsert) InsertOne(ctx context.Context, insert any) (id int64, err err
 	ctx = context.WithValue(ctx, MyInsertOne, true)
 	ctx = context.WithValue(ctx, MyTableName, s.table)
 	ctx = context.WithValue(ctx, MyTable, table)
+	ctx = context.WithValue(ctx, MyInsertData, insert)
 	if s.before != nil {
 		if ctx, err = s.before(ctx); err != nil {
 			return id, err
@@ -165,7 +166,6 @@ func (s *myInsert) InsertOne(ctx context.Context, insert any) (id int64, err err
 	if id, err = table.Create(ctx, insert); err != nil {
 		return id, err
 	}
-	ctx = context.WithValue(ctx, MyInsertData, insert)
 	ctx = context.WithValue(ctx, MyInsertId, id)
 	if s.after != nil {
 		if ctx, err = s.after(ctx); err != nil {
@@ -184,6 +184,7 @@ func (s *myInsert) InsertAll(ctx context.Context, insert any) (affectedRows int6
 	ctx = context.WithValue(ctx, MyInsertAll, true)
 	ctx = context.WithValue(ctx, MyTableName, s.table)
 	ctx = context.WithValue(ctx, MyTable, table)
+	ctx = context.WithValue(ctx, MyInsertData, insert)
 	if s.before != nil {
 		if ctx, err = s.before(ctx); err != nil {
 			return affectedRows, err
@@ -192,7 +193,6 @@ func (s *myInsert) InsertAll(ctx context.Context, insert any) (affectedRows int6
 	if affectedRows, err = table.Create(ctx, insert); err != nil {
 		return affectedRows, err
 	}
-	ctx = context.WithValue(ctx, MyInsertData, insert)
 	ctx = context.WithValue(ctx, MyAffectedRows, affectedRows)
 	if s.after != nil {
 		if ctx, err = s.after(ctx); err != nil {
