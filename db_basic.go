@@ -1797,8 +1797,8 @@ func TruncateTable(ctx context.Context, db *sql.DB, tables ...string) error {
 	return nil
 }
 
-// tryFloat64 string or []byte to float64.
-func tryFloat64(value any) any {
+// tryFloat string or []byte to float64.
+func tryFloat(value any) any {
 	if value == nil {
 		return nil
 	}
@@ -1828,65 +1828,72 @@ func tryString(value any) any {
 }
 
 // adjustViewData Try to convert the text data type to a specific type that matches it.
-func adjustViewData(columnType *sql.ColumnType) func(value any) any {
-	databaseTypeName := columnType.DatabaseTypeName()
-	databaseTypeNameUpper := strings.ToUpper(databaseTypeName)
-	switch databaseTypeNameUpper {
-	case "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "NUMBER":
-		return tryFloat64
-	case "CHAR", "VARCHAR", "TEXT", "CHARACTER", "CHARACTER VARYING", "BPCHAR", "NCHAR", "NVARCHAR",
-		"TINYTEXT", "MEDIUMTEXT", "LARGETEXT", "LONGTEXT", "TIMESTAMP", "DATE", "TIME", "DATETIME", "JSON":
-		return tryString
-	case "BYTEA",
-		"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB":
-		return nil
-	default:
+func adjustViewData(columnTypes []*sql.ColumnType, results []map[string]any) error {
+	for _, v := range columnTypes {
+		column := v.Name()
+		databaseTypeName := v.DatabaseTypeName()
+		databaseTypeNameUpper := strings.ToUpper(databaseTypeName)
+		switch databaseTypeNameUpper {
+		case "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL", "DOUBLE PRECISION", "NUMBER":
+			for i := range results {
+				if _, ok := results[i][column]; ok {
+					results[i][column] = tryFloat(results[i][column])
+				}
+			}
+		case "CHAR", "VARCHAR", "TEXT", "CHARACTER", "CHARACTER VARYING", "BPCHAR", "NCHAR", "NVARCHAR",
+			"TINYTEXT", "MEDIUMTEXT", "LARGETEXT", "LONGTEXT", "TIMESTAMP", "DATE", "TIME", "DATETIME", "JSON":
+			for i := range results {
+				if _, ok := results[i][column]; ok {
+					results[i][column] = tryString(results[i][column])
+				}
+			}
+		case "BYTEA", "BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB":
+
+		default:
+
+		}
 	}
 	return nil
 }
 
-// ScanMap Scan query result to []map[string]any, view query result.
-func ScanMap(rows *sql.Rows) ([]map[string]any, error) {
+// QuickScan Quickly scan query results into []map[string]any.
+func QuickScan(
+	rows *sql.Rows,
+	callback func(columnTypes []*sql.ColumnType, results []map[string]any) error,
+) ([]map[string]any, error) {
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, err
 	}
-	types, err := rows.ColumnTypes()
+	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err
 	}
-	count := len(columns)
-	result := make([]map[string]any, 0)
+	length := len(columns)
+	results := make([]map[string]any, 0, 1)
 	for rows.Next() {
-		scan := make([]any, count)
-		for i := range scan {
-			scan[i] = new(any)
+		dest := make([]any, length)
+		for i := range dest {
+			dest[i] = new(any)
 		}
-		if err = rows.Scan(scan...); err != nil {
+		if err = rows.Scan(dest...); err != nil {
 			return nil, err
 		}
-		value := make(map[string]any, count)
-		for index, column := range columns {
-			if scan[index] == nil {
-				value[column] = nil
-			} else {
-				value[column] = scan[index]
-			}
+		item := make(map[string]any, length)
+		for i := range length {
+			item[columns[i]] = dest[i]
 		}
-		result = append(result, value)
+		results = append(results, item)
 	}
-	change := make(map[string]func(any) any, 1<<3)
-	for _, value := range types {
-		if tmp := adjustViewData(value); tmp != nil {
-			change[value.Name()] = tmp
-		}
+	if callback == nil {
+		err = adjustViewData(columnTypes, results)
+	} else {
+		err = callback(columnTypes, results)
 	}
-	for column, action := range change {
-		for index, value := range result {
-			result[index][column] = action(value[column])
-		}
+	if err != nil {
+		return nil, err
 	}
-	return result, nil
+	return results, nil
 }
 
 /*
