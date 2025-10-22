@@ -322,6 +322,9 @@ const (
 
 	// ErrTransactionIsNil Error transaction isn't started.
 	ErrTransactionIsNil = Err("hey: transaction is nil")
+
+	// ErrMethodNotImplemented Error method not implemented.
+	ErrMethodNotImplemented = Err("hey: method not implemented")
 )
 
 // Maker Build SQL fragments or SQL statements, which may include corresponding parameter lists.

@@ -323,30 +323,7 @@ func (s *myDelete) Delete(ctx context.Context, where Filter) (affectedRows int64
 	if s.resetDelete != nil {
 		return s.resetDelete(ctx, where)
 	}
-	way := ContextWay(ctx, s.way)
-	table := way.Table(s.table)
-	ctx = context.WithValue(ctx, MyTableName, s.table)
-	ctx = context.WithValue(ctx, MyTable, table)
-	if s.before != nil {
-		if ctx, err = s.before(ctx); err != nil {
-			return affectedRows, err
-		}
-	}
-	if s.filter != nil {
-		where = where.New(where)
-		s.filter(where)
-	}
-	table.Where(where)
-	if affectedRows, err = table.Delete(ctx); err != nil {
-		return affectedRows, err
-	}
-	ctx = context.WithValue(ctx, MyAffectedRows, affectedRows)
-	if s.after != nil {
-		if ctx, err = s.after(ctx); err != nil {
-			return affectedRows, err
-		}
-	}
-	return affectedRows, err
+	return 0, ErrMethodNotImplemented
 }
 
 func (s *myDelete) DeleteById(ctx context.Context, ids any) (affectedRows int64, err error) {
@@ -823,33 +800,7 @@ func (s *myHidden) Hidden(ctx context.Context, where Filter) (affectedRows int64
 	if s.resetHidden != nil {
 		return s.resetHidden(ctx, where)
 	}
-	way := ContextWay(ctx, s.way)
-	table := way.Table(s.table)
-	ctx = context.WithValue(ctx, MyTableName, s.table)
-	ctx = context.WithValue(ctx, MyTable, table)
-	if s.before != nil {
-		if ctx, err = s.before(ctx); err != nil {
-			return affectedRows, err
-		}
-	}
-	if s.update != nil {
-		table.UPDATE(func(f Filter, u SQLUpdateSet) { s.update(u) })
-	}
-	if s.filter != nil {
-		where = where.New(where)
-		s.filter(where)
-	}
-	table.Where(where)
-	if affectedRows, err = table.Update(ctx); err != nil {
-		return affectedRows, err
-	}
-	ctx = context.WithValue(ctx, MyAffectedRows, affectedRows)
-	if s.after != nil {
-		if ctx, err = s.after(ctx); err != nil {
-			return affectedRows, err
-		}
-	}
-	return affectedRows, err
+	return 0, ErrMethodNotImplemented
 }
 
 func (s *myHidden) HiddenById(ctx context.Context, ids any) (affectedRows int64, err error) {
