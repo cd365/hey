@@ -1797,6 +1797,49 @@ func TruncateTable(ctx context.Context, db *sql.DB, tables ...string) error {
 	return nil
 }
 
+type AdjustColumnAnyValue func(columnTypes []*sql.ColumnType, results []map[string]any) error
+
+// MapScanner Scanning the query results into []map[string]any.
+type MapScanner interface {
+	// AdjustColumnAnyValue Customize the default method for adjusting column values.
+	AdjustColumnAnyValue(adjust AdjustColumnAnyValue) MapScanner
+
+	// Scan Scanning the query results into []map[string]any.
+	// You can define a column value adjustment method with a higher priority
+	// than the default through the adjusts parameter.
+	Scan(rows *sql.Rows, adjusts ...AdjustColumnAnyValue) ([]map[string]any, error)
+}
+
+// mapScan Implementing the MapScanner interface.
+type mapScan struct {
+	adjustColumnValue AdjustColumnAnyValue
+}
+
+func (s *mapScan) AdjustColumnAnyValue(adjust AdjustColumnAnyValue) MapScanner {
+	if adjust != nil {
+		s.adjustColumnValue = adjust
+	}
+	return s
+}
+
+func (s *mapScan) Scan(rows *sql.Rows, adjusts ...AdjustColumnAnyValue) ([]map[string]any, error) {
+	adjust := s.adjustColumnValue
+	for i := len(adjusts) - 1; i >= 0; i-- {
+		if adjusts[i] != nil {
+			adjust = adjusts[i]
+			break
+		}
+	}
+	return QuickScan(rows, adjust)
+}
+
+// NewMapScanner Exposes a default implementation of the MapScanner interface.
+func NewMapScanner() MapScanner {
+	return &mapScan{
+		adjustColumnValue: adjustColumnValueDefault,
+	}
+}
+
 // tryFloat string or []byte to float64.
 func tryFloat(value any) any {
 	if value == nil {
@@ -1827,8 +1870,8 @@ func tryString(value any) any {
 	return value
 }
 
-// adjustViewData Try to convert the text data type to a specific type that matches it.
-func adjustViewData(columnTypes []*sql.ColumnType, results []map[string]any) error {
+// adjustColumnValueDefault Try to convert the text data type to a specific type that matches it.
+func adjustColumnValueDefault(columnTypes []*sql.ColumnType, results []map[string]any) error {
 	for _, v := range columnTypes {
 		column := v.Name()
 		databaseTypeName := v.DatabaseTypeName()
@@ -1859,7 +1902,7 @@ func adjustViewData(columnTypes []*sql.ColumnType, results []map[string]any) err
 // QuickScan Quickly scan query results into []map[string]any.
 func QuickScan(
 	rows *sql.Rows,
-	callback func(columnTypes []*sql.ColumnType, results []map[string]any) error,
+	adjustColumnValue func(columnTypes []*sql.ColumnType, results []map[string]any) error,
 ) ([]map[string]any, error) {
 	columns, err := rows.Columns()
 	if err != nil {
@@ -1885,10 +1928,10 @@ func QuickScan(
 		}
 		results = append(results, item)
 	}
-	if callback == nil {
-		err = adjustViewData(columnTypes, results)
+	if adjustColumnValue == nil {
+		err = adjustColumnValueDefault(columnTypes, results)
 	} else {
-		err = callback(columnTypes, results)
+		err = adjustColumnValue(columnTypes, results)
 	}
 	if err != nil {
 		return nil, err

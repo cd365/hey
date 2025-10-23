@@ -275,6 +275,9 @@ type Cfg struct {
 	// Debug For debug output SQL script.
 	Debug DebugMaker
 
+	// MapScan Custom MapScan.
+	MapScan MapScanner
+
 	// Manual For handling different types of databases.
 	Manual *Manual
 
@@ -306,6 +309,7 @@ type Cfg struct {
 // DefaultCfg default configure value.
 func DefaultCfg() Cfg {
 	return Cfg{
+		MapScan:                NewMapScanner(),
 		Scan:                   RowsScan,
 		ScanTag:                StrDefaultTag,
 		TableMethodName:        StrTableMethodName,
@@ -784,6 +788,18 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 // Fetch -> Query prepared and get all query results, through the mapping of column names and struct tags.
 func (s *Way) Fetch(ctx context.Context, maker Maker, result any) error {
 	return s.Query(ctx, maker, func(rows *sql.Rows) error { return s.cfg.Scan(rows, result, s.cfg.ScanTag) })
+}
+
+// MapScan -> Scanning the query results into []map[string]any.
+func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnAnyValue) (result []map[string]any, err error) {
+	err = s.Query(ctx, maker, func(rows *sql.Rows) error {
+		result, err = s.cfg.MapScan.Scan(rows, adjusts...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, err
 }
 
 // Exec -> Execute the execute sql statement.

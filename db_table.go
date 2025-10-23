@@ -501,6 +501,11 @@ func (s *Table) CountFetch(ctx context.Context, result any, counts ...string) (c
 	return count, err
 }
 
+// MapScan Scanning the query results into []map[string]any.
+func (s *Table) MapScan(ctx context.Context, adjusts ...AdjustColumnAnyValue) ([]map[string]any, error) {
+	return s.way.MapScan(ctx, s.ToSelect(), adjusts...)
+}
+
 // Insert Execute an INSERT INTO statement.
 func (s *Table) Insert(ctx context.Context) (int64, error) {
 	script := s.ToInsert()
