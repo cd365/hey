@@ -1201,11 +1201,8 @@ type SQLUpdateSet interface {
 	// Remove Delete a column-value.
 	Remove(columns ...string) SQLUpdateSet
 
-	// Assign Assigning values through other column.
+	// Assign Assigning values through other column, null, empty string, subquery ...
 	Assign(dst string, src string) SQLUpdateSet
-
-	// SetNull Set the value of the column to NULL.
-	SetNull(column string) SQLUpdateSet
 
 	// GetUpdate Get a list of existing updates.
 	GetUpdate() ([]string, [][]any)
@@ -1376,7 +1373,28 @@ func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	script := NewSQL(fmt.Sprintf("%s = %s", s.way.Replace(column), StrPlaceholder), value)
+	if value == nil {
+		script := JoinSQLSpace(s.way.Replace(column), StrEqual, StrPlaceholder)
+		script.Args = append(script.Args, nil)
+		return s.columnUpdate(column, script)
+	}
+	script := NewEmptySQL()
+	values := make([]any, 0, 1)
+	update := make([]any, 0, 3)
+	update = append(update, s.way.Replace(column), StrEqual)
+	switch tmp := value.(type) {
+	case *SQL:
+		update = append(update, ParcelSQL(tmp))
+	case Maker:
+		update = append(update, ParcelSQL(tmp.ToSQL()))
+	default:
+		update = append(update, StrPlaceholder)
+		values = append(values, value)
+	}
+	script = JoinSQLSpace(update...)
+	if len(values) > 0 {
+		script.Args = append(script.Args, values...)
+	}
 	return s.columnUpdate(column, script)
 }
 
@@ -1468,7 +1486,7 @@ func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 // Remove Delete a column-value.
 func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 	s.Forbid(columns...)
-	removes := make(map[string]*struct{}, 1<<3)
+	removes := make(map[string]*struct{})
 	for _, column := range columns {
 		if tmp, ok := s.exists[column]; ok {
 			removes = MergeAssoc(removes, ArrayToAssoc(tmp, func(v string) (string, *struct{}) { return v, nil }))
@@ -1502,14 +1520,18 @@ func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 	return s
 }
 
-// Assign Assigning values through other column; [a.]dst_column_name = [b.]src_column_name
+// Assign Assigning values through other column, null, empty string, subquery ...
 func (s *sqlUpdateSet) Assign(dst string, src string) SQLUpdateSet {
-	return s.Update(JoinSQLSpace(s.way.Replace(dst), StrEqual, s.way.Replace(src)))
-}
-
-// SetNull Set the value of the column to NULL.
-func (s *sqlUpdateSet) SetNull(column string) SQLUpdateSet {
-	return s.Assign(column, StrNull)
+	if _, ok := s.forbidSet[dst]; ok {
+		return s
+	}
+	scripts := make([]any, 0, 3)
+	scripts = append(scripts, s.way.Replace(dst), StrEqual)
+	if src == StrEmpty {
+		src = SQLString(src)
+	}
+	scripts = append(scripts, any2sql(src))
+	return s.columnUpdate(dst, JoinSQLSpace(scripts...))
 }
 
 func (s *sqlUpdateSet) GetUpdate() ([]string, [][]any) {
