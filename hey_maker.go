@@ -1,11 +1,16 @@
+// Construct SQL clause
+
 package hey
 
 import (
 	"context"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/cd365/hey/v6/cst"
 )
 
 // ToEmpty Sets the property value of an object to empty value.
@@ -39,7 +44,7 @@ func (s *sqlComment) ToEmpty() {
 }
 
 func (s *sqlComment) Comment(comment string) SQLComment {
-	if comment == StrEmpty {
+	if comment == cst.Empty {
 		return s
 	}
 	s.comment = append(s.comment, comment)
@@ -50,7 +55,7 @@ func (s *sqlComment) ToSQL() *SQL {
 	if len(s.comment) == 0 {
 		return NewEmptySQL()
 	}
-	return NewSQL(Strings("/*", strings.Join(s.comment, StrComma), "*/"))
+	return NewSQL(JoinString("/*", strings.Join(s.comment, cst.Comma), "*/"))
 }
 
 /*
@@ -117,37 +122,37 @@ func (s *sqlWith) IsEmpty() bool {
 
 func (s *sqlWith) ToSQL() *SQL {
 	if s.IsEmpty() {
-		return NewSQL(StrEmpty)
+		return NewSQL(cst.Empty)
 	}
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
-	b.WriteString(StrWith)
-	b.WriteString(StrSpace)
+	b.WriteString(cst.WITH)
+	b.WriteString(cst.Space)
 	if s.recursive {
-		b.WriteString(StrRecursive)
-		b.WriteString(StrSpace)
+		b.WriteString(cst.RECURSIVE)
+		b.WriteString(cst.Space)
 	}
 	result := NewEmptySQL()
 	for index, alias := range s.alias {
 		if index > 0 {
-			b.WriteString(StrCommaSpace)
+			b.WriteString(cst.CommaSpace)
 		}
 		script := s.prepare[alias]
 		b.WriteString(alias)
-		b.WriteString(StrSpace)
+		b.WriteString(cst.Space)
 		if columns := s.column[alias]; len(columns) > 0 {
 			// Displays the column alias that defines the CTE, overwriting the original column name of the query result.
-			b.WriteString(StrLeftSmallBracket)
-			b.WriteString(StrSpace)
-			b.WriteString(strings.Join(columns, StrCommaSpace))
-			b.WriteString(StrSpace)
-			b.WriteString(StrRightSmallBracket)
-			b.WriteString(StrSpace)
+			b.WriteString(cst.LeftParenthesis)
+			b.WriteString(cst.Space)
+			b.WriteString(strings.Join(columns, cst.CommaSpace))
+			b.WriteString(cst.Space)
+			b.WriteString(cst.RightParenthesis)
+			b.WriteString(cst.Space)
 		}
-		b.WriteString(Strings(StrAs, StrSpace, StrLeftSmallBracket, StrSpace))
+		b.WriteString(JoinString(cst.AS, cst.Space, cst.LeftParenthesis, cst.Space))
 		tmp := script.ToSQL()
 		b.WriteString(tmp.Prepare)
-		b.WriteString(Strings(StrSpace, StrRightSmallBracket))
+		b.WriteString(JoinString(cst.Space, cst.RightParenthesis))
 		result.Args = append(result.Args, tmp.Args...)
 	}
 	result.Prepare = b.String()
@@ -160,7 +165,7 @@ func (s *sqlWith) Recursive() SQLWith {
 }
 
 func (s *sqlWith) Set(alias string, maker Maker, columns ...string) SQLWith {
-	if alias == StrEmpty || maker == nil || maker.ToSQL().IsEmpty() {
+	if alias == cst.Empty || maker == nil || maker.ToSQL().IsEmpty() {
 		return s
 	}
 	if _, ok := s.prepare[alias]; !ok {
@@ -172,7 +177,7 @@ func (s *sqlWith) Set(alias string, maker Maker, columns ...string) SQLWith {
 }
 
 func (s *sqlWith) Del(alias string) SQLWith {
-	if alias == StrEmpty {
+	if alias == cst.Empty {
 		return s
 	}
 	if _, ok := s.prepare[alias]; !ok {
@@ -259,18 +264,18 @@ func (s *sqlSelect) IsEmpty() bool {
 func (s *sqlSelect) ToSQL() *SQL {
 	length := len(s.columns)
 	if length == 0 {
-		prepare := StrStar
+		prepare := cst.Asterisk
 		if s.distinct {
-			prepare = Strings(StrDistinct, StrSpace, prepare)
+			prepare = JoinString(cst.DISTINCT, cst.Space, prepare)
 		}
 		return NewSQL(prepare)
 	}
-	script := NewSQL(StrEmpty)
+	script := NewSQL(cst.Empty)
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
 	if s.distinct {
-		b.WriteString(StrDistinct)
-		b.WriteString(StrSpace)
+		b.WriteString(cst.DISTINCT)
+		b.WriteString(cst.Space)
 	}
 	columns := make([]string, 0, length)
 	for i := range length {
@@ -281,7 +286,7 @@ func (s *sqlSelect) ToSQL() *SQL {
 		columns = append(columns, s.columns[i])
 		script.Args = append(script.Args, args...)
 	}
-	b.WriteString(strings.Join(s.way.ReplaceAll(columns), StrCommaSpace))
+	b.WriteString(strings.Join(s.way.ReplaceAll(columns), cst.CommaSpace))
 	script.Prepare = b.String()
 	return script
 }
@@ -297,7 +302,7 @@ func (s *sqlSelect) Has(column string) bool {
 }
 
 func (s *sqlSelect) add(column string, args ...any) *sqlSelect {
-	if column == StrEmpty {
+	if column == cst.Empty {
 		return s
 	}
 	index, ok := s.columnsMap[column]
@@ -326,7 +331,7 @@ func (s *sqlSelect) Add(maker Maker) SQLSelect {
 func (s *sqlSelect) AddAll(columns ...string) SQLSelect {
 	index := len(s.columns)
 	for _, column := range columns {
-		if column == StrEmpty {
+		if column == cst.Empty {
 			continue
 		}
 		if _, ok := s.columnsMap[column]; ok {
@@ -347,7 +352,7 @@ func (s *sqlSelect) Del(columns ...string) SQLSelect {
 	}
 	deletes := make(map[int]*struct{}, len(columns))
 	for _, column := range columns {
-		if column == StrEmpty {
+		if column == cst.Empty {
 			continue
 		}
 		index, ok := s.columnsMap[column]
@@ -469,7 +474,7 @@ func newSQLJoinOn(way *Way) *sqlJoinOn {
 }
 
 func (s *sqlJoinOn) Equal(table1alias string, table1column string, table2alias string, table2column string) SQLJoinOn {
-	s.on.And(JoinSQLSpace(Prefix(table1alias, table1column), StrEqual, Prefix(table2alias, table2column)))
+	s.on.And(JoinSQLSpace(Prefix(table1alias, table1column), cst.Equal, Prefix(table2alias, table2column)))
 	return s
 }
 
@@ -481,7 +486,7 @@ func (s *sqlJoinOn) On(on func(f Filter)) SQLJoinOn {
 }
 
 func (s *sqlJoinOn) Using(columns ...string) SQLJoinOn {
-	columns = DiscardDuplicate(func(tmp string) bool { return tmp == StrEmpty }, columns...)
+	columns = DiscardDuplicate(func(tmp string) bool { return tmp == cst.Empty }, columns...)
 	if len(columns) > 0 {
 		s.usings = columns
 	}
@@ -492,20 +497,20 @@ func (s *sqlJoinOn) ToSQL() *SQL {
 	// JOIN ON
 	if s.on != nil && !s.on.IsEmpty() {
 		script := s.on.ToSQL()
-		script.Prepare = Strings(StrOn, StrSpace, script.Prepare)
+		script.Prepare = JoinString(cst.ON, cst.Space, script.Prepare)
 		return script
 	}
 	// JOIN USING
 	if length := len(s.usings); length > 0 {
 		using := make([]string, 0, length)
 		for _, column := range s.usings {
-			if column != StrEmpty {
+			if column != cst.Empty {
 				using = append(using, column)
 			}
 		}
 		if len(using) > 0 {
 			using = s.way.ReplaceAll(using)
-			prepare := Strings(StrUsing, StrSpace, StrLeftSmallBracket, StrSpace, strings.Join(using, StrCommaSpace), StrSpace, StrRightSmallBracket)
+			prepare := JoinString(cst.USING, cst.Space, cst.LeftParenthesis, cst.Space, strings.Join(using, cst.CommaSpace), cst.Space, cst.RightParenthesis)
 			return NewSQL(prepare)
 		}
 	}
@@ -613,16 +618,16 @@ func (s *sqlJoin) ToSQL() *SQL {
 			continue
 		}
 		if index > 0 {
-			b.WriteString(StrSpace)
+			b.WriteString(cst.Space)
 		}
 		b.WriteString(tmp.joinType)
 		right := tmp.joinTable.ToSQL()
-		b.WriteString(StrSpace)
+		b.WriteString(cst.Space)
 		b.WriteString(right.Prepare)
 		script.Args = append(script.Args, right.Args...)
 		if tmp.condition != nil {
 			if on := tmp.condition.ToSQL(); on != nil && !on.IsEmpty() {
-				b.WriteString(StrSpace)
+				b.WriteString(cst.Space)
 				b.WriteString(on.Prepare)
 				script.Args = append(script.Args, on.Args...)
 			}
@@ -656,7 +661,7 @@ func (s *sqlJoin) Using(columns ...string) SQLJoinAssoc {
 
 // OnEqual For `... JOIN ON ... = ... [...]`
 func (s *sqlJoin) OnEqual(table1column string, table2column string) SQLJoinAssoc {
-	if table1column == StrEmpty || table2column == StrEmpty {
+	if table1column == cst.Empty || table2column == cst.Empty {
 		return nil
 	}
 	return func(alias1 string, alias2 string) SQLJoinOn {
@@ -667,8 +672,8 @@ func (s *sqlJoin) OnEqual(table1column string, table2column string) SQLJoinAssoc
 }
 
 func (s *sqlJoin) Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	if joinType == StrEmpty {
-		joinType = StrJoinInner
+	if joinType == cst.Empty {
+		joinType = JoinString(cst.INNER, cst.Space, cst.JOIN)
 	}
 	if table1 == nil || table1.ToSQL().IsEmpty() {
 		table1 = s.table
@@ -688,15 +693,15 @@ func (s *sqlJoin) Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQL
 }
 
 func (s *sqlJoin) InnerJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	return s.Join(StrJoinInner, table1, table2, on)
+	return s.Join(JoinString(cst.INNER, cst.Space, cst.JOIN), table1, table2, on)
 }
 
 func (s *sqlJoin) LeftJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	return s.Join(StrJoinLeft, table1, table2, on)
+	return s.Join(JoinString(cst.LEFT, cst.Space, cst.JOIN), table1, table2, on)
 }
 
 func (s *sqlJoin) RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	return s.Join(StrJoinRight, table1, table2, on)
+	return s.Join(JoinString(cst.RIGHT, cst.Space, cst.JOIN), table1, table2, on)
 }
 
 func (s *sqlJoin) Select(columns ...any) SQLJoin {
@@ -709,10 +714,10 @@ func (s *sqlJoin) prefixColumnAll(prefix SQLAlias, columns []string) []string {
 		return columns
 	}
 	alias := prefix.GetAlias()
-	if alias == StrEmpty {
+	if alias == cst.Empty {
 		alias = prefix.GetSQL().Prepare
 	}
-	return s.way.T().SetAlias(alias).ColumnAll(columns...)
+	return s.way.T(alias).ColumnAll(columns...)
 }
 
 func (s *sqlJoin) Prefix(prefix SQLAlias, column string, aliases ...string) string {
@@ -774,17 +779,17 @@ func (s *sqlGroupBy) ToSQL() *SQL {
 	if s.IsEmpty() {
 		return script
 	}
-	groupBy := strings.Join(s.way.ReplaceAll(s.groupColumns), StrCommaSpace)
+	groupBy := strings.Join(s.way.ReplaceAll(s.groupColumns), cst.CommaSpace)
 	groupByArgs := make([]any, 0)
 	for _, column := range s.groupColumns {
 		groupByArgs = append(groupByArgs, s.groupColumnsArgs[column]...)
 	}
-	script.Prepare = Strings(StrGroupBy, StrSpace, groupBy)
+	script.Prepare = JoinString(cst.GROUP, cst.Space, cst.BY, cst.Space, groupBy)
 	script.Args = groupByArgs
 	if s.having == nil || s.having.IsEmpty() {
 		return script
 	}
-	return JoinSQLSpace(script, StrHaving, ParcelFilter(s.having))
+	return JoinSQLSpace(script, cst.HAVING, ParcelFilter(s.having))
 }
 
 func (s *sqlGroupBy) add(script *SQL) *sqlGroupBy {
@@ -846,14 +851,27 @@ type SQLOrderBy interface {
 
 	ToEmpty
 
+	// Allow the list of columns that can be used for sorting.
+	Allow(columns ...string) SQLOrderBy
+
+	// Replace The column name that may be used.
+	Replace(dst string, src string) SQLOrderBy
+
 	// Asc Build column1 ASC, column2 ASC, column3 ASC...
 	Asc(columns ...string) SQLOrderBy
 
 	// Desc Build column1 DESC, column2 DESC, column3 DESC...
 	Desc(columns ...string) SQLOrderBy
+
+	// Order Automatically call sorting based on the sort string format.
+	Order(order string) SQLOrderBy
 }
 
 type sqlOrderBy struct {
+	allow map[string]*struct{}
+
+	replace map[string]string
+
 	orderMap map[string]int
 
 	way *Way
@@ -870,6 +888,7 @@ func newSqlOrderBy(way *Way) *sqlOrderBy {
 }
 
 func (s *sqlOrderBy) ToEmpty() {
+	s.allow, s.replace = nil, nil
 	s.orderBy = make([]string, 0, 1<<1)
 	s.orderMap = make(map[string]int, 1<<1)
 }
@@ -879,22 +898,68 @@ func (s *sqlOrderBy) IsEmpty() bool {
 }
 
 func (s *sqlOrderBy) ToSQL() *SQL {
-	script := NewSQL(StrEmpty)
+	script := NewSQL(cst.Empty)
 	if s.IsEmpty() {
 		return script
 	}
-	script.Prepare = Strings(Strings(StrOrderBy, StrSpace, strings.Join(s.orderBy, StrCommaSpace)))
+	script.Prepare = JoinString(cst.ORDER, cst.Space, cst.BY, cst.Space, strings.Join(s.orderBy, cst.CommaSpace))
 	return script
 }
 
-func (s *sqlOrderBy) add(category string, columns ...string) SQLOrderBy {
-	if category == StrEmpty {
+func (s *sqlOrderBy) Allow(columns ...string) SQLOrderBy {
+	columns = DiscardDuplicate(func(column string) bool {
+		if column == cst.Empty || strings.TrimSpace(column) == cst.Empty {
+			return true
+		}
+		return false
+	}, columns...)
+	length := len(columns)
+	if length == 0 {
 		return s
 	}
+	if s.allow == nil {
+		s.allow = make(map[string]*struct{}, length)
+	}
+	for _, column := range columns {
+		s.allow[column] = nil
+	}
+	return s
+}
+
+func (s *sqlOrderBy) Replace(dst string, src string) SQLOrderBy {
+	dst, src = strings.TrimSpace(dst), strings.TrimSpace(src)
+	if dst == cst.Empty || src == cst.Empty {
+		return s
+	}
+	if s.replace == nil {
+		s.replace = make(map[string]string, 1)
+	}
+	s.replace[src] = dst
+	return s
+}
+
+func (s *sqlOrderBy) add(category string, columns ...string) SQLOrderBy {
+	if category == cst.Empty {
+		return s
+	}
+	columns = DiscardDuplicate(func(column string) bool {
+		if column == cst.Empty || strings.TrimSpace(column) == cst.Empty {
+			return true
+		}
+		return false
+	}, columns...)
 	index := len(s.orderBy)
 	for _, column := range columns {
-		if column == StrEmpty {
-			continue
+		if s.replace != nil {
+			replace, ok := s.replace[column]
+			if ok && replace != cst.Empty {
+				column = replace
+			}
+		}
+		if s.allow != nil {
+			if _, ok := s.allow[column]; !ok {
+				continue
+			}
 		}
 		if _, ok := s.orderMap[column]; ok {
 			continue
@@ -902,18 +967,53 @@ func (s *sqlOrderBy) add(category string, columns ...string) SQLOrderBy {
 		s.orderMap[column] = index
 		index++
 		order := s.way.Replace(column)
-		order = Strings(order, StrSpace, category)
+		order = JoinString(order, cst.Space, category)
 		s.orderBy = append(s.orderBy, order)
 	}
 	return s
 }
 
 func (s *sqlOrderBy) Asc(columns ...string) SQLOrderBy {
-	return s.add(StrAsc, columns...)
+	return s.add(cst.ASC, columns...)
 }
 
 func (s *sqlOrderBy) Desc(columns ...string) SQLOrderBy {
-	return s.add(StrDesc, columns...)
+	return s.add(cst.DESC, columns...)
+}
+
+// orderStringRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`
+var orderStringRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
+
+func (s *sqlOrderBy) Order(order string) SQLOrderBy {
+	if order == cst.Empty {
+		return s
+	}
+	orders := strings.Split(order, cst.Comma)
+	for _, v := range orders {
+		if len(v) > 32 {
+			continue
+		}
+		match := orderStringRegexp.FindAllStringSubmatch(strings.TrimSpace(v), -1)
+		length := len(match)
+		if length != 1 {
+			continue
+		}
+		matched := match[0]
+		length = len(matched) // the length should be 4.
+		if length < 4 || matched[3] == cst.Empty {
+			continue
+		}
+		column := matched[1]
+		if matched[3][0] == 97 {
+			s.Asc(column)
+			continue
+		}
+		if matched[3][0] == 100 {
+			s.Desc(column)
+			continue
+		}
+	}
+	return s
 }
 
 // SQLLimit Build LIMIT n[ OFFSET m] statements.
@@ -952,16 +1052,16 @@ func (s *sqlLimit) IsEmpty() bool {
 }
 
 func (s *sqlLimit) ToSQL() *SQL {
-	script := NewSQL(StrEmpty)
+	script := NewSQL(cst.Empty)
 	if s.IsEmpty() {
 		return script
 	}
 	makers := make([]any, 0, 1<<2)
-	makers = append(makers, any2sql(StrLimit))
-	makers = append(makers, any2sql(*s.limit))
+	makers = append(makers, AnyToSQL(cst.LIMIT))
+	makers = append(makers, AnyToSQL(*s.limit))
 	if s.offset != nil && *s.offset >= 0 {
-		makers = append(makers, any2sql(StrOffset))
-		makers = append(makers, any2sql(*s.offset))
+		makers = append(makers, AnyToSQL(cst.OFFSET))
+		makers = append(makers, AnyToSQL(*s.offset))
 	}
 	return JoinSQLSpace(makers...)
 }
@@ -1049,15 +1149,15 @@ func (s *sqlValues) valuesToSQL(values [][]any) *SQL {
 	line := make([]string, length)
 	script.Args = make([]any, 0, count*length)
 	for i := range length {
-		line[i] = StrPlaceholder
+		line[i] = cst.Placeholder
 	}
-	value := ParcelPrepare(strings.Join(line, StrCommaSpace))
+	value := ParcelPrepare(strings.Join(line, cst.CommaSpace))
 	rows := make([]string, count)
 	for i := range count {
 		script.Args = append(script.Args, values[i]...)
 		rows[i] = value
 	}
-	script.Prepare = strings.Join(rows, StrCommaSpace)
+	script.Prepare = strings.Join(rows, cst.CommaSpace)
 	return script
 }
 
@@ -1133,18 +1233,18 @@ func (s *sqlReturning) Prepare(prepare func(tmp *SQL)) SQLReturning {
 
 // Returning Set the RETURNING statement to return one or more columns.
 func (s *sqlReturning) Returning(columns ...string) SQLReturning {
-	columns = ArrayDiscard(columns, func(k int, v string) bool { return strings.TrimSpace(v) == StrEmpty })
+	columns = ArrayDiscard(columns, func(k int, v string) bool { return strings.TrimSpace(v) == cst.Empty })
 	if len(columns) == 0 {
-		columns = []string{StrStar}
+		columns = []string{cst.Asterisk}
 	}
 	return s.Prepare(func(tmp *SQL) {
-		tmp.Prepare = JoinSQLSpace(tmp.Prepare, StrReturning, JoinSQLCommaSpace(AnyAny(columns)...)).Prepare
+		tmp.Prepare = JoinSQLSpace(tmp.Prepare, cst.RETURNING, JoinSQLCommaSpace(AnyAny(columns)...)).Prepare
 	})
 }
 
 // ToSQL Make SQL.
 func (s *sqlReturning) ToSQL() *SQL {
-	result := s.insert.Copy()
+	result := s.insert.Clone()
 	if prepare := s.prepare; prepare != nil {
 		prepare(result)
 	}
@@ -1290,7 +1390,7 @@ func (s *sqlUpdateSet) ToSQL() *SQL {
 		}
 	}
 
-	script.Prepare = strings.Join(updates, StrCommaSpace)
+	script.Prepare = strings.Join(updates, cst.CommaSpace)
 	for _, tmp := range params {
 		script.Args = append(script.Args, tmp...)
 	}
@@ -1300,7 +1400,7 @@ func (s *sqlUpdateSet) ToSQL() *SQL {
 func (s *sqlUpdateSet) beautifyExpr(update string) string {
 	update = strings.TrimSpace(update)
 	for strings.Contains(update, "  ") {
-		update = strings.ReplaceAll(update, "  ", StrSpace)
+		update = strings.ReplaceAll(update, "  ", cst.Space)
 	}
 	return update
 }
@@ -1310,7 +1410,7 @@ func (s *sqlUpdateSet) exprArgs(value *SQL) SQLUpdateSet {
 		return s
 	}
 	update := s.beautifyExpr(value.Prepare)
-	if update == StrEmpty {
+	if update == cst.Empty {
 		return s
 	}
 	index, ok := s.updateMap[update]
@@ -1374,21 +1474,21 @@ func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 		return s
 	}
 	if value == nil {
-		script := JoinSQLSpace(s.way.Replace(column), StrEqual, StrPlaceholder)
+		script := JoinSQLSpace(s.way.Replace(column), cst.Equal, cst.Placeholder)
 		script.Args = append(script.Args, nil)
 		return s.columnUpdate(column, script)
 	}
 	script := NewEmptySQL()
 	values := make([]any, 0, 1)
 	update := make([]any, 0, 3)
-	update = append(update, s.way.Replace(column), StrEqual)
+	update = append(update, s.way.Replace(column), cst.Equal)
 	switch tmp := value.(type) {
 	case *SQL:
 		update = append(update, ParcelSQL(tmp))
 	case Maker:
 		update = append(update, ParcelSQL(tmp.ToSQL()))
 	default:
-		update = append(update, StrPlaceholder)
+		update = append(update, cst.Placeholder)
 		values = append(values, value)
 	}
 	script = JoinSQLSpace(update...)
@@ -1403,7 +1503,7 @@ func (s *sqlUpdateSet) Decr(column string, decrement any) SQLUpdateSet {
 		return s
 	}
 	replace := s.way.Replace(column)
-	script := NewSQL(fmt.Sprintf("%s = %s - %s", replace, replace, StrPlaceholder), decrement)
+	script := NewSQL(fmt.Sprintf("%s %s %s %s %s", replace, cst.Equal, replace, cst.Minus, cst.Placeholder), decrement)
 	return s.columnUpdate(column, script)
 }
 
@@ -1412,7 +1512,7 @@ func (s *sqlUpdateSet) Incr(column string, increment any) SQLUpdateSet {
 		return s
 	}
 	replace := s.way.Replace(column)
-	script := NewSQL(fmt.Sprintf("%s = %s + %s", replace, replace, StrPlaceholder), increment)
+	script := NewSQL(fmt.Sprintf("%s %s %s %s %s", replace, cst.Equal, replace, cst.Plus, cst.Placeholder), increment)
 	return s.columnUpdate(column, script)
 }
 
@@ -1458,24 +1558,24 @@ func (s *sqlUpdateSet) Update(update any) SQLUpdateSet {
 	if tmp, ok := update.(Maker); ok {
 		return s.exprArgs(tmp.ToSQL())
 	}
-	return s.SetSlice(StructModify(update, s.way.cfg.ScanTag))
+	return s.SetSlice(StructModify(update, s.way.cfg.scanTag))
 }
 
 // Compare For compare old and new to automatically calculate the need to update columns.
 func (s *sqlUpdateSet) Compare(old, new any, except ...string) SQLUpdateSet {
-	return s.SetSlice(StructUpdate(old, new, s.way.cfg.ScanTag, except...))
+	return s.SetSlice(StructUpdate(old, new, s.way.cfg.scanTag, except...))
 }
 
 // Default Set the default columns that need to be updated, such as update timestamp.
 func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 	column = strings.TrimSpace(column)
-	if column == StrEmpty {
+	if column == cst.Empty {
 		return s
 	}
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	script := NewSQL(fmt.Sprintf("%s = %s", s.way.Replace(column), StrPlaceholder), value)
+	script := NewSQL(fmt.Sprintf("%s = %s", s.way.Replace(column), cst.Placeholder), value)
 	if _, ok := s.updateMap[script.Prepare]; ok {
 		return s
 	}
@@ -1526,11 +1626,11 @@ func (s *sqlUpdateSet) Assign(dst string, src string) SQLUpdateSet {
 		return s
 	}
 	scripts := make([]any, 0, 3)
-	scripts = append(scripts, s.way.Replace(dst), StrEqual)
-	if src == StrEmpty {
+	scripts = append(scripts, s.way.Replace(dst), cst.Equal)
+	if src == cst.Empty {
 		src = SQLString(src)
 	}
-	scripts = append(scripts, any2sql(src))
+	scripts = append(scripts, AnyToSQL(src))
 	return s.columnUpdate(dst, JoinSQLSpace(scripts...))
 }
 
@@ -1574,7 +1674,7 @@ func newSqlOnConflictUpdateSet(way *Way) SQLOnConflictUpdateSet {
 func (s *sqlOnConflictUpdateSet) Excluded(columns ...string) SQLOnConflictUpdateSet {
 	for _, column := range columns {
 		tmp := s.way.Replace(column)
-		s.Update(NewSQL(Strings(tmp, StrSpace, StrEqual, StrSpace, StrExcluded, StrPoint, tmp)))
+		s.Update(NewSQL(JoinString(tmp, cst.Space, cst.Equal, cst.Space, cst.EXCLUDED, cst.Point, tmp)))
 	}
 	return s
 }
@@ -1644,7 +1744,7 @@ func (s *sqlOnConflict) DoUpdateSet(fc func(u SQLOnConflictUpdateSet)) SQLOnConf
 }
 
 func (s *sqlOnConflict) ToSQL() *SQL {
-	script := NewSQL(StrEmpty)
+	script := NewSQL(cst.Empty)
 	if s.insert == nil || s.insert.ToSQL().IsEmpty() || len(s.onConflicts) == 0 {
 		return script
 	}
@@ -1653,23 +1753,23 @@ func (s *sqlOnConflict) ToSQL() *SQL {
 	defer poolPutStringBuilder(b)
 	b.WriteString(insert.Prepare)
 	script.Args = append(script.Args, insert.Args...)
-	b.WriteString(Strings(StrSpace, StrOn, StrSpace, StrConflict, StrSpace))
-	b.WriteString(ParcelPrepare(strings.Join(s.way.ReplaceAll(s.onConflicts), StrCommaSpace)))
-	b.WriteString(StrSpace)
-	b.WriteString(StrDo)
-	b.WriteString(StrSpace)
-	prepare, args := StrNothing, make([]any, 0)
+	b.WriteString(JoinString(cst.Space, cst.ON, cst.Space, cst.CONFLICT, cst.Space))
+	b.WriteString(ParcelPrepare(strings.Join(s.way.ReplaceAll(s.onConflicts), cst.CommaSpace)))
+	b.WriteString(cst.Space)
+	b.WriteString(cst.DO)
+	b.WriteString(cst.Space)
+	prepare, args := cst.NOTHING, make([]any, 0)
 	if onConflictsDo := s.onConflictsDo; onConflictsDo != nil {
 		if tmp := onConflictsDo.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			prepare, args = tmp.Prepare, tmp.Args[:]
 		}
 	}
-	if prepare == StrNothing && s.onConflictsDoUpdateSet != nil && s.onConflictsDoUpdateSet.Len() > 0 {
+	if prepare == cst.NOTHING && s.onConflictsDoUpdateSet != nil && s.onConflictsDoUpdateSet.Len() > 0 {
 		update := s.onConflictsDoUpdateSet.ToSQL()
 		if update != nil && !update.IsEmpty() {
 			b1 := poolGetStringBuilder()
 			defer poolPutStringBuilder(b1)
-			b.WriteString(Strings(StrUpdate, StrSpace, StrSet, StrSpace))
+			b.WriteString(JoinString(cst.UPDATE, cst.Space, cst.SET, cst.Space))
 			b1.WriteString(update.Prepare)
 			prepare, args = b1.String(), update.Args[:]
 		}
@@ -1789,7 +1889,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 	if s.table.IsEmpty() {
 		return NewEmptySQL()
 	}
-	makers := []any{NewSQL(StrInsert), NewSQL(StrInto), s.table}
+	makers := []any{NewSQL(cst.INSERT), NewSQL(cst.INTO), s.table}
 
 	columns1, params1 := s.columns.Get()
 	values1 := make([][]any, len(s.values.values))
@@ -1828,7 +1928,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 				}
 			}
 		}
-		makers = append(makers, NewSQL(ParcelPrepare(strings.Join(columns, StrCommaSpace))))
+		makers = append(makers, NewSQL(ParcelPrepare(strings.Join(columns, cst.CommaSpace))))
 	}
 
 	ok := false
@@ -1843,7 +1943,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 
 	if !ok {
 		if len(values) > 0 {
-			makers = append(makers, NewSQL(StrValues))
+			makers = append(makers, NewSQL(cst.VALUES))
 			makers = append(makers, s.values.valuesToSQL(values))
 			ok = true
 		}
@@ -1961,7 +2061,7 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 		}
 		columns := make([]string, 0, length)
 		for column := range columnValue {
-			if _, ok := s.forbidSet[column]; ok {
+			if _, ok = s.forbidSet[column]; ok {
 				continue
 			}
 			columns = append(columns, column)
@@ -1972,7 +2072,7 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 		}
 		return s
 	}
-	columns, values := StructInsert(create, s.way.cfg.ScanTag, nil, nil)
+	columns, values := StructInsert(create, s.way.cfg.scanTag, nil, nil)
 	removes := make(map[int]*struct{}, len(columns))
 	for index, column := range columns {
 		if _, ok := s.forbidSet[column]; ok {
@@ -2094,12 +2194,19 @@ func (s *sqlInsert) OnConflict(fc func(o SQLOnConflict)) SQLInsert {
 	return s
 }
 
-/* CASE [xxx] WHEN x THEN X [WHEN xx THEN XX] [ELSE xxx] END [AS xxx] */
-
 // SQLString Convert a go string to a sql string.
 func SQLString(value string) string {
-	return fmt.Sprintf("'%s'", value)
+	return JoinString(cst.SingleQuotationMark, value, cst.SingleQuotationMark)
 }
+
+func nullAnyToSQL(i any) *SQL {
+	if i == nil {
+		return AnyToSQL(cst.NULL)
+	}
+	return AnyToSQL(i)
+}
+
+/* CASE [xxx] WHEN x THEN X [WHEN xx THEN XX] [ELSE xxx] END [AS xxx] */
 
 // SQLCase Implementing SQL CASE.
 type SQLCase interface {
@@ -2118,6 +2225,7 @@ type SQLCase interface {
 	Else(value any) SQLCase
 }
 
+// sqlCase Implement the SQLCase interface.
 type sqlCase struct {
 	sqlCase *SQL // CASE value, value is optional.
 
@@ -2142,7 +2250,7 @@ func (s *Way) Case() SQLCase {
 
 // ToSQL Build CASE statement.
 func (s *sqlCase) ToSQL() *SQL {
-	script := NewSQL(StrEmpty)
+	script := NewSQL(cst.Empty)
 	if len(s.whenThen) == 0 {
 		return script
 	}
@@ -2152,24 +2260,24 @@ func (s *sqlCase) ToSQL() *SQL {
 	}
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
-	b.WriteString(StrCase)
+	b.WriteString(cst.CASE)
 	if tmp := s.sqlCase; tmp != nil && !tmp.IsEmpty() {
-		b.WriteString(StrSpace)
+		b.WriteString(cst.Space)
 		b.WriteString(tmp.Prepare)
 		script.Args = append(script.Args, tmp.Args...)
 	}
-	b.WriteString(StrSpace)
+	b.WriteString(cst.Space)
 	b.WriteString(whenThen.Prepare)
 	script.Args = append(script.Args, whenThen.Args...)
 	if tmp := s.sqlElse; tmp != nil && !tmp.IsEmpty() {
-		b.WriteString(StrSpace)
-		b.WriteString(StrElse)
-		b.WriteString(StrSpace)
+		b.WriteString(cst.Space)
+		b.WriteString(cst.ELSE)
+		b.WriteString(cst.Space)
 		b.WriteString(tmp.Prepare)
 		script.Args = append(script.Args, tmp.Args...)
 	}
-	b.WriteString(StrSpace)
-	b.WriteString(StrEnd)
+	b.WriteString(cst.Space)
+	b.WriteString(cst.END)
 	script.Prepare = b.String()
 	return newSqlAlias(script).v(s.way).SetAlias(s.alias).ToSQL()
 }
@@ -2181,26 +2289,23 @@ func (s *sqlCase) Alias(alias string) SQLCase {
 }
 
 func handleCaseEmptyString(script *SQL) *SQL {
-	if script == nil {
-		return NewSQL(StrNull)
-	}
-	if prepare := SQLString(StrEmpty); script.Prepare == StrEmpty {
+	if prepare := SQLString(cst.Empty); script.Prepare == cst.Empty {
 		script.Prepare, script.Args = prepare, nil
 	}
 	return script
 }
 
 func (s *sqlCase) Case(value any) SQLCase {
-	s.sqlCase = handleCaseEmptyString(nil1any2sql(value))
+	s.sqlCase = handleCaseEmptyString(nullAnyToSQL(value))
 	return s
 }
 
 func (s *sqlCase) WhenThen(when, then any) SQLCase {
-	s.whenThen = append(s.whenThen, JoinSQLSpace(StrWhen, handleCaseEmptyString(nil1any2sql(when)), StrThen, handleCaseEmptyString(nil1any2sql(then))))
+	s.whenThen = append(s.whenThen, JoinSQLSpace(cst.WHEN, handleCaseEmptyString(nullAnyToSQL(when)), cst.THEN, handleCaseEmptyString(nullAnyToSQL(then))))
 	return s
 }
 
 func (s *sqlCase) Else(value any) SQLCase {
-	s.sqlElse = handleCaseEmptyString(nil1any2sql(value))
+	s.sqlElse = handleCaseEmptyString(nullAnyToSQL(value))
 	return s
 }

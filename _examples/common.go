@@ -3,7 +3,7 @@ package examples
 import (
 	"testing"
 
-	"github.com/cd365/hey/v5"
+	"github.com/cd365/hey/v6"
 	"github.com/stretchr/testify/assert"
 )
 

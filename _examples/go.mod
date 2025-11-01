@@ -1,9 +1,9 @@
 module examples
 
-go 1.23.0
+go 1.25.3
 
 require (
-	github.com/cd365/hey/v5 v5.0.0-20250923122939-cbfda3ca683b
+	github.com/cd365/hey/v6 v6.0.0
 	github.com/cd365/logger/v9 v9.0.0
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/stretchr/testify v1.11.1
@@ -18,3 +18,5 @@ require (
 	golang.org/x/sys v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/cd365/hey/v6 v6.0.0 => ../

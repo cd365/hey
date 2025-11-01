@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/cd365/hey/v6/cst"
 )
 
 // Cacher Objects that implement cache.
@@ -116,10 +118,10 @@ func (s *Cache) MarshalSet(key string, value any, duration ...time.Duration) err
 func (s *Cache) GetString(key string) (value string, exists bool, err error) {
 	result, exists, err := s.Get(key)
 	if err != nil {
-		return StrEmpty, exists, err
+		return cst.Empty, exists, err
 	}
 	if !exists {
-		return StrEmpty, exists, nil
+		return cst.Empty, exists, nil
 	}
 	return string(result), exists, nil
 }
@@ -279,13 +281,13 @@ func NewCacheMaker(cache *Cache, maker Maker) CacheMaker {
 
 // getCacheKey Default method for building cache key.
 func (s *cacheMaker) getCacheKey() (string, error) {
-	if s.key != StrEmpty {
+	if s.key != cst.Empty {
 		return s.key, nil
 	}
 
 	script := s.maker.ToSQL()
 	if script.IsEmpty() {
-		return StrEmpty, errors.New("SQL is empty")
+		return cst.Empty, errors.New("SQL is empty")
 	}
 
 	for index, value := range script.Args {
@@ -295,7 +297,7 @@ func (s *cacheMaker) getCacheKey() (string, error) {
 	}
 	args, err := s.cache.GetCacher().Marshal(script.Args)
 	if err != nil {
-		return StrEmpty, err
+		return cst.Empty, err
 	}
 
 	b := poolGetStringBuilder()
@@ -307,7 +309,7 @@ func (s *cacheMaker) getCacheKey() (string, error) {
 
 	hash := sha256.New()
 	if _, err = hash.Write([]byte(b.String())); err != nil {
-		return StrEmpty, err
+		return cst.Empty, err
 	}
 	s.key = hex.EncodeToString(hash.Sum(nil))
 	return s.key, nil
@@ -319,12 +321,12 @@ func (s *cacheMaker) GetCacheKey() (string, error) {
 	if cacheKey == nil {
 		return s.getCacheKey()
 	}
-	if s.key != StrEmpty {
+	if s.key != cst.Empty {
 		return s.key, nil
 	}
 	key, err := cacheKey()
 	if err != nil {
-		return StrEmpty, err
+		return cst.Empty, err
 	}
 	s.key = key
 	return s.key, nil
@@ -340,7 +342,7 @@ func (s *cacheMaker) UseCacheKey(cacheKey func(maker Maker) (string, error)) Cac
 
 // Reset Resetting cache related properties.
 func (s *cacheMaker) Reset(maker ...Maker) CacheMaker {
-	s.key = StrEmpty
+	s.key = cst.Empty
 	for _, tmp := range maker {
 		if tmp != nil {
 			s.maker = tmp
@@ -401,7 +403,7 @@ func (s *cacheMaker) MarshalSet(value any, duration ...time.Duration) error {
 // GetString Get string value.
 func (s *cacheMaker) GetString() (string, bool, error) {
 	if _, err := s.GetCacheKey(); err != nil {
-		return StrEmpty, false, err
+		return cst.Empty, false, err
 	}
 	return s.cache.GetString(s.key)
 }

@@ -1,9 +1,14 @@
+// SQL condition filtering
+
 package hey
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/cd365/hey/v6/cst"
 )
 
 // InValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
@@ -179,7 +184,7 @@ type Filter interface {
 	New(filters ...Filter) Filter
 
 	// Equal Implement conditional filtering: column = value .
-	Equal(column any, value any, null ...bool) Filter
+	Equal(column any, value any) Filter
 
 	// LessThan Implement conditional filtering: column < value .
 	LessThan(column any, value any) Filter
@@ -187,11 +192,11 @@ type Filter interface {
 	// LessThanEqual Implement conditional filtering: column <= value .
 	LessThanEqual(column any, value any) Filter
 
-	// MoreThan Implement conditional filtering: column > value.
-	MoreThan(column any, value any) Filter
+	// GreaterThan Implement conditional filtering: column > value.
+	GreaterThan(column any, value any) Filter
 
-	// MoreThanEqual Implement conditional filtering: column >= value .
-	MoreThanEqual(column any, value any) Filter
+	// GreaterThanEqual Implement conditional filtering: column >= value .
+	GreaterThanEqual(column any, value any) Filter
 
 	// Between Implement conditional filtering: column BETWEEN value1 AND value2 .
 	Between(column any, start any, end any) Filter
@@ -212,7 +217,7 @@ type Filter interface {
 	IsNull(column any) Filter
 
 	// NotEqual Implement conditional filtering: column <> value .
-	NotEqual(column any, value any, null ...bool) Filter
+	NotEqual(column any, value any) Filter
 
 	// NotBetween Implement conditional filtering: column NOT BETWEEN value1 AND value2 .
 	NotBetween(column any, start any, end any) Filter
@@ -232,6 +237,9 @@ type Filter interface {
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
 	IsNotNull(column any) Filter
 
+	// Keyword Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
+	Keyword(keyword string, columns ...string) Filter
+
 	// AllQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
 	AllQuantifier(fc func(q Quantifier)) Filter
 
@@ -250,17 +258,20 @@ type Filter interface {
 	// CompareNotEqual Implement conditional filtering: script1 <> script2 .
 	CompareNotEqual(column1 any, column2 any) Filter
 
-	// CompareMoreThan Implement conditional filtering: script1 > script2 .
-	CompareMoreThan(column1 any, column2 any) Filter
+	// CompareGreaterThan Implement conditional filtering: script1 > script2 .
+	CompareGreaterThan(column1 any, column2 any) Filter
 
-	// CompareMoreThanEqual Implement conditional filtering: script1 >= script2 .
-	CompareMoreThanEqual(column1 any, column2 any) Filter
+	// CompareGreaterThanEqual Implement conditional filtering: script1 >= script2 .
+	CompareGreaterThanEqual(column1 any, column2 any) Filter
 
 	// CompareLessThan Implement conditional filtering: script1 < script2.
 	CompareLessThan(column1 any, column2 any) Filter
 
 	// CompareLessThanEqual Implement conditional filtering: script1 <= script2 .
 	CompareLessThanEqual(column1 any, column2 any) Filter
+
+	// ExtractFilter Call Filter using ExtractFilter.
+	ExtractFilter(fc func(f ExtractFilter)) Filter
 
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
@@ -278,7 +289,9 @@ type filter struct {
 
 // newFilter New a Filter.
 func newFilter() *filter {
-	return &filter{prepare: &strings.Builder{}}
+	return &filter{
+		prepare: &strings.Builder{},
+	}
 }
 
 // F New a Filter.
@@ -288,7 +301,9 @@ func F() Filter {
 
 // poolFilter filter pool.
 var poolFilter = &sync.Pool{
-	New: func() any { return newFilter() },
+	New: func() any {
+		return newFilter()
+	},
 }
 
 func poolGetFilter() Filter {
@@ -301,15 +316,15 @@ func poolPutFilter(f Filter) {
 
 func (s *filter) ToSQL() *SQL {
 	if s.IsEmpty() {
-		return NewSQL(StrEmpty)
+		return NewSQL(cst.Empty)
 	}
 
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
 
 	if s.not {
-		b.WriteString(StrNot)
-		b.WriteString(StrSpace)
+		b.WriteString(cst.NOT)
+		b.WriteString(cst.Space)
 	}
 
 	if s.num > 1 {
@@ -367,7 +382,7 @@ func (s *filter) add(logic string, script *SQL) *filter {
 		return s
 	}
 
-	s.prepare.WriteString(Strings(StrSpace, logic, StrSpace, script.Prepare))
+	s.prepare.WriteString(JoinString(cst.Space, logic, cst.Space, script.Prepare))
 	if length > 0 {
 		s.args = append(s.args, args...)
 	}
@@ -395,6 +410,13 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 	return s
 }
 
+func firstNext(first any, next ...any) []any {
+	result := make([]any, 0, len(next)+1)
+	result = append(result, first)
+	result = append(result, next...)
+	return result
+}
+
 func (s *filter) firstNext(first *SQL, next ...any) *SQL {
 	if first == nil || first.IsEmpty() {
 		return NewEmptySQL()
@@ -403,19 +425,19 @@ func (s *filter) firstNext(first *SQL, next ...any) *SQL {
 }
 
 func (s *filter) And(script *SQL) Filter {
-	return s.add(StrAnd, script)
+	return s.add(cst.AND, script)
 }
 
 func (s *filter) Or(script *SQL) Filter {
-	return s.add(StrOr, script)
+	return s.add(cst.OR, script)
 }
 
 func (s *filter) Group(group func(g Filter)) Filter {
-	return s.addGroup(StrAnd, group)
+	return s.addGroup(cst.AND, group)
 }
 
 func (s *filter) OrGroup(group func(g Filter)) Filter {
-	return s.addGroup(StrOr, group)
+	return s.addGroup(cst.OR, group)
 }
 
 func (s *filter) Use(filters ...Filter) Filter {
@@ -454,7 +476,7 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 		column = s.get(script)
 	}
 
-	first := any2sql(column)
+	first := AnyToSQL(column)
 	if first.IsEmpty() {
 		return s
 	}
@@ -475,7 +497,7 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 		}
 		next = append(next, ParcelSQL(tmp))
 	default:
-		next = append(next, StrPlaceholder)
+		next = append(next, cst.Placeholder)
 		args = []any{value}
 	}
 
@@ -487,67 +509,69 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 	return s.add(logic, result)
 }
 
-func (s *filter) Equal(column any, value any, null ...bool) Filter {
-	if column == nil {
-		return s
-	}
-	if value == nil {
-		if length := len(null); length > 0 && null[length-1] {
-			return s.IsNull(column)
-		}
-		return s
-	}
-	return s.compare(StrAnd, column, StrEqual, value)
+func (s *filter) Equal(column any, value any) Filter {
+	return s.compare(cst.AND, column, cst.Equal, value)
 }
 
 func (s *filter) LessThan(column any, value any) Filter {
-	return s.compare(StrAnd, column, StrLessThan, value)
+	return s.compare(cst.AND, column, cst.LessThan, value)
 }
 
 func (s *filter) LessThanEqual(column any, value any) Filter {
-	return s.compare(StrAnd, column, StrLessThanEqual, value)
+	return s.compare(cst.AND, column, cst.LessThanEqual, value)
 }
 
-func (s *filter) MoreThan(column any, value any) Filter {
-	return s.compare(StrAnd, column, StrMoreThan, value)
+func (s *filter) GreaterThan(column any, value any) Filter {
+	return s.compare(cst.AND, column, cst.GreaterThan, value)
 }
 
-func (s *filter) MoreThanEqual(column any, value any) Filter {
-	return s.compare(StrAnd, column, StrMoreThanEqual, value)
+func (s *filter) GreaterThanEqual(column any, value any) Filter {
+	return s.compare(cst.AND, column, cst.GreaterThanEqual, value)
 }
 
 func (s *filter) between(logic string, column any, start any, end any, not bool) Filter {
-	start, end = filterUsingValue(start), filterUsingValue(end)
-	if column == nil || start == nil || end == nil {
+	if column == nil {
 		return s
+	}
+	start, end = filterUsingValue(start), filterUsingValue(end)
+	if start == nil {
+		if end == nil {
+			return s
+		} else {
+			return s.LessThanEqual(column, end)
+		}
+	} else {
+		if end == nil {
+			return s.GreaterThanEqual(column, start)
+		}
 	}
 
 	if script, ok := column.(string); ok {
 		column = s.get(script)
 	}
 
-	first := any2sql(column)
+	first := AnyToSQL(column)
 	if first.IsEmpty() {
 		return s
 	}
 
 	next := make([]any, 0, 5)
 	if not {
-		next = append(next, StrNot)
+		next = append(next, cst.NOT)
 	}
-	next = append(next, StrBetween)
+	next = append(next, cst.BETWEEN)
 	args := make([]any, 0, 2)
 	if value, ok := start.(*SQL); ok {
-		next = append(next, ParcelSQL(value.Copy()))
+		next = append(next, ParcelSQL(value.Clone()))
 	} else {
-		next = append(next, StrPlaceholder)
+		next = append(next, cst.Placeholder)
 		args = append(args, start)
 	}
-	next = append(next, StrAnd)
+	next = append(next, cst.AND)
 	if value, ok := end.(*SQL); ok {
-		next = append(next, ParcelSQL(value.Copy()))
+		next = append(next, ParcelSQL(value.Clone()))
 	} else {
-		next = append(next, StrPlaceholder)
+		next = append(next, cst.Placeholder)
 		args = append(args, end)
 	}
 
@@ -560,7 +584,7 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 }
 
 func (s *filter) Between(column any, start any, end any) Filter {
-	return s.between(StrAnd, column, start, end, false)
+	return s.between(cst.AND, column, start, end, false)
 }
 
 func (s *filter) in(logic string, column any, values []any, not bool) Filter {
@@ -572,7 +596,7 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 		column = s.get(script)
 	}
 
-	script := any2sql(column)
+	script := AnyToSQL(column)
 	if script.IsEmpty() {
 		return s
 	}
@@ -586,13 +610,13 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 		if value, ok := values[0].(Maker); ok { // subquery value
 			if value != nil {
 				if subquery := value.ToSQL(); subquery != nil && !subquery.IsEmpty() {
-					latest := subquery.Copy()
+					latest := subquery.Clone()
 					latest.Prepare = ParcelPrepare(latest.Prepare)
 					lists := make([]any, 0, 3)
 					if not {
-						lists = append(lists, StrNot)
+						lists = append(lists, cst.NOT)
 					}
-					lists = append(lists, StrIn, latest)
+					lists = append(lists, cst.IN, latest)
 					return s.add(logic, s.firstNext(script, lists...))
 				}
 			}
@@ -617,13 +641,13 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 
 	places := make([]string, length)
 	for i := range length {
-		places[i] = StrPlaceholder
+		places[i] = cst.Placeholder
 	}
 	next := make([]any, 0, 3)
 	if not {
-		next = append(next, StrNot)
+		next = append(next, cst.NOT)
 	}
-	next = append(next, StrIn, NewSQL(ParcelPrepare(strings.Join(places, StrCommaSpace))))
+	next = append(next, cst.IN, NewSQL(ParcelPrepare(strings.Join(places, cst.CommaSpace))))
 
 	result := s.firstNext(script, next...)
 	result.Args = append(result.Args, values...)
@@ -632,7 +656,7 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 }
 
 func (s *filter) In(column any, values ...any) Filter {
-	return s.in(StrAnd, column, values, false)
+	return s.in(cst.AND, column, values, false)
 }
 
 func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter {
@@ -647,10 +671,10 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		for key, val := range lists {
 			lists[key] = s.get(val)
 		}
-		columns = NewSQL(ParcelPrepare(strings.Join(lists, StrCommaSpace)))
+		columns = NewSQL(ParcelPrepare(strings.Join(lists, cst.CommaSpace)))
 	}
 
-	fields := any2sql(columns)
+	fields := AnyToSQL(columns)
 	if fields.IsEmpty() {
 		return s
 	}
@@ -664,16 +688,16 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		count := len(value[0])
 		group := make([]string, count)
 		for i := range count {
-			group[i] = StrPlaceholder
+			group[i] = cst.Placeholder
 		}
 		args := make([]any, 0, length*count)
 		lines := make([]string, length)
-		place := ParcelPrepare(strings.Join(group, StrCommaSpace))
+		place := ParcelPrepare(strings.Join(group, cst.CommaSpace))
 		for i := range length {
 			args = append(args, value[i]...)
 			lines[i] = place
 		}
-		values = NewSQL(ParcelPrepare(strings.Join(lines, StrCommaSpace)), args...)
+		values = NewSQL(ParcelPrepare(strings.Join(lines, cst.CommaSpace)), args...)
 	case *SQL:
 		if value == nil || value.IsEmpty() {
 			return s
@@ -691,15 +715,15 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 
 	next := make([]any, 0, 3)
 	if not {
-		next = append(next, StrNot)
+		next = append(next, cst.NOT)
 	}
-	next = append(next, StrIn, values)
+	next = append(next, cst.IN, values)
 
 	return s.add(logic, s.firstNext(fields, next...))
 }
 
 func (s *filter) InGroup(columns any, values any) Filter {
-	return s.inGroup(StrAnd, columns, values, false)
+	return s.inGroup(cst.AND, columns, values, false)
 }
 
 func (s *filter) exists(subquery Maker, not bool) Filter {
@@ -714,11 +738,11 @@ func (s *filter) exists(subquery Maker, not bool) Filter {
 
 	next := make([]any, 0, 3)
 	if not {
-		next = append(next, StrNot)
+		next = append(next, cst.NOT)
 	}
-	next = append(next, StrExists, ParcelSQL(script))
+	next = append(next, cst.EXISTS, ParcelSQL(script))
 
-	return s.add(StrAnd, JoinSQLSpace(next...))
+	return s.add(cst.AND, JoinSQLSpace(next...))
 }
 
 func (s *filter) Exists(subquery Maker) Filter {
@@ -733,23 +757,23 @@ func (s *filter) like(logic string, column any, value any, not bool) Filter {
 	if script, ok := column.(string); ok {
 		column = s.get(script)
 	}
-	script := any2sql(column)
+	script := AnyToSQL(column)
 	if script.IsEmpty() {
 		return s
 	}
 
 	lists := make([]any, 0, 3)
 	if not {
-		lists = append(lists, StrNot)
+		lists = append(lists, cst.NOT)
 	}
-	lists = append(lists, StrLike)
-	if like, ok := value.(string); ok && like != StrEmpty {
-		lists = append(lists, StrPlaceholder)
+	lists = append(lists, cst.LIKE)
+	if like, ok := value.(string); ok && like != cst.Empty {
+		lists = append(lists, cst.Placeholder)
 		result := s.firstNext(script, lists...)
 		result.Args = append(result.Args, like)
 		return s.add(logic, result)
 	}
-	if like := any2sql(value); !like.IsEmpty() {
+	if like := AnyToSQL(value); !like.IsEmpty() {
 		lists = append(lists, like)
 		return s.add(logic, s.firstNext(script, lists...))
 	}
@@ -760,7 +784,7 @@ func (s *filter) Like(column any, value any) Filter {
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	return s.like(StrAnd, column, value, false)
+	return s.like(cst.AND, column, value, false)
 }
 
 func (s *filter) isNull(column any, not bool) Filter {
@@ -768,47 +792,38 @@ func (s *filter) isNull(column any, not bool) Filter {
 		column = s.get(script)
 	}
 
-	script := any2sql(column)
+	script := AnyToSQL(column)
 	if script.IsEmpty() {
 		return s
 	}
 
 	lists := make([]any, 0, 3)
-	lists = append(lists, StrIs)
+	lists = append(lists, cst.IS)
 	if not {
-		lists = append(lists, StrNot)
+		lists = append(lists, cst.NOT)
 	}
-	lists = append(lists, StrNull)
-	return s.add(StrAnd, s.firstNext(script, lists...))
+	lists = append(lists, cst.NULL)
+	return s.add(cst.AND, s.firstNext(script, lists...))
 }
 
 func (s *filter) IsNull(column any) Filter {
 	return s.isNull(column, false)
 }
 
-func (s *filter) NotEqual(column any, value any, null ...bool) Filter {
-	if column == nil {
-		return s
-	}
-	if value == nil {
-		if length := len(null); length > 0 && null[length-1] {
-			return s.IsNotNull(column)
-		}
-		return s
-	}
-	return s.compare(StrAnd, column, StrNotEqual, value)
+func (s *filter) NotEqual(column any, value any) Filter {
+	return s.compare(cst.AND, column, cst.NotEqual, value)
 }
 
 func (s *filter) NotBetween(column any, start any, end any) Filter {
-	return s.between(StrAnd, column, start, end, true)
+	return s.between(cst.AND, column, start, end, true)
 }
 
 func (s *filter) NotIn(column any, values ...any) Filter {
-	return s.in(StrAnd, column, values, true)
+	return s.in(cst.AND, column, values, true)
 }
 
 func (s *filter) NotInGroup(columns any, values any) Filter {
-	return s.inGroup(StrAnd, columns, values, true)
+	return s.inGroup(cst.AND, columns, values, true)
 }
 
 func (s *filter) NotExists(subquery Maker) Filter {
@@ -819,17 +834,51 @@ func (s *filter) NotLike(column any, value any) Filter {
 	if value = filterUsingValue(value); value == nil {
 		return s
 	}
-	return s.like(StrAnd, column, value, true)
+	return s.like(cst.AND, column, value, true)
 }
 
 func (s *filter) IsNotNull(column any) Filter {
 	return s.isNull(column, true)
 }
 
+// Keyword Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
+func (s *filter) Keyword(value string, columns ...string) Filter {
+	if value == cst.Empty {
+		return s
+	}
+	length := len(columns)
+	if length == 0 {
+		return s
+	}
+	fields := make([]string, 0, length)
+	fieldsMap := make(map[string]*struct{})
+	for _, column := range columns {
+		if column == cst.Empty {
+			continue
+		}
+		_, ok := fieldsMap[column]
+		if ok {
+			continue
+		}
+		fields = append(fields, column)
+		fieldsMap[column] = nil
+	}
+	length = len(fields)
+	if length == 0 {
+		return s
+	}
+	s.Group(func(g Filter) {
+		for _, column := range fields {
+			g.OrGroup(func(tmp Filter) { tmp.Like(column, value) })
+		}
+	})
+	return s
+}
+
 func (s *filter) AllQuantifier(fc func(q Quantifier)) Filter {
 	tmp := &quantifier{
 		filter:     s.New(),
-		quantifier: StrAll,
+		quantifier: cst.ALL,
 	}
 	fc(tmp)
 	return s.Use(tmp.filter)
@@ -838,7 +887,7 @@ func (s *filter) AllQuantifier(fc func(q Quantifier)) Filter {
 func (s *filter) AnyQuantifier(fc func(q Quantifier)) Filter {
 	tmp := &quantifier{
 		filter:     s.New(),
-		quantifier: StrAny,
+		quantifier: cst.ANY,
 	}
 	fc(tmp)
 	return s.Use(tmp.filter)
@@ -854,25 +903,25 @@ func (s *filter) SetReplacer(replacer Replacer) Filter {
 }
 
 func (s *filter) compares(column1 any, compare string, column2 any) Filter {
-	if column1 == nil || compare == StrEmpty || column2 == nil {
+	if column1 == nil || compare == cst.Empty || column2 == nil {
 		return s
 	}
 
 	if column, ok := column1.(string); ok {
-		if column = s.get(column); column == StrEmpty {
+		if column = s.get(column); column == cst.Empty {
 			return s
 		}
 		column1 = column
 	}
 
 	if column, ok := column2.(string); ok {
-		if column = s.get(column); column == StrEmpty {
+		if column = s.get(column); column == cst.Empty {
 			return s
 		}
 		column2 = column
 	}
 
-	prefix, suffix := any2sql(column1), any2sql(column2)
+	prefix, suffix := AnyToSQL(column1), AnyToSQL(column2)
 	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
 		return s
 	}
@@ -881,27 +930,34 @@ func (s *filter) compares(column1 any, compare string, column2 any) Filter {
 }
 
 func (s *filter) CompareEqual(column1 any, column2 any) Filter {
-	return s.compares(column1, StrEqual, column2)
+	return s.compares(column1, cst.Equal, column2)
 }
 
 func (s *filter) CompareNotEqual(column1 any, column2 any) Filter {
-	return s.compares(column1, StrNotEqual, column2)
+	return s.compares(column1, cst.NotEqual, column2)
 }
 
-func (s *filter) CompareMoreThan(column1 any, column2 any) Filter {
-	return s.compares(column1, StrMoreThan, column2)
+func (s *filter) CompareGreaterThan(column1 any, column2 any) Filter {
+	return s.compares(column1, cst.GreaterThan, column2)
 }
 
-func (s *filter) CompareMoreThanEqual(column1 any, column2 any) Filter {
-	return s.compares(column1, StrMoreThanEqual, column2)
+func (s *filter) CompareGreaterThanEqual(column1 any, column2 any) Filter {
+	return s.compares(column1, cst.GreaterThanEqual, column2)
 }
 
 func (s *filter) CompareLessThan(column1 any, column2 any) Filter {
-	return s.compares(column1, StrLessThan, column2)
+	return s.compares(column1, cst.LessThan, column2)
 }
 
 func (s *filter) CompareLessThanEqual(column1 any, column2 any) Filter {
-	return s.compares(column1, StrLessThanEqual, column2)
+	return s.compares(column1, cst.LessThanEqual, column2)
+}
+
+func (s *filter) ExtractFilter(fc func(f ExtractFilter)) Filter {
+	tmp := poolGetExtractFilter(s)
+	defer poolPutExtractFilter(tmp)
+	fc(tmp)
+	return s
 }
 
 // Quantifier Implement the filter condition: column {=||<>||>||>=||<||<=} [QUANTIFIER ]( subquery ) .
@@ -919,9 +975,9 @@ type Quantifier interface {
 
 	LessThanEqual(column any, subquery Maker) Quantifier
 
-	MoreThan(column any, subquery Maker) Quantifier
+	GreaterThan(column any, subquery Maker) Quantifier
 
-	MoreThanEqual(column any, subquery Maker) Quantifier
+	GreaterThanEqual(column any, subquery Maker) Quantifier
 }
 
 type quantifier struct {
@@ -943,7 +999,7 @@ func (s *quantifier) SetQuantifier(quantifierString string) Quantifier {
 
 // build Add SQL filter statement.
 func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier {
-	if column == nil || logic == StrEmpty || subquery == nil {
+	if column == nil || logic == cst.Empty || subquery == nil {
 		return s
 	}
 	if script, ok := column.(string); ok {
@@ -951,7 +1007,7 @@ func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier 
 			column = tmp.Get(script)
 		}
 	}
-	prefix, suffix := any2sql(column), subquery.ToSQL()
+	prefix, suffix := AnyToSQL(column), subquery.ToSQL()
 	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
 		return s
 	}
@@ -961,48 +1017,396 @@ func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier 
 
 // Equal Implement the filter condition: column = QUANTIFIER ( subquery ) .
 func (s *quantifier) Equal(column any, subquery Maker) Quantifier {
-	return s.build(column, StrEqual, subquery)
+	return s.build(column, cst.Equal, subquery)
 }
 
 // NotEqual Implement the filter condition: column <> QUANTIFIER ( subquery ) .
 func (s *quantifier) NotEqual(column any, subquery Maker) Quantifier {
-	return s.build(column, StrNotEqual, subquery)
+	return s.build(column, cst.NotEqual, subquery)
 }
 
 // LessThan Implement the filter condition: column < QUANTIFIER ( subquery ) .
 func (s *quantifier) LessThan(column any, subquery Maker) Quantifier {
-	return s.build(column, StrLessThan, subquery)
+	return s.build(column, cst.LessThan, subquery)
 }
 
 // LessThanEqual Implement the filter condition: column <= QUANTIFIER ( subquery ) .
 func (s *quantifier) LessThanEqual(column any, subquery Maker) Quantifier {
-	return s.build(column, StrLessThanEqual, subquery)
+	return s.build(column, cst.LessThanEqual, subquery)
 }
 
-// MoreThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
-func (s *quantifier) MoreThan(column any, subquery Maker) Quantifier {
-	return s.build(column, StrMoreThan, subquery)
+// GreaterThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
+func (s *quantifier) GreaterThan(column any, subquery Maker) Quantifier {
+	return s.build(column, cst.GreaterThan, subquery)
 }
 
-// MoreThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
-func (s *quantifier) MoreThanEqual(column any, subquery Maker) Quantifier {
-	return s.build(column, StrMoreThanEqual, subquery)
+// GreaterThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
+func (s *quantifier) GreaterThanEqual(column any, subquery Maker) Quantifier {
+	return s.build(column, cst.GreaterThanEqual, subquery)
 }
 
-// LikeSearch Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
-func LikeSearch(filter Filter, value any, columns ...string) {
-	if filter == nil {
-		return
+// ExtractFilter Extract the available condition values for the Filter.
+// Use a delimiter string to separate multiple element values, with ',' as the default.
+type ExtractFilter interface {
+	// Delimiter Custom a delimiter string is used to split the target string.
+	Delimiter(delimiter string) ExtractFilter
+
+	// BetweenInt Use a delimiter string to separate multiple element values, with ',' as the default.
+	// column BETWEEN int-min AND int-max, column >= int-min, column <= int-max
+	BetweenInt(value *string, column string, verifies ...func(minimum int, maximum int) bool) ExtractFilter
+
+	// BetweenInt64 Use a delimiter string to separate multiple element values, with ',' as the default.
+	// column BETWEEN int64-min AND int64-max, column >= int64-min, column <= int64-max
+	BetweenInt64(value *string, column string, verifies ...func(minimum int64, maximum int64) bool) ExtractFilter
+
+	// BetweenFloat64 Use a delimiter string to separate multiple element values, with ',' as the default.
+	// column BETWEEN float64-min AND float64-max, column >= float64-min, column <= float64-max
+	BetweenFloat64(value *string, column string, verifies ...func(minimum float64, maximum float64) bool) ExtractFilter
+
+	// BetweenString Use a delimiter string to separate multiple element values, with ',' as the default.
+	// column BETWEEN string-min AND string-max, column >= string-min, column <= string-max
+	BetweenString(value *string, column string, verifies ...func(minimum string, maximum string) bool) ExtractFilter
+
+	// InInt Use a delimiter string to separate multiple element values, with ',' as the default.
+	// column IN ( int-value1, int-value2, int-value3 ... )
+	InInt(value *string, column string, verifies ...func(index int, value int) bool) ExtractFilter
+
+	// InInt64 Use a delimiter string to separate multiple element values, with ',' as the default.
+	// column IN ( int64-value1, int64-value2, int64-value3 ... )
+	InInt64(value *string, column string, verifies ...func(index int, value int64) bool) ExtractFilter
+
+	// InString Use a delimiter string to separate multiple element values, with ',' as the default.
+	// column IN ( string-value1, string-value2, string-value3 ... )
+	InString(value *string, column string, verifies ...func(index int, value string) bool) ExtractFilter
+
+	// LikeSearch Fuzzy search for a single keyword across multiple column values, ( column1 LIKE '%value%' OR column2 LIKE '%value%' OR column3 LIKE '%value%' ... )
+	LikeSearch(value *string, columns ...string) ExtractFilter
+}
+
+type extractFilter struct {
+	filter    Filter
+	delimiter string
+}
+
+var poolExtractFilter = &sync.Pool{
+	New: func() any {
+		return &extractFilter{}
+	},
+}
+
+func poolGetExtractFilter(filter Filter) *extractFilter {
+	result := poolExtractFilter.Get().(*extractFilter)
+	result.filter = filter
+	result.delimiter = cst.Comma
+	return result
+}
+
+func poolPutExtractFilter(b *extractFilter) {
+	b.filter = nil
+	b.delimiter = cst.Empty
+	poolExtractFilter.Put(b)
+}
+
+func (s *extractFilter) Delimiter(delimiter string) ExtractFilter {
+	s.delimiter = delimiter
+	return s
+}
+
+func (s *extractFilter) between(value *string, column string, parse func(values []string) ([]any, bool)) *extractFilter {
+	if column == cst.Empty || value == nil || *value == cst.Empty || parse == nil {
+		return s
 	}
-	columns = DiscardDuplicate(func(tmp string) bool {
-		return tmp == StrEmpty
-	}, columns...)
-	if len(columns) == 0 {
-		return
+	values := strings.Split(*value, s.delimiter)
+	if len(values) != 2 {
+		return s
 	}
-	filter.Group(func(g Filter) {
-		for _, column := range columns {
-			g.OrGroup(func(tmp Filter) { tmp.Like(column, value) })
+	between, ok := parse([]string{strings.TrimSpace(values[0]), strings.TrimSpace(values[1])})
+	if !ok || len(between) != 2 {
+		return s
+	}
+	if between[0] != nil {
+		if between[1] != nil {
+			s.filter.Between(column, between[0], between[1])
+		} else {
+			s.filter.GreaterThanEqual(column, between[0])
 		}
+	} else {
+		if between[1] != nil {
+			s.filter.LessThanEqual(column, between[1])
+		}
+	}
+	return s
+}
+
+func (s *extractFilter) BetweenInt(value *string, column string, verifies ...func(minimum int, maximum int) bool) ExtractFilter {
+	var verify func(minimum int, maximum int) bool
+	for i := len(verifies) - 1; i >= 0; i-- {
+		if verifies[i] != nil {
+			verify = verifies[i]
+			break
+		}
+	}
+	return s.between(value, column, func(values []string) ([]any, bool) {
+		result := make([]any, 2)
+		minimum, maximum := 0, 0
+		for key, val := range values {
+			if key > 1 {
+				return nil, false
+			}
+			tmp, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				switch key {
+				case 0:
+					result[0] = nil
+				case 1:
+					result[1] = nil
+				}
+			} else {
+				switch key {
+				case 0:
+					minimum = int(tmp)
+					result[0] = minimum
+				case 1:
+					maximum = int(tmp)
+					result[1] = maximum
+				}
+			}
+		}
+		if result[0] != nil && result[1] != nil && maximum < minimum {
+			return nil, false
+		}
+		if verify != nil {
+			ok := verify(minimum, maximum)
+			if !ok {
+				return nil, false
+			}
+		}
+		return result, true
 	})
+}
+
+func (s *extractFilter) BetweenInt64(value *string, column string, verifies ...func(minimum int64, maximum int64) bool) ExtractFilter {
+	var verify func(minimum int64, maximum int64) bool
+	for i := len(verifies) - 1; i >= 0; i-- {
+		if verifies[i] != nil {
+			verify = verifies[i]
+			break
+		}
+	}
+	return s.between(value, column, func(values []string) ([]any, bool) {
+		result := make([]any, 2)
+		minimum, maximum := int64(0), int64(0)
+		for key, val := range values {
+			if key > 1 {
+				return nil, false
+			}
+			tmp, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				switch key {
+				case 0:
+					result[0] = nil
+				case 1:
+					result[1] = nil
+				}
+			} else {
+				switch key {
+				case 0:
+					minimum = tmp
+					result[0] = minimum
+				case 1:
+					maximum = tmp
+					result[1] = maximum
+				}
+			}
+		}
+		if result[0] != nil && result[1] != nil && maximum < minimum {
+			return nil, false
+		}
+		if verify != nil {
+			ok := verify(minimum, maximum)
+			if !ok {
+				return nil, false
+			}
+		}
+		return result, true
+	})
+}
+
+func (s *extractFilter) BetweenFloat64(value *string, column string, verifies ...func(minimum float64, maximum float64) bool) ExtractFilter {
+	var verify func(minimum float64, maximum float64) bool
+	for i := len(verifies) - 1; i >= 0; i-- {
+		if verifies[i] != nil {
+			verify = verifies[i]
+			break
+		}
+	}
+	return s.between(value, column, func(values []string) ([]any, bool) {
+		result := make([]any, 2)
+		minimum, maximum := float64(0), float64(0)
+		for key, val := range values {
+			if key > 1 {
+				return nil, false
+			}
+			tmp, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				switch key {
+				case 0:
+					result[0] = nil
+				case 1:
+					result[1] = nil
+				}
+			} else {
+				switch key {
+				case 0:
+					minimum = tmp
+					result[0] = minimum
+				case 1:
+					maximum = tmp
+					result[1] = maximum
+				}
+			}
+		}
+		if result[0] != nil && result[1] != nil && maximum < minimum {
+			return nil, false
+		}
+		if verify != nil {
+			ok := verify(minimum, maximum)
+			if !ok {
+				return nil, false
+			}
+		}
+		return result, true
+	})
+}
+
+func (s *extractFilter) BetweenString(value *string, column string, verifies ...func(minimum string, maximum string) bool) ExtractFilter {
+	var verify func(minimum string, maximum string) bool
+	for i := len(verifies) - 1; i >= 0; i-- {
+		if verifies[i] != nil {
+			verify = verifies[i]
+			break
+		}
+	}
+	return s.between(value, column, func(values []string) ([]any, bool) {
+		if len(values) != 2 {
+			return nil, false
+		}
+		if verify != nil {
+			ok := verify(values[0], values[1])
+			if !ok {
+				return nil, false
+			}
+		}
+		return []any{values[0], values[1]}, true
+	})
+}
+
+func (s *extractFilter) in(value *string, column string, parse func(i int, v string) (any, bool)) *extractFilter {
+	if column == cst.Empty || value == nil || *value == cst.Empty || parse == nil {
+		return s
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == cst.Empty {
+		return s
+	}
+	splits := strings.Split(trimmed, s.delimiter)
+	length := len(splits)
+	if length == 0 {
+		return s
+	}
+	result := DiscardDuplicate(nil, splits...)
+	length = len(result)
+	parsed := make([]any, length)
+	for k, v := range result {
+		val, ok := parse(k, v)
+		if !ok {
+			return s
+		}
+		parsed[k] = val
+	}
+	s.filter.In(column, parsed...)
+	return s
+}
+
+func (s *extractFilter) InInt(value *string, column string, verifies ...func(index int, value int) bool) ExtractFilter {
+	var verify func(index int, value int) bool
+	for i := len(verifies) - 1; i >= 0; i-- {
+		if verifies[i] != nil {
+			verify = verifies[i]
+			break
+		}
+	}
+	return s.in(value, column, func(i int, v string) (any, bool) {
+		val, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		result := int(val)
+		if verify != nil {
+			ok := verify(i, result)
+			if !ok {
+				return nil, false
+			}
+		}
+		return result, true
+	})
+}
+
+func (s *extractFilter) InInt64(value *string, column string, verifies ...func(index int, value int64) bool) ExtractFilter {
+	var verify func(index int, value int64) bool
+	for i := len(verifies) - 1; i >= 0; i-- {
+		if verifies[i] != nil {
+			verify = verifies[i]
+			break
+		}
+	}
+	return s.in(value, column, func(i int, v string) (any, bool) {
+		val, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		if verify != nil {
+			ok := verify(i, val)
+			if !ok {
+				return nil, false
+			}
+		}
+		return val, true
+	})
+}
+
+func (s *extractFilter) InString(value *string, column string, verifies ...func(index int, value string) bool) ExtractFilter {
+	var verify func(index int, value string) bool
+	for i := len(verifies) - 1; i >= 0; i-- {
+		if verifies[i] != nil {
+			verify = verifies[i]
+			break
+		}
+	}
+	return s.in(value, column, func(i int, v string) (any, bool) {
+		if verify != nil {
+			ok := verify(i, v)
+			if !ok {
+				return nil, false
+			}
+		}
+		return v, true
+	})
+}
+
+func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilter {
+	if value == nil {
+		return nil
+	}
+	search := strings.TrimSpace(*value)
+	if search == cst.Empty {
+		return s
+	}
+	length := len(columns)
+	if length == 0 {
+		return s
+	}
+	search = JoinString(cst.PercentSign, search, cst.PercentSign)
+	s.filter.Keyword(search, columns...)
+	return s
 }

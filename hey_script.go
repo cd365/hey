@@ -1,3 +1,5 @@
+// Construct SQL statements
+
 package hey
 
 import (
@@ -9,7 +11,217 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unsafe"
+
+	"github.com/cd365/hey/v6/cst"
 )
+
+// SQL Prepare SQL statements and parameter lists corresponding to placeholders.
+type SQL struct {
+	// Prepare SQL fragments or SQL statements, which may contain SQL placeholders.
+	Prepare string
+
+	// Args The corresponding parameter list of the placeholder list.
+	Args []any
+}
+
+// Maker Build SQL fragments or SQL statements, which may include corresponding parameter lists.
+// Notice: The ToSQL method must return a non-nil value for *SQL.
+type Maker interface {
+	// ToSQL Construct SQL statements that may contain parameters, the return value cannot be nil.
+	ToSQL() *SQL
+}
+
+// CloneSQL Clone *SQL.
+func CloneSQL(src *SQL) *SQL {
+	dst := NewEmptySQL()
+	dst.Prepare = src.Prepare
+	dst.Args = make([]any, len(src.Args))
+	copy(dst.Args, src.Args)
+	return dst
+}
+
+func NewSQL(prepare string, args ...any) *SQL {
+	return &SQL{
+		Prepare: prepare,
+		Args:    args,
+	}
+}
+
+func NewEmptySQL() *SQL {
+	return NewSQL(cst.Empty)
+}
+
+// Clone For clone the current object.
+func (s *SQL) Clone() *SQL {
+	return CloneSQL(s)
+}
+
+// IsEmpty Used to determine whether the current SQL fragments or SQL statements is empty string.
+func (s *SQL) IsEmpty() bool {
+	return s.Prepare == cst.Empty
+}
+
+// ToEmpty Set Prepare, Args to empty value.
+func (s *SQL) ToEmpty() *SQL {
+	s.Prepare, s.Args = cst.Empty, nil
+	return s
+}
+
+// ToSQL Implementing the Maker interface.
+func (s *SQL) ToSQL() *SQL {
+	return s
+}
+
+// AnyToSQL Convert values of any type into SQL expressions or SQL statements.
+func AnyToSQL(i any) *SQL {
+	result := NewEmptySQL()
+	switch value := i.(type) {
+	case bool:
+		result = NewSQL(fmt.Sprintf("%t", value))
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		result = NewSQL(fmt.Sprintf("%d", value))
+	case float32:
+		result = NewSQL(strconv.FormatFloat(float64(value), 'f', -1, 64))
+	case float64:
+		result = NewSQL(strconv.FormatFloat(value, 'f', -1, 64))
+	case string:
+		result.Prepare = value
+	case *SQL:
+		if value != nil {
+			result = value
+		}
+	case Maker:
+		if tmp := value.ToSQL(); tmp != nil {
+			result = tmp
+		}
+	default:
+		v := reflect.ValueOf(i)
+		t := v.Type()
+		k := t.Kind()
+		for k == reflect.Pointer {
+			if v.IsNil() {
+				return result
+			}
+			v = v.Elem()
+			t = v.Type()
+			k = t.Kind()
+		}
+		switch k {
+		case reflect.Bool, reflect.Float32, reflect.Float64, reflect.String,
+			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return AnyToSQL(v.Interface())
+		default: // Other types of values are invalid.
+
+		}
+	}
+	return result
+}
+
+// JoinMaker Concatenate multiple SQL scripts and their parameter lists using a specified delimiter.
+func JoinMaker(elems []Maker, sep string) *SQL {
+	script := NewEmptySQL()
+	builder := poolGetStringBuilder()
+	defer poolPutStringBuilder(builder)
+	num := 0
+	for _, element := range elems {
+		if element == nil {
+			continue
+		}
+		shard := element.ToSQL()
+		if shard.IsEmpty() {
+			continue
+		}
+		num++
+		if num > 1 {
+			builder.WriteString(sep)
+		}
+		builder.WriteString(shard.Prepare)
+		script.Args = append(script.Args, shard.Args...)
+	}
+	script.Prepare = builder.String()
+	return script
+}
+
+// JoinSQL Use `separator` to concatenate multiple SQL scripts and parameters.
+func JoinSQL(elems []any, sep string) *SQL {
+	length := len(elems)
+	makers := make([]Maker, length)
+	for i := range length {
+		makers[i] = AnyToSQL(elems[i])
+	}
+	return JoinMaker(makers, sep)
+}
+
+// JoinSQLComma Use "," to concatenate multiple SQL scripts and parameters.
+func JoinSQLComma(values ...any) *SQL {
+	return JoinSQL(values, cst.Comma)
+}
+
+// JoinSQLEmpty Use "" to concatenate multiple SQL scripts and parameters.
+func JoinSQLEmpty(values ...any) *SQL {
+	return JoinSQL(values, cst.Empty)
+}
+
+// JoinSQLSpace Use " " to concatenate multiple SQL scripts and parameters.
+func JoinSQLSpace(values ...any) *SQL {
+	return JoinSQL(values, cst.Space)
+}
+
+// JoinSQLCommaSpace Use ", " to concatenate multiple SQL scripts and parameters.
+func JoinSQLCommaSpace(values ...any) *SQL {
+	return JoinSQL(values, cst.CommaSpace)
+}
+
+func FuncSQL(funcName string, funcArgs ...any) *SQL {
+	funcName = strings.TrimSpace(funcName)
+	if funcName == cst.Empty {
+		return NewEmptySQL()
+	}
+	values := make([]any, 0, len(funcArgs))
+	for _, arg := range funcArgs {
+		tmp := AnyToSQL(arg)
+		if tmp.IsEmpty() {
+			continue
+		}
+		values = append(values, tmp)
+	}
+	return JoinSQLEmpty(
+		AnyToSQL(funcName),
+		AnyToSQL(cst.LeftParenthesis),
+		JoinSQLComma(values...),
+		AnyToSQL(cst.RightParenthesis),
+	)
+}
+
+func Coalesce(values ...any) *SQL {
+	return FuncSQL(cst.COALESCE, values...)
+}
+
+func Count(values ...any) *SQL {
+	return FuncSQL(cst.COUNT, values...)
+}
+
+func Avg(values ...any) *SQL {
+	return FuncSQL(cst.AVG, values...)
+}
+
+func Max(values ...any) *SQL {
+	return FuncSQL(cst.MAX, values...)
+}
+
+func Min(values ...any) *SQL {
+	return FuncSQL(cst.MIN, values...)
+}
+
+func Sum(values ...any) *SQL {
+	return FuncSQL(cst.SUM, values...)
+}
+
+func (s *Way) Func(funcName string, funcArgs ...any) *SQL {
+	return FuncSQL(funcName, funcArgs...)
+}
 
 // DiscardDuplicate Slice deduplication.
 func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (result []T) {
@@ -26,7 +238,7 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 				continue
 			}
 		}
-		mp[dynamic[i]] = &struct{}{}
+		mp[dynamic[i]] = nil
 		result = append(result, dynamic[i])
 	}
 	return result
@@ -149,7 +361,7 @@ func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 	}
 	script := maker.ToSQL()
 	if script == nil || script.IsEmpty() {
-		return nil, ErrEmptyPrepare
+		return nil, ErrEmptyScript
 	}
 	length := 16
 	if ctx == nil {
@@ -200,245 +412,10 @@ func MakerScanOne[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 	return nil, ErrNoRows
 }
 
-const (
-	StrDefaultTag      = "db"
-	StrTableMethodName = "TableName"
-
-	StrEmpty = ""
-	Str36    = "$"
-	Str37    = "%"
-	Str39    = "'"
-	Str43    = "+"
-	Str45    = "-"
-	Str47    = "/"
-	Str63    = "?"
-	StrComma = ","
-	StrPoint = "."
-	StrStar  = "*"
-
-	StrSpace      = " "
-	StrCommaSpace = ", "
-
-	StrNull = "NULL"
-	StrAs   = "AS"
-	StrAsc  = "ASC"
-	StrDesc = "DESC"
-
-	StrUnion        = "UNION"
-	StrUnionAll     = "UNION ALL"
-	StrIntersect    = "INTERSECT"
-	StrIntersectAll = "INTERSECT ALL"
-	StrExpect       = "EXCEPT"
-	StrExpectAll    = "EXCEPT ALL"
-
-	StrJoinInner = "INNER JOIN"
-	StrJoinLeft  = "LEFT JOIN"
-	StrJoinRight = "RIGHT JOIN"
-
-	StrAnd = "AND"
-	StrOr  = "OR"
-	StrNot = "NOT"
-
-	StrPlaceholder   = "?"
-	StrEqual         = "="
-	StrNotEqual      = "<>"
-	StrLessThan      = "<"
-	StrLessThanEqual = "<="
-	StrMoreThan      = ">"
-	StrMoreThanEqual = ">="
-
-	StrAll = "ALL"
-	StrAny = "ANY"
-
-	StrLeftSmallBracket  = "("
-	StrRightSmallBracket = ")"
-
-	StrCoalesce = "COALESCE"
-	StrCount    = "COUNT"
-	StrAvg      = "AVG"
-	StrMax      = "MAX"
-	StrMin      = "MIN"
-	StrSum      = "SUM"
-
-	StrDistinct = "DISTINCT"
-
-	StrSelect    = "SELECT"
-	StrInsert    = "INSERT"
-	StrUpdate    = "UPDATE"
-	StrDelete    = "DELETE"
-	StrFrom      = "FROM"
-	StrInto      = "INTO"
-	StrValues    = "VALUES"
-	StrSet       = "SET"
-	StrWhere     = "WHERE"
-	StrReturning = "RETURNING"
-
-	StrBetween     = "BETWEEN"
-	StrConflict    = "CONFLICT"
-	StrDo          = "DO"
-	StrExcluded    = "EXCLUDED"
-	StrExists      = "EXISTS"
-	StrGroupBy     = "GROUP BY"
-	StrHaving      = "HAVING"
-	StrIn          = "IN"
-	StrIs          = "IS"
-	StrLike        = "LIKE"
-	StrLimit       = "LIMIT"
-	StrNothing     = "NOTHING"
-	StrOffset      = "OFFSET"
-	StrOn          = "ON"
-	StrOrderBy     = "ORDER BY"
-	StrOver        = "OVER"
-	StrPartitionBy = "PARTITION BY"
-	StrUsing       = "USING"
-	StrWith        = "WITH"
-	StrRecursive   = "RECURSIVE"
-
-	StrCase = "CASE"
-	StrWhen = "WHEN"
-	StrThen = "THEN"
-	StrElse = "ELSE"
-	StrEnd  = "END"
-
-	StrRange = "RANGE"
-	StrRows  = "ROWS"
-)
-
-type Err string
-
-func (s Err) Error() string {
-	return string(s)
-}
-
-const (
-	// ErrEmptyPrepare The prepared value executed is an empty string.
-	ErrEmptyPrepare = Err("hey: the prepared value executed is an empty string")
-
-	// ErrNoRows Error no rows.
-	ErrNoRows = Err("hey: no rows")
-
-	// ErrNoRowsAffected Error no rows affected.
-	ErrNoRowsAffected = Err("hey: no rows affected")
-
-	// ErrTransactionIsNil Error transaction isn't started.
-	ErrTransactionIsNil = Err("hey: transaction is nil")
-
-	// ErrMethodNotImplemented Error method not implemented.
-	ErrMethodNotImplemented = Err("hey: method not implemented")
-)
-
-// Maker Build SQL fragments or SQL statements, which may include corresponding parameter lists.
-// Notice: The ToSQL method must return a non-nil value for *SQL.
-type Maker interface {
-	// ToSQL Construct SQL statements that may contain parameters, the return value cannot be nil.
-	ToSQL() *SQL
-}
-
-// SQL Prepare SQL statements and parameter lists corresponding to placeholders.
-type SQL struct {
-	// Prepare SQL fragments or SQL statements, which may contain SQL placeholders.
-	Prepare string
-
-	// Args The corresponding parameter list of the placeholder list.
-	Args []any
-}
-
-func NewSQL(prepare string, args ...any) *SQL {
-	return &SQL{
-		Prepare: prepare,
-		Args:    args,
-	}
-}
-
-func NewEmptySQL() *SQL {
-	return NewSQL(StrEmpty)
-}
-
-// CopySQL Copy *SQL.
-func CopySQL(src *SQL) (dst *SQL) {
-	dst = NewEmptySQL()
-	dst.Prepare = src.Prepare
-	dst.Args = make([]any, len(src.Args))
-	copy(dst.Args, src.Args)
-	return dst
-}
-
-// Copy Make a copy.
-func (s *SQL) Copy() *SQL {
-	return CopySQL(s)
-}
-
-// IsEmpty Used to determine whether the current SQL fragments or SQL statements is empty string.
-func (s *SQL) IsEmpty() bool {
-	return s.Prepare == StrEmpty
-}
-
-// ToEmpty Set Prepare, Args to empty value.
-func (s *SQL) ToEmpty() *SQL {
-	s.Prepare, s.Args = StrEmpty, nil
-	return s
-}
-
-// ToSQL Implementing the Maker interface.
-func (s *SQL) ToSQL() *SQL {
-	return s
-}
-
-// Guess the given parameter value and convert it into SQL script and parameter lists.
-func any2sql(i any) *SQL {
-	result := NewEmptySQL()
-	switch value := i.(type) {
-	case bool:
-		result = NewSQL(fmt.Sprintf("%t", value))
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		result = NewSQL(fmt.Sprintf("%d", value))
-	case float32:
-		result = NewSQL(strconv.FormatFloat(float64(value), 'f', -1, 64))
-	case float64:
-		result = NewSQL(strconv.FormatFloat(value, 'f', -1, 64))
-	case string:
-		result.Prepare = value
-	case *SQL:
-		if value != nil {
-			result = value
-		}
-	case Maker:
-		if tmp := value.ToSQL(); tmp != nil {
-			result = tmp
-		}
-	default:
-		v := reflect.ValueOf(i)
-		t := v.Type()
-		k := t.Kind()
-		for k == reflect.Pointer {
-			if v.IsNil() {
-				return result
-			}
-			v = v.Elem()
-			t = v.Type()
-			k = t.Kind()
-		}
-		switch k {
-		case reflect.Bool, reflect.Float32, reflect.Float64, reflect.String,
-			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			return any2sql(v.Interface())
-		default: // Other types of values are invalid.
-		}
-	}
-	return result
-}
-
-// nil1any2sql Prioritize converting nil to NULL.
-func nil1any2sql(i any) *SQL {
-	if i == nil {
-		return NewSQL(StrNull)
-	}
-	return any2sql(i)
-}
-
 var poolStringBuilder = &sync.Pool{
-	New: func() any { return &strings.Builder{} },
+	New: func() any {
+		return &strings.Builder{}
+	},
 }
 
 func poolGetStringBuilder() *strings.Builder {
@@ -450,119 +427,231 @@ func poolPutStringBuilder(s *strings.Builder) {
 	poolStringBuilder.Put(s)
 }
 
-// JoinMaker Concatenate multiple SQL scripts and their parameter lists using a specified delimiter.
-func JoinMaker(separator string, makers ...Maker) Maker {
-	script := NewEmptySQL()
+// JoinString Concatenate multiple strings in sequence.
+func JoinString(elems ...string) string {
 	builder := poolGetStringBuilder()
 	defer poolPutStringBuilder(builder)
-	num := 0
-	for _, element := range makers {
-		if element == nil {
-			continue
-		}
-		shard := element.ToSQL()
-		if shard != nil && !shard.IsEmpty() {
-			num++
-			if num > 1 {
-				builder.WriteString(separator)
-			}
-			builder.WriteString(shard.Prepare)
-			script.Args = append(script.Args, shard.Args...)
-		}
+	length := len(elems)
+	for i := range length {
+		builder.WriteString(elems[i])
 	}
-	script.Prepare = builder.String()
-	return script
+	return builder.String()
 }
 
-func firstNext(first any, next ...any) []any {
-	result := make([]any, 0, len(next)+1)
-	result = append(result, first)
-	result = append(result, next...)
+// LastNotEmptyString Get last not empty string, return empty string if it does not exist.
+func LastNotEmptyString(sss []string) string {
+	for i := len(sss) - 1; i >= 0; i-- {
+		if sss[i] != cst.Empty {
+			return sss[i]
+		}
+	}
+	return cst.Empty
+}
+
+// Prefix Add SQL prefix name; if the prefix exists, it will not be added.
+func Prefix(prefix string, name string) string {
+	if prefix == cst.Empty || strings.Contains(name, cst.Point) {
+		return name
+	}
+	return JoinString(prefix, cst.Point, name)
+}
+
+// ParcelPrepare Parcel the SQL statement. `subquery` => ( `subquery` )
+func ParcelPrepare(prepare string) string {
+	if prepare == cst.Empty {
+		return prepare
+	}
+	return JoinString(cst.LeftParenthesis, cst.Space, prepare, cst.Space, cst.RightParenthesis)
+}
+
+// ParcelSQL Parcel the SQL statement. `subquery` => ( `subquery` )
+func ParcelSQL(script *SQL) *SQL {
+	if script == nil || script.IsEmpty() {
+		return NewEmptySQL()
+	}
+	result := script.Clone()
+	prepare := strings.TrimSpace(result.Prepare)
+	if prepare == cst.Empty {
+		return result.ToEmpty()
+	}
+	if prepare[0] != cst.LeftParenthesis[0] {
+		result.Prepare = ParcelPrepare(prepare)
+	}
 	return result
 }
 
-// JoinSQL Use `separator` to concatenate multiple SQL scripts and parameters.
-func JoinSQL(separator string, values ...any) *SQL {
-	length := len(values)
-	makers := make([]Maker, length)
-	for i := range length {
-		makers[i] = any2sql(values[i])
+// ParcelFilter Parcel the SQL filter statement. `SQL_FILTER_STATEMENT` => ( `SQL_FILTER_STATEMENT` )
+func ParcelFilter(tmp Filter) Filter {
+	if tmp.IsEmpty() {
+		return tmp
 	}
-	return JoinMaker(separator, makers...).ToSQL()
+	if num := tmp.Num(); num != 1 {
+		return tmp
+	}
+	script := tmp.ToSQL()
+	script.Prepare = ParcelPrepare(script.Prepare)
+	return tmp.New().And(script)
 }
 
-// JoinSQLComma Use StrComma to concatenate multiple SQL scripts and parameters.
-func JoinSQLComma(values ...any) *SQL {
-	return JoinSQL(StrComma, values...)
+// ParcelCancelPrepare Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
+func ParcelCancelPrepare(prepare string) string {
+	prepare = strings.TrimSpace(prepare)
+	prepare = strings.TrimPrefix(prepare, JoinString(cst.LeftParenthesis, cst.Space))
+	return strings.TrimSuffix(prepare, JoinString(cst.Space, cst.LeftParenthesis))
 }
 
-// JoinSQLEmpty Use StrEmpty to concatenate multiple SQL scripts and parameters.
-func JoinSQLEmpty(values ...any) *SQL {
-	return JoinSQL(StrEmpty, values...)
-}
-
-// JoinSQLSpace Use StrSpace to concatenate multiple SQL scripts and parameters.
-func JoinSQLSpace(values ...any) *SQL {
-	return JoinSQL(StrSpace, values...)
-}
-
-// JoinSQLCommaSpace Use StrCommaSpace to concatenate multiple SQL scripts and parameters.
-func JoinSQLCommaSpace(values ...any) *SQL {
-	return JoinSQL(StrCommaSpace, values...)
-}
-
-// FuncSQL Building SQL functions.
-func FuncSQL(funcName string, funcArgs ...any) *SQL {
-	if funcName == StrEmpty {
+// ParcelCancelSQL Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
+func ParcelCancelSQL(script *SQL) *SQL {
+	if script == nil || script.IsEmpty() {
 		return NewEmptySQL()
 	}
-	values := make([]any, 0, len(funcArgs))
-	for _, arg := range funcArgs {
-		if tmp := any2sql(arg); !tmp.IsEmpty() {
-			values = append(values, tmp)
+	result := script.Clone()
+	result.Prepare = ParcelCancelPrepare(result.Prepare)
+	return result
+}
+
+// RowsTable Concatenate one or more objects into a SQL table statement.
+// ["id", "name"] + [{"id":1,"name":"name1"}, {"id":2,"name":"name2"}, {"id":3,"name":"name3"} ... ]
+// ==>
+// [( SELECT 1 AS id, NULL AS name ) + ( SELECT 2, 'name2' ) + ( SELECT NULL, 'name3' ) ... ]
+func RowsTable(columns []string, rows func() [][]any, table func(values ...*SQL) *SQL) *SQL {
+	if rows == nil || table == nil {
+		return NewEmptySQL()
+	}
+	length := len(columns)
+	if length == 0 {
+		return NewEmptySQL()
+	}
+	var script *SQL
+	result := make([]*SQL, 0)
+	for serial, values := range rows() {
+		if len(values) != length {
+			return NewEmptySQL()
+		}
+		fields := make([]any, length)
+		for index, value := range values {
+			if value == nil {
+				script = NewSQL(cst.NULL)
+			} else {
+				script = AnyToSQL(value)
+				if script.IsEmpty() {
+					script.Prepare = SQLString(script.Prepare)
+				}
+			}
+			if serial == 0 {
+				script.Prepare = JoinString(script.Prepare, cst.Space, cst.AS, cst.Space, columns[index])
+			}
+			fields[index] = script
+		}
+		result = append(result, JoinSQLSpace(cst.SELECT, JoinSQLCommaSpace(fields...)))
+	}
+	return table(result...)
+}
+
+// UnionSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )... )
+func UnionSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(result, JoinString(cst.Space, cst.UNION, cst.Space))
+}
+
+// UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )... )
+func UnionAllSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(result, JoinString(cst.Space, cst.UNION, cst.Space, cst.ALL, cst.Space))
+}
+
+// IntersectSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) INTERSECT ( QUERY_C )... )
+func IntersectSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(result, JoinString(cst.Space, cst.INTERSECT, cst.Space))
+}
+
+// IntersectAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ALL ( QUERY_B ) INTERSECT ALL ( QUERY_C )... )
+func IntersectAllSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(result, JoinString(cst.Space, cst.INTERSECT, cst.Space, cst.ALL, cst.Space))
+}
+
+// ExceptSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) EXCEPT ( QUERY_C )... )
+func ExceptSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(result, JoinString(cst.Space, cst.EXCEPT, cst.Space))
+}
+
+// ExceptAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ALL ( QUERY_B ) EXCEPT ALL ( QUERY_C )... )
+func ExceptAllSQL(scripts ...*SQL) *SQL {
+	result := make([]any, len(scripts))
+	for index, value := range scripts {
+		result[index] = ParcelSQL(value)
+	}
+	return JoinSQL(result, JoinString(cst.Space, cst.EXCEPT, cst.Space, cst.ALL, cst.Space))
+}
+
+// ValuePascal Pascal case.
+func ValuePascal(value string) string {
+	if value == cst.Empty {
+		return cst.Empty
+	}
+	length := len(value)
+	result := make([]byte, 0, length)
+	next2upper := true
+	for i := 0; i < length; i++ {
+		if value[i] == '_' {
+			next2upper = true
+			continue
+		}
+		if next2upper && value[i] >= 'a' && value[i] <= 'z' {
+			result = append(result, value[i]-32)
+		} else {
+			result = append(result, value[i])
+		}
+		next2upper = false
+	}
+	return string(result[:])
+}
+
+// ValueCamel Camel case.
+func ValueCamel(value string) string {
+	if value == cst.Empty {
+		return cst.Empty
+	}
+	value = ValuePascal(value)
+	return JoinString(strings.ToLower(value[0:1]), value[1:])
+}
+
+// ValueUnderline Underline case.
+func ValueUnderline(value string) string {
+	if value == cst.Empty {
+		return cst.Empty
+	}
+	length := len(value)
+	result := make([]byte, 0, length)
+	for i := 0; i < length; i++ {
+		if value[i] >= 'A' && value[i] <= 'Z' {
+			if i > 0 {
+				result = append(result, '_')
+			}
+			result = append(result, value[i]+32)
+		} else {
+			result = append(result, value[i])
 		}
 	}
-	return JoinSQLEmpty(
-		any2sql(funcName),
-		any2sql(StrLeftSmallBracket),
-		JoinSQLComma(values...),
-		any2sql(StrRightSmallBracket),
-	).ToSQL()
-}
-
-// Coalesce Building SQL function COALESCE.
-func Coalesce(values ...any) *SQL {
-	return FuncSQL(StrCoalesce, values...)
-}
-
-// Count Building SQL function COUNT.
-func Count(values ...any) *SQL {
-	return FuncSQL(StrCount, values...)
-}
-
-// Avg Building SQL function AVG.
-func Avg(values ...any) *SQL {
-	return FuncSQL(StrAvg, values...)
-}
-
-// Max Building SQL function MAX.
-func Max(values ...any) *SQL {
-	return FuncSQL(StrMax, values...)
-}
-
-// Min Building SQL function MIN.
-func Min(values ...any) *SQL {
-	return FuncSQL(StrMin, values...)
-}
-
-// Sum Building SQL function SUM.
-func Sum(values ...any) *SQL {
-	return FuncSQL(StrSum, values...)
-}
-
-// Func Building SQL functions.
-func (s *Way) Func(funcName string, funcArgs ...any) *SQL {
-	return FuncSQL(funcName, funcArgs...)
+	return *(*string)(unsafe.Pointer(&result))
 }
 
 // Replacer SQL Identifier Replacer.
@@ -654,7 +743,7 @@ type sqlAlias struct {
 
 func newSqlAlias(script any, aliases ...string) *sqlAlias {
 	return &sqlAlias{
-		script: any2sql(script),
+		script: AnyToSQL(script),
 		alias:  LastNotEmptyString(aliases),
 	}
 }
@@ -687,7 +776,7 @@ func (s *sqlAlias) SetSQL(script any) SQLAlias {
 	if script == nil {
 		s.script = NewEmptySQL()
 	} else {
-		s.script = any2sql(script)
+		s.script = AnyToSQL(script)
 	}
 	return s
 }
@@ -707,7 +796,7 @@ func (s *sqlAlias) IsEmpty() bool {
 
 func (s *sqlAlias) ToEmpty() SQLAlias {
 	s.script.ToEmpty()
-	s.alias = StrEmpty
+	s.alias = cst.Empty
 	return s
 }
 
@@ -715,21 +804,21 @@ func (s *sqlAlias) ToSQL() *SQL {
 	if s.IsEmpty() {
 		return NewEmptySQL()
 	}
-	result := CopySQL(s.script)
+	result := CloneSQL(s.script)
 	if s.way != nil {
 		result.Prepare = s.rep(s.script.Prepare)
 	}
 	alias := s.alias
-	if alias == StrEmpty {
+	if alias == cst.Empty {
 		return result
 	}
 	aliases := make(map[string]*struct{}, 1<<2)
-	aliases[Strings(StrSpace, alias)] = nil
-	asAlias := Strings(StrSpace, StrAs, StrSpace, alias)
+	aliases[JoinString(cst.Space, alias)] = nil
+	asAlias := JoinString(cst.Space, cst.AS, cst.Space, alias)
 	aliases[asAlias] = nil
 	if replace := s.rep(alias); alias != replace {
-		aliases[Strings(StrSpace, replace)] = nil
-		asAlias = Strings(StrSpace, StrAs, StrSpace, replace)
+		aliases[JoinString(cst.Space, replace)] = nil
+		asAlias = JoinString(cst.Space, cst.AS, cst.Space, replace)
 		aliases[asAlias] = nil
 	}
 	has := false
@@ -740,157 +829,9 @@ func (s *sqlAlias) ToSQL() *SQL {
 		}
 	}
 	if !has {
-		result.Prepare = Strings(result.Prepare, asAlias)
+		result.Prepare = JoinString(result.Prepare, asAlias)
 	}
 	return result
-}
-
-// Strings Concatenate multiple strings in sequence.
-func Strings(elements ...string) string {
-	builder := poolGetStringBuilder()
-	defer poolPutStringBuilder(builder)
-	length := len(elements)
-	for i := range length {
-		builder.WriteString(elements[i])
-	}
-	return builder.String()
-}
-
-// Prefix Add SQL prefix name; if the prefix exists, it will not be added.
-func Prefix(prefix string, name string) string {
-	if prefix == StrEmpty || strings.Contains(name, StrPoint) {
-		return name
-	}
-	return Strings(prefix, StrPoint, name)
-}
-
-// ParcelPrepare Parcel the SQL statement. `subquery` => ( `subquery` )
-func ParcelPrepare(prepare string) string {
-	if prepare == StrEmpty {
-		return prepare
-	}
-	return Strings(StrLeftSmallBracket, StrSpace, prepare, StrSpace, StrRightSmallBracket)
-}
-
-// ParcelSQL Parcel the SQL statement. `subquery` => ( `subquery` )
-func ParcelSQL(script *SQL) *SQL {
-	if script == nil || script.IsEmpty() {
-		return NewEmptySQL()
-	}
-	result := script.Copy()
-	prepare := strings.TrimSpace(result.Prepare)
-	if prepare == StrEmpty {
-		return result.ToEmpty()
-	}
-	if prepare[0] != StrLeftSmallBracket[0] {
-		result.Prepare = ParcelPrepare(prepare)
-	}
-	return result
-}
-
-// ParcelFilter Parcel the SQL filter statement. `SQL_FILTER_STATEMENT` => ( `SQL_FILTER_STATEMENT` )
-func ParcelFilter(tmp Filter) Filter {
-	if tmp.IsEmpty() {
-		return tmp
-	}
-	if num := tmp.Num(); num != 1 {
-		return tmp
-	}
-	script := tmp.ToSQL()
-	script.Prepare = ParcelPrepare(script.Prepare)
-	return tmp.New().And(script)
-}
-
-// ParcelCancelPrepare Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
-func ParcelCancelPrepare(prepare string) string {
-	prepare = strings.TrimSpace(prepare)
-	prepare = strings.TrimPrefix(prepare, Strings(StrLeftSmallBracket, StrSpace))
-	return strings.TrimSuffix(prepare, Strings(StrSpace, StrRightSmallBracket))
-}
-
-// ParcelCancelSQL Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
-func ParcelCancelSQL(script *SQL) *SQL {
-	if script == nil || script.IsEmpty() {
-		return NewEmptySQL()
-	}
-	result := script.Copy()
-	result.Prepare = ParcelCancelPrepare(result.Prepare)
-	return result
-}
-
-// UnionSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )... )
-func UnionSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(Strings(StrSpace, StrUnion, StrSpace), result...)
-}
-
-// UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )... )
-func UnionAllSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(Strings(StrSpace, StrUnionAll, StrSpace), result...)
-}
-
-// IntersectSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) INTERSECT ( QUERY_C )... )
-func IntersectSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(Strings(StrSpace, StrIntersect, StrSpace), result...)
-}
-
-// IntersectAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ALL ( QUERY_B ) INTERSECT ALL ( QUERY_C )... )
-func IntersectAllSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(Strings(StrSpace, StrIntersectAll, StrSpace), result...)
-}
-
-// ExceptSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) EXCEPT ( QUERY_C )... )
-func ExceptSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(Strings(StrSpace, StrExpect, StrSpace), result...)
-}
-
-// ExceptAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ALL ( QUERY_B ) EXCEPT ALL ( QUERY_C )... )
-func ExceptAllSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(Strings(StrSpace, StrExpectAll, StrSpace), result...)
-}
-
-// MustAffectedRows At least one row is affected.
-func MustAffectedRows(affectedRows int64, err error) error {
-	if err != nil {
-		return err
-	}
-	if affectedRows <= 0 {
-		return ErrNoRowsAffected
-	}
-	return nil
-}
-
-// LastNotEmptyString Get last not empty string, return empty string if it does not exist.
-func LastNotEmptyString(sss []string) string {
-	for i := len(sss) - 1; i >= 0; i-- {
-		if sss[i] != StrEmpty {
-			return sss[i]
-		}
-	}
-	return StrEmpty
 }
 
 // poolInsertByStruct Insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
@@ -907,7 +848,7 @@ func poolGetInsertByStruct() *insertByStruct {
 }
 
 func poolPutInsertByStruct(b *insertByStruct) {
-	b.tag = StrEmpty
+	b.tag = cst.Empty
 	b.allow = nil
 	b.except = nil
 	b.used = nil
@@ -999,7 +940,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 		default:
 		}
 
-		if tagValue == StrEmpty {
+		if tagValue == cst.Empty {
 			// database columns are usually named with underscores, so the `db` tag is not set. No column mapping is done here.
 			continue
 		}
@@ -1301,7 +1242,7 @@ func basicTypeValue(value any) any {
 			}
 			switch k {
 			case reflect.String:
-				return StrEmpty
+				return cst.Empty
 			case reflect.Bool:
 				return false
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
@@ -1386,7 +1327,7 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 		}
 
 		valueIndexFieldTag := field.Tag.Get(s.tag)
-		if valueIndexFieldTag == StrEmpty || valueIndexFieldTag == "-" {
+		if valueIndexFieldTag == cst.Empty || valueIndexFieldTag == "-" {
 			continue
 		}
 		if _, ok := s.except[valueIndexFieldTag]; ok {
@@ -1436,7 +1377,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 		}
 
 		valueIndexFieldTag := field.Tag.Get(s.tag)
-		if valueIndexFieldTag == StrEmpty || valueIndexFieldTag == "-" {
+		if valueIndexFieldTag == cst.Empty || valueIndexFieldTag == "-" {
 			continue
 		}
 		if _, ok := s.except[valueIndexFieldTag]; ok {
@@ -1455,7 +1396,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 
 // Insert Object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *insertByStruct) Insert(object any, tag string, except []string, allow []string) (fields []string, values [][]any) {
-	if object == nil || tag == StrEmpty {
+	if object == nil || tag == cst.Empty {
 		return fields, values
 	}
 
@@ -1510,7 +1451,7 @@ func StructInsert(object any, tag string, except []string, allow []string) (fiel
 
 // StructModify Object should be one of anyStruct, *anyStruct get the fields and values that need to be modified.
 func StructModify(object any, tag string, except ...string) (fields []string, values []any) {
-	if object == nil || tag == StrEmpty {
+	if object == nil || tag == cst.Empty {
 		return fields, values
 	}
 	ofType := reflect.TypeOf(object)
@@ -1581,7 +1522,7 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 		}
 
 		column := field.Tag.Get(tag)
-		if column == StrEmpty || column == "-" {
+		if column == cst.Empty || column == "-" {
 			continue
 		}
 		if _, ok := excepted[column]; ok {
@@ -1626,7 +1567,7 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 
 // StructObtain Object should be one of anyStruct, *anyStruct for get all fields and values.
 func StructObtain(object any, tag string, except ...string) (fields []string, values []any) {
-	if object == nil || tag == StrEmpty {
+	if object == nil || tag == cst.Empty {
 		return fields, values
 	}
 	ofType := reflect.TypeOf(object)
@@ -1698,7 +1639,7 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 		}
 
 		column := field.Tag.Get(tag)
-		if column == StrEmpty || column == "-" {
+		if column == cst.Empty || column == "-" {
 			continue
 		}
 		if _, ok := excepted[column]; ok {
@@ -1712,7 +1653,7 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 
 // StructUpdate Compare origin and latest for update.
 func StructUpdate(origin any, latest any, tag string, except ...string) (fields []string, values []any) {
-	if origin == nil || latest == nil || tag == StrEmpty {
+	if origin == nil || latest == nil || tag == cst.Empty {
 		return fields, values
 	}
 
@@ -1762,7 +1703,7 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (fields 
 
 // ExecuteScript Execute SQL script.
 func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any) error {
-	if execute = strings.TrimSpace(execute); execute == StrEmpty {
+	if execute = strings.TrimSpace(execute); execute == cst.Empty {
 		return nil
 	}
 	if _, err := db.ExecContext(ctx, execute, args...); err != nil {
@@ -1774,7 +1715,7 @@ func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any)
 // DropTable DROP TABLE. Data is priceless! You should back up your data before calling this function unless you are very sure what you are doing.
 func DropTable(ctx context.Context, db *sql.DB, tables ...string) error {
 	for _, table := range tables {
-		if table = strings.TrimSpace(table); table == StrEmpty {
+		if table = strings.TrimSpace(table); table == cst.Empty {
 			continue
 		}
 		if err := ExecuteScript(ctx, db, fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
@@ -1787,7 +1728,7 @@ func DropTable(ctx context.Context, db *sql.DB, tables ...string) error {
 // TruncateTable TRUNCATE TABLE. Data is priceless! You should back up your data before calling this function unless you are very sure what you are doing.
 func TruncateTable(ctx context.Context, db *sql.DB, tables ...string) error {
 	for _, table := range tables {
-		if table = strings.TrimSpace(table); table == StrEmpty {
+		if table = strings.TrimSpace(table); table == cst.Empty {
 			continue
 		}
 		if err := ExecuteScript(ctx, db, fmt.Sprintf("TRUNCATE TABLE %s", table)); err != nil {
@@ -1939,6 +1880,91 @@ func QuickScan(
 	return results, nil
 }
 
+// TableColumn Add the prefix "table_name." before the column name.
+// Allow the table name to be empty, which makes it possible to replace column names or construct SQL statements based on column names.
+type TableColumn interface {
+	// Table Get the current table name.
+	Table() string
+
+	// Column Add table name prefix to single column name, allowing column alias to be set.
+	Column(column string, alias ...string) string
+
+	// ColumnAll Add table name prefix to column names in batches.
+	ColumnAll(columnAll ...string) []string
+
+	// ColumnSQL Single column to *SQL.
+	ColumnSQL(column string, alias ...string) *SQL
+
+	// ColumnAllSQL Multiple columns to *SQL.
+	ColumnAllSQL(columnAll ...string) *SQL
+}
+
+type tableColumn struct {
+	way       *Way
+	tableName string
+}
+
+func NewTableColumn(way *Way, tableName ...string) TableColumn {
+	tmp := &tableColumn{
+		way: way,
+	}
+	tmp.tableName = LastNotEmptyString(tableName)
+	return tmp
+}
+
+// Table Get the current table name.
+func (s *tableColumn) Table() string {
+	return s.tableName
+}
+
+// columnAlias Set an alias for the column.
+// "[prefix.]column_name" -> "column_name"
+// "[prefix.]column_name + alias_name" -> "column_name AS column_alias_name"
+func (s *tableColumn) columnAlias(column string, alias ...string) string {
+	if aliasName := LastNotEmptyString(alias); aliasName != cst.Empty {
+		return newSqlAlias(column).v(s.way).SetAlias(aliasName).ToSQL().Prepare
+	}
+	return column
+}
+
+// Column Add table name prefix to single column name, allowing column alias to be set.
+func (s *tableColumn) Column(column string, alias ...string) string {
+	return s.columnAlias(s.ColumnAll(column)[0], alias...)
+}
+
+// ColumnAll Add table name prefix to column names in batches.
+func (s *tableColumn) ColumnAll(columnAll ...string) []string {
+	if s.tableName == cst.Empty {
+		return s.way.ReplaceAll(columnAll)
+	}
+	table := s.way.Replace(s.tableName)
+	result := make([]string, len(columnAll))
+	for index, column := range columnAll {
+		result[index] = Prefix(table, s.way.Replace(column))
+	}
+	return result
+}
+
+// ColumnSQL Single column to *SQL.
+func (s *tableColumn) ColumnSQL(column string, alias ...string) *SQL {
+	return NewSQL(s.Column(column, alias...))
+}
+
+// ColumnAllSQL Multiple columns to *SQL.
+func (s *tableColumn) ColumnAllSQL(columnAll ...string) *SQL {
+	columnAll = s.ColumnAll(columnAll...)
+	valuesAll := make([]any, len(columnAll))
+	for i := range columnAll {
+		valuesAll[i] = columnAll[i]
+	}
+	return JoinSQLCommaSpace(valuesAll...)
+}
+
+// T Register a shortcut method T to quickly create a TableColumn instance.
+func (s *Way) T(tableName ...string) TableColumn {
+	return NewTableColumn(s, tableName...)
+}
+
 /*
 SQL WINDOW FUNCTION
 
@@ -2002,13 +2028,13 @@ func NewSQLWindowFuncFrame(frame string) SQLWindowFuncFrame {
 }
 
 func (s *sqlWindowFuncFrame) ToSQL() *SQL {
-	if s.frame == StrEmpty {
-		return NewSQL(StrEmpty)
+	if s.frame == cst.Empty {
+		return NewSQL(cst.Empty)
 	}
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
 	b.WriteString(s.frame)
-	b.WriteString(StrSpace)
+	b.WriteString(cst.Space)
 
 	if script := s.script; script != nil {
 		if !script.IsEmpty() {
@@ -2021,34 +2047,34 @@ func (s *sqlWindowFuncFrame) ToSQL() *SQL {
 }
 
 func (s *sqlWindowFuncFrame) SQL(value any) SQLWindowFuncFrame {
-	s.script = any2sql(value)
+	s.script = AnyToSQL(value)
 	return s
 }
 
 func (s *sqlWindowFuncFrame) UnboundedPreceding() *SQL {
-	return any2sql("UNBOUNDED PRECEDING")
+	return AnyToSQL("UNBOUNDED PRECEDING")
 }
 
 func (s *sqlWindowFuncFrame) NPreceding(n int) *SQL {
-	return any2sql(fmt.Sprintf("%d PRECEDING", n))
+	return AnyToSQL(fmt.Sprintf("%d PRECEDING", n))
 }
 
 func (s *sqlWindowFuncFrame) CurrentRow() *SQL {
-	return any2sql("CURRENT ROW")
+	return AnyToSQL("CURRENT ROW")
 }
 
 func (s *sqlWindowFuncFrame) NFollowing(n int) *SQL {
-	return any2sql(fmt.Sprintf("%d FOLLOWING", n))
+	return AnyToSQL(fmt.Sprintf("%d FOLLOWING", n))
 }
 
 func (s *sqlWindowFuncFrame) UnboundedFollowing() *SQL {
-	return any2sql("UNBOUNDED FOLLOWING")
+	return AnyToSQL("UNBOUNDED FOLLOWING")
 }
 
 func (s *sqlWindowFuncFrame) Between(fc func(ff SQLWindowFuncFrame) (*SQL, *SQL)) SQLWindowFuncFrame {
 	if fc != nil {
 		if start, end := fc(s); start != nil && end != nil && !start.IsEmpty() && !end.IsEmpty() {
-			s.SQL(JoinSQLSpace(StrBetween, start, StrAnd, end))
+			s.SQL(JoinSQLSpace(cst.BETWEEN, start, cst.AND, end))
 		}
 	}
 	return s
@@ -2141,9 +2167,9 @@ func (s *WindowFunc) Avg(column string) *WindowFunc {
 
 // Count COUNT() Returns the number of rows in the window.
 func (s *WindowFunc) Count(columns ...string) *WindowFunc {
-	column := StrStar
+	column := cst.Asterisk
 	for i := len(columns) - 1; i >= 0; i-- {
-		if columns[i] != StrEmpty {
+		if columns[i] != cst.Empty {
 			column = s.way.Replace(columns[i])
 			break
 		}
@@ -2189,20 +2215,20 @@ func (s *WindowFunc) Partition(column ...string) *WindowFunc {
 
 // Asc Define the sorting within the partition so that the window function is calculated in order.
 func (s *WindowFunc) Asc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), StrAsc))
+	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), cst.ASC))
 	return s
 }
 
 // Desc Define the sorting within the partition so that the window function is calculated in descending order.
 func (s *WindowFunc) Desc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), StrDesc))
+	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), cst.DESC))
 	return s
 }
 
 // Range Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
 func (s *WindowFunc) Range(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 	if fc != nil {
-		frame := NewSQLWindowFuncFrame(StrRange)
+		frame := NewSQLWindowFuncFrame(cst.RANGE)
 		fc(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			s.frameRange, s.frameRows = tmp, nil
@@ -2214,7 +2240,7 @@ func (s *WindowFunc) Range(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 // Rows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
 func (s *WindowFunc) Rows(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 	if fc != nil {
-		frame := NewSQLWindowFuncFrame(StrRows)
+		frame := NewSQLWindowFuncFrame(cst.ROWS)
 		fc(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			s.frameRows, s.frameRange = tmp, nil
@@ -2230,7 +2256,7 @@ func (s *WindowFunc) Alias(alias string) *WindowFunc {
 }
 
 func (s *WindowFunc) ToSQL() *SQL {
-	result, window := NewSQL(StrEmpty), s.window
+	result, window := NewSQL(cst.Empty), s.window
 	if window == nil || window.IsEmpty() {
 		return result
 	}
@@ -2240,184 +2266,38 @@ func (s *WindowFunc) ToSQL() *SQL {
 
 	b.WriteString(window.Prepare)
 	result.Args = append(result.Args, window.Args...)
-	b.WriteString(Strings(StrSpace, StrOver, StrSpace, StrLeftSmallBracket))
+	b.WriteString(JoinString(cst.Space, cst.OVER, cst.Space, cst.LeftParenthesis))
 
 	num := 0
 	if len(s.partition) > 0 {
 		num++
-		b.WriteString(Strings(StrSpace, StrPartitionBy, StrSpace))
-		b.WriteString(strings.Join(s.partition, StrCommaSpace))
+		b.WriteString(JoinString(cst.Space, cst.PARTITION, cst.Space, cst.BY, cst.Space))
+		b.WriteString(strings.Join(s.partition, cst.CommaSpace))
 	}
 	if len(s.order) > 0 {
 		num++
-		b.WriteString(Strings(StrSpace, StrOrderBy, StrSpace))
-		b.WriteString(strings.Join(s.order, StrCommaSpace))
+		b.WriteString(JoinString(cst.Space, cst.ORDER, cst.Space, cst.BY, cst.Space))
+		b.WriteString(strings.Join(s.order, cst.CommaSpace))
 	}
 	if frame := s.frameRange; frame != nil {
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			num++
-			b.WriteString(Strings(StrSpace, tmp.Prepare))
+			b.WriteString(JoinString(cst.Space, tmp.Prepare))
 			result.Args = append(result.Args, tmp.Args...)
 		}
 	}
 	if frame := s.frameRows; frame != nil {
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			num++
-			b.WriteString(Strings(StrSpace, tmp.Prepare))
+			b.WriteString(JoinString(cst.Space, tmp.Prepare))
 			result.Args = append(result.Args, tmp.Args...)
 		}
 	}
 
 	if num > 0 {
-		b.WriteString(StrSpace)
+		b.WriteString(cst.Space)
 	}
-	b.WriteString(StrRightSmallBracket)
+	b.WriteString(cst.RightParenthesis)
 	result.Prepare = b.String()
 	return newSqlAlias(result).v(s.way).SetAlias(s.alias).ToSQL()
-}
-
-type TableColumn struct {
-	way   *Way
-	alias string
-}
-
-func NewTableColumn(way *Way, aliases ...string) *TableColumn {
-	tmp := &TableColumn{
-		way: way,
-	}
-	tmp.alias = LastNotEmptyString(aliases)
-	return tmp
-}
-
-// T Table empty alias
-func (s *Way) T() *TableColumn {
-	return NewTableColumn(s)
-}
-
-// Alias Get the alias name value.
-func (s *TableColumn) Alias() string {
-	return s.alias
-}
-
-// SetAlias Set the alias name value.
-func (s *TableColumn) SetAlias(alias string) *TableColumn {
-	s.alias = alias
-	return s
-}
-
-// Adjust Batch adjust columns.
-func (s *TableColumn) Adjust(adjust func(column string) string, columns ...string) []string {
-	if adjust != nil {
-		for index, column := range columns {
-			columns[index] = s.way.Replace(adjust(column))
-		}
-	}
-	return columns
-}
-
-// ColumnAll Add table name prefix to column names in batches.
-func (s *TableColumn) ColumnAll(columns ...string) []string {
-	if s.alias == StrEmpty {
-		return s.way.ReplaceAll(columns)
-	}
-	alias := s.way.Replace(s.alias)
-	result := make([]string, len(columns))
-	for index, column := range columns {
-		result[index] = Prefix(alias, s.way.Replace(column))
-	}
-	return result
-}
-
-// columnAlias Set an alias for the column.
-// "column_name + alias_name" -> "column_name"
-// "column_name + alias_name" -> "column_name AS alias_name"
-func (s *TableColumn) columnAlias(column string, aliases ...string) string {
-	if alias := LastNotEmptyString(aliases); alias != StrEmpty {
-		return newSqlAlias(column).v(s.way).SetAlias(alias).ToSQL().Prepare
-	}
-	return column
-}
-
-// Column Add table name prefix to single column name, allowing column alias to be set.
-func (s *TableColumn) Column(column string, aliases ...string) string {
-	return s.columnAlias(s.ColumnAll(column)[0], aliases...)
-}
-
-// Sum SUM(column[, alias])
-func (s *TableColumn) Sum(column string, aliases ...string) string {
-	return s.columnAlias(Sum(s.Column(column)).Prepare, aliases...)
-}
-
-// Max MAX(column[, alias])
-func (s *TableColumn) Max(column string, aliases ...string) string {
-	return s.columnAlias(Max(s.Column(column)).Prepare, aliases...)
-}
-
-// Min MIN(column[, alias])
-func (s *TableColumn) Min(column string, aliases ...string) string {
-	return s.columnAlias(Min(s.Column(column)).Prepare, aliases...)
-}
-
-// Avg AVG(column[, alias])
-func (s *TableColumn) Avg(column string, aliases ...string) string {
-	return s.columnAlias(Avg(s.Column(column)).Prepare, aliases...)
-}
-
-const DefaultAliasNameCount = "counts"
-
-// Count Example
-// Count(): COUNT(*) AS `counts`
-// Count("total"): COUNT(*) AS `total`
-// Count("1", "total"): COUNT(1) AS `total`
-// Count("id", "counts"): COUNT(`id`) AS `counts`
-func (s *TableColumn) Count(counts ...string) string {
-	count := "COUNT(*)"
-	length := len(counts)
-	if length == 0 {
-		// using default expression: COUNT(*) AS `counts`
-		return s.columnAlias(count, s.way.Replace(DefaultAliasNameCount))
-	}
-	if length == 1 && counts[0] != StrEmpty {
-		// only set alias name
-		return s.columnAlias(count, s.way.Replace(counts[0]))
-	}
-	// set COUNT function parameters and alias name
-	countAlias := s.way.Replace(DefaultAliasNameCount)
-	column := false
-	for i := range length {
-		if counts[i] == StrEmpty {
-			continue
-		}
-		if column {
-			countAlias = s.way.Replace(counts[i])
-			break
-		}
-		count, column = fmt.Sprintf("COUNT(%s)", s.Column(counts[i])), true
-	}
-	return s.columnAlias(count, countAlias)
-}
-
-// aggregate Perform an aggregate function on the column and set a default value to replace NULL values.
-func (s *TableColumn) aggregate(column string, defaultValue any, aliases ...string) string {
-	return s.columnAlias(Coalesce(s.Column(column), defaultValue).Prepare, aliases...)
-}
-
-// SUM COALESCE(SUM(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) SUM(column string, aliases ...string) string {
-	return s.aggregate(s.Sum(column), 0, aliases...)
-}
-
-// MAX COALESCE(MAX(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) MAX(column string, aliases ...string) string {
-	return s.aggregate(s.Max(column), 0, aliases...)
-}
-
-// MIN COALESCE(MIN(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) MIN(column string, aliases ...string) string {
-	return s.aggregate(s.Min(column), 0, aliases...)
-}
-
-// AVG COALESCE(AVG(column) ,0)[ AS column_alias_name]
-func (s *TableColumn) AVG(column string, aliases ...string) string {
-	return s.aggregate(s.Avg(column), 0, aliases...)
 }

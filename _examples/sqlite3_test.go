@@ -6,20 +6,22 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cd365/hey/v5"
+	"github.com/cd365/hey/v6/cst"
+
+	"github.com/cd365/hey/v6"
 )
 
 func TestDelete(t *testing.T) {
 	ast := Assert(t)
 
 	// WHERE
-	tmp := way.Table(table1).Where(F().MoreThan(id, 0))
+	tmp := way.Table(table1).Where(F().GreaterThan(id, 0))
 	script := tmp.ToDelete()
 	ast.Equal("DELETE FROM table1 WHERE ( id > ? )", script.Prepare)
 
 	// IN subquery
 	{
-		tmp.WHERE(func(f hey.Filter) {
+		tmp.WhereFunc(func(f hey.Filter) {
 			f.ToEmpty().In(id, way.Table(table1).Select(id).Where(F().Equal(status, 1)).Desc(id).Limit(10))
 		})
 		script = tmp.ToDelete()
@@ -30,7 +32,7 @@ func TestDelete(t *testing.T) {
 	{
 		tmp.ToEmpty()
 		tmp.With("a", way.Table(table1).Select(id).Where(F().Equal(status, 1)).Desc(id).Limit(10))
-		tmp.WHERE(func(f hey.Filter) {
+		tmp.WhereFunc(func(f hey.Filter) {
 			f.ToEmpty().In(id, way.Table("a").Select(id))
 		})
 		script = tmp.ToDelete()
@@ -56,7 +58,7 @@ func TestInsert(t *testing.T) {
 	ast := Assert(t)
 
 	tmp := way.Table(table1)
-	tmp.INSERT(func(i hey.SQLInsert) {
+	tmp.InsertFunc(func(i hey.SQLInsert) {
 		// i.ToEmpty()
 		i.ColumnValue(field1, "value1")
 		i.ColumnValue(field2, "value2")
@@ -70,13 +72,13 @@ func TestInsert(t *testing.T) {
 	// Insert a record and get the auto-incremented id value.
 	{
 		tmp.ToEmpty()
-		tmp.INSERT(func(i hey.SQLInsert) {
+		tmp.InsertFunc(func(i hey.SQLInsert) {
 			i.ToEmpty()
 			i.Create(map[string]any{
 				"username": "test001",
 			})
 			i.Returning(func(r hey.SQLReturning) {
-				/* PostgreSQL */
+				/* postgresql */
 				r.Returning(id).Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
 					err = stmt.QueryRow(ctx, func(row *sql.Row) error {
 						return row.Scan(&id)
@@ -84,7 +86,7 @@ func TestInsert(t *testing.T) {
 					return id, err
 				})
 
-				/* MySQL */
+				/* mysql */
 				// r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
 				// 	result, err := stmt.Exec(ctx, args...)
 				// 	if err != nil {
@@ -107,7 +109,7 @@ func TestInsert(t *testing.T) {
 			Other    any    `json:"other" db:"-"` // Ignore the current attribute when interacting with the database.
 		}
 		tmp.ToEmpty()
-		tmp.INSERT(func(i hey.SQLInsert) {
+		tmp.InsertFunc(func(i hey.SQLInsert) {
 			values := []*example{
 				{
 					Username: "test001",
@@ -136,10 +138,10 @@ func TestUpdate(t *testing.T) {
 	ast := Assert(t)
 
 	tmp := way.Table(table1)
-	tmp.UPDATE(func(f hey.Filter, u hey.SQLUpdateSet) {
+	tmp.UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 		// f.ToEmpty()
 		// u.ToEmpty()
-		f.MoreThan(id, 0)
+		f.GreaterThan(id, 0)
 		u.Set(status, 1)
 		u.Set(field1, "")
 		u.Default(updatedAt, tmp.W().Now().Unix())
@@ -150,7 +152,7 @@ func TestUpdate(t *testing.T) {
 	{
 		tmp.ToEmpty()
 		tmp.With("a", way.Table(table1).Select(id).Desc(id).Limit(10))
-		tmp.UPDATE(func(f hey.Filter, u hey.SQLUpdateSet) {
+		tmp.UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 			f.ToEmpty()
 			u.ToEmpty()
 			f.Equal(id, 1).OrGroup(func(g hey.Filter) {
@@ -224,9 +226,9 @@ func TestSelect(t *testing.T) {
 	// GROUP BY
 	{
 		tmp.ToEmpty()
-		tmp.Select(id).Group(id).GROUP(func(g hey.SQLGroupBy) {
+		tmp.Select(id).Group(id).GroupFunc(func(g hey.SQLGroupBy) {
 			g.Having(func(having hey.Filter) {
-				having.MoreThanEqual(id, 0)
+				having.GreaterThanEqual(id, 0)
 			})
 		}).Asc(id).Limit(1)
 		script = tmp.ToSelect()
@@ -245,10 +247,10 @@ func TestSelect(t *testing.T) {
 	{
 		a := "a"
 		c := table1
-		tmpWith := way.Table(a).Comment("test1").WITH(func(w hey.SQLWith) {
+		tmpWith := way.Table(a).Comment("test1").WithFunc(func(w hey.SQLWith) {
 			w.Set(
 				a,
-				way.Table(c).Select(id, "status").WHERE(func(f hey.Filter) {
+				way.Table(c).Select(id, "status").WhereFunc(func(f hey.Filter) {
 					f.Equal("status", 1)
 				}).Desc(id).Limit(10).ToSelect(),
 			)
@@ -264,15 +266,15 @@ func TestSelect(t *testing.T) {
 		get := way.Table(c).Alias(a)
 		get.LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
 			right = j.Table(e, b)
-			// j.PrefixSelect(j.GetTable(), hey.StrStar)
+			// j.PrefixSelect(j.GetTable(), cst.Asterisk)
 			j.Select(
-				j.Prefix(j.GetTable(), hey.StrStar),
+				j.Prefix(j.GetTable(), cst.Asterisk),
 				hey.Alias(hey.Coalesce(j.Prefix(right, "first_name"), hey.SQLString("")), "first_name"), // string
 				hey.Alias(j.Prefix(right, "last_name"), "last_name"),                                    // pointer string
 			)
 			assoc = j.OnEqual(id, "company_id")
 			aid := j.Prefix(j.GetTable(), id)
-			where.MoreThan(aid, 0)
+			where.GreaterThan(aid, 0)
 			get.Desc(aid)
 			return left, right, assoc
 		})
@@ -307,7 +309,7 @@ func TestTransaction(t *testing.T) {
 		script := remove.ToDelete()
 		fmt.Println(script.Prepare)
 
-		update := tx.Table(table2).Where(idEqual(1)).UPDATE(func(f hey.Filter, u hey.SQLUpdateSet) {
+		update := tx.Table(table2).Where(idEqual(1)).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 			u.Update(modify)
 		})
 		// _, _ = update.Update(ctx)

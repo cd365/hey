@@ -1,6 +1,6 @@
-module github.com/cd365/hey/v5
+module github.com/cd365/hey/v6
 
-go 1.23.0
+go 1.25.3
 
 require github.com/cd365/logger/v9 v9.0.0
 

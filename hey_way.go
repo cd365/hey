@@ -1,3 +1,5 @@
+// About *Way
+
 package hey
 
 import (
@@ -9,6 +11,8 @@ import (
 	"reflect"
 	"strconv"
 	"time"
+
+	"github.com/cd365/hey/v6/cst"
 
 	"github.com/cd365/logger/v9"
 )
@@ -30,13 +34,13 @@ func binaryByteSliceToString(args []any) []any {
 // argValueToString Convert SQL parameter value to string.
 func argValueToString(i any) string {
 	if i == nil {
-		return StrNull
+		return cst.NULL
 	}
 	t, v := reflect.TypeOf(i), reflect.ValueOf(i)
 	k := t.Kind()
 	for k == reflect.Pointer {
 		if v.IsNil() {
-			return StrNull
+			return cst.NULL
 		}
 		t, v = t.Elem(), v.Elem()
 		k = t.Kind()
@@ -56,7 +60,7 @@ func argValueToString(i any) string {
 	default:
 		if bts, ok := tmp.([]byte); ok {
 			if bts == nil {
-				return StrNull
+				return cst.NULL
 			}
 			return hexEncodeToString(bts)
 		}
@@ -68,7 +72,7 @@ func argValueToString(i any) string {
 // Warning: Binary byte slice will be converted to hexadecimal strings.
 func SQLToString(script *SQL) string {
 	if script == nil {
-		return StrEmpty
+		return cst.Empty
 	}
 	counts := len(script.Args)
 	if counts == 0 {
@@ -79,7 +83,7 @@ func SQLToString(script *SQL) string {
 	result := poolGetStringBuilder()
 	defer poolPutStringBuilder(result)
 	length := len(origin)
-	c63 := Str63[0]
+	c63 := cst.Placeholder[0]
 	for i := range length {
 		if origin[i] == c63 && index < counts {
 			result.WriteString(argValueToString(script.Args[index]))
@@ -90,23 +94,6 @@ func SQLToString(script *SQL) string {
 	}
 	return result.String()
 }
-
-const (
-	strTxBegin    = "BEGIN"
-	strTxCommit   = "COMMIT"
-	strTxRollback = "ROLLBACK"
-
-	strId      = "id"
-	strStartAt = "start_at"
-	strEndAt   = "end_at"
-	strState   = "state"
-	strError   = "error"
-	strScript  = "script"
-	strMsg     = "msg"
-	strPrepare = "prepare"
-	strArgs    = "args"
-	strCost    = "cost"
-)
 
 // DebugMaker Output SQL script to the specified output stream.
 // Warning: Binary byte slice will be converted to hexadecimal strings.
@@ -141,9 +128,9 @@ func (s *debugMaker) Debug(maker Maker) DebugMaker {
 	}
 	script := maker.ToSQL()
 	s.log.Debug().
-		Str(strScript, SQLToString(script)).
-		Str(strPrepare, script.Prepare).
-		Any(strArgs, binaryByteSliceToString(script.Args)).
+		Str(cst.LogScript, SQLToString(script)).
+		Str(cst.LogPrepare, script.Prepare).
+		Any(cst.LogArgs, binaryByteSliceToString(script.Args)).
 		Msg("debugger SQL script")
 	return s
 }
@@ -175,10 +162,10 @@ func (s *transaction) start() {
 		return
 	}
 	lg := s.way.log.Info()
-	lg.Str(strId, s.id)
-	lg.Int64(strStartAt, s.startAt.UnixMilli())
-	lg.Str(strState, strTxBegin)
-	lg.Msg(StrEmpty)
+	lg.Str(cst.LogId, s.id)
+	lg.Int64(cst.LogStartAt, s.startAt.UnixMilli())
+	lg.Str(cst.LogState, cst.BEGIN)
+	lg.Msg(cst.Empty)
 }
 
 // write Recording transaction logs.
@@ -193,34 +180,34 @@ func (s *transaction) write() {
 		lg := s.way.log.Info()
 		if v.err != nil {
 			lg = s.way.log.Error()
-			lg.Str(strError, v.err.Error())
-			lg.Str(strScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
+			lg.Str(cst.LogError, v.err.Error())
+			lg.Str(cst.LogScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
 		} else {
-			if v.args.endAt.Sub(v.args.startAt) > s.way.cfg.WarnDuration {
+			if v.args.endAt.Sub(v.args.startAt) > s.way.cfg.sqlWarnDuration {
 				lg = s.way.log.Warn()
-				lg.Str(strScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
+				lg.Str(cst.LogScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
 			}
 		}
-		lg.Str(strId, s.id)
-		lg.Str(strMsg, s.message)
-		lg.Str(strPrepare, v.prepare)
-		lg.Any(strArgs, binaryByteSliceToString(v.args.args))
-		lg.Int64(strStartAt, v.args.startAt.UnixMilli())
-		lg.Int64(strEndAt, v.args.endAt.UnixMilli())
-		lg.Str(strCost, v.args.endAt.Sub(v.args.startAt).String())
-		lg.Msg(StrEmpty)
+		lg.Str(cst.LogId, s.id)
+		lg.Str(cst.LogMsg, s.message)
+		lg.Str(cst.LogPrepare, v.prepare)
+		lg.Any(cst.LogArgs, binaryByteSliceToString(v.args.args))
+		lg.Int64(cst.LogStartAt, v.args.startAt.UnixMilli())
+		lg.Int64(cst.LogEndAt, v.args.endAt.UnixMilli())
+		lg.Str(cst.LogCost, v.args.endAt.Sub(v.args.startAt).String())
+		lg.Msg(cst.Empty)
 	}
 	lg := s.way.log.Info()
 	if s.err != nil {
 		lg = s.way.log.Error()
-		lg.Str(strError, s.err.Error())
+		lg.Str(cst.LogError, s.err.Error())
 	}
-	lg.Str(strId, s.id)
-	lg.Int64(strStartAt, s.startAt.UnixMilli())
-	lg.Str(strState, s.state)
-	lg.Int64(strEndAt, s.endAt.UnixMilli())
-	lg.Str(strCost, s.endAt.Sub(s.startAt).String())
-	lg.Msg(StrEmpty)
+	lg.Str(cst.LogId, s.id)
+	lg.Int64(cst.LogStartAt, s.startAt.UnixMilli())
+	lg.Str(cst.LogState, s.state)
+	lg.Int64(cst.LogEndAt, s.endAt.UnixMilli())
+	lg.Str(cst.LogCost, s.endAt.Sub(s.startAt).String())
+	lg.Msg(cst.Empty)
 }
 
 // Manual For handling different types of databases.
@@ -250,8 +237,8 @@ func prepare63236(prepare string) string {
 	defer poolPutStringBuilder(latest)
 	origin := []byte(prepare)
 	length := len(origin)
-	c36 := Str36[0] // $
-	c63 := Str63[0] // ?
+	c36 := cst.Dollar[0]      // $
+	c63 := cst.Placeholder[0] // ?
 	for i := range length {
 		if origin[i] == c63 {
 			index++
@@ -270,53 +257,150 @@ func Postgresql() *Manual {
 	return manual
 }
 
-// Cfg Configure of Way.
-type Cfg struct {
-	// Debug For debug output SQL script.
-	Debug DebugMaker
+type config struct {
+	// debugMaker For debug output SQL script.
+	debugMaker DebugMaker
 
-	// MapScan Custom MapScan.
-	MapScan MapScanner
+	// mapScanner Custom MapScan, Cannot be set to nil.
+	mapScanner MapScanner
 
-	// Manual For handling different types of databases.
-	Manual *Manual
+	// manual For handling different types of databases.
+	manual *Manual
 
-	// Scan For scanning data into structure.
-	Scan func(rows *sql.Rows, result any, tag string) error
+	// scan For scanning data into structure, Cannot be set to nil.
+	scan func(rows *sql.Rows, result any, tag string) error
 
-	// TransactionOptions Start transaction.
-	TransactionOptions *sql.TxOptions
+	// txOptions Start transaction options.
+	txOptions *sql.TxOptions
 
-	// ScanTag Scan data to tag mapping on structure.
-	ScanTag string
+	// scanTag Scan data to tag mapping on structure.
+	scanTag string
 
-	// TableMethodName Custom method name to get table name.
-	TableMethodName string
+	// tableMethodName Custom method name to get table name.
+	tableMethodName string
 
-	// TransactionMaxDuration Maximum transaction execution time.
-	TransactionMaxDuration time.Duration
+	// txMaxDuration Maximum transaction execution time.
+	txMaxDuration time.Duration
 
-	// WarnDuration SQL execution time warning threshold.
-	WarnDuration time.Duration
+	// sqlWarnDuration SQL execution time warning threshold.
+	sqlWarnDuration time.Duration
 
-	// DeleteMustUseWhere Deletion of data must be filtered using conditions.
-	DeleteMustUseWhere bool
+	// deleteRequireWhere Deletion of data must be filtered using conditions.
+	deleteRequireWhere bool
 
-	// UpdateMustUseWhere Updated data must be filtered using conditions.
-	UpdateMustUseWhere bool
+	// updateRequireWhere Updated data must be filtered using conditions.
+	updateRequireWhere bool
 }
 
-// DefaultCfg default configure value.
-func DefaultCfg() Cfg {
-	return Cfg{
-		MapScan:                NewMapScanner(),
-		Scan:                   RowsScan,
-		ScanTag:                StrDefaultTag,
-		TableMethodName:        StrTableMethodName,
-		DeleteMustUseWhere:     true,
-		UpdateMustUseWhere:     true,
-		TransactionMaxDuration: time.Second * 5,
-		WarnDuration:           time.Millisecond * 200,
+const (
+	DefaultTag      = "db"
+	TableMethodName = "TableName"
+)
+
+func configDefault() *config {
+	return &config{
+		mapScanner:         NewMapScanner(),
+		scan:               RowsScan,
+		scanTag:            DefaultTag,
+		tableMethodName:    TableMethodName,
+		deleteRequireWhere: true,
+		updateRequireWhere: true,
+		txMaxDuration:      time.Second * 5,
+		sqlWarnDuration:    time.Millisecond * 200,
+	}
+}
+
+type Option func(way *Way)
+
+func WithDebugMaker(debugMaker DebugMaker) Option {
+	return func(way *Way) {
+		way.cfg.debugMaker = debugMaker
+	}
+}
+
+func WithMapScanner(mapScanner MapScanner) Option {
+	return func(way *Way) {
+		if mapScanner != nil {
+			way.cfg.mapScanner = mapScanner
+		}
+	}
+}
+
+func WithManual(manual *Manual) Option {
+	return func(way *Way) {
+		way.cfg.manual = manual
+	}
+}
+
+func WithScan(scan func(rows *sql.Rows, result any, tag string) error) Option {
+	return func(way *Way) {
+		if scan != nil {
+			way.cfg.scan = scan
+		}
+	}
+}
+
+func WithTxOptions(txOptions *sql.TxOptions) Option {
+	return func(way *Way) {
+		way.cfg.txOptions = txOptions
+	}
+}
+
+func WithScanTag(scanTag string) Option {
+	return func(way *Way) {
+		way.cfg.scanTag = scanTag
+	}
+}
+
+func WithTableMethodName(tableMethodName string) Option {
+	return func(way *Way) {
+		way.cfg.tableMethodName = tableMethodName
+	}
+}
+
+func WithTxMaxDuration(txMaxDuration time.Duration) Option {
+	return func(way *Way) {
+		if txMaxDuration > 0 {
+			way.cfg.txMaxDuration = txMaxDuration
+		}
+	}
+}
+
+func WithSqlWarnDuration(sqlWarnDuration time.Duration) Option {
+	return func(way *Way) {
+		if sqlWarnDuration > 0 {
+			way.cfg.sqlWarnDuration = sqlWarnDuration
+		}
+	}
+}
+
+func WithDeleteRequireWhere(deleteRequireWhere bool) Option {
+	return func(way *Way) {
+		way.cfg.deleteRequireWhere = deleteRequireWhere
+	}
+}
+
+func WithUpdateRequireWhere(updateRequireWhere bool) Option {
+	return func(way *Way) {
+		way.cfg.updateRequireWhere = updateRequireWhere
+	}
+}
+
+func WithDatabase(db *sql.DB) Option {
+	return func(way *Way) {
+		way.db = db
+	}
+}
+
+func WithLogger(log *logger.Logger) Option {
+	return func(way *Way) {
+		way.log = log
+	}
+}
+
+func WithReader(reader Reader) Option {
+	return func(way *Way) {
+		way.reader = reader
 	}
 }
 
@@ -365,31 +449,30 @@ func (s *sqlLog) Write() {
 	lg := s.way.log.Info()
 	if s.err != nil {
 		lg = s.way.log.Error()
-		lg.Str(strError, s.err.Error())
-		lg.Str(strScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
+		lg.Str(cst.LogError, s.err.Error())
+		lg.Str(cst.LogScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
 	} else {
-		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.WarnDuration {
+		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.sqlWarnDuration {
 			lg = s.way.log.Warn()
-			lg.Str(strScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
+			lg.Str(cst.LogScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
 		}
 	}
-	lg.Str(strPrepare, s.prepare)
-	lg.Any(strArgs, binaryByteSliceToString(s.args.args))
-	lg.Int64(strStartAt, s.args.startAt.UnixMilli())
-	lg.Int64(strEndAt, s.args.endAt.UnixMilli())
-	lg.Str(strCost, s.args.endAt.Sub(s.args.startAt).String())
-	lg.Msg(StrEmpty)
+	lg.Str(cst.LogPrepare, s.prepare)
+	lg.Any(cst.LogArgs, binaryByteSliceToString(s.args.args))
+	lg.Int64(cst.LogStartAt, s.args.startAt.UnixMilli())
+	lg.Int64(cst.LogEndAt, s.args.endAt.UnixMilli())
+	lg.Str(cst.LogCost, s.args.endAt.Sub(s.args.startAt).String())
+	lg.Msg(cst.Empty)
 }
 
-// DatabaseReader Separate read and write, when you distinguish between reading and writing, please do not use the same object for both reading and writing.
-type DatabaseReader interface {
+// Reader Separate read and write, when you distinguish between reading and writing, please do not use the same object for both reading and writing.
+type Reader interface {
 	// Read Get an object for read.
 	Read() *Way
 }
 
-// Way Quick insert, delete, update, select helper.
 type Way struct {
-	cfg *Cfg
+	cfg *config
 
 	db *sql.DB
 
@@ -397,79 +480,37 @@ type Way struct {
 
 	transaction *transaction
 
-	databaseReader DatabaseReader
+	reader Reader
 
 	isRead bool
 }
 
-func NewWay(db *sql.DB) *Way {
-	cfg := DefaultCfg()
-
-	cfg.Manual = Postgresql()
-	if drivers := sql.Drivers(); len(drivers) == 1 {
-		switch drivers[0] {
-		case "mysql":
-			cfg.Manual = Mysql()
-		case "sqlite", "sqlite3":
-			cfg.Manual = Sqlite()
-		default:
-		}
+func NewWay(options ...Option) *Way {
+	way := &Way{}
+	way.cfg = configDefault()
+	for _, option := range options {
+		option(way)
 	}
-
-	cfg.Debug = NewDebugMaker().SetLogger(logger.NewLogger(os.Stdout))
-
-	way := &Way{
-		db:  db,
-		cfg: &cfg,
-	}
-
 	return way
 }
 
-func (s *Way) GetCfg() *Cfg {
-	return s.cfg
-}
-
-func (s *Way) SetCfg(cfg *Cfg) *Way {
-	if cfg == nil || cfg.Scan == nil || cfg.ScanTag == StrEmpty || cfg.Manual == nil || cfg.TransactionMaxDuration <= 0 || cfg.WarnDuration <= 0 {
-		return s
-	}
-	s.cfg = cfg
-	return s
-}
-
-func (s *Way) GetDatabase() *sql.DB {
+func (s *Way) Database() *sql.DB {
 	return s.db
 }
 
-func (s *Way) SetDatabase(db *sql.DB) *Way {
-	s.db = db
-	return s
-}
-
-func (s *Way) GetLogger() *logger.Logger {
+func (s *Way) Logger() *logger.Logger {
 	return s.log
 }
 
-func (s *Way) SetLogger(log *logger.Logger) *Way {
-	s.log = log
-	return s
-}
-
-func (s *Way) GetDatabaseReader() DatabaseReader {
-	return s.databaseReader
-}
-
-func (s *Way) SetDatabaseReader(reader DatabaseReader) *Way {
-	s.databaseReader = reader
-	return s
+func (s *Way) Reader() Reader {
+	return s.reader
 }
 
 func (s *Way) Read() *Way {
-	if s.databaseReader == nil {
+	if s.reader == nil {
 		return s
 	}
-	result := s.databaseReader.Read()
+	result := s.reader.Read()
 	result.isRead = true
 	return result
 }
@@ -481,26 +522,38 @@ func (s *Way) IsRead() bool {
 
 // Replace Get a single identifier mapping value, if it does not exist, return the original value.
 func (s *Way) Replace(key string) string {
-	if tmp := s.cfg.Manual.Replacer; tmp != nil {
-		return tmp.Get(key)
+	manual := s.cfg.manual
+	if manual == nil {
+		return key
 	}
-	return key
+	if manual.Replacer == nil {
+		return key
+	}
+	return manual.Replacer.Get(key)
 }
 
 // ReplaceAll Get multiple identifier mapping values, return the original value if none exists.
 func (s *Way) ReplaceAll(keys []string) []string {
-	if tmp := s.cfg.Manual.Replacer; tmp != nil {
-		return tmp.GetAll(keys)
+	manual := s.cfg.manual
+	if manual == nil {
+		return keys
 	}
-	return keys
+	if manual.Replacer == nil {
+		return keys
+	}
+	return manual.Replacer.GetAll(keys)
 }
 
 // begin -> Open transaction.
 func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (tx *Way, err error) {
+	if s.db == nil {
+		return nil, ErrDatabaseIsNil
+	}
+
 	tmp := *s
 	tx = &tmp
 
-	opt := tx.cfg.TransactionOptions
+	opt := tx.cfg.txOptions
 	length := len(opts)
 	for i := length - 1; i >= 0; i-- {
 		if opts[i] != nil {
@@ -523,7 +576,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		return tx, err
 	}
 	tx.transaction.startAt = time.Now()
-	tx.transaction.id = fmt.Sprintf("%d%s%d%s%p", tx.transaction.startAt.UnixNano(), StrPoint, os.Getpid(), StrPoint, tx.transaction)
+	tx.transaction.id = fmt.Sprintf("%d%s%d%s%p", tx.transaction.startAt.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
 	tx.transaction.start()
 	return tx, err
 }
@@ -534,7 +587,7 @@ func (s *Way) commit() (err error) {
 		return ErrTransactionIsNil
 	}
 	tx := s.transaction
-	tx.state = strTxCommit
+	tx.state = cst.COMMIT
 	defer tx.write()
 	tx.err = tx.tx.Commit()
 	s.transaction, err = nil, tx.err
@@ -547,7 +600,7 @@ func (s *Way) rollback() (err error) {
 		return ErrTransactionIsNil
 	}
 	tx := s.transaction
-	tx.state = strTxRollback
+	tx.state = cst.ROLLBACK
 	defer tx.write()
 	tx.err = tx.tx.Rollback()
 	s.transaction, err = nil, tx.err
@@ -584,7 +637,7 @@ func (s *Way) TransactionMessage(message string) *Way {
 	if s.transaction == nil {
 		return s
 	}
-	if s.transaction.message == StrEmpty {
+	if s.transaction.message == cst.Empty {
 		s.transaction.message = message
 	}
 	return s
@@ -594,8 +647,8 @@ func (s *Way) TransactionMessage(message string) *Way {
 func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	if ctx == nil {
 		timeout := time.Second * 8
-		if s.cfg != nil && s.cfg.TransactionMaxDuration > 0 {
-			timeout = s.cfg.TransactionMaxDuration
+		if s.cfg != nil && s.cfg.txMaxDuration > 0 {
+			timeout = s.cfg.txMaxDuration
 		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.Background(), timeout)
@@ -719,21 +772,25 @@ func (s *Stmt) Execute(ctx context.Context, args ...any) (int64, error) {
 	return result.RowsAffected()
 }
 
-// Fetch -> Query prepared and get all query results, that can be called repeatedly.
-func (s *Stmt) Fetch(ctx context.Context, result any, args ...any) error {
+// Scan -> Query prepared and get all query results, that can be called repeatedly.
+func (s *Stmt) Scan(ctx context.Context, result any, args ...any) error {
 	return s.Query(ctx, func(rows *sql.Rows) error {
-		return s.way.cfg.Scan(rows, result, s.way.cfg.ScanTag)
+		return s.way.cfg.scan(rows, result, s.way.cfg.scanTag)
 	}, args...)
 }
 
 // Prepare -> Prepare SQL statement, remember to call *Stmt.Close().
 func (s *Way) Prepare(ctx context.Context, prepare string) (stmt *Stmt, err error) {
+	if s.db == nil {
+		return nil, ErrDatabaseIsNil
+	}
+
 	stmt = &Stmt{
 		way:     s,
 		prepare: prepare,
 	}
-	if tmp := s.cfg.Manual; tmp != nil && tmp.Prepare != nil {
-		stmt.prepare = tmp.Prepare(prepare)
+	if manual := s.cfg.manual; manual != nil && manual.Prepare != nil {
+		stmt.prepare = manual.Prepare(prepare)
 	}
 	if s.IsInTransaction() {
 		stmt.stmt, err = s.transaction.tx.PrepareContext(ctx, stmt.prepare)
@@ -742,12 +799,12 @@ func (s *Way) Prepare(ctx context.Context, prepare string) (stmt *Stmt, err erro
 	}
 	if err != nil {
 		if s.log != nil {
-			s.log.Error().Str(strPrepare, stmt.prepare).Msg(err.Error())
+			s.log.Error().Str(cst.LogPrepare, stmt.prepare).Msg(err.Error())
 		}
 		return nil, err
 	} else {
-		if stmt.prepare == StrEmpty && s.log != nil {
-			s.log.Warn().Str(strPrepare, stmt.prepare).Msg("prepare value is an empty string")
+		if stmt.prepare == cst.Empty && s.log != nil {
+			s.log.Warn().Str(cst.LogPrepare, stmt.prepare).Msg("prepare value is an empty string")
 		}
 	}
 	return stmt, nil
@@ -757,7 +814,7 @@ func (s *Way) Prepare(ctx context.Context, prepare string) (stmt *Stmt, err erro
 func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) error {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return ErrEmptyPrepare
+		return ErrEmptyScript
 	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
@@ -773,7 +830,7 @@ func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows)
 func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) error {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return ErrEmptyPrepare
+		return ErrEmptyScript
 	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
@@ -785,15 +842,15 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 	return stmt.QueryRow(ctx, query, script.Args...)
 }
 
-// Fetch -> Query prepared and get all query results, through the mapping of column names and struct tags.
-func (s *Way) Fetch(ctx context.Context, maker Maker, result any) error {
-	return s.Query(ctx, maker, func(rows *sql.Rows) error { return s.cfg.Scan(rows, result, s.cfg.ScanTag) })
+// Scan -> Query prepared and get all query results, through the mapping of column names and struct tags.
+func (s *Way) Scan(ctx context.Context, maker Maker, result any) error {
+	return s.Query(ctx, maker, func(rows *sql.Rows) error { return s.cfg.scan(rows, result, s.cfg.scanTag) })
 }
 
 // MapScan -> Scanning the query results into []map[string]any.
 func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnAnyValue) (result []map[string]any, err error) {
 	err = s.Query(ctx, maker, func(rows *sql.Rows) error {
-		result, err = s.cfg.MapScan.Scan(rows, adjusts...)
+		result, err = s.cfg.mapScanner.Scan(rows, adjusts...)
 		return err
 	})
 	if err != nil {
@@ -806,7 +863,7 @@ func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnA
 func (s *Way) Exec(ctx context.Context, maker Maker) (sql.Result, error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return nil, ErrEmptyPrepare
+		return nil, ErrEmptyScript
 	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
@@ -822,7 +879,7 @@ func (s *Way) Exec(ctx context.Context, maker Maker) (sql.Result, error) {
 func (s *Way) Execute(ctx context.Context, maker Maker) (int64, error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return 0, ErrEmptyPrepare
+		return 0, ErrEmptyScript
 	}
 	stmt, err := s.Prepare(ctx, script.Prepare)
 	if err != nil {
@@ -834,10 +891,10 @@ func (s *Way) Execute(ctx context.Context, maker Maker) (int64, error) {
 	return stmt.Execute(ctx, script.Args...)
 }
 
-// MultiFetch Execute multiple DQL statements.
-func (s *Way) MultiFetch(ctx context.Context, makers []Maker, results []any) (err error) {
+// MultiScan Execute multiple DQL statements.
+func (s *Way) MultiScan(ctx context.Context, makers []Maker, results []any) (err error) {
 	for index, maker := range makers {
-		err = s.Fetch(ctx, maker, results[index])
+		err = s.Scan(ctx, maker, results[index])
 		if err != nil {
 			break
 		}
@@ -858,10 +915,10 @@ func (s *Way) MultiExecute(ctx context.Context, makers []Maker) (affectedRows in
 	return affectedRows, nil
 }
 
-// MultiStmtFetch Executing a DQL statement multiple times using the same prepared statement.
-func (s *Way) MultiStmtFetch(ctx context.Context, prepare string, lists [][]any, results []any) (err error) {
-	if prepare == StrEmpty {
-		return ErrEmptyPrepare
+// MultiStmtScan Executing a DQL statement multiple times using the same prepared statement.
+func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, results []any) (err error) {
+	if prepare == cst.Empty {
+		return ErrEmptyScript
 	}
 	stmt := (*Stmt)(nil)
 	stmt, err = s.Prepare(ctx, prepare)
@@ -872,7 +929,7 @@ func (s *Way) MultiStmtFetch(ctx context.Context, prepare string, lists [][]any,
 		_ = stmt.Close()
 	}()
 	for index, value := range lists {
-		err = stmt.Fetch(ctx, results[index], value...)
+		err = stmt.Scan(ctx, results[index], value...)
 		if err != nil {
 			return err
 		}
@@ -882,8 +939,8 @@ func (s *Way) MultiStmtFetch(ctx context.Context, prepare string, lists [][]any,
 
 // MultiStmtExecute Executing a DML statement multiple times using the same prepared statement.
 func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]any) (affectedRows int64, err error) {
-	if prepare == StrEmpty {
-		return 0, ErrEmptyPrepare
+	if prepare == cst.Empty {
+		return 0, ErrEmptyScript
 	}
 	stmt := (*Stmt)(nil)
 	stmt, err = s.Prepare(ctx, prepare)
@@ -906,7 +963,11 @@ func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]an
 
 // F -> Quickly initialize a filter.
 func (s *Way) F(filters ...Filter) Filter {
-	return F().New(filters...).SetReplacer(s.cfg.Manual.Replacer)
+	result := F().New(filters...)
+	if manual := s.cfg.manual; manual != nil {
+		result.SetReplacer(manual.Replacer)
+	}
+	return result
 }
 
 // V -> Prioritize the specified non-empty object, otherwise use the current object.
@@ -921,14 +982,14 @@ func (s *Way) V(values ...*Way) *Way {
 
 // Debug Debugging output SQL script.
 func (s *Way) Debug(maker Maker) *Way {
-	if s.cfg.Debug != nil {
-		s.cfg.Debug.Debug(maker)
+	if s.cfg.debugMaker != nil {
+		s.cfg.debugMaker.Debug(maker)
 	}
 	return s
 }
 
-// databaseRead Implement DatabaseReader.
-type databaseRead struct {
+// reader Implement Reader.
+type reader struct {
 	// choose Gets a read-only object from the read list.
 	choose func(n int) int
 
@@ -939,8 +1000,8 @@ type databaseRead struct {
 	total int
 }
 
-// NewDatabaseReader It is recommended that objects used for writing should not appear in reads.
-func NewDatabaseReader(choose func(n int) int, reads []*Way) DatabaseReader {
+// NewReader It is recommended that objects used for writing should not appear in reads.
+func NewReader(choose func(n int) int, reads []*Way) Reader {
 	if choose == nil {
 		panic("hey: empty value of `choose`")
 	}
@@ -948,7 +1009,7 @@ func NewDatabaseReader(choose func(n int) int, reads []*Way) DatabaseReader {
 	if length == 0 {
 		panic("hey: empty value of `reads`")
 	}
-	return &databaseRead{
+	return &reader{
 		reads:  reads,
 		total:  length,
 		choose: choose,
@@ -956,6 +1017,6 @@ func NewDatabaseReader(choose func(n int) int, reads []*Way) DatabaseReader {
 }
 
 // Read Get an instance for querying.
-func (s *databaseRead) Read() *Way {
+func (s *reader) Read() *Way {
 	return s.reads[s.choose(s.total)]
 }

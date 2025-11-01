@@ -7,6 +7,8 @@ package hey
 
 import (
 	"context"
+
+	"github.com/cd365/hey/v6/cst"
 )
 
 // MyContext Custom context key type.
@@ -217,7 +219,7 @@ func (s *myInsert) InsertFromQuery(ctx context.Context, columns []string, query 
 			return affectedRows, err
 		}
 	}
-	table.INSERT(func(i SQLInsert) {
+	table.InsertFunc(func(i SQLInsert) {
 		i.Column(columns...).Subquery(script)
 	})
 	if affectedRows, err = table.Insert(ctx); err != nil {
@@ -327,7 +329,7 @@ func (s *myDelete) Delete(ctx context.Context, where Filter) (affectedRows int64
 }
 
 func (s *myDelete) DeleteById(ctx context.Context, ids any) (affectedRows int64, err error) {
-	return s.Delete(ctx, s.way.F().In(StrId, ids))
+	return s.Delete(ctx, s.way.F().In(cst.Id, ids))
 }
 
 // MyUpdate For UPDATE.
@@ -428,7 +430,7 @@ func (s *myUpdate) Update(ctx context.Context, where Filter, update func(u SQLUp
 			return affectedRows, err
 		}
 	}
-	table.UPDATE(func(f Filter, u SQLUpdateSet) { update(u) })
+	table.UpdateFunc(func(f Filter, u SQLUpdateSet) { update(u) })
 	if s.filter != nil {
 		where = where.New(where)
 		s.filter(where)
@@ -447,7 +449,7 @@ func (s *myUpdate) Update(ctx context.Context, where Filter, update func(u SQLUp
 }
 
 func (s *myUpdate) UpdateById(ctx context.Context, id any, update func(u SQLUpdateSet)) (affectedRows int64, err error) {
-	return s.Update(ctx, s.way.F().Equal(StrId, id), update)
+	return s.Update(ctx, s.way.F().Equal(cst.Id, id), update)
 }
 
 func (s *myUpdate) Modify(ctx context.Context, where Filter, modify any) (affectedRows int64, err error) {
@@ -500,8 +502,8 @@ type MySelect interface {
 	// SelectCount Total number of statistical records.
 	SelectCount(ctx context.Context, options ...func(o *Table)) (count int64, err error)
 
-	// SelectCountFetch First count the total number of entries, then scan the list data.
-	SelectCountFetch(ctx context.Context, receiver any, options ...func(o *Table)) (count int64, err error)
+	// SelectCountScan First count the total number of entries, then scan the list data.
+	SelectCountScan(ctx context.Context, receiver any, options ...func(o *Table)) (count int64, err error)
 
 	// F Quickly create a new Filter instance.
 	F() Filter
@@ -520,9 +522,6 @@ type MySelect interface {
 
 	// IdIn Filter.In using id.
 	IdIn(values ...any) Filter
-
-	// LikeSearch Keyword search matches multiple columns.
-	LikeSearch(keyword string, columns ...string) Filter
 }
 
 type mySelect struct {
@@ -578,13 +577,13 @@ func (s *mySelect) selectAll(ctx context.Context, selectAll func(ctx context.Con
 		}
 	}
 	if s.filter != nil {
-		table.WHERE(func(f Filter) {
+		table.WhereFunc(func(f Filter) {
 			where := f.New(f)
 			s.filter(where)
 			f.ToEmpty().Use(where)
 		})
 	}
-	table.SELECT(func(q SQLSelect) {
+	table.SelectFunc(func(q SQLSelect) {
 		if q.IsEmpty() {
 			q.Select(s.columns)
 		}
@@ -594,7 +593,7 @@ func (s *mySelect) selectAll(ctx context.Context, selectAll func(ctx context.Con
 
 func (s *mySelect) SelectAll(ctx context.Context, receiver any, options ...func(o *Table)) error {
 	return s.selectAll(ctx, func(ctx context.Context, table *Table) error {
-		return table.Fetch(ctx, receiver)
+		return table.Scan(ctx, receiver)
 	}, options...)
 }
 
@@ -607,14 +606,14 @@ func (s *mySelect) SelectOne(ctx context.Context, receiver any, options ...func(
 
 func (s *mySelect) SelectAllById(ctx context.Context, ids any, receiver any, options ...func(o *Table)) error {
 	options = append(options, func(o *Table) {
-		o.WHERE(func(f Filter) { f.In(StrId, ids) })
+		o.WhereFunc(func(f Filter) { f.In(cst.Id, ids) })
 	})
 	return s.SelectAll(ctx, receiver, options...)
 }
 
 func (s *mySelect) SelectOneById(ctx context.Context, id any, receiver any, options ...func(o *Table)) error {
 	options = append(options, func(o *Table) {
-		o.WHERE(func(f Filter) { f.Equal(strId, id) })
+		o.WhereFunc(func(f Filter) { f.Equal(cst.Id, id) })
 	})
 	return s.SelectOne(ctx, receiver, options...)
 }
@@ -629,9 +628,9 @@ func (s *mySelect) SelectSQL(options ...func(o *Table)) *SQL {
 	if s.filter != nil {
 		where := s.way.F()
 		s.filter(where)
-		table.WHERE(func(f Filter) { f.Use(where) })
+		table.WhereFunc(func(f Filter) { f.Use(where) })
 	}
-	table.SELECT(func(q SQLSelect) {
+	table.SelectFunc(func(q SQLSelect) {
 		if q.IsEmpty() {
 			q.Select(s.columns)
 		}
@@ -647,7 +646,7 @@ func (s *mySelect) SelectExists(ctx context.Context, options ...func(o *Table)) 
 			}
 		}
 		if len(s.columns) > 0 {
-			o.SELECT(func(q SQLSelect) {
+			o.SelectFunc(func(q SQLSelect) {
 				q.ToEmpty()
 				q.Select(s.columns[0])
 			})
@@ -670,9 +669,9 @@ func (s *mySelect) SelectCount(ctx context.Context, options ...func(o *Table)) (
 	return count, err
 }
 
-func (s *mySelect) SelectCountFetch(ctx context.Context, receiver any, options ...func(o *Table)) (count int64, err error) {
+func (s *mySelect) SelectCountScan(ctx context.Context, receiver any, options ...func(o *Table)) (count int64, err error) {
 	err = s.selectAll(ctx, func(ctx context.Context, table *Table) error {
-		count, err = table.CountFetch(ctx, receiver)
+		count, err = table.CountScan(ctx, receiver)
 		return err
 	}, options...)
 	return count, err
@@ -695,17 +694,11 @@ func (s *mySelect) InGroup(columns any, values any) Filter {
 }
 
 func (s *mySelect) IdEqual(value any) Filter {
-	return s.Equal(StrId, value)
+	return s.Equal(cst.Id, value)
 }
 
 func (s *mySelect) IdIn(values ...any) Filter {
-	return s.In(StrId, values...)
-}
-
-func (s *mySelect) LikeSearch(keyword string, columns ...string) Filter {
-	search := s.F()
-	LikeSearch(search, keyword, columns...)
-	return search
+	return s.In(cst.Id, values...)
 }
 
 // MyHidden Logical deletion of data.
@@ -804,7 +797,7 @@ func (s *myHidden) Hidden(ctx context.Context, where Filter) (affectedRows int64
 }
 
 func (s *myHidden) HiddenById(ctx context.Context, ids any) (affectedRows int64, err error) {
-	return s.Hidden(ctx, s.way.F().In(StrId, ids))
+	return s.Hidden(ctx, s.way.F().In(cst.Id, ids))
 }
 
 // MySchema Combo MyInsert, MyDelete, MyUpdate, MySelect, MyHidden interfaces.
