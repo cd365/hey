@@ -11,47 +11,6 @@ import (
 	"github.com/cd365/hey/v6/cst"
 )
 
-// InValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
-func InValues[T any](values []T, fc func(tmp T) any) []any {
-	if fc == nil {
-		return nil
-	}
-	length := len(values)
-	if length == 0 {
-		return nil
-	}
-	result := make([]any, length)
-	for index, tmp := range values {
-		result[index] = fc(tmp)
-	}
-	return result
-}
-
-// InGroupValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )
-func InGroupValues[T any](values []T, fc func(tmp T) []any) [][]any {
-	if fc == nil {
-		return nil
-	}
-	length := len(values)
-	if length == 0 {
-		return nil
-	}
-	result := make([][]any, length)
-	for index, tmp := range values {
-		result[index] = fc(tmp)
-	}
-	return result
-}
-
-// AnyAny Convert any type of slice to []any.
-func AnyAny[T any](slice []T) []any {
-	result := make([]any, len(slice))
-	for i, v := range slice {
-		result[i] = v
-	}
-	return result
-}
-
 // inArgs Compatibility parameter.
 // Calling Method A: inArgs(args...) (args type must be []any).
 // Calling Method B: inArgs(args) (args type can be []any, []int, []int64, []string ...).
