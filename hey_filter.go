@@ -3,11 +3,13 @@
 package hey
 
 import (
-	"github.com/cd365/hey/v6/cst"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/cd365/hey/v6/cst"
 )
 
 // inArgs Compatibility parameter.
@@ -231,6 +233,8 @@ type Filter interface {
 	// ExtractFilter Call Filter using ExtractFilter.
 	ExtractFilter(fc func(f ExtractFilter)) Filter
 
+	// TimeFilter Call Filter using TimeFilter.
+	TimeFilter(fc func(f TimeFilter)) Filter
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
 	// 2. If the business really needs to use it, you can use the OrGroup method: OrGroup(func(g Filter) { g.Equal("column", 1) }) .
@@ -918,6 +922,12 @@ func (s *filter) ExtractFilter(fc func(f ExtractFilter)) Filter {
 	return s
 }
 
+func (s *filter) TimeFilter(fc func(f TimeFilter)) Filter {
+	tmp := newTimeFilter(s, time.Now().Unix())
+	fc(tmp)
+	return s
+}
+
 // Quantifier Implement the filter condition: column {=||<>||>||>=||<||<=} [QUANTIFIER ]( subquery ) .
 // QUANTIFIER is usually one of ALL, ANY, SOME ... or EmptyString.
 type Quantifier interface {
@@ -1369,39 +1379,199 @@ func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilt
 	return s
 }
 
-type TimestampFilter interface {
-	TheLastMinutes(column string, minutes int) TimestampFilter
-	TheLastHours(column string, hours int) TimestampFilter
+// TimeFilter Commonly used timestamp range filtering conditions.
+type TimeFilter interface {
+	Timestamp(timestamp int64) TimeFilter
 
-	Today(column string) TimestampFilter
-	Yesterday(column string) TimestampFilter
-	TheLastDays(column string, days int) TimestampFilter // 最近Num天
+	TimeLocation(location *time.Location) TimeFilter
 
-	ThisWeek(column string) TimestampFilter
-	TheLastWeek(column string) TimestampFilter
-	TheLastWeeks(column string, weeks int) TimestampFilter // 最近Num周
+	LastMinutes(column string, minutes int) TimeFilter
 
-	ThisMonth(column string) TimestampFilter
-	TheLastMonth(column string) TimestampFilter
-	TheLastMonths(column string, months int) TimestampFilter
+	LastHours(column string, hours int) TimeFilter
 
-	ThisQuarter(column string) TimestampFilter
-	TheLastQuarter(column string) TimestampFilter
-	TheLastQuarters(column string, quarters int) TimestampFilter
+	Today(column string) TimeFilter
 
-	ThisYear(column string) TimestampFilter
-	TheLastYear(column string) TimestampFilter
-	TheLastYears(column string, years int) TimestampFilter
+	Yesterday(column string) TimeFilter
+
+	LastDays(column string, days int) TimeFilter
+
+	ThisMonth(column string) TimeFilter
+
+	LastMonth(column string) TimeFilter
+
+	LastMonths(column string, months int) TimeFilter
+
+	ThisQuarter(column string) TimeFilter
+
+	LastQuarter(column string) TimeFilter
+
+	LastQuarters(column string, quarters int) TimeFilter
+
+	ThisYear(column string) TimeFilter
+
+	LastYear(column string) TimeFilter
+
+	LastYears(column string, years int) TimeFilter
 }
 
-type timestampFilter struct {
+type timeFilter struct {
 	filter    Filter
+	location  *time.Location
 	timestamp int64
 }
 
-func newTimestampFilter(filter Filter, timestamp int64) *timestampFilter {
-	return &timestampFilter{
+func newTimeFilter(filter Filter, timestamp int64) TimeFilter {
+	return &timeFilter{
 		filter:    filter,
 		timestamp: timestamp,
+		location:  time.Local,
 	}
+}
+
+func (s *timeFilter) monthStartAt(timestamp int64) int64 {
+	t := time.Unix(timestamp, 0).In(s.location)
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location()).Unix()
+}
+
+func (s *timeFilter) quarterStartAt(timestamp int64) int64 {
+	t := time.Unix(timestamp, 0).In(s.location)
+	year := t.Year()
+	month := t.Month()
+	var startMonth time.Month
+	switch {
+	case month <= 3:
+		startMonth = 1
+	case month <= 6:
+		startMonth = 4
+	case month <= 9:
+		startMonth = 7
+	default:
+		startMonth = 10
+	}
+	return time.Date(year, startMonth, 1, 0, 0, 0, 0, t.Location()).Unix()
+}
+
+func (s *timeFilter) yearStartAt(timestamp int64) int64 {
+	t := time.Unix(timestamp, 0).In(s.location)
+	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, t.Location()).Unix()
+}
+
+func (s *timeFilter) Timestamp(timestamp int64) TimeFilter {
+	s.timestamp = timestamp
+	return s
+}
+
+func (s *timeFilter) TimeLocation(location *time.Location) TimeFilter {
+	s.location = location
+	return s
+}
+
+func (s *timeFilter) LastMinutes(column string, minutes int) TimeFilter {
+	if minutes <= 0 {
+		return s
+	}
+	s.filter.Between(column, s.timestamp-int64(minutes)*60, s.timestamp)
+	return s
+}
+
+func (s *timeFilter) LastHours(column string, hours int) TimeFilter {
+	if hours <= 0 {
+		return s
+	}
+	s.filter.Between(column, s.timestamp-int64(hours)*3600, s.timestamp)
+	return s
+}
+
+func (s *timeFilter) Today(column string) TimeFilter {
+	at := time.Unix(s.timestamp, 0).In(s.location)
+	todayStartAt := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location()).Unix()
+	s.filter.Between(column, todayStartAt, s.timestamp)
+	return s
+}
+
+func (s *timeFilter) Yesterday(column string) TimeFilter {
+	at := time.Unix(s.timestamp, 0).In(s.location)
+	todayStartAt := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location()).Unix()
+	s.filter.Between(column, todayStartAt-86400, todayStartAt-1)
+	return s
+}
+
+func (s *timeFilter) LastDays(column string, days int) TimeFilter {
+	if days <= 0 {
+		return s
+	}
+	s.filter.Between(column, s.timestamp-int64(days)*86400, s.timestamp)
+	return s
+}
+
+func (s *timeFilter) ThisMonth(column string) TimeFilter {
+	s.filter.Between(column, s.monthStartAt(s.timestamp), s.timestamp)
+	return s
+}
+
+func (s *timeFilter) LastMonth(column string) TimeFilter {
+	thisMonthStartAt := s.monthStartAt(s.timestamp)
+	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.location).AddDate(0, -1, 0).Unix()
+	s.filter.Between(column, lastMonthStartAt, thisMonthStartAt-1)
+	return s
+}
+
+func (s *timeFilter) LastMonths(column string, months int) TimeFilter {
+	if months <= 0 {
+		return s
+	}
+	thisMonthStartAt := s.monthStartAt(s.timestamp)
+	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.location).AddDate(0, -months+1, 0).Unix()
+	s.filter.Between(column, lastMonthStartAt, s.timestamp)
+	return s
+}
+
+func (s *timeFilter) ThisQuarter(column string) TimeFilter {
+	thisQuarterStartAt := s.quarterStartAt(s.timestamp)
+	s.filter.Between(column, thisQuarterStartAt, s.timestamp)
+	return s
+}
+
+func (s *timeFilter) LastQuarter(column string) TimeFilter {
+	thisQuarterStartAt := s.quarterStartAt(s.timestamp)
+	lastQuarterStartAt := s.quarterStartAt(thisQuarterStartAt - 1)
+	s.filter.Between(column, lastQuarterStartAt, thisQuarterStartAt-1)
+	return s
+}
+
+func (s *timeFilter) LastQuarters(column string, quarters int) TimeFilter {
+	if quarters <= 0 {
+		return s
+	}
+	startAt := int64(0)
+	for i := range quarters {
+		if i == 0 {
+			startAt = s.timestamp
+		}
+		startAt = s.quarterStartAt(startAt)
+		startAt--
+	}
+	s.filter.Between(column, startAt+1, s.timestamp)
+	return s
+}
+
+func (s *timeFilter) ThisYear(column string) TimeFilter {
+	s.filter.Between(column, s.yearStartAt(s.timestamp), s.timestamp)
+	return s
+}
+
+func (s *timeFilter) LastYear(column string) TimeFilter {
+	endAt := s.yearStartAt(s.timestamp) - 1
+	startAt := s.yearStartAt(endAt)
+	s.filter.Between(column, startAt, endAt)
+	return s
+}
+
+func (s *timeFilter) LastYears(column string, years int) TimeFilter {
+	if years <= 0 {
+		return s
+	}
+	startAt := time.Unix(s.timestamp, 0).AddDate(-years+1, 0, 0).In(s.location).Unix()
+	s.filter.Between(column, startAt, s.timestamp)
+	return s
 }

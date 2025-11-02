@@ -866,7 +866,7 @@ type SQLOrderBy interface {
 	Desc(columns ...string) SQLOrderBy
 
 	// Order Automatically call sorting based on the sort string format.
-	Order(order string) SQLOrderBy
+	Order(order *string) SQLOrderBy
 }
 
 type sqlOrderBy struct {
@@ -986,11 +986,11 @@ func (s *sqlOrderBy) Desc(columns ...string) SQLOrderBy {
 // orderStringRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`
 var orderStringRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
 
-func (s *sqlOrderBy) Order(order string) SQLOrderBy {
-	if order == cst.Empty {
+func (s *sqlOrderBy) Order(order *string) SQLOrderBy {
+	if order == nil || *order == cst.Empty {
 		return s
 	}
-	orders := strings.Split(order, cst.Comma)
+	orders := strings.Split(*order, cst.Comma)
 	for _, v := range orders {
 		if len(v) > 32 {
 			continue

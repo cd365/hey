@@ -309,6 +309,13 @@ func (s *Table) OrderFunc(fc func(o SQLOrderBy)) *Table {
 	return s
 }
 
+// Order Set ORDER BY columns through *string.
+func (s *Table) Order(order *string) *Table {
+	return s.OrderFunc(func(o SQLOrderBy) {
+		o.Order(order)
+	})
+}
+
 // Asc Sort ascending.
 func (s *Table) Asc(column string) *Table {
 	return s.OrderFunc(func(o SQLOrderBy) {
