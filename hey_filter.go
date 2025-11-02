@@ -3,12 +3,11 @@
 package hey
 
 import (
+	"github.com/cd365/hey/v6/cst"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/cd365/hey/v6/cst"
 )
 
 // inArgs Compatibility parameter.
@@ -1368,4 +1367,41 @@ func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilt
 	search = JoinString(cst.PercentSign, search, cst.PercentSign)
 	s.filter.Keyword(search, columns...)
 	return s
+}
+
+type TimestampFilter interface {
+	TheLastMinutes(column string, minutes int) TimestampFilter
+	TheLastHours(column string, hours int) TimestampFilter
+
+	Today(column string) TimestampFilter
+	Yesterday(column string) TimestampFilter
+	TheLastDays(column string, days int) TimestampFilter // 最近Num天
+
+	ThisWeek(column string) TimestampFilter
+	TheLastWeek(column string) TimestampFilter
+	TheLastWeeks(column string, weeks int) TimestampFilter // 最近Num周
+
+	ThisMonth(column string) TimestampFilter
+	TheLastMonth(column string) TimestampFilter
+	TheLastMonths(column string, months int) TimestampFilter
+
+	ThisQuarter(column string) TimestampFilter
+	TheLastQuarter(column string) TimestampFilter
+	TheLastQuarters(column string, quarters int) TimestampFilter
+
+	ThisYear(column string) TimestampFilter
+	TheLastYear(column string) TimestampFilter
+	TheLastYears(column string, years int) TimestampFilter
+}
+
+type timestampFilter struct {
+	filter    Filter
+	timestamp int64
+}
+
+func newTimestampFilter(filter Filter, timestamp int64) *timestampFilter {
+	return &timestampFilter{
+		filter:    filter,
+		timestamp: timestamp,
+	}
 }
