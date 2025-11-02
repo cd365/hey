@@ -25,7 +25,7 @@ type Table struct {
 
 	with *sqlWith
 
-	selects *sqlSelect
+	query *sqlSelect
 
 	table *sqlAlias
 
@@ -103,12 +103,12 @@ func (s *Way) getTable(table any) *sqlAlias {
 
 // Table Create a *Table object to execute SELECT, INSERT, UPDATE, and DELETE statements.
 func (s *Way) Table(table any) *Table {
-	selects := newSqlSelect(s)
+	query := newSqlSelect(s)
 	result := &Table{
 		way:       s,
 		comment:   newSqlComment(),
 		with:      newSqlWith(),
-		selects:   selects,
+		query:     query,
 		table:     s.getTable(table),
 		joins:     newSqlJoin(s),
 		where:     s.F(),
@@ -118,7 +118,7 @@ func (s *Way) Table(table any) *Table {
 		insert:    newSqlInsert(s),
 		updateSet: newSqlUpdateSet(s),
 	}
-	result.joins.selects = selects
+	result.joins.query = query
 	return result
 }
 
@@ -126,7 +126,7 @@ func (s *Way) Table(table any) *Table {
 func (s *Table) ToEmpty() *Table {
 	s.comment.ToEmpty()
 	s.with.ToEmpty()
-	s.selects.ToEmpty()
+	s.query.ToEmpty()
 	s.joins.ToEmpty()
 	s.where.ToEmpty()
 	s.groupBy.ToEmpty()
@@ -174,7 +174,7 @@ func (s *Table) With(alias string, maker Maker, columns ...string) *Table {
 
 // SelectFunc Set SELECT through func.
 func (s *Table) SelectFunc(fc func(q SQLSelect)) *Table {
-	fc(s.selects)
+	fc(s.query)
 	return s
 }
 
@@ -376,7 +376,7 @@ func (s *Table) ToSelect() *SQL {
 	}
 	lists := make([]any, 0, 12)
 	lists = append(lists, s.comment, s.with, cst.SELECT)
-	lists = append(lists, s.selects, cst.FROM, s.table)
+	lists = append(lists, s.query, cst.FROM, s.table)
 	if len(s.joins.joins) > 0 {
 		lists = append(lists, s.joins)
 	}

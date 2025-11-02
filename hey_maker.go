@@ -439,6 +439,8 @@ func (s *sqlSelect) Select(columns ...any) SQLSelect {
 				s.Add(maker)
 			}
 		default:
+			// Example: SELECT 1 ...
+			s.Add(AnyToSQL(value))
 		}
 	}
 	return s
@@ -576,7 +578,7 @@ type SQLJoin interface {
 type sqlJoin struct {
 	table SQLAlias
 
-	selects *sqlSelect
+	query *sqlSelect
 
 	way *Way
 
@@ -593,7 +595,7 @@ func newSqlJoin(way *Way) *sqlJoin {
 
 func (s *sqlJoin) ToEmpty() {
 	s.joins = make([]*sqlJoinSchema, 0, 1<<1)
-	s.selects.ToEmpty()
+	s.query.ToEmpty()
 	s.table = nil
 }
 
@@ -705,7 +707,7 @@ func (s *sqlJoin) RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) S
 }
 
 func (s *sqlJoin) Select(columns ...any) SQLJoin {
-	s.selects.Select(columns...)
+	s.query.Select(columns...)
 	return s
 }
 
