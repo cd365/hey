@@ -1047,6 +1047,24 @@ type ExtractFilter interface {
 	// column IN ( string-value1, string-value2, string-value3 ... )
 	InString(column string, value *string, verify func(index int, value string) bool, keepOnly func(i []string) []string) ExtractFilter
 
+	// InIntDirect A simplified method for convenient use.
+	InIntDirect(column string, value *string) ExtractFilter
+
+	// InInt64Direct A simplified method for convenient use.
+	InInt64Direct(column string, value *string) ExtractFilter
+
+	// InStringDirect A simplified method for convenient use.
+	InStringDirect(column string, value *string) ExtractFilter
+
+	// InIntVerify A simplified method for convenient use.
+	InIntVerify(column string, value *string, verify func(index int, value int) bool) ExtractFilter
+
+	// InInt64Verify A simplified method for convenient use.
+	InInt64Verify(column string, value *string, verify func(index int, value int64) bool) ExtractFilter
+
+	// InStringVerify A simplified method for convenient use.
+	InStringVerify(column string, value *string, verify func(index int, value string) bool) ExtractFilter
+
 	// LikeSearch Fuzzy search for a single keyword across multiple column values, ( column1 LIKE '%value%' OR column2 LIKE '%value%' OR column3 LIKE '%value%' ... )
 	LikeSearch(value *string, columns ...string) ExtractFilter
 }
@@ -1406,6 +1424,30 @@ func (s *extractFilter) InString(column string, value *string, verify func(index
 		}
 		return v, true
 	}, keepOnly)
+}
+
+func (s *extractFilter) InIntDirect(column string, value *string) ExtractFilter {
+	return s.InInt(column, value, nil, nil)
+}
+
+func (s *extractFilter) InInt64Direct(column string, value *string) ExtractFilter {
+	return s.InInt64(column, value, nil, nil)
+}
+
+func (s *extractFilter) InStringDirect(column string, value *string) ExtractFilter {
+	return s.InString(column, value, nil, nil)
+}
+
+func (s *extractFilter) InIntVerify(column string, value *string, verify func(index int, value int) bool) ExtractFilter {
+	return s.InInt(column, value, verify, nil)
+}
+
+func (s *extractFilter) InInt64Verify(column string, value *string, verify func(index int, value int64) bool) ExtractFilter {
+	return s.InInt64(column, value, verify, nil)
+}
+
+func (s *extractFilter) InStringVerify(column string, value *string, verify func(index int, value string) bool) ExtractFilter {
+	return s.InString(column, value, verify, nil)
 }
 
 func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilter {
