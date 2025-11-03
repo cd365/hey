@@ -4,10 +4,14 @@ code: betteralign fmt gofumpt
 .PHONY: betteralign
 betteralign:
 	betteralign -apply -fix ./...
+	betteralign -apply -fix ./cst/...
+	betteralign -apply -fix ./status/...
 
 .PHONY: gofumpt
 gofumpt:
 	gofumpt -w .
+	gofumpt -w ./cst/
+	gofumpt -w ./status/
 
 .PHONY: fmt
 fmt:

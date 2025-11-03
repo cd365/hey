@@ -1021,31 +1021,31 @@ type ExtractFilter interface {
 
 	// BetweenInt Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN int-min AND int-max, column >= int-min, column <= int-max
-	BetweenInt(value *string, column string, verifies ...func(minimum int, maximum int) bool) ExtractFilter
+	BetweenInt(column string, value *string, verifies ...func(minimum int, maximum int) bool) ExtractFilter
 
 	// BetweenInt64 Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN int64-min AND int64-max, column >= int64-min, column <= int64-max
-	BetweenInt64(value *string, column string, verifies ...func(minimum int64, maximum int64) bool) ExtractFilter
+	BetweenInt64(column string, value *string, verifies ...func(minimum int64, maximum int64) bool) ExtractFilter
 
 	// BetweenFloat64 Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN float64-min AND float64-max, column >= float64-min, column <= float64-max
-	BetweenFloat64(value *string, column string, verifies ...func(minimum float64, maximum float64) bool) ExtractFilter
+	BetweenFloat64(column string, value *string, verifies ...func(minimum float64, maximum float64) bool) ExtractFilter
 
 	// BetweenString Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN string-min AND string-max, column >= string-min, column <= string-max
-	BetweenString(value *string, column string, verifies ...func(minimum string, maximum string) bool) ExtractFilter
+	BetweenString(column string, value *string, verifies ...func(minimum string, maximum string) bool) ExtractFilter
 
 	// InInt Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column IN ( int-value1, int-value2, int-value3 ... )
-	InInt(value *string, column string, verifies ...func(index int, value int) bool) ExtractFilter
+	InInt(column string, value *string, verify func(index int, value int) bool, keepOnly func(i []int) []int) ExtractFilter
 
 	// InInt64 Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column IN ( int64-value1, int64-value2, int64-value3 ... )
-	InInt64(value *string, column string, verifies ...func(index int, value int64) bool) ExtractFilter
+	InInt64(column string, value *string, verify func(index int, value int64) bool, keepOnly func(i []int64) []int64) ExtractFilter
 
 	// InString Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column IN ( string-value1, string-value2, string-value3 ... )
-	InString(value *string, column string, verifies ...func(index int, value string) bool) ExtractFilter
+	InString(column string, value *string, verify func(index int, value string) bool, keepOnly func(i []string) []string) ExtractFilter
 
 	// LikeSearch Fuzzy search for a single keyword across multiple column values, ( column1 LIKE '%value%' OR column2 LIKE '%value%' OR column3 LIKE '%value%' ... )
 	LikeSearch(value *string, columns ...string) ExtractFilter
@@ -1080,7 +1080,7 @@ func (s *extractFilter) Delimiter(delimiter string) ExtractFilter {
 	return s
 }
 
-func (s *extractFilter) between(value *string, column string, parse func(values []string) ([]any, bool)) *extractFilter {
+func (s *extractFilter) between(column string, value *string, parse func(values []string) ([]any, bool)) *extractFilter {
 	if column == cst.Empty || value == nil || *value == cst.Empty || parse == nil {
 		return s
 	}
@@ -1106,7 +1106,7 @@ func (s *extractFilter) between(value *string, column string, parse func(values 
 	return s
 }
 
-func (s *extractFilter) BetweenInt(value *string, column string, verifies ...func(minimum int, maximum int) bool) ExtractFilter {
+func (s *extractFilter) BetweenInt(column string, value *string, verifies ...func(minimum int, maximum int) bool) ExtractFilter {
 	var verify func(minimum int, maximum int) bool
 	for i := len(verifies) - 1; i >= 0; i-- {
 		if verifies[i] != nil {
@@ -1114,7 +1114,7 @@ func (s *extractFilter) BetweenInt(value *string, column string, verifies ...fun
 			break
 		}
 	}
-	return s.between(value, column, func(values []string) ([]any, bool) {
+	return s.between(column, value, func(values []string) ([]any, bool) {
 		result := make([]any, 2)
 		minimum, maximum := 0, 0
 		for key, val := range values {
@@ -1153,7 +1153,7 @@ func (s *extractFilter) BetweenInt(value *string, column string, verifies ...fun
 	})
 }
 
-func (s *extractFilter) BetweenInt64(value *string, column string, verifies ...func(minimum int64, maximum int64) bool) ExtractFilter {
+func (s *extractFilter) BetweenInt64(column string, value *string, verifies ...func(minimum int64, maximum int64) bool) ExtractFilter {
 	var verify func(minimum int64, maximum int64) bool
 	for i := len(verifies) - 1; i >= 0; i-- {
 		if verifies[i] != nil {
@@ -1161,7 +1161,7 @@ func (s *extractFilter) BetweenInt64(value *string, column string, verifies ...f
 			break
 		}
 	}
-	return s.between(value, column, func(values []string) ([]any, bool) {
+	return s.between(column, value, func(values []string) ([]any, bool) {
 		result := make([]any, 2)
 		minimum, maximum := int64(0), int64(0)
 		for key, val := range values {
@@ -1200,7 +1200,7 @@ func (s *extractFilter) BetweenInt64(value *string, column string, verifies ...f
 	})
 }
 
-func (s *extractFilter) BetweenFloat64(value *string, column string, verifies ...func(minimum float64, maximum float64) bool) ExtractFilter {
+func (s *extractFilter) BetweenFloat64(column string, value *string, verifies ...func(minimum float64, maximum float64) bool) ExtractFilter {
 	var verify func(minimum float64, maximum float64) bool
 	for i := len(verifies) - 1; i >= 0; i-- {
 		if verifies[i] != nil {
@@ -1208,7 +1208,7 @@ func (s *extractFilter) BetweenFloat64(value *string, column string, verifies ..
 			break
 		}
 	}
-	return s.between(value, column, func(values []string) ([]any, bool) {
+	return s.between(column, value, func(values []string) ([]any, bool) {
 		result := make([]any, 2)
 		minimum, maximum := float64(0), float64(0)
 		for key, val := range values {
@@ -1247,7 +1247,7 @@ func (s *extractFilter) BetweenFloat64(value *string, column string, verifies ..
 	})
 }
 
-func (s *extractFilter) BetweenString(value *string, column string, verifies ...func(minimum string, maximum string) bool) ExtractFilter {
+func (s *extractFilter) BetweenString(column string, value *string, verifies ...func(minimum string, maximum string) bool) ExtractFilter {
 	var verify func(minimum string, maximum string) bool
 	for i := len(verifies) - 1; i >= 0; i-- {
 		if verifies[i] != nil {
@@ -1255,7 +1255,7 @@ func (s *extractFilter) BetweenString(value *string, column string, verifies ...
 			break
 		}
 	}
-	return s.between(value, column, func(values []string) ([]any, bool) {
+	return s.between(column, value, func(values []string) ([]any, bool) {
 		if len(values) != 2 {
 			return nil, false
 		}
@@ -1269,7 +1269,25 @@ func (s *extractFilter) BetweenString(value *string, column string, verifies ...
 	})
 }
 
-func (s *extractFilter) in(value *string, column string, parse func(i int, v string) (any, bool)) *extractFilter {
+// KeepOnlyFirst Only use the first element value.
+func KeepOnlyFirst[T any](i []T) []T {
+	length := len(i)
+	if length == 0 {
+		return i
+	}
+	return []T{i[0]}
+}
+
+// KeepOnlyLast Only use the value of the last element.
+func KeepOnlyLast[T any](i []T) []T {
+	length := len(i)
+	if length == 0 {
+		return i
+	}
+	return []T{i[length-1]}
+}
+
+func (s *extractFilter) in(column string, value *string, parse func(i int, v string) (any, bool), keepOnly any) *extractFilter {
 	if column == cst.Empty || value == nil || *value == cst.Empty || parse == nil {
 		return s
 	}
@@ -1284,27 +1302,69 @@ func (s *extractFilter) in(value *string, column string, parse func(i int, v str
 	}
 	result := DiscardDuplicate(nil, splits...)
 	length = len(result)
-	parsed := make([]any, length)
-	for k, v := range result {
-		val, ok := parse(k, v)
-		if !ok {
-			return s
+	if keepOnly == nil {
+		values := make([]any, length)
+		for k, v := range result {
+			val, ok := parse(k, v)
+			if !ok {
+				return s
+			}
+			values[k] = val
 		}
-		parsed[k] = val
+		s.filter.In(column, values...)
+		return s
 	}
-	s.filter.In(column, parsed...)
+	switch fc := keepOnly.(type) {
+	case func(i []int) []int:
+		values := make([]int, length)
+		for k, v := range result {
+			val, ok := parse(k, v)
+			if !ok {
+				return s
+			}
+			tmp, ok := val.(int)
+			if !ok {
+				return s
+			}
+			values[k] = tmp
+		}
+		s.filter.In(column, AnyAny(fc(values))...)
+	case func(i []int64) []int64:
+		values := make([]int64, length)
+		for k, v := range result {
+			val, ok := parse(k, v)
+			if !ok {
+				return s
+			}
+			tmp, ok := val.(int64)
+			if !ok {
+				return s
+			}
+			values[k] = tmp
+		}
+		s.filter.In(column, AnyAny(fc(values))...)
+	case func(i []string) []string:
+		values := make([]string, length)
+		for k, v := range result {
+			val, ok := parse(k, v)
+			if !ok {
+				return s
+			}
+			tmp, ok := val.(string)
+			if !ok {
+				return s
+			}
+			values[k] = tmp
+		}
+		s.filter.In(column, AnyAny(fc(values))...)
+	default:
+
+	}
 	return s
 }
 
-func (s *extractFilter) InInt(value *string, column string, verifies ...func(index int, value int) bool) ExtractFilter {
-	var verify func(index int, value int) bool
-	for i := len(verifies) - 1; i >= 0; i-- {
-		if verifies[i] != nil {
-			verify = verifies[i]
-			break
-		}
-	}
-	return s.in(value, column, func(i int, v string) (any, bool) {
+func (s *extractFilter) InInt(column string, value *string, verify func(index int, value int) bool, keepOnly func(i []int) []int) ExtractFilter {
+	return s.in(column, value, func(i int, v string) (any, bool) {
 		val, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil, false
@@ -1317,18 +1377,11 @@ func (s *extractFilter) InInt(value *string, column string, verifies ...func(ind
 			}
 		}
 		return result, true
-	})
+	}, keepOnly)
 }
 
-func (s *extractFilter) InInt64(value *string, column string, verifies ...func(index int, value int64) bool) ExtractFilter {
-	var verify func(index int, value int64) bool
-	for i := len(verifies) - 1; i >= 0; i-- {
-		if verifies[i] != nil {
-			verify = verifies[i]
-			break
-		}
-	}
-	return s.in(value, column, func(i int, v string) (any, bool) {
+func (s *extractFilter) InInt64(column string, value *string, verify func(index int, value int64) bool, keepOnly func(i []int64) []int64) ExtractFilter {
+	return s.in(column, value, func(i int, v string) (any, bool) {
 		val, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil, false
@@ -1340,18 +1393,11 @@ func (s *extractFilter) InInt64(value *string, column string, verifies ...func(i
 			}
 		}
 		return val, true
-	})
+	}, keepOnly)
 }
 
-func (s *extractFilter) InString(value *string, column string, verifies ...func(index int, value string) bool) ExtractFilter {
-	var verify func(index int, value string) bool
-	for i := len(verifies) - 1; i >= 0; i-- {
-		if verifies[i] != nil {
-			verify = verifies[i]
-			break
-		}
-	}
-	return s.in(value, column, func(i int, v string) (any, bool) {
+func (s *extractFilter) InString(column string, value *string, verify func(index int, value string) bool, keepOnly func(i []string) []string) ExtractFilter {
+	return s.in(column, value, func(i int, v string) (any, bool) {
 		if verify != nil {
 			ok := verify(i, v)
 			if !ok {
@@ -1359,7 +1405,7 @@ func (s *extractFilter) InString(value *string, column string, verifies ...func(
 			}
 		}
 		return v, true
-	})
+	}, keepOnly)
 }
 
 func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilter {
