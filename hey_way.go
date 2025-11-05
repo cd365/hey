@@ -212,23 +212,16 @@ func (s *transaction) write() {
 
 // Manual For handling different types of databases.
 type Manual struct {
-	// Prepare to adjust the SQL statement format to meet the current database SQL statement format.
-	Prepare func(prepare string) string
-
 	// Replacer SQL Identifier Replacer.
 	Replacer Replacer
 
+	// Prepare to adjust the SQL statement format to meet the current database SQL statement format.
+	Prepare func(prepare string) string
+
+	// DatabaseType Database type value.
+	DatabaseType cst.DatabaseType
+
 	// More custom methods can be added here to achieve the same function using different databases.
-}
-
-func Mysql() *Manual {
-	manual := &Manual{}
-	return manual
-}
-
-func Sqlite() *Manual {
-	manual := &Manual{}
-	return manual
 }
 
 func prepare63236(prepare string) string {
@@ -253,7 +246,20 @@ func prepare63236(prepare string) string {
 
 func Postgresql() *Manual {
 	manual := &Manual{}
+	manual.DatabaseType = cst.Postgresql
 	manual.Prepare = prepare63236
+	return manual
+}
+
+func Sqlite() *Manual {
+	manual := &Manual{}
+	manual.DatabaseType = cst.Sqlite
+	return manual
+}
+
+func Mysql() *Manual {
+	manual := &Manual{}
+	manual.DatabaseType = cst.Mysql
 	return manual
 }
 
@@ -500,6 +506,10 @@ func (s *Way) Database() *sql.DB {
 
 func (s *Way) Logger() *logger.Logger {
 	return s.log
+}
+
+func (s *Way) Manual() *Manual {
+	return s.cfg.manual
 }
 
 func (s *Way) Reader() Reader {

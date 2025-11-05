@@ -118,3 +118,11 @@ const (
 
 	Id = "id"
 )
+
+type DatabaseType string
+
+const (
+	Postgresql DatabaseType = "postgresql"
+	Sqlite     DatabaseType = "sqlite"
+	Mysql      DatabaseType = "mysql"
+)
