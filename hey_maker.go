@@ -791,7 +791,7 @@ func (s *sqlGroupBy) ToSQL() *SQL {
 	if s.having == nil || s.having.IsEmpty() {
 		return script
 	}
-	return JoinSQLSpace(script, cst.HAVING, ParcelFilter(s.having))
+	return JoinSQLSpace(script, cst.HAVING, s.having)
 }
 
 func (s *sqlGroupBy) add(script *SQL) *sqlGroupBy {

@@ -116,6 +116,9 @@ type Filter interface {
 	// ToEmpty Clear the existing conditional filtering of the current object.
 	ToEmpty() Filter
 
+	// Clone Copy the current object.
+	Clone() Filter
+
 	// Num Number of conditions used.
 	Num() int
 
@@ -311,6 +314,19 @@ func (s *filter) toEmpty() *filter {
 
 func (s *filter) ToEmpty() Filter {
 	return s.toEmpty()
+}
+
+func (s *filter) Clone() Filter {
+	clone := &filter{
+		prepare:  &strings.Builder{},
+		replacer: s.replacer,
+		args:     make([]any, len(s.args)),
+		num:      s.num,
+		not:      s.not,
+	}
+	clone.prepare.WriteString(s.prepare.String())
+	copy(clone.args, s.args)
+	return clone
 }
 
 func (s *filter) Num() int {

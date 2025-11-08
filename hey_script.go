@@ -338,19 +338,6 @@ func ParcelSQL(script *SQL) *SQL {
 	return result
 }
 
-// ParcelFilter Parcel the SQL filter statement. `SQL_FILTER_STATEMENT` => ( `SQL_FILTER_STATEMENT` )
-func ParcelFilter(tmp Filter) Filter {
-	if tmp.IsEmpty() {
-		return tmp
-	}
-	if num := tmp.Num(); num != 1 {
-		return tmp
-	}
-	script := tmp.ToSQL()
-	script.Prepare = ParcelPrepare(script.Prepare)
-	return tmp.New().And(script)
-}
-
 // ParcelCancelPrepare Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
 func ParcelCancelPrepare(prepare string) string {
 	prepare = strings.TrimSpace(prepare)

@@ -466,6 +466,9 @@ func (s *myUpdate) ModifyById(ctx context.Context, id any, modify any) (affected
 
 // MySelect For SELECT.
 type MySelect interface {
+	// W Get *Way value.
+	W() *Way
+
 	// Table Get table name.
 	Table() string
 
@@ -543,6 +546,10 @@ func newMySelect(way *Way, table string, columns []string) *mySelect {
 
 func (s *Way) MySelect(table string, columns []string) MySelect {
 	return newMySelect(s, table, columns)
+}
+
+func (s *mySelect) W() *Way {
+	return s.way
 }
 
 func (s *mySelect) Table() string {
