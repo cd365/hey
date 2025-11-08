@@ -6,7 +6,6 @@ package hey
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"math"
@@ -287,7 +286,7 @@ func (s *cacheMaker) getCacheKey() (string, error) {
 
 	script := s.maker.ToSQL()
 	if script.IsEmpty() {
-		return cst.Empty, errors.New("SQL is empty")
+		return cst.Empty, ErrEmptyScript
 	}
 
 	for index, value := range script.Args {

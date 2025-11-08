@@ -89,6 +89,7 @@ const (
 	Backslash            = "\\"
 	Dollar               = "$"
 	PercentSign          = "%"
+	Semicolon            = ";"
 	SingleQuotationMark  = "'"
 	SingleQuotationMarks = "''"
 	CommaSpace           = Comma + Space

@@ -173,6 +173,11 @@ func JoinSQLCommaSpace(values ...any) *SQL {
 	return JoinSQL(values, cst.CommaSpace)
 }
 
+// JoinSQLSemicolon Use ";" to concatenate multiple SQL scripts and parameters.
+func JoinSQLSemicolon(values ...any) *SQL {
+	return JoinSQL(values, cst.Semicolon)
+}
+
 func FuncSQL(funcName string, funcArgs ...any) *SQL {
 	funcName = strings.TrimSpace(funcName)
 	if funcName == cst.Empty {
