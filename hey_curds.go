@@ -585,9 +585,7 @@ func (s *mySelect) selectAll(ctx context.Context, selectAll func(ctx context.Con
 	}
 	if s.filter != nil {
 		table.WhereFunc(func(f Filter) {
-			where := f.New(f)
-			s.filter(where)
-			f.ToEmpty().Use(where)
+			s.filter(f)
 		})
 	}
 	table.SelectFunc(func(q SQLSelect) {
