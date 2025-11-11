@@ -466,9 +466,6 @@ func (s *myUpdate) ModifyById(ctx context.Context, id any, modify any) (affected
 
 // MySelect For SELECT.
 type MySelect interface {
-	// W Get *Way value.
-	W() *Way
-
 	// Table Get table name.
 	Table() string
 
@@ -507,24 +504,6 @@ type MySelect interface {
 
 	// SelectCountScan First count the total number of entries, then scan the list data.
 	SelectCountScan(ctx context.Context, receiver any, options ...func(o *Table)) (count int64, err error)
-
-	// F Quickly create a new Filter instance.
-	F() Filter
-
-	// Equal Filter.Equal
-	Equal(column any, value any) Filter
-
-	// In Filter.In
-	In(column any, values ...any) Filter
-
-	// InGroup Filter.InGroup
-	InGroup(columns any, values any) Filter
-
-	// IdEqual Filter.Equal using id.
-	IdEqual(value any) Filter
-
-	// IdIn Filter.In using id.
-	IdIn(values ...any) Filter
 }
 
 type mySelect struct {
@@ -546,10 +525,6 @@ func newMySelect(way *Way, table string, columns []string) *mySelect {
 
 func (s *Way) MySelect(table string, columns []string) MySelect {
 	return newMySelect(s, table, columns)
-}
-
-func (s *mySelect) W() *Way {
-	return s.way
 }
 
 func (s *mySelect) Table() string {
@@ -680,30 +655,6 @@ func (s *mySelect) SelectCountScan(ctx context.Context, receiver any, options ..
 		return err
 	}, options...)
 	return count, err
-}
-
-func (s *mySelect) F() Filter {
-	return s.way.F()
-}
-
-func (s *mySelect) Equal(column any, value any) Filter {
-	return s.F().Equal(column, value)
-}
-
-func (s *mySelect) In(column any, values ...any) Filter {
-	return s.F().In(column, values...)
-}
-
-func (s *mySelect) InGroup(columns any, values any) Filter {
-	return s.F().InGroup(columns, values)
-}
-
-func (s *mySelect) IdEqual(value any) Filter {
-	return s.Equal(cst.Id, value)
-}
-
-func (s *mySelect) IdIn(values ...any) Filter {
-	return s.In(cst.Id, values...)
 }
 
 // MyHidden Logical deletion of data.
