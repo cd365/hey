@@ -575,6 +575,9 @@ func (s *sqlAlias) SetSQL(script any) SQLAlias {
 }
 
 func (s *sqlAlias) GetAlias() string {
+	if s.alias == cst.Empty {
+		return s.script.Prepare
+	}
 	return s.alias
 }
 

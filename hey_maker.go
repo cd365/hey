@@ -688,7 +688,19 @@ func (s *sqlJoin) Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQL
 		joinTable: table2,
 	}
 	if on != nil {
-		join.condition = on(table1.GetAlias(), table2.GetAlias())
+		alias1 := table1.GetAlias()
+		alias2 := table2.GetAlias()
+		if alias1 == cst.Empty {
+			// Use the default table name when the alias is empty; in this case,
+			// the table name should be the original table name or the CTE alias.
+			alias1 = table1.GetSQL().Prepare
+		}
+		if alias2 == cst.Empty {
+			// Use the default table name when the alias is empty; in this case,
+			// the table name should be the original table name or the CTE alias.
+			alias2 = table2.GetSQL().Prepare
+		}
+		join.condition = on(alias1, alias2)
 	}
 	s.joins = append(s.joins, join)
 	return s
