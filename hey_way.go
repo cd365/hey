@@ -13,8 +13,6 @@ import (
 	"time"
 
 	"github.com/cd365/hey/v6/cst"
-
-	"github.com/cd365/logger/v9"
 )
 
 // hexEncodeToString Convert binary byte array to hexadecimal string.
@@ -95,119 +93,36 @@ func SQLToString(script *SQL) string {
 	return result.String()
 }
 
-// DebugMaker Output SQL script to the specified output stream.
-// Warning: Binary byte slice will be converted to hexadecimal strings.
-type DebugMaker interface {
-	// Debug Output SQL script to the specified output stream.
-	// Warning: Binary byte slice will be converted to hexadecimal strings.
-	Debug(maker Maker) DebugMaker
-
-	GetLogger() *logger.Logger
-
-	SetLogger(log *logger.Logger) DebugMaker
-}
-
-type debugMaker struct {
-	log *logger.Logger
-}
-
-func NewDebugMaker() DebugMaker { return &debugMaker{} }
-
-func (s *debugMaker) GetLogger() *logger.Logger {
-	return s.log
-}
-
-func (s *debugMaker) SetLogger(log *logger.Logger) DebugMaker {
-	s.log = log
-	return s
-}
-
-func (s *debugMaker) Debug(maker Maker) DebugMaker {
-	if s.log == nil {
-		return s
-	}
-	script := maker.ToSQL()
-	s.log.Debug().
-		Str(cst.LogScript, SQLToString(script)).
-		Str(cst.LogPrepare, script.Prepare).
-		Any(cst.LogArgs, binaryByteSliceToString(script.Args)).
-		Msg("debugger SQL script")
-	return s
-}
-
 // transaction Information for transaction.
 type transaction struct {
-	startAt time.Time
-	endAt   time.Time
-
 	ctx context.Context
-
-	err error
 
 	way *Way
 
 	tx *sql.Tx
 
-	id      string
-	message string
+	track *MyTrack
 
-	state string
-
-	sqlLog []*sqlLog
-}
-
-// start Logging when starting a transaction.
-func (s *transaction) start() {
-	if s.way.log == nil {
-		return
-	}
-	lg := s.way.log.Info()
-	lg.Str(cst.LogId, s.id)
-	lg.Int64(cst.LogStartAt, s.startAt.UnixMilli())
-	lg.Str(cst.LogState, cst.BEGIN)
-	lg.Msg(cst.Empty)
+	script []*MyTrack
 }
 
 // write Recording transaction logs.
 func (s *transaction) write() {
-	if s.way.log == nil {
+	track := s.way.track
+	if track == nil {
 		return
 	}
-	if s.endAt.IsZero() {
-		s.endAt = time.Now()
+	if s.track.TimeEnd.IsZero() {
+		s.track.TimeEnd = time.Now()
 	}
-	for _, v := range s.sqlLog {
-		lg := s.way.log.Info()
-		if v.err != nil {
-			lg = s.way.log.Error()
-			lg.Str(cst.LogError, v.err.Error())
-			lg.Str(cst.LogScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
-		} else {
-			if v.args.endAt.Sub(v.args.startAt) > s.way.cfg.sqlWarnDuration {
-				lg = s.way.log.Warn()
-				lg.Str(cst.LogScript, SQLToString(NewSQL(v.prepare, v.args.args...)))
-			}
-		}
-		lg.Str(cst.LogId, s.id)
-		lg.Str(cst.LogMsg, s.message)
-		lg.Str(cst.LogPrepare, v.prepare)
-		lg.Any(cst.LogArgs, binaryByteSliceToString(v.args.args))
-		lg.Int64(cst.LogStartAt, v.args.startAt.UnixMilli())
-		lg.Int64(cst.LogEndAt, v.args.endAt.UnixMilli())
-		lg.Str(cst.LogCost, v.args.endAt.Sub(v.args.startAt).String())
-		lg.Msg(cst.Empty)
+	defer track.Track(s.track.Context, s.track)
+	for _, v := range s.script {
+		v.Script = SQLToString(NewSQL(v.Prepare, v.Args...))
+		v.TxId = s.track.TxId
+		v.TxMsg = s.track.TxMsg
+		v.TxState = s.track.TxState
+		track.Track(s.ctx, v)
 	}
-	lg := s.way.log.Info()
-	if s.err != nil {
-		lg = s.way.log.Error()
-		lg.Str(cst.LogError, s.err.Error())
-	}
-	lg.Str(cst.LogId, s.id)
-	lg.Int64(cst.LogStartAt, s.startAt.UnixMilli())
-	lg.Str(cst.LogState, s.state)
-	lg.Int64(cst.LogEndAt, s.endAt.UnixMilli())
-	lg.Str(cst.LogCost, s.endAt.Sub(s.startAt).String())
-	lg.Msg(cst.Empty)
 }
 
 // Manual For handling different types of databases.
@@ -264,9 +179,6 @@ func Mysql() *Manual {
 }
 
 type config struct {
-	// debugMaker For debug output SQL script.
-	debugMaker DebugMaker
-
 	// mapScanner Custom MapScan, Cannot be set to nil.
 	mapScanner MapScanner
 
@@ -287,9 +199,6 @@ type config struct {
 
 	// txMaxDuration Maximum transaction execution time.
 	txMaxDuration time.Duration
-
-	// sqlWarnDuration SQL execution time warning threshold.
-	sqlWarnDuration time.Duration
 
 	// deleteRequireWhere Deletion of data must be filtered using conditions.
 	deleteRequireWhere bool
@@ -312,17 +221,10 @@ func configDefault() *config {
 		deleteRequireWhere: true,
 		updateRequireWhere: true,
 		txMaxDuration:      time.Second * 5,
-		sqlWarnDuration:    time.Millisecond * 200,
 	}
 }
 
 type Option func(way *Way)
-
-func WithDebugMaker(debugMaker DebugMaker) Option {
-	return func(way *Way) {
-		way.cfg.debugMaker = debugMaker
-	}
-}
 
 func WithMapScanner(mapScanner MapScanner) Option {
 	return func(way *Way) {
@@ -372,14 +274,6 @@ func WithTxMaxDuration(txMaxDuration time.Duration) Option {
 	}
 }
 
-func WithSqlWarnDuration(sqlWarnDuration time.Duration) Option {
-	return func(way *Way) {
-		if sqlWarnDuration > 0 {
-			way.cfg.sqlWarnDuration = sqlWarnDuration
-		}
-	}
-}
-
 func WithDeleteRequireWhere(deleteRequireWhere bool) Option {
 	return func(way *Way) {
 		way.cfg.deleteRequireWhere = deleteRequireWhere
@@ -398,9 +292,9 @@ func WithDatabase(db *sql.DB) Option {
 	}
 }
 
-func WithLogger(log *logger.Logger) Option {
+func WithTrack(track Track) Option {
 	return func(way *Way) {
-		way.log = log
+		way.track = track
 	}
 }
 
@@ -408,67 +302,6 @@ func WithReader(reader Reader) Option {
 	return func(way *Way) {
 		way.reader = reader
 	}
-}
-
-// sqlLog Record executed prepare args.
-type sqlLog struct {
-	err error // An error encountered when executing SQL.
-
-	way *Way
-
-	args *sqlLogRun // SQL parameter list.
-
-	prepare string // Preprocess the SQL statements that are executed.
-}
-
-// sqlLogRun Record executed args of prepare.
-type sqlLogRun struct {
-	startAt time.Time // The start time of the SQL statement.
-
-	endAt time.Time // The end time of the SQL statement.
-
-	args []any // SQL parameter list.
-}
-
-func (s *Way) sqlLog(prepare string, args []any) *sqlLog {
-	return &sqlLog{
-		way:     s,
-		prepare: prepare,
-		args: &sqlLogRun{
-			startAt: time.Now(),
-			args:    args,
-		},
-	}
-}
-
-func (s *sqlLog) Write() {
-	if s.way.log == nil {
-		return
-	}
-	if s.args.endAt.IsZero() {
-		s.args.endAt = time.Now()
-	}
-	if s.way.IsInTransaction() {
-		s.way.transaction.sqlLog = append(s.way.transaction.sqlLog, s)
-		return
-	}
-	lg := s.way.log.Info()
-	if s.err != nil {
-		lg = s.way.log.Error()
-		lg.Str(cst.LogError, s.err.Error())
-		lg.Str(cst.LogScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
-	} else {
-		if s.args.endAt.Sub(s.args.startAt) > s.way.cfg.sqlWarnDuration {
-			lg = s.way.log.Warn()
-			lg.Str(cst.LogScript, SQLToString(NewSQL(s.prepare, s.args.args...)))
-		}
-	}
-	lg.Str(cst.LogPrepare, s.prepare)
-	lg.Any(cst.LogArgs, binaryByteSliceToString(s.args.args))
-	lg.Int64(cst.LogStartAt, s.args.startAt.UnixMilli())
-	lg.Int64(cst.LogEndAt, s.args.endAt.UnixMilli())
-	lg.Str(cst.LogCost, s.args.endAt.Sub(s.args.startAt).String())
-	lg.Msg(cst.Empty)
 }
 
 // Reader Separate read and write, when you distinguish between reading and writing, please do not use the same object for both reading and writing.
@@ -482,7 +315,7 @@ type Way struct {
 
 	db *sql.DB
 
-	log *logger.Logger
+	track Track
 
 	transaction *transaction
 
@@ -502,10 +335,6 @@ func NewWay(options ...Option) *Way {
 
 func (s *Way) Database() *sql.DB {
 	return s.db
-}
-
-func (s *Way) Logger() *logger.Logger {
-	return s.log
 }
 
 func (s *Way) Manual() *Manual {
@@ -585,9 +414,14 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		tx = nil
 		return tx, err
 	}
-	tx.transaction.startAt = time.Now()
-	tx.transaction.id = fmt.Sprintf("%d%s%d%s%p", tx.transaction.startAt.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
-	tx.transaction.start()
+	start := time.Now()
+	track := s.trackTransaction(ctx, start)
+	track.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
+	track.TxState = cst.BEGIN
+	tx.transaction.track = track
+	if s.track != nil {
+		s.track.Track(ctx, track)
+	}
 	return tx, err
 }
 
@@ -597,10 +431,10 @@ func (s *Way) commit() (err error) {
 		return ErrTransactionIsNil
 	}
 	tx := s.transaction
-	tx.state = cst.COMMIT
+	tx.track.TxState = cst.COMMIT
 	defer tx.write()
-	tx.err = tx.tx.Commit()
-	s.transaction, err = nil, tx.err
+	tx.track.Err = tx.tx.Commit()
+	s.transaction, err = nil, tx.track.Err
 	return err
 }
 
@@ -610,10 +444,10 @@ func (s *Way) rollback() (err error) {
 		return ErrTransactionIsNil
 	}
 	tx := s.transaction
-	tx.state = cst.ROLLBACK
+	tx.track.TxState = cst.ROLLBACK
 	defer tx.write()
-	tx.err = tx.tx.Rollback()
-	s.transaction, err = nil, tx.err
+	tx.track.Err = tx.tx.Rollback()
+	s.transaction, err = nil, tx.track.Err
 	return err
 }
 
@@ -647,8 +481,8 @@ func (s *Way) TransactionMessage(message string) *Way {
 	if s.transaction == nil {
 		return s
 	}
-	if s.transaction.message == cst.Empty {
-		s.transaction.message = message
+	if s.transaction.track.TxMsg == cst.Empty {
+		s.transaction.track.TxMsg = message
 	}
 	return s
 }
@@ -716,16 +550,17 @@ func (s *Way) TransactionRetry(ctx context.Context, retries int, fc func(tx *Way
 // Now -> Get current time, the transaction open status will get the same time.
 func (s *Way) Now() time.Time {
 	if s.IsInTransaction() {
-		return s.transaction.startAt
+		return s.transaction.track.TimeStart
 	}
 	return time.Now()
 }
 
 // Stmt Prepare a handle.
 type Stmt struct {
-	way     *Way
-	stmt    *sql.Stmt
-	prepare string
+	way      *Way
+	stmt     *sql.Stmt
+	prepare  string
+	prepared string
 }
 
 // Close -> Close prepare a handle.
@@ -738,38 +573,38 @@ func (s *Stmt) Close() (err error) {
 
 // Query -> Query prepared, that can be called repeatedly.
 func (s *Stmt) Query(ctx context.Context, query func(rows *sql.Rows) error, args ...any) error {
-	lg := s.way.sqlLog(s.prepare, args)
-	defer lg.Write()
+	track := s.way.trackSQL(ctx, s.prepare, args)
+	defer track.track(s.way)
 	rows, err := s.stmt.QueryContext(ctx, args...)
-	lg.args.endAt = time.Now()
+	track.TimeEnd = time.Now()
 	if err != nil {
-		lg.err = err
+		track.Err = err
 		return err
 	}
 	defer func() {
 		_ = rows.Close()
 	}()
-	lg.err = query(rows)
-	return lg.err
+	track.Err = query(rows)
+	return track.Err
 }
 
 // QueryRow -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRow(ctx context.Context, query func(row *sql.Row) error, args ...any) error {
-	lg := s.way.sqlLog(s.prepare, args)
-	defer lg.Write()
+	track := s.way.trackSQL(ctx, s.prepare, args)
+	defer track.track(s.way)
 	row := s.stmt.QueryRowContext(ctx, args...)
-	lg.args.endAt = time.Now()
-	lg.err = query(row)
-	return lg.err
+	track.TimeEnd = time.Now()
+	track.Err = query(row)
+	return track.Err
 }
 
 // Exec -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) Exec(ctx context.Context, args ...any) (sql.Result, error) {
-	lg := s.way.sqlLog(s.prepare, args)
-	defer lg.Write()
+	track := s.way.trackSQL(ctx, s.prepare, args)
+	defer track.track(s.way)
 	result, err := s.stmt.ExecContext(ctx, args...)
-	lg.args.endAt = time.Now()
-	lg.err = err
+	track.TimeEnd = time.Now()
+	track.Err = err
 	return result, err
 }
 
@@ -796,26 +631,20 @@ func (s *Way) Prepare(ctx context.Context, prepare string) (stmt *Stmt, err erro
 	}
 
 	stmt = &Stmt{
-		way:     s,
-		prepare: prepare,
+		way:      s,
+		prepare:  prepare,
+		prepared: prepare,
 	}
 	if manual := s.cfg.manual; manual != nil && manual.Prepare != nil {
-		stmt.prepare = manual.Prepare(prepare)
+		stmt.prepared = manual.Prepare(prepare)
 	}
 	if s.IsInTransaction() {
-		stmt.stmt, err = s.transaction.tx.PrepareContext(ctx, stmt.prepare)
+		stmt.stmt, err = s.transaction.tx.PrepareContext(ctx, stmt.prepared)
 	} else {
-		stmt.stmt, err = s.db.PrepareContext(ctx, stmt.prepare)
+		stmt.stmt, err = s.db.PrepareContext(ctx, stmt.prepared)
 	}
 	if err != nil {
-		if s.log != nil {
-			s.log.Error().Str(cst.LogPrepare, stmt.prepare).Msg(err.Error())
-		}
 		return nil, err
-	} else {
-		if stmt.prepare == cst.Empty && s.log != nil {
-			s.log.Warn().Str(cst.LogPrepare, stmt.prepare).Msg("prepare value is an empty string")
-		}
 	}
 	return stmt, nil
 }
@@ -992,9 +821,11 @@ func (s *Way) V(values ...*Way) *Way {
 
 // Debug Debugging output SQL script.
 func (s *Way) Debug(maker Maker) *Way {
-	if s.cfg.debugMaker != nil {
-		s.cfg.debugMaker.Debug(maker)
+	if s.track == nil || maker == nil {
+		return s
 	}
+	ctx := context.Background()
+	s.track.Track(ctx, s.trackDebug(ctx, maker))
 	return s
 }
 

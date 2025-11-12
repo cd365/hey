@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cd365/hey/v6"
-	"github.com/cd365/logger/v9"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -38,7 +37,6 @@ func newSqlite3() (*hey.Way, error) {
 		hey.WithTxMaxDuration(time.Second*5),
 		hey.WithSqlWarnDuration(time.Millisecond*200),
 		// hey.WithTxOptions(&sql.TxOptions{Isolation: sql.LevelReadCommitted}),
-		hey.WithLogger(logger.NewLogger(os.Stdout)), // Optional, Record SQL call log
 	)
 	return newWay, nil
 }

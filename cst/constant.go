@@ -96,19 +96,6 @@ const (
 )
 
 const (
-	LogId      = "id"
-	LogStartAt = "start_at"
-	LogEndAt   = "end_at"
-	LogState   = "state"
-	LogError   = "error"
-	LogScript  = "script"
-	LogMsg     = "msg"
-	LogPrepare = "prepare"
-	LogArgs    = "args"
-	LogCost    = "cost"
-)
-
-const (
 	A = "a"
 	B = "b"
 	C = "c"

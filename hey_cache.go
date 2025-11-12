@@ -32,7 +32,7 @@ type Cacher interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 
 	// Set Writing data to the cache.
-	Set(ctx context.Context, key string, value []byte, duration ...time.Duration) error
+	Set(ctx context.Context, key string, value []byte, duration time.Duration) error
 
 	// Del Deleting data from the cache.
 	Del(ctx context.Context, key string) error
@@ -79,9 +79,9 @@ func (s *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 }
 
 // Set Write cache data to cache.
-func (s *Cache) Set(ctx context.Context, key string, value []byte, duration ...time.Duration) error {
+func (s *Cache) Set(ctx context.Context, key string, value []byte, duration time.Duration) error {
 	key = s.cacher.Key(key)
-	return s.cacher.Set(ctx, key, value, duration...)
+	return s.cacher.Set(ctx, key, value, duration)
 }
 
 // Del Deleting data from the cache.
@@ -100,12 +100,12 @@ func (s *Cache) GetUnmarshal(ctx context.Context, key string, value any) error {
 }
 
 // MarshalSet Serialize cache data and write the serialized data to the cache.
-func (s *Cache) MarshalSet(ctx context.Context, key string, value any, duration ...time.Duration) error {
+func (s *Cache) MarshalSet(ctx context.Context, key string, value any, duration time.Duration) error {
 	tmp, err := s.cacher.Marshal(value)
 	if err != nil {
 		return err
 	}
-	return s.Set(ctx, key, tmp, duration...)
+	return s.Set(ctx, key, tmp, duration)
 }
 
 // GetString Read string cache data from cache.
@@ -118,8 +118,8 @@ func (s *Cache) GetString(ctx context.Context, key string) (string, error) {
 }
 
 // SetString Write string cache data to cache.
-func (s *Cache) SetString(ctx context.Context, key string, value string, duration ...time.Duration) error {
-	return s.Set(ctx, key, []byte(value), duration...)
+func (s *Cache) SetString(ctx context.Context, key string, value string, duration time.Duration) error {
+	return s.Set(ctx, key, []byte(value), duration)
 }
 
 // GetFloat Read float64 cache data from cache.
@@ -136,8 +136,8 @@ func (s *Cache) GetFloat(ctx context.Context, key string) (float64, error) {
 }
 
 // SetFloat Write float64 cache data to cache.
-func (s *Cache) SetFloat(ctx context.Context, key string, value float64, duration ...time.Duration) error {
-	return s.Set(ctx, key, []byte(strconv.FormatFloat(value, 'f', -1, 64)), duration...)
+func (s *Cache) SetFloat(ctx context.Context, key string, value float64, duration time.Duration) error {
+	return s.Set(ctx, key, []byte(strconv.FormatFloat(value, 'f', -1, 64)), duration)
 }
 
 // GetInt Read int64 cache data from cache.
@@ -154,8 +154,8 @@ func (s *Cache) GetInt(ctx context.Context, key string) (int64, error) {
 }
 
 // SetInt Write int64 cache data to cache.
-func (s *Cache) SetInt(ctx context.Context, key string, value int64, duration ...time.Duration) error {
-	return s.Set(ctx, key, []byte(strconv.FormatInt(value, 10)), duration...)
+func (s *Cache) SetInt(ctx context.Context, key string, value int64, duration time.Duration) error {
+	return s.Set(ctx, key, []byte(strconv.FormatInt(value, 10)), duration)
 }
 
 // GetBool Read bool cache data from cache.
@@ -172,8 +172,8 @@ func (s *Cache) GetBool(ctx context.Context, key string) (bool, error) {
 }
 
 // SetBool Write bool cache data to cache.
-func (s *Cache) SetBool(ctx context.Context, key string, value bool, duration ...time.Duration) error {
-	return s.Set(ctx, key, fmt.Appendf(nil, "%t", value), duration...)
+func (s *Cache) SetBool(ctx context.Context, key string, value bool, duration time.Duration) error {
+	return s.Set(ctx, key, fmt.Appendf(nil, "%t", value), duration)
 }
 
 // DurationRange Get a random Duration between minValue*duration and maxValue*duration.
@@ -196,7 +196,7 @@ type CacheMaker interface {
 	Get(ctx context.Context) ([]byte, error)
 
 	// Set For set value to cache.
-	Set(ctx context.Context, value []byte, duration ...time.Duration) error
+	Set(ctx context.Context, value []byte, duration time.Duration) error
 
 	// Del Delete data in the cache based on cache key.
 	Del(ctx context.Context) error
@@ -205,31 +205,31 @@ type CacheMaker interface {
 	GetUnmarshal(ctx context.Context, value any) error
 
 	// MarshalSet Marshal data and set data.
-	MarshalSet(ctx context.Context, value any, duration ...time.Duration) error
+	MarshalSet(ctx context.Context, value any, duration time.Duration) error
 
 	// GetString Get string type value.
 	GetString(ctx context.Context) (string, error)
 
 	// SetString Set string type value.
-	SetString(ctx context.Context, value string, duration ...time.Duration) error
+	SetString(ctx context.Context, value string, duration time.Duration) error
 
 	// GetFloat Get float64 type value.
 	GetFloat(ctx context.Context) (float64, error)
 
 	// SetFloat Set float64 type value.
-	SetFloat(ctx context.Context, value float64, duration ...time.Duration) error
+	SetFloat(ctx context.Context, value float64, duration time.Duration) error
 
 	// GetInt Get int64 type value.
 	GetInt(ctx context.Context) (int64, error)
 
 	// SetInt Set int64 type value.
-	SetInt(ctx context.Context, value int64, duration ...time.Duration) error
+	SetInt(ctx context.Context, value int64, duration time.Duration) error
 
 	// GetBool Get boolean type value.
 	GetBool(ctx context.Context) (bool, error)
 
 	// SetBool Set boolean type value.
-	SetBool(ctx context.Context, value bool, duration ...time.Duration) error
+	SetBool(ctx context.Context, value bool, duration time.Duration) error
 }
 
 // cacheMaker Implementing the CacheMaker interface.
@@ -340,11 +340,11 @@ func (s *cacheMaker) Get(ctx context.Context) ([]byte, error) {
 }
 
 // Set Write data to cache.
-func (s *cacheMaker) Set(ctx context.Context, value []byte, duration ...time.Duration) error {
+func (s *cacheMaker) Set(ctx context.Context, value []byte, duration time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
-	return s.cache.Set(ctx, s.key, value, duration...)
+	return s.cache.Set(ctx, s.key, value, duration)
 }
 
 // Del Delete cache value.
@@ -364,11 +364,11 @@ func (s *cacheMaker) GetUnmarshal(ctx context.Context, value any) error {
 }
 
 // MarshalSet Serialize cache data and set serialized data to the cache.
-func (s *cacheMaker) MarshalSet(ctx context.Context, value any, duration ...time.Duration) error {
+func (s *cacheMaker) MarshalSet(ctx context.Context, value any, duration time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
-	return s.cache.MarshalSet(ctx, s.key, value, duration...)
+	return s.cache.MarshalSet(ctx, s.key, value, duration)
 }
 
 // GetString Get string value.
@@ -380,11 +380,11 @@ func (s *cacheMaker) GetString(ctx context.Context) (string, error) {
 }
 
 // SetString Set string value.
-func (s *cacheMaker) SetString(ctx context.Context, value string, duration ...time.Duration) error {
+func (s *cacheMaker) SetString(ctx context.Context, value string, duration time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
-	return s.cache.SetString(ctx, s.key, value, duration...)
+	return s.cache.SetString(ctx, s.key, value, duration)
 }
 
 // GetFloat Get float64 value.
@@ -396,11 +396,11 @@ func (s *cacheMaker) GetFloat(ctx context.Context) (float64, error) {
 }
 
 // SetFloat Set float64 value.
-func (s *cacheMaker) SetFloat(ctx context.Context, value float64, duration ...time.Duration) error {
+func (s *cacheMaker) SetFloat(ctx context.Context, value float64, duration time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
-	return s.cache.SetFloat(ctx, s.key, value, duration...)
+	return s.cache.SetFloat(ctx, s.key, value, duration)
 }
 
 // GetInt Get int64 value.
@@ -412,11 +412,11 @@ func (s *cacheMaker) GetInt(ctx context.Context) (int64, error) {
 }
 
 // SetInt Set int64 value.
-func (s *cacheMaker) SetInt(ctx context.Context, value int64, duration ...time.Duration) error {
+func (s *cacheMaker) SetInt(ctx context.Context, value int64, duration time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
-	return s.cache.SetInt(ctx, s.key, value, duration...)
+	return s.cache.SetInt(ctx, s.key, value, duration)
 }
 
 // GetBool Get bool value.
@@ -428,11 +428,11 @@ func (s *cacheMaker) GetBool(ctx context.Context) (bool, error) {
 }
 
 // SetBool Set bool value.
-func (s *cacheMaker) SetBool(ctx context.Context, value bool, duration ...time.Duration) error {
+func (s *cacheMaker) SetBool(ctx context.Context, value bool, duration time.Duration) error {
 	if _, err := s.GetCacheKey(); err != nil {
 		return err
 	}
-	return s.cache.SetBool(ctx, s.key, value, duration...)
+	return s.cache.SetBool(ctx, s.key, value, duration)
 }
 
 // StringMutex maps string keys to a fixed set of sync.Mutex locks using hashing.
