@@ -52,9 +52,8 @@ type MyTrack struct {
 	Args []any
 }
 
-func (s *MyTrack) track(way *Way) {
-	track := way.track
-	if track == nil {
+func (s *MyTrack) write(track Track, way *Way) {
+	if track == nil || way == nil {
 		return
 	}
 	if s.TimeEnd.IsZero() {
@@ -74,7 +73,7 @@ func newTrack(typeValue MyTrackType) *MyTrack {
 	}
 }
 
-func (s *Way) trackDebug(ctx context.Context, maker Maker) *MyTrack {
+func trackDebug(ctx context.Context, maker Maker) *MyTrack {
 	script := maker.ToSQL()
 	tmp := newTrack(TrackDebug)
 	tmp.Context = ctx
@@ -85,7 +84,7 @@ func (s *Way) trackDebug(ctx context.Context, maker Maker) *MyTrack {
 	return tmp
 }
 
-func (s *Way) trackSQL(ctx context.Context, prepare string, args []any) *MyTrack {
+func trackSQL(ctx context.Context, prepare string, args []any) *MyTrack {
 	tmp := newTrack(TrackSQL)
 	tmp.Context = ctx
 	tmp.Prepare = prepare
@@ -94,7 +93,7 @@ func (s *Way) trackSQL(ctx context.Context, prepare string, args []any) *MyTrack
 	return tmp
 }
 
-func (s *Way) trackTransaction(ctx context.Context, startTime time.Time) *MyTrack {
+func trackTransaction(ctx context.Context, startTime time.Time) *MyTrack {
 	tmp := newTrack(TrackTransaction)
 	tmp.Context = ctx
 	tmp.TimeStart = startTime

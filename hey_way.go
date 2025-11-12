@@ -121,7 +121,7 @@ func (s *transaction) write() {
 		v.TxId = s.track.TxId
 		v.TxMsg = s.track.TxMsg
 		v.TxState = s.track.TxState
-		track.Track(s.ctx, v)
+		track.Track(v.Context, v)
 	}
 }
 
@@ -414,13 +414,13 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		tx = nil
 		return tx, err
 	}
-	start := time.Now()
-	track := s.trackTransaction(ctx, start)
-	track.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
-	track.TxState = cst.BEGIN
-	tx.transaction.track = track
 	if s.track != nil {
-		s.track.Track(ctx, track)
+		start := time.Now()
+		tracked := trackTransaction(ctx, start)
+		tracked.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
+		tracked.TxState = cst.BEGIN
+		tx.transaction.track = tracked
+		s.track.Track(ctx, tracked)
 	}
 	return tx, err
 }
@@ -431,10 +431,17 @@ func (s *Way) commit() (err error) {
 		return ErrTransactionIsNil
 	}
 	tx := s.transaction
-	tx.track.TxState = cst.COMMIT
-	defer tx.write()
-	tx.track.Err = tx.tx.Commit()
-	s.transaction, err = nil, tx.track.Err
+	if tx.track != nil {
+		tx.track.TxState = cst.COMMIT
+	}
+	defer func() {
+		tx.write()
+		s.transaction = nil
+	}()
+	err = tx.tx.Commit()
+	if tx.track != nil {
+		tx.track.Err = err
+	}
 	return err
 }
 
@@ -444,10 +451,17 @@ func (s *Way) rollback() (err error) {
 		return ErrTransactionIsNil
 	}
 	tx := s.transaction
-	tx.track.TxState = cst.ROLLBACK
-	defer tx.write()
-	tx.track.Err = tx.tx.Rollback()
-	s.transaction, err = nil, tx.track.Err
+	if tx.track != nil {
+		tx.track.TxState = cst.ROLLBACK
+	}
+	defer func() {
+		tx.write()
+		s.transaction = nil
+	}()
+	err = tx.tx.Rollback()
+	if tx.track != nil {
+		tx.track.Err = err
+	}
 	return err
 }
 
@@ -573,38 +587,59 @@ func (s *Stmt) Close() (err error) {
 
 // Query -> Query prepared, that can be called repeatedly.
 func (s *Stmt) Query(ctx context.Context, query func(rows *sql.Rows) error, args ...any) error {
-	track := s.way.trackSQL(ctx, s.prepare, args)
-	defer track.track(s.way)
+	var tracked *MyTrack
+	if track := s.way.track; track != nil {
+		tracked = trackSQL(ctx, s.prepare, args)
+		defer tracked.write(track, s.way)
+	}
 	rows, err := s.stmt.QueryContext(ctx, args...)
-	track.TimeEnd = time.Now()
+	if tracked != nil {
+		tracked.TimeEnd = time.Now()
+		tracked.Err = err
+	}
 	if err != nil {
-		track.Err = err
 		return err
 	}
 	defer func() {
 		_ = rows.Close()
 	}()
-	track.Err = query(rows)
-	return track.Err
+	err = query(rows)
+	if tracked != nil {
+		tracked.Err = err
+	}
+	return err
 }
 
 // QueryRow -> Query prepared, that can be called repeatedly.
 func (s *Stmt) QueryRow(ctx context.Context, query func(row *sql.Row) error, args ...any) error {
-	track := s.way.trackSQL(ctx, s.prepare, args)
-	defer track.track(s.way)
+	var tracked *MyTrack
+	if track := s.way.track; track != nil {
+		tracked = trackSQL(ctx, s.prepare, args)
+		defer tracked.write(track, s.way)
+	}
 	row := s.stmt.QueryRowContext(ctx, args...)
-	track.TimeEnd = time.Now()
-	track.Err = query(row)
-	return track.Err
+	if tracked != nil {
+		tracked.TimeEnd = time.Now()
+	}
+	err := query(row)
+	if tracked != nil {
+		tracked.Err = err
+	}
+	return err
 }
 
 // Exec -> Execute prepared, that can be called repeatedly.
 func (s *Stmt) Exec(ctx context.Context, args ...any) (sql.Result, error) {
-	track := s.way.trackSQL(ctx, s.prepare, args)
-	defer track.track(s.way)
+	var tracked *MyTrack
+	if track := s.way.track; track != nil {
+		tracked = trackSQL(ctx, s.prepare, args)
+		defer tracked.write(track, s.way)
+	}
 	result, err := s.stmt.ExecContext(ctx, args...)
-	track.TimeEnd = time.Now()
-	track.Err = err
+	if tracked != nil {
+		tracked.TimeEnd = time.Now()
+		tracked.Err = err
+	}
 	return result, err
 }
 
@@ -825,7 +860,7 @@ func (s *Way) Debug(maker Maker) *Way {
 		return s
 	}
 	ctx := context.Background()
-	s.track.Track(ctx, s.trackDebug(ctx, maker))
+	s.track.Track(ctx, trackDebug(ctx, maker))
 	return s
 }
 
