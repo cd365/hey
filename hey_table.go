@@ -317,16 +317,16 @@ func (s *Table) Order(order *string) *Table {
 }
 
 // Asc Sort ascending.
-func (s *Table) Asc(column string) *Table {
+func (s *Table) Asc(columns ...string) *Table {
 	return s.OrderFunc(func(o SQLOrderBy) {
-		o.Asc(column)
+		o.Asc(columns...)
 	})
 }
 
 // Desc Sort descending.
-func (s *Table) Desc(column string) *Table {
+func (s *Table) Desc(columns ...string) *Table {
 	return s.OrderFunc(func(o SQLOrderBy) {
-		o.Desc(column)
+		o.Desc(columns...)
 	})
 }
 

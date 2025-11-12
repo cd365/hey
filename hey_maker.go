@@ -865,6 +865,12 @@ type SQLOrderBy interface {
 
 	ToEmpty
 
+	// Num Number of sorted columns used.
+	Num() int
+
+	// IsEmpty Is there a list of sorting columns?
+	IsEmpty() bool
+
 	// Allow the list of columns that can be used for sorting.
 	Allow(columns ...string) SQLOrderBy
 
@@ -880,7 +886,6 @@ type SQLOrderBy interface {
 	// Order Automatically call sorting based on the sort string format.
 	Order(order *string) SQLOrderBy
 }
-
 type sqlOrderBy struct {
 	allow map[string]*struct{}
 
@@ -918,6 +923,10 @@ func (s *sqlOrderBy) ToSQL() *SQL {
 	}
 	script.Prepare = JoinString(cst.ORDER, cst.Space, cst.BY, cst.Space, strings.Join(s.orderBy, cst.CommaSpace))
 	return script
+}
+
+func (s *sqlOrderBy) Num() int {
+	return len(s.orderBy)
 }
 
 func (s *sqlOrderBy) Allow(columns ...string) SQLOrderBy {
