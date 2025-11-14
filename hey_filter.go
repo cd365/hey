@@ -1362,7 +1362,11 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 			}
 			values[k] = tmp
 		}
-		s.filter.In(column, AnyAny(fc(values))...)
+		if fc == nil {
+			s.filter.In(column, AnyAny(values)...)
+		} else {
+			s.filter.In(column, AnyAny(fc(values))...)
+		}
 	case func(i []int64) []int64:
 		values := make([]int64, length)
 		for k, v := range result {
@@ -1376,7 +1380,11 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 			}
 			values[k] = tmp
 		}
-		s.filter.In(column, AnyAny(fc(values))...)
+		if fc == nil {
+			s.filter.In(column, AnyAny(values)...)
+		} else {
+			s.filter.In(column, AnyAny(fc(values))...)
+		}
 	case func(i []string) []string:
 		values := make([]string, length)
 		for k, v := range result {
@@ -1390,7 +1398,11 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 			}
 			values[k] = tmp
 		}
-		s.filter.In(column, AnyAny(fc(values))...)
+		if fc == nil {
+			s.filter.In(column, AnyAny(values)...)
+		} else {
+			s.filter.In(column, AnyAny(fc(values))...)
+		}
 	default:
 
 	}

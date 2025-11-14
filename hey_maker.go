@@ -1286,6 +1286,8 @@ type SQLUpdateSet interface {
 
 	ToEmpty
 
+	IsEmpty() bool
+
 	Len() int
 
 	// Forbid Set a list of columns that cannot be updated.
