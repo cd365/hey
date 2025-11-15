@@ -35,7 +35,6 @@ func newSqlite3() (*hey.Way, error) {
 		hey.WithDeleteRequireWhere(true),
 		hey.WithUpdateRequireWhere(true),
 		hey.WithTxMaxDuration(time.Second*5),
-		hey.WithSqlWarnDuration(time.Millisecond*200),
 		// hey.WithTxOptions(&sql.TxOptions{Isolation: sql.LevelReadCommitted}),
 	)
 	return newWay, nil
