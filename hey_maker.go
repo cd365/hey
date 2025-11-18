@@ -1566,24 +1566,14 @@ func (s *sqlUpdateSet) Update(update any) SQLUpdateSet {
 	if update == nil {
 		return s
 	}
-	if columnValue, ok := update.(map[string]any); ok {
-		columns := make([]string, 0, len(columnValue))
-		for column := range columnValue {
-			columns = append(columns, column)
-		}
-		sort.Strings(columns)
-		for _, column := range columns {
-			s.Set(column, columnValue[column])
-		}
-		return s
-	}
 	if tmp, ok := update.(*SQL); ok {
 		return s.exprArgs(tmp)
 	}
 	if tmp, ok := update.(Maker); ok {
 		return s.exprArgs(tmp.ToSQL())
 	}
-	return s.SetSlice(StructModify(update, s.way.cfg.scanTag))
+	columns, values := ObjectModify(update, s.way.cfg.scanTag)
+	return s.SetSlice(columns, values)
 }
 
 // Compare For compare old and new to automatically calculate the need to update columns.
@@ -2079,25 +2069,7 @@ func (s *sqlInsert) ColumnValue(column string, value any) SQLInsert {
 
 // Create value of creation should be one of struct{}, *struct{}, map[string]any, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *sqlInsert) Create(create any) SQLInsert {
-	if columnValue, ok := create.(map[string]any); ok {
-		length := len(columnValue)
-		if length == 0 {
-			return s
-		}
-		columns := make([]string, 0, length)
-		for column := range columnValue {
-			if _, ok = s.forbidSet[column]; ok {
-				continue
-			}
-			columns = append(columns, column)
-		}
-		sort.Strings(columns)
-		for _, column := range columns {
-			s.ColumnValue(column, columnValue[column])
-		}
-		return s
-	}
-	columns, values := StructInsert(create, s.way.cfg.scanTag, nil, nil)
+	columns, values := ObjectInsert(create, s.way.cfg.scanTag, nil, nil)
 	removes := make(map[int]*struct{}, len(columns))
 	for index, column := range columns {
 		if _, ok := s.forbidSet[column]; ok {

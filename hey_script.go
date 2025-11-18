@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -630,30 +631,6 @@ func (s *sqlAlias) ToSQL() *SQL {
 	return result
 }
 
-// poolInsertByStruct Insert with struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
-var poolInsertByStruct = &sync.Pool{
-	New: func() any {
-		return &insertByStruct{}
-	},
-}
-
-func poolGetInsertByStruct() *insertByStruct {
-	tmp := poolInsertByStruct.Get().(*insertByStruct)
-	tmp.allow = make(map[string]*struct{}, 1<<5)
-	tmp.except = make(map[string]*struct{}, 1<<5)
-	tmp.used = make(map[string]*struct{}, 1<<3)
-	return tmp
-}
-
-func poolPutInsertByStruct(b *insertByStruct) {
-	b.tag = cst.Empty
-	b.allow = nil
-	b.except = nil
-	b.used = nil
-	b.structReflectType = nil
-	poolInsertByStruct.Put(b)
-}
-
 /* Implement scanning *sql.Rows data into STRUCT or []STRUCT */
 
 var poolBindScanStruct = &sync.Pool{
@@ -704,7 +681,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 		return
 	}
 
-	s.structType[refStructType] = &struct{}{}
+	s.structType[refStructType] = nil
 
 	length := refStructType.NumField()
 
@@ -1028,6 +1005,28 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 	return nil
 }
 
+var poolObjectInsert = &sync.Pool{
+	New: func() any {
+		return &objectInsert{}
+	},
+}
+
+func poolGetObjectInsert() *objectInsert {
+	tmp := poolObjectInsert.Get().(*objectInsert)
+	tmp.allow = make(map[string]*struct{}, 1<<5)
+	tmp.except = make(map[string]*struct{}, 1<<5)
+	tmp.used = make(map[string]*struct{}, 1<<3)
+	return tmp
+}
+
+func poolPutObjectInsert(b *objectInsert) {
+	b.tag = cst.Empty
+	b.allow = nil
+	b.except = nil
+	b.used = nil
+	poolObjectInsert.Put(b)
+}
+
 func basicTypeValue(value any) any {
 	if value == nil {
 		return nil
@@ -1059,50 +1058,37 @@ func basicTypeValue(value any) any {
 	return v.Interface()
 }
 
-type insertByStruct struct {
-	// struct reflects type, make sure it is the same structure type.
-	structReflectType reflect.Type
-
-	// only allowed fields Hash table.
+type objectInsert struct {
+	// only allowed columns Hash table.
 	allow map[string]*struct{}
 
-	// ignored fields Hash table.
+	// ignored columns Hash table.
 	except map[string]*struct{}
 
-	// already existing fields Hash table.
+	// already existing columns Hash table.
 	used map[string]*struct{}
 
 	// struct tag name value used as table.column name.
 	tag string
 }
 
-// setExcept Filter the list of unwanted fields, prioritize method calls structFieldsValues() and structValues().
-func (s *insertByStruct) setExcept(except []string) {
-	for _, field := range except {
-		s.except[field] = &struct{}{}
+// setExcept Filter the list of unwanted columns, prioritize method calls structColumnValue() and structValue().
+func (s *objectInsert) setExcept(except []string) {
+	for _, column := range except {
+		s.except[column] = nil
 	}
 }
 
-// setAllow Only allowed fields, prioritize method calls structFieldsValues() and structValues().
-func (s *insertByStruct) setAllow(allow []string) {
-	for _, field := range allow {
-		s.allow[field] = &struct{}{}
+// setAllow Only allowed columns, prioritize method calls structColumnValue() and structValue().
+func (s *objectInsert) setAllow(allow []string) {
+	for _, column := range allow {
+		s.allow[column] = nil
 	}
 }
 
-func panicSliceElementTypesAreInconsistent() {
-	panic("hey: slice element types are inconsistent")
-}
-
-// structFieldsValues Checkout fields, values.
-func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, allowed bool) (fields []string, values []any) {
+// structColumnValue Checkout columns, values.
+func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allowed bool) (columns []string, values []any) {
 	reflectType := structReflectValue.Type()
-	if s.structReflectType == nil {
-		s.structReflectType = reflectType
-	}
-	if s.structReflectType != reflectType {
-		panicSliceElementTypesAreInconsistent()
-	}
 	length := reflectType.NumField()
 	for i := range length {
 		field := reflectType.Field(i)
@@ -1120,8 +1106,8 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 			valueIndexFieldKind = valueIndexField.Kind()
 		}
 		if valueIndexFieldKind == reflect.Struct {
-			tmpFields, tmpValues := s.structFieldsValues(valueIndexField, allowed)
-			fields = append(fields, tmpFields...)
+			tmpColumns, tmpValues := s.structColumnValue(valueIndexField, allowed)
+			columns = append(columns, tmpColumns...)
 			values = append(values, tmpValues...)
 			continue
 		}
@@ -1141,20 +1127,17 @@ func (s *insertByStruct) structFieldsValues(structReflectValue reflect.Value, al
 				continue
 			}
 		}
-		s.used[valueIndexFieldTag] = &struct{}{}
+		s.used[valueIndexFieldTag] = nil
 
-		fields = append(fields, valueIndexFieldTag)
+		columns = append(columns, valueIndexFieldTag)
 		values = append(values, basicTypeValue(valueIndexField.Interface()))
 	}
-	return fields, values
+	return columns, values
 }
 
-// structValues Checkout values.
-func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed bool) (values []any) {
+// structValue Checkout struct values.
+func (s *objectInsert) structValue(structReflectValue reflect.Value, allowed bool) (values []any) {
 	reflectType := structReflectValue.Type()
-	if s.structReflectType != nil && s.structReflectType != reflectType {
-		panicSliceElementTypesAreInconsistent()
-	}
 	length := reflectType.NumField()
 	for i := range length {
 		field := reflectType.Field(i)
@@ -1172,7 +1155,7 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 			valueIndexFieldKind = valueIndexField.Kind()
 		}
 		if valueIndexFieldKind == reflect.Struct {
-			values = append(values, s.structValues(valueIndexField, allowed)...)
+			values = append(values, s.structValue(valueIndexField, allowed)...)
 			continue
 		}
 
@@ -1194,19 +1177,89 @@ func (s *insertByStruct) structValues(structReflectValue reflect.Value, allowed 
 	return values
 }
 
-// Insert Object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
-func (s *insertByStruct) Insert(object any, tag string, except []string, allow []string) (fields []string, values [][]any) {
-	if object == nil || tag == cst.Empty {
-		return fields, values
+// Insert Object should be one of map[string]any, []map[string]any, struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
+func (s *objectInsert) Insert(object any, tag string, except []string, allow []string) (columns []string, values [][]any) {
+	if object == nil {
+		return columns, values
 	}
 
-	s.tag = tag
 	s.setExcept(except)
 
 	allowed := len(allow) > 0
 	if allowed {
 		s.setAllow(allow)
 	}
+
+	// map[string]any
+	if tmp, ok := object.(map[string]any); ok {
+		length := len(tmp)
+		if length == 0 {
+			return columns, values
+		}
+		columns = make([]string, 0, length)
+		for column := range tmp {
+			if allowed {
+				if _, ok = s.allow[column]; !ok {
+					continue
+				}
+			}
+			if _, ok = s.except[column]; ok {
+				continue
+			}
+			columns = append(columns, column)
+		}
+		sort.Strings(columns)
+		values = make([][]any, 1)
+		values[0] = make([]any, 0, length)
+		for _, column := range columns {
+			values[0] = append(values[0], tmp[column])
+		}
+		return columns, values
+	}
+
+	// []map[string]any
+	if tmp, ok := object.([]map[string]any); ok {
+		length := len(tmp)
+		if length == 0 {
+			return columns, values
+		}
+		columns = make([]string, 0, length)
+		for column := range tmp[0] {
+			if allowed {
+				if _, ok = s.allow[column]; !ok {
+					continue
+				}
+			}
+			if _, ok = s.except[column]; ok {
+				continue
+			}
+			columns = append(columns, column)
+		}
+		count := len(columns)
+		if count == 0 {
+			return columns, values
+		}
+		sort.Strings(columns)
+		values = make([][]any, 0, length)
+		for _, value := range tmp {
+			tmpValues := make([]any, 0, count)
+			for _, column := range columns {
+				tmpValue, exist := value[column]
+				if exist {
+					tmpValues = append(tmpValues, tmpValue)
+				} else {
+					tmpValues = append(tmpValues, nil)
+				}
+			}
+			values = append(values, tmpValues)
+		}
+		return columns, values
+	}
+
+	if tag == cst.Empty {
+		return columns, values
+	}
+	s.tag = tag
 
 	reflectValue := reflect.ValueOf(object)
 	kind := reflectValue.Kind()
@@ -1216,14 +1269,23 @@ func (s *insertByStruct) Insert(object any, tag string, except []string, allow [
 
 	if kind == reflect.Struct {
 		values = make([][]any, 1)
-		fields, values[0] = s.structFieldsValues(reflectValue, allowed)
+		columns, values[0] = s.structColumnValue(reflectValue, allowed)
+		return
 	}
 
 	if kind == reflect.Slice {
 		sliceLength := reflectValue.Len()
 		values = make([][]any, sliceLength)
+		var indexValueType reflect.Type
 		for i := range sliceLength {
 			indexValue := reflectValue.Index(i)
+			if indexValueType == nil {
+				indexValueType = indexValue.Type()
+			} else {
+				if indexValueType != indexValue.Type() {
+					panic("hey: slice element types are inconsistent")
+				}
+			}
 			for indexValue.Kind() == reflect.Pointer {
 				indexValue = indexValue.Elem()
 			}
@@ -1231,29 +1293,55 @@ func (s *insertByStruct) Insert(object any, tag string, except []string, allow [
 				continue
 			}
 			if i == 0 {
-				fields, values[i] = s.structFieldsValues(indexValue, allowed)
+				columns, values[i] = s.structColumnValue(indexValue, allowed)
 			} else {
-				values[i] = s.structValues(indexValue, allowed)
+				values[i] = s.structValue(indexValue, allowed)
 			}
 		}
+		return
 	}
-	return fields, values
+
+	return
 }
 
-// StructInsert Object should be one of struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
-// Get fields and values based on struct tag.
-func StructInsert(object any, tag string, except []string, allow []string) (fields []string, values [][]any) {
-	b := poolGetInsertByStruct()
-	defer poolPutInsertByStruct(b)
-	fields, values = b.Insert(object, tag, except, allow)
-	return fields, values
+// ObjectInsert Object should be one of map[string]any, []map[string]any, struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
+func ObjectInsert(object any, tag string, except []string, allow []string) (columns []string, values [][]any) {
+	i := poolGetObjectInsert()
+	defer poolPutObjectInsert(i)
+	return i.Insert(object, tag, except, allow)
 }
 
-// StructModify Object should be one of anyStruct, *anyStruct get the fields and values that need to be modified.
-func StructModify(object any, tag string, except ...string) (fields []string, values []any) {
-	if object == nil || tag == cst.Empty {
-		return fields, values
+// ObjectModify Object should be one of map[string]any, anyStruct, *anyStruct get the columns and values that need to be modified.
+func ObjectModify(object any, tag string, except ...string) (columns []string, values []any) {
+	if object == nil {
+		return columns, values
 	}
+
+	excepted := make(map[string]*struct{}, 1<<3)
+	for _, column := range except {
+		excepted[column] = nil
+	}
+
+	if columnValue, ok := object.(map[string]any); ok {
+		columns = make([]string, 0, len(columnValue))
+		for column := range columnValue {
+			if _, ok = excepted[column]; ok {
+				continue
+			}
+			columns = append(columns, column)
+		}
+		sort.Strings(columns)
+		values = make([]any, len(columns))
+		for index, column := range columns {
+			values[index] = columnValue[column]
+		}
+		return columns, values
+	}
+
+	if tag == cst.Empty {
+		return columns, values
+	}
+
 	ofType := reflect.TypeOf(object)
 	ofValue := reflect.ValueOf(object)
 	ofKind := ofType.Kind()
@@ -1262,31 +1350,27 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 		ofValue = ofValue.Elem()
 	}
 	if ofKind != reflect.Struct {
-		return fields, values
-	}
-	excepted := make(map[string]*struct{}, 1<<5)
-	for _, field := range except {
-		excepted[field] = &struct{}{}
+		return columns, values
 	}
 
 	length := ofType.NumField()
 
 	exists := make(map[string]*struct{}, length)
-	fields = make([]string, 0, length)
+	columns = make([]string, 0, length)
 	values = make([]any, 0, length)
 
 	last := 0
-	fieldsIndex := make(map[string]int, 1<<5)
+	columnsIndex := make(map[string]int, 1<<3)
 
 	add := func(field string, value any) {
 		if _, ok := exists[field]; ok {
-			values[fieldsIndex[field]] = value
+			values[columnsIndex[field]] = value
 			return
 		}
-		exists[field] = &struct{}{}
-		fields = append(fields, field)
+		exists[field] = nil
+		columns = append(columns, field)
 		values = append(values, value)
-		fieldsIndex[field] = last
+		columnsIndex[field] = last
 		last++
 	}
 
@@ -1314,7 +1398,7 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 			if isNil {
 				continue
 			}
-			tmpFields, tmpValues := StructModify(fieldValue.Interface(), tag, except...)
+			tmpFields, tmpValues := ObjectModify(fieldValue.Interface(), tag, except...)
 			for index, tmpField := range tmpFields {
 				add(tmpField, tmpValues[index])
 			}
@@ -1362,14 +1446,41 @@ func StructModify(object any, tag string, except ...string) (fields []string, va
 			fieldValue = fieldValue.Elem()
 		}
 	}
-	return fields, values
+
+	return columns, values
 }
 
-// StructObtain Object should be one of anyStruct, *anyStruct for get all fields and values.
-func StructObtain(object any, tag string, except ...string) (fields []string, values []any) {
-	if object == nil || tag == cst.Empty {
-		return fields, values
+// ObjectObtain Object should be one of map[string]any, anyStruct, *anyStruct for get all columns and values.
+func ObjectObtain(object any, tag string, except ...string) (columns []string, values []any) {
+	if object == nil {
+		return columns, values
 	}
+
+	excepted := make(map[string]*struct{}, 1<<3)
+	for _, column := range except {
+		excepted[column] = nil
+	}
+
+	if columnValue, ok := object.(map[string]any); ok {
+		columns = make([]string, 0, len(columnValue))
+		for column := range columnValue {
+			if _, ok = excepted[column]; ok {
+				continue
+			}
+			columns = append(columns, column)
+		}
+		sort.Strings(columns)
+		values = make([]any, len(columns))
+		for index, column := range columns {
+			values[index] = columnValue[column]
+		}
+		return columns, values
+	}
+
+	if tag == cst.Empty {
+		return columns, values
+	}
+
 	ofType := reflect.TypeOf(object)
 	ofValue := reflect.ValueOf(object)
 	ofKind := ofType.Kind()
@@ -1378,31 +1489,27 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 		ofValue = ofValue.Elem()
 	}
 	if ofKind != reflect.Struct {
-		return fields, values
-	}
-	excepted := make(map[string]*struct{}, 1<<5)
-	for _, field := range except {
-		excepted[field] = &struct{}{}
+		return columns, values
 	}
 
 	length := ofType.NumField()
 
 	exists := make(map[string]*struct{}, length)
-	fields = make([]string, 0, length)
+	columns = make([]string, 0, length)
 	values = make([]any, 0, length)
 
 	last := 0
-	fieldsIndex := make(map[string]int, 1<<5)
+	columnsIndex := make(map[string]int, 1<<5)
 
 	add := func(field string, value any) {
 		if _, ok := exists[field]; ok {
-			values[fieldsIndex[field]] = value
+			values[columnsIndex[field]] = value
 			return
 		}
-		exists[field] = &struct{}{}
-		fields = append(fields, field)
+		exists[field] = nil
+		columns = append(columns, field)
 		values = append(values, value)
-		fieldsIndex[field] = last
+		columnsIndex[field] = last
 		last++
 	}
 
@@ -1431,7 +1538,7 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 			if isNil {
 				continue
 			}
-			tmpFields, tmpValues := StructObtain(fieldValue.Interface(), tag, except...)
+			tmpFields, tmpValues := ObjectObtain(fieldValue.Interface(), tag, except...)
 			for index, tmpField := range tmpFields {
 				add(tmpField, tmpValues[index])
 			}
@@ -1448,7 +1555,7 @@ func StructObtain(object any, tag string, except ...string) (fields []string, va
 
 		add(column, ofValue.Field(i).Interface())
 	}
-	return fields, values
+	return columns, values
 }
 
 // StructUpdate Compare origin and latest for update.
@@ -1457,8 +1564,8 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (fields 
 		return fields, values
 	}
 
-	originFields, originValues := StructObtain(origin, tag, except...)
-	latestFields, latestValues := StructModify(latest, tag, except...)
+	originFields, originValues := ObjectObtain(origin, tag, except...)
+	latestFields, latestValues := ObjectModify(latest, tag, except...)
 
 	storage := make(map[string]any, len(originFields))
 	for k, v := range originFields {
@@ -1470,17 +1577,17 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (fields 
 	values = make([]any, 0)
 
 	last := 0
-	fieldsIndex := make(map[string]int, 1<<5)
+	columnsIndex := make(map[string]int, 1<<5)
 
 	add := func(field string, value any) {
 		if _, ok := exists[field]; ok {
-			values[fieldsIndex[field]] = value
+			values[columnsIndex[field]] = value
 			return
 		}
-		exists[field] = &struct{}{}
+		exists[field] = nil
 		fields = append(fields, field)
 		values = append(values, value)
-		fieldsIndex[field] = last
+		columnsIndex[field] = last
 		last++
 	}
 
