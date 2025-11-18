@@ -883,8 +883,8 @@ type SQLOrderBy interface {
 	// Desc Build column1 DESC, column2 DESC, column3 DESC...
 	Desc(columns ...string) SQLOrderBy
 
-	// Order Automatically call sorting based on the sort string format.
-	Order(order *string) SQLOrderBy
+	// OrderString Automatically call sorting based on the sort string format.
+	OrderString(order *string) SQLOrderBy
 }
 type sqlOrderBy struct {
 	allow map[string]*struct{}
@@ -1007,7 +1007,7 @@ func (s *sqlOrderBy) Desc(columns ...string) SQLOrderBy {
 // orderStringRegexp `column_name_first:a,column_name_second:d` => `column_name_first ASC, column_name_second DESC`
 var orderStringRegexp = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_]*([.][a-zA-Z][a-zA-Z0-9_]*)*):([ad])$`)
 
-func (s *sqlOrderBy) Order(order *string) SQLOrderBy {
+func (s *sqlOrderBy) OrderString(order *string) SQLOrderBy {
 	if order == nil || *order == cst.Empty {
 		return s
 	}
