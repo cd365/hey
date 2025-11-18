@@ -20,15 +20,6 @@ func hexEncodeToString(values []byte) string {
 	return hex.EncodeToString(values)
 }
 
-func binaryByteSliceToString(args []any) []any {
-	for index, value := range args {
-		if tmp, ok := value.([]byte); ok && tmp != nil {
-			args[index] = hexEncodeToString(tmp)
-		}
-	}
-	return args
-}
-
 // argValueToString Convert SQL parameter value to string.
 func argValueToString(i any) string {
 	if i == nil {
