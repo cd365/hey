@@ -238,6 +238,7 @@ type Filter interface {
 
 	// TimeFilter Call Filter using TimeFilter.
 	TimeFilter(fc func(f TimeFilter)) Filter
+
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
 	// 2. If the business really needs to use it, you can use the OrGroup method: OrGroup(func(g Filter) { g.Equal("column", 1) }) .
@@ -1544,6 +1545,21 @@ func newTimeFilter(filter Filter, timestamp int64) TimeFilter {
 	}
 }
 
+func (s *timeFilter) minuteStartAt(timestamp int64) int64 {
+	t := time.Unix(timestamp, 0).In(s.location)
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, t.Location()).Unix()
+}
+
+func (s *timeFilter) hourStartAt(timestamp int64) int64 {
+	t := time.Unix(timestamp, 0).In(s.location)
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, t.Location()).Unix()
+}
+
+func (s *timeFilter) dayStartAt(timestamp int64) int64 {
+	t := time.Unix(timestamp, 0).In(s.location)
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).Unix()
+}
+
 func (s *timeFilter) monthStartAt(timestamp int64) int64 {
 	t := time.Unix(timestamp, 0).In(s.location)
 	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location()).Unix()
@@ -1586,7 +1602,7 @@ func (s *timeFilter) LastMinutes(column string, minutes int) TimeFilter {
 	if minutes <= 0 {
 		return s
 	}
-	s.filter.Between(column, s.timestamp-int64(minutes)*60, s.timestamp)
+	s.filter.Between(column, s.minuteStartAt(s.timestamp)-(int64(minutes)-1)*60, s.timestamp)
 	return s
 }
 
@@ -1594,21 +1610,18 @@ func (s *timeFilter) LastHours(column string, hours int) TimeFilter {
 	if hours <= 0 {
 		return s
 	}
-	s.filter.Between(column, s.timestamp-int64(hours)*3600, s.timestamp)
+	s.filter.Between(column, s.hourStartAt(s.timestamp)-(int64(hours)-1)*3600, s.timestamp)
 	return s
 }
 
 func (s *timeFilter) Today(column string) TimeFilter {
-	at := time.Unix(s.timestamp, 0).In(s.location)
-	todayStartAt := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location()).Unix()
-	s.filter.Between(column, todayStartAt, s.timestamp)
+	s.filter.Between(column, s.dayStartAt(s.timestamp), s.timestamp)
 	return s
 }
 
 func (s *timeFilter) Yesterday(column string) TimeFilter {
-	at := time.Unix(s.timestamp, 0).In(s.location)
-	todayStartAt := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location()).Unix()
-	s.filter.Between(column, todayStartAt-86400, todayStartAt-1)
+	dayStartAt := s.dayStartAt(s.timestamp)
+	s.filter.Between(column, s.dayStartAt(dayStartAt-1), dayStartAt-1)
 	return s
 }
 
@@ -1616,7 +1629,7 @@ func (s *timeFilter) LastDays(column string, days int) TimeFilter {
 	if days <= 0 {
 		return s
 	}
-	s.filter.Between(column, s.timestamp-int64(days)*86400, s.timestamp)
+	s.filter.Between(column, s.dayStartAt(s.timestamp)-(int64(days)-1)*86400, s.timestamp)
 	return s
 }
 
