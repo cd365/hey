@@ -16,7 +16,9 @@ func newSqlite3() (*hey.Way, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	fileDb := filepath.Join(homeDir, ".example.sqlite3")
+
 	db, err := sql.Open("sqlite3", fileDb)
 	if err != nil {
 		return nil, err
@@ -27,11 +29,11 @@ func newSqlite3() (*hey.Way, error) {
 	db.SetMaxOpenConns(2)
 	db.SetMaxIdleConns(2)
 
-	manual := hey.Mysql()
+	manual := hey.Sqlite()
 	manual.Replacer = hey.NewReplacer() // Optional, You can customize it by using `table_or_column_name` instead of table_or_column_name
 	newWay := hey.NewWay(
-		hey.WithDatabase(db),
 		hey.WithManual(manual),
+		hey.WithDatabase(db),
 		hey.WithDeleteRequireWhere(true),
 		hey.WithUpdateRequireWhere(true),
 		hey.WithTxMaxDuration(time.Second*5),
