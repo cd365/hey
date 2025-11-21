@@ -565,13 +565,15 @@ func (s *Table) groupTransaction(ctx context.Context, group func(tx *Way) error)
 	defer func() {
 		s.way = way
 	}()
-	return way.TransactionNew(ctx, group)
+	return way.TransactionNew(ctx, func(tx *Way) error {
+		s.V(tx)
+		return group(tx)
+	})
 }
 
 // Upsert If the data exists, update the data; otherwise, insert the data.
 func (s *Table) Upsert(ctx context.Context, upsert any) (updateAffectedRows int64, insertResult int64, err error) {
 	err = s.groupTransaction(ctx, func(tx *Way) error {
-		s.V(tx)
 		exist, err0 := s.Exists(ctx)
 		if err0 != nil {
 			return err0
@@ -595,7 +597,6 @@ func (s *Table) Upsert(ctx context.Context, upsert any) (updateAffectedRows int6
 // DeleteCreate Delete data first, then insert data.
 func (s *Table) DeleteCreate(ctx context.Context, create any) (deleteAffectedRows int64, insertResult int64, err error) {
 	err = s.groupTransaction(ctx, func(tx *Way) error {
-		s.V(tx)
 		deleteAffectedRows, err = s.Delete(ctx)
 		if err != nil {
 			return err
