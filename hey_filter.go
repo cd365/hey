@@ -302,7 +302,12 @@ func (s *filter) ToSQL() *SQL {
 	args := make([]any, len(s.args))
 	copy(args, s.args)
 
-	return NewSQL(b.String(), args...)
+	prepare := b.String()
+	if s.not {
+		return NewSQL(ParcelPrepare(prepare), args...)
+	}
+
+	return NewSQL(prepare, args...)
 }
 
 func (s *filter) toEmpty() *filter {
