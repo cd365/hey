@@ -496,6 +496,18 @@ func (s *Table) MapScan(ctx context.Context, adjusts ...AdjustColumnAnyValue) ([
 	return s.way.MapScan(ctx, s.ToSelect(), adjusts...)
 }
 
+// Exists Determine if the data exists by querying. It's recommended to query only one column.
+func (s *Table) Exists(ctx context.Context) (bool, error) {
+	exists, err := s.LimitFunc(func(o SQLLimit) {
+		o.ToEmpty()
+		o.Limit(1)
+	}).MapScan(ctx)
+	if err != nil {
+		return false, err
+	}
+	return len(exists) > 0, nil
+}
+
 // Insert Execute an INSERT INTO statement.
 func (s *Table) Insert(ctx context.Context) (int64, error) {
 	script := s.ToInsert()
@@ -542,4 +554,57 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	return s.UpdateFunc(func(f Filter, u SQLUpdateSet) {
 		u.Update(modify)
 	}).Update(ctx)
+}
+
+// groupTransaction Execute a set of SQL statements through a transaction.
+func (s *Table) groupTransaction(ctx context.Context, group func(tx *Way) error) error {
+	way := s.way
+	if way.IsInTransaction() {
+		return group(way)
+	}
+	defer func() {
+		s.way = way
+	}()
+	return way.TransactionNew(ctx, group)
+}
+
+// Upsert If the data exists, update the data; otherwise, insert the data.
+func (s *Table) Upsert(ctx context.Context, upsert any) (updateAffectedRows int64, insertResult int64, err error) {
+	err = s.groupTransaction(ctx, func(tx *Way) error {
+		s.V(tx)
+		exist, err0 := s.Exists(ctx)
+		if err0 != nil {
+			return err0
+		}
+		if exist {
+			updateAffectedRows, err = s.UpdateFunc(func(f Filter, u SQLUpdateSet) { u.Update(upsert) }).Update(ctx)
+			if err != nil {
+				return err
+			}
+		} else {
+			insertResult, err = s.InsertFunc(func(i SQLInsert) { i.Create(upsert) }).Insert(ctx)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return
+}
+
+// DeleteCreate Delete data first, then insert data.
+func (s *Table) DeleteCreate(ctx context.Context, create any) (deleteAffectedRows int64, insertResult int64, err error) {
+	err = s.groupTransaction(ctx, func(tx *Way) error {
+		s.V(tx)
+		deleteAffectedRows, err = s.Delete(ctx)
+		if err != nil {
+			return err
+		}
+		insertResult, err = s.InsertFunc(func(i SQLInsert) { i.Create(create) }).Insert(ctx)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	return
 }
