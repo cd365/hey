@@ -356,6 +356,21 @@ func ParcelCancelSQL(script *SQL) *SQL {
 	return result
 }
 
+// parcelSingleFilter Parcel single Filter.
+func parcelSingleFilter(tmp Filter) *SQL {
+	if tmp == nil || tmp.IsEmpty() {
+		return NewEmptySQL()
+	}
+	script := tmp.ToSQL()
+	if script == nil || script.IsEmpty() {
+		return NewEmptySQL()
+	}
+	if tmp.Num() == 1 && script.Prepare[0] != cst.LeftParenthesis[0] {
+		script.Prepare = ParcelPrepare(script.Prepare)
+	}
+	return script
+}
+
 // RowsTable Concatenate one or more objects into a SQL table statement.
 // ["id", "name"] + [{"id":1,"name":"name1"}, {"id":2,"name":"name2"}, {"id":3,"name":"name3"} ... ]
 // ==>

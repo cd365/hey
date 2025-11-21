@@ -17,7 +17,7 @@ func TestDelete(t *testing.T) {
 	// WHERE
 	tmp := way.Table(table1).Where(F().GreaterThan(id, 0))
 	script := tmp.ToDelete()
-	ast.Equal("DELETE FROM table1 WHERE id > ?", script.Prepare)
+	ast.Equal("DELETE FROM table1 WHERE ( id > ? )", script.Prepare)
 
 	// IN subquery
 	{
@@ -25,7 +25,7 @@ func TestDelete(t *testing.T) {
 			f.ToEmpty().In(id, way.Table(table1).Select(id).Where(F().Equal(status, 1)).Desc(id).Limit(10))
 		})
 		script = tmp.ToDelete()
-		ast.Equal("DELETE FROM table1 WHERE id IN ( SELECT id FROM table1 WHERE status = ? ORDER BY id DESC LIMIT 10 )", script.Prepare)
+		ast.Equal("DELETE FROM table1 WHERE ( id IN ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 10 ) )", script.Prepare)
 	}
 
 	// WITH + subquery
@@ -36,7 +36,7 @@ func TestDelete(t *testing.T) {
 			f.ToEmpty().In(id, way.Table("a").Select(id))
 		})
 		script = tmp.ToDelete()
-		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE status = ? ORDER BY id DESC LIMIT 10 ) DELETE FROM table1 WHERE id IN ( SELECT id FROM a )", script.Prepare)
+		ast.Equal("WITH a AS ( SELECT id FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 10 ) DELETE FROM table1 WHERE ( id IN ( SELECT id FROM a ) )", script.Prepare)
 	}
 
 	// JOIN
@@ -147,7 +147,7 @@ func TestUpdate(t *testing.T) {
 		u.Default(updatedAt, tmp.W().Now().Unix())
 	})
 	script := tmp.ToUpdate()
-	ast.Equal("UPDATE table1 SET status = ?, field1 = ?, updated_at = ? WHERE id > ?", script.Prepare)
+	ast.Equal("UPDATE table1 SET status = ?, field1 = ?, updated_at = ? WHERE ( id > ? )", script.Prepare)
 
 	{
 		tmp.ToEmpty()
@@ -232,7 +232,7 @@ func TestSelect(t *testing.T) {
 			})
 		}).Asc(id).Limit(1)
 		script = tmp.ToSelect()
-		ast.Equal("SELECT id FROM table1 GROUP BY id HAVING id >= ? ORDER BY id ASC LIMIT 1", script.Prepare)
+		ast.Equal("SELECT id FROM table1 GROUP BY id HAVING ( id >= ? ) ORDER BY id ASC LIMIT 1", script.Prepare)
 	}
 
 	// DISTINCT
@@ -256,7 +256,7 @@ func TestSelect(t *testing.T) {
 			)
 		}).Asc(id).Limit(1)
 		script = tmpWith.ToSelect()
-		ast.Equal("/*test1*/ WITH a AS ( SELECT id, status FROM table1 WHERE status = ? ORDER BY id DESC LIMIT 10 ) SELECT * FROM a ORDER BY id ASC LIMIT 1", script.Prepare)
+		ast.Equal("/*test1*/ WITH a AS ( SELECT id, status FROM table1 WHERE ( status = ? ) ORDER BY id DESC LIMIT 10 ) SELECT * FROM a ORDER BY id ASC LIMIT 1", script.Prepare)
 	}
 
 	// JOIN
@@ -282,7 +282,7 @@ func TestSelect(t *testing.T) {
 		get.Limit(10).Offset(1)
 		// count, err = get.Count(ctx)
 		script = get.ToSelect()
-		ast.Equal("SELECT a.*, COALESCE(b.first_name,'') AS first_name, b.last_name AS last_name FROM c AS a LEFT JOIN e AS b ON a.id = b.company_id WHERE a.id > ? ORDER BY a.id DESC LIMIT 10 OFFSET 1", script.Prepare)
+		ast.Equal("SELECT a.*, COALESCE(b.first_name,'') AS first_name, b.last_name AS last_name FROM c AS a LEFT JOIN e AS b ON a.id = b.company_id WHERE ( a.id > ? ) ORDER BY a.id DESC LIMIT 10 OFFSET 1", script.Prepare)
 	}
 
 	// More ways to call ...

@@ -388,7 +388,7 @@ func (s *Table) ToSelect() *SQL {
 		lists = append(lists, s.joins)
 	}
 	if !s.where.IsEmpty() {
-		lists = append(lists, cst.WHERE, s.where)
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
 	}
 	lists = append(lists, s.groupBy, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
@@ -420,7 +420,7 @@ func (s *Table) ToUpdate() *SQL {
 			return NewEmptySQL()
 		}
 	} else {
-		lists = append(lists, cst.WHERE, s.where)
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
 	}
 	return JoinSQLSpace(lists...).ToSQL()
 }
@@ -437,7 +437,7 @@ func (s *Table) ToDelete() *SQL {
 			return NewEmptySQL()
 		}
 	} else {
-		lists = append(lists, cst.WHERE, s.where)
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
 	}
 	return JoinSQLSpace(lists...).ToSQL()
 }
@@ -463,7 +463,7 @@ func (s *Table) ToCount(counts ...string) *SQL {
 		lists = append(lists, s.joins)
 	}
 	if !s.where.IsEmpty() {
-		lists = append(lists, cst.WHERE, s.where)
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
 	}
 	return JoinSQLSpace(lists...).ToSQL()
 }
