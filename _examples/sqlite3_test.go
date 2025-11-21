@@ -43,9 +43,9 @@ func TestDelete(t *testing.T) {
 	{
 		a, b := "a", "b"
 		tmp = way.Table(table1).Alias(a).InnerJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
-			right = j.Table(table2, b)
+			right = j.NewTable(table2, b)
 			assoc = j.OnEqual(field1, field2)
-			return left, right, assoc
+			return
 		})
 		where := F().CompareEqual("a.field3", "b.field3").Equal("a.status", 0).In("a.id", 1, 2, 3)
 		tmp.Where(where)
@@ -265,22 +265,22 @@ func TestSelect(t *testing.T) {
 		where := way.F()
 		get := way.Table(c).Alias(a)
 		get.LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
-			right = j.Table(e, b)
-			// j.PrefixSelect(j.GetTable(), cst.Asterisk)
+			right = j.NewTable(e, b)
+			// j.TableColumn(j.GetMaster(), cst.Asterisk)
 			j.Select(
-				j.Prefix(j.GetTable(), cst.Asterisk),
-				hey.Alias(hey.Coalesce(j.Prefix(right, "first_name"), hey.SQLString("")), "first_name"), // string
-				hey.Alias(j.Prefix(right, "last_name"), "last_name"),                                    // pointer string
+				j.TableColumn(j.GetMaster(), cst.Asterisk),
+				hey.Alias(hey.Coalesce(j.TableColumn(right, "first_name"), hey.SQLString("")), "first_name"), // string
+				j.TableColumn(right, "last_name", "last_name"),                                               // pointer string
 			)
 			assoc = j.OnEqual(id, "company_id")
-			aid := j.Prefix(j.GetTable(), id)
+			aid := j.TableColumn(j.GetMaster(), id)
 			where.GreaterThan(aid, 0)
 			get.Desc(aid)
-			return left, right, assoc
+			return
 		})
 		get.Where(where)
 		get.Limit(10).Offset(1)
-		// count, err = get.Count(ctx)
+		// count, err := get.Count(context.Background())
 		script = get.ToSelect()
 		ast.Equal("SELECT a.*, COALESCE(b.first_name,'') AS first_name, b.last_name AS last_name FROM c AS a LEFT JOIN e AS b ON a.id = b.company_id WHERE ( a.id > ? ) ORDER BY a.id DESC LIMIT 10 OFFSET 1", script.Prepare)
 	}

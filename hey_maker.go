@@ -476,7 +476,7 @@ func newSQLJoinOn(way *Way) *sqlJoinOn {
 }
 
 func (s *sqlJoinOn) Equal(table1alias string, table1column string, table2alias string, table2column string) SQLJoinOn {
-	s.on.And(JoinSQLSpace(Prefix(table1alias, table1column), cst.Equal, Prefix(table2alias, table2column)))
+	s.on.And(JoinSQLSpace(Prefix(s.way.Replace(table1alias), s.way.Replace(table1column)), cst.Equal, Prefix(s.way.Replace(table2alias), s.way.Replace(table2column))))
 	return s
 }
 
@@ -535,14 +535,14 @@ type SQLJoin interface {
 
 	ToEmpty
 
-	// GetTable Get join query the main table.
-	GetTable() SQLAlias
+	// GetMaster Get join query the master table.
+	GetMaster() SQLAlias
 
-	// SetTable Set join query the main table.
-	SetTable(table SQLAlias) SQLJoin
+	// SetMaster Set join query the master table.
+	SetMaster(table SQLAlias) SQLJoin
 
-	// Table Create a table for join query.
-	Table(table any, alias string) SQLAlias
+	// NewTable Create a table for join query.
+	NewTable(table any, alias string) SQLAlias
 
 	// On Set the join query conditions.
 	On(on func(on SQLJoinOn, table1alias string, table2alias string)) SQLJoinAssoc
@@ -568,11 +568,11 @@ type SQLJoin interface {
 	// Select Set the query column list.
 	Select(columns ...any) SQLJoin
 
-	// Prefix Set column prefix with the table name or table alias.
-	Prefix(prefix SQLAlias, column string, aliases ...string) string
+	// TableColumn Create a table name prefix for the query column.
+	TableColumn(table SQLAlias, column string, aliases ...string) string
 
-	// PrefixSelect Add a column list to the query based on the table alias or table name prefix.
-	PrefixSelect(prefix SQLAlias, columns ...string) SQLJoin
+	// TableColumns Add table name prefix to the query column list values.
+	TableColumns(table SQLAlias, columns ...string) []string
 }
 
 type sqlJoin struct {
@@ -599,11 +599,11 @@ func (s *sqlJoin) ToEmpty() {
 	s.table = nil
 }
 
-func (s *sqlJoin) GetTable() SQLAlias {
+func (s *sqlJoin) GetMaster() SQLAlias {
 	return s.table
 }
 
-func (s *sqlJoin) SetTable(table SQLAlias) SQLJoin {
+func (s *sqlJoin) SetMaster(table SQLAlias) SQLJoin {
 	s.table = table
 	return s
 }
@@ -639,25 +639,27 @@ func (s *sqlJoin) ToSQL() *SQL {
 	return script
 }
 
-func (s *sqlJoin) Table(table any, alias string) SQLAlias {
+func (s *sqlJoin) NewTable(table any, alias string) SQLAlias {
 	return s.way.getTable(table).SetAlias(alias)
+}
+
+func (s *sqlJoin) joinOn() SQLJoinOn {
+	return newSQLJoinOn(s.way)
 }
 
 // On For `... JOIN ON ...`
 func (s *sqlJoin) On(on func(on SQLJoinOn, table1alias string, table2alias string)) SQLJoinAssoc {
 	return func(table1alias string, table2alias string) SQLJoinOn {
-		return newSQLJoinOn(s.way).On(func(o Filter) {
-			newAssoc := newSQLJoinOn(s.way)
-			on(newAssoc, table1alias, table2alias)
-			newAssoc.On(func(f Filter) { o.Use(f) })
-		})
+		joinOn := s.joinOn()
+		on(joinOn, table1alias, table2alias)
+		return joinOn
 	}
 }
 
 // Using For `... JOIN USING ...`
 func (s *sqlJoin) Using(columns ...string) SQLJoinAssoc {
 	return func(alias1 string, alias2 string) SQLJoinOn {
-		return newSQLJoinOn(s.way).Using(columns...)
+		return s.joinOn().Using(columns...)
 	}
 }
 
@@ -667,21 +669,19 @@ func (s *sqlJoin) OnEqual(table1column string, table2column string) SQLJoinAssoc
 		return nil
 	}
 	return func(alias1 string, alias2 string) SQLJoinOn {
-		return newSQLJoinOn(s.way).On(func(f Filter) {
-			f.CompareEqual(Prefix(alias1, table1column), Prefix(alias2, table2column))
-		})
+		return s.joinOn().Equal(alias1, table1column, alias2, table2column)
 	}
 }
 
 func (s *sqlJoin) Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
+	if table2 == nil || table2.ToSQL().IsEmpty() {
+		return s
+	}
 	if joinType == cst.Empty {
 		joinType = JoinString(cst.INNER, cst.Space, cst.JOIN)
 	}
 	if table1 == nil || table1.ToSQL().IsEmpty() {
 		table1 = s.table
-	}
-	if table2 == nil || table2.ToSQL().IsEmpty() {
-		return s
 	}
 	join := &sqlJoinSchema{
 		joinType:  joinType,
@@ -723,23 +723,19 @@ func (s *sqlJoin) Select(columns ...any) SQLJoin {
 	return s
 }
 
-func (s *sqlJoin) prefixColumnAll(prefix SQLAlias, columns []string) []string {
-	if prefix == nil {
+func (s *sqlJoin) tableColumns(table SQLAlias, columns []string) []string {
+	if table == nil {
 		return columns
 	}
-	alias := prefix.GetAlias()
-	if alias == cst.Empty {
-		alias = prefix.GetSQL().Prepare
-	}
-	return s.way.T(alias).ColumnAll(columns...)
+	return s.way.T(table.GetAlias()).ColumnAll(columns...)
 }
 
-func (s *sqlJoin) Prefix(prefix SQLAlias, column string, aliases ...string) string {
-	return s.way.Alias(s.prefixColumnAll(prefix, []string{column})[0], aliases...).ToSQL().Prepare
+func (s *sqlJoin) TableColumn(table SQLAlias, column string, aliases ...string) string {
+	return s.way.Alias(s.tableColumns(table, []string{column})[0], aliases...).ToSQL().Prepare
 }
 
-func (s *sqlJoin) PrefixSelect(prefix SQLAlias, columns ...string) SQLJoin {
-	return s.Select(s.prefixColumnAll(prefix, columns))
+func (s *sqlJoin) TableColumns(table SQLAlias, columns ...string) []string {
+	return s.tableColumns(table, columns)
 }
 
 // SQLGroupBy Build GROUP BY statements.
@@ -1308,12 +1304,6 @@ type SQLUpdateSet interface {
 	// Incr Update column increment.
 	Incr(column string, incr any) SQLUpdateSet
 
-	// SetMap Update column assignment by map.
-	SetMap(columnValue map[string]any) SQLUpdateSet
-
-	// SetSlice Update column assignment by slice.
-	SetSlice(columns []string, values []any) SQLUpdateSet
-
 	// Update Parse the given update data and assign the update value.
 	Update(update any) SQLUpdateSet
 
@@ -1475,10 +1465,16 @@ func (s *sqlUpdateSet) GetForbid() []string {
 func (s *sqlUpdateSet) Select(columns ...string) SQLUpdateSet {
 	onlyAllow := make(map[string]*struct{}, len(columns))
 	for _, column := range columns {
-		onlyAllow[column] = nil
+		if column != cst.Empty {
+			onlyAllow[column] = nil
+		}
+	}
+	length := len(onlyAllow)
+	if length == 0 {
+		return s
 	}
 	if s.onlyAllow == nil {
-		s.onlyAllow = make(map[string]*struct{}, 1<<3)
+		s.onlyAllow = make(map[string]*struct{}, length)
 	}
 	maps.Copy(s.onlyAllow, onlyAllow)
 	return s
@@ -1541,20 +1537,11 @@ func (s *sqlUpdateSet) Incr(column string, increment any) SQLUpdateSet {
 	return s.columnUpdate(column, script)
 }
 
-func (s *sqlUpdateSet) SetMap(columnValue map[string]any) SQLUpdateSet {
-	columns := make([]string, 0, len(columnValue))
-	for column := range columnValue {
-		columns = append(columns, column)
+// batchSet SET column = value by slice, require len(columns) == len(values).
+func (s *sqlUpdateSet) batchSet(columns []string, values []any) SQLUpdateSet {
+	if len(columns) != len(values) {
+		return s
 	}
-	sort.Strings(columns)
-	for column := range columnValue {
-		s.Set(column, columnValue[column])
-	}
-	return s
-}
-
-// SetSlice SET column = value by slice, require len(columns) == len(values).
-func (s *sqlUpdateSet) SetSlice(columns []string, values []any) SQLUpdateSet {
 	for index, column := range columns {
 		s.Set(column, values[index])
 	}
@@ -1573,12 +1560,13 @@ func (s *sqlUpdateSet) Update(update any) SQLUpdateSet {
 		return s.exprArgs(tmp.ToSQL())
 	}
 	columns, values := ObjectModify(update, s.way.cfg.scanTag)
-	return s.SetSlice(columns, values)
+	return s.batchSet(columns, values)
 }
 
 // Compare For compare old and new to automatically calculate the need to update columns.
 func (s *sqlUpdateSet) Compare(old, new any, except ...string) SQLUpdateSet {
-	return s.SetSlice(StructUpdate(old, new, s.way.cfg.scanTag, except...))
+	columns, values := StructUpdate(old, new, s.way.cfg.scanTag, except...)
+	return s.batchSet(columns, values)
 }
 
 // Default Set the default columns that need to be updated, such as update timestamp.
@@ -1600,7 +1588,6 @@ func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 
 // Remove Delete a column-value.
 func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
-	s.Forbid(columns...)
 	removes := make(map[string]*struct{})
 	for _, column := range columns {
 		if tmp, ok := s.exists[column]; ok {

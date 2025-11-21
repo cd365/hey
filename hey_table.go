@@ -224,42 +224,21 @@ func (s *Table) JoinFunc(fc func(j SQLJoin)) *Table {
 // InnerJoin INNER JOIN.
 func (s *Table) InnerJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JoinFunc(func(j SQLJoin) {
-		left, right, on := fc(j)
-		if on == nil || right == nil || right.IsEmpty() {
-			return
-		}
-		if left == nil || left.IsEmpty() {
-			left = j.GetTable()
-		}
-		j.InnerJoin(left, right, on)
+		j.InnerJoin(fc(j))
 	})
 }
 
 // LeftJoin LEFT JOIN.
 func (s *Table) LeftJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JoinFunc(func(j SQLJoin) {
-		left, right, on := fc(j)
-		if on == nil || right == nil || right.IsEmpty() {
-			return
-		}
-		if left == nil || left.IsEmpty() {
-			left = j.GetTable()
-		}
-		j.LeftJoin(left, right, on)
+		j.LeftJoin(fc(j))
 	})
 }
 
 // RightJoin RIGHT JOIN.
 func (s *Table) RightJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JoinFunc(func(j SQLJoin) {
-		left, right, on := fc(j)
-		if on == nil || right == nil || right.IsEmpty() {
-			return
-		}
-		if left == nil || left.IsEmpty() {
-			left = j.GetTable()
-		}
-		j.RightJoin(left, right, on)
+		j.RightJoin(fc(j))
 	})
 }
 

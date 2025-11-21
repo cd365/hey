@@ -1574,39 +1574,39 @@ func ObjectObtain(object any, tag string, except ...string) (columns []string, v
 }
 
 // StructUpdate Compare origin and latest for update.
-func StructUpdate(origin any, latest any, tag string, except ...string) (fields []string, values []any) {
+func StructUpdate(origin any, latest any, tag string, except ...string) (columns []string, values []any) {
 	if origin == nil || latest == nil || tag == cst.Empty {
-		return fields, values
+		return columns, values
 	}
 
-	originFields, originValues := ObjectObtain(origin, tag, except...)
-	latestFields, latestValues := ObjectModify(latest, tag, except...)
+	originColumns, originValues := ObjectObtain(origin, tag, except...)
+	latestColumns, latestValues := ObjectModify(latest, tag, except...)
 
-	storage := make(map[string]any, len(originFields))
-	for k, v := range originFields {
+	storage := make(map[string]any, len(originColumns))
+	for k, v := range originColumns {
 		storage[v] = originValues[k]
 	}
 
 	exists := make(map[string]*struct{}, 1<<5)
-	fields = make([]string, 0)
+	columns = make([]string, 0)
 	values = make([]any, 0)
 
 	last := 0
 	columnsIndex := make(map[string]int, 1<<5)
 
-	add := func(field string, value any) {
-		if _, ok := exists[field]; ok {
-			values[columnsIndex[field]] = value
+	add := func(column string, value any) {
+		if _, ok := exists[column]; ok {
+			values[columnsIndex[column]] = value
 			return
 		}
-		exists[field] = nil
-		fields = append(fields, field)
+		exists[column] = nil
+		columns = append(columns, column)
 		values = append(values, value)
-		columnsIndex[field] = last
+		columnsIndex[column] = last
 		last++
 	}
 
-	for k, v := range latestFields {
+	for k, v := range latestColumns {
 		if _, ok := storage[v]; !ok {
 			continue
 		}
@@ -1620,7 +1620,7 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (fields 
 		add(v, bvl)
 	}
 
-	return fields, values
+	return columns, values
 }
 
 // ExecuteScript Execute SQL script.
