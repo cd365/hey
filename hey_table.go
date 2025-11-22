@@ -556,35 +556,47 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	}).Update(ctx)
 }
 
-// groupTransaction Execute a set of SQL statements through a transaction.
-func (s *Table) groupTransaction(ctx context.Context, group func(tx *Way) error) error {
-	way := s.way
+// Complex Execute a set of SQL statements within a transaction.
+type Complex interface {
+	// Upsert Update or insert data.
+	Upsert(ctx context.Context, upsert any) (updateAffectedRows int64, insertResult int64, err error)
+
+	// DeleteCreate Delete data first, then insert data.
+	DeleteCreate(ctx context.Context, create any) (deleteAffectedRows int64, insertResult int64, err error)
+}
+
+// myComplex Implement Complex interface.
+type myComplex struct {
+	table *Table
+}
+
+func (s *myComplex) atomic(ctx context.Context, group func(tx *Way) error) error {
+	way := s.table.way
 	if way.IsInTransaction() {
 		return group(way)
 	}
-	defer func() {
-		s.way = way
-	}()
+	defer func() { s.table.V(way) }()
 	return way.TransactionNew(ctx, func(tx *Way) error {
-		s.V(tx)
+		s.table.V(tx)
 		return group(tx)
 	})
 }
 
 // Upsert If the data exists, update the data; otherwise, insert the data.
-func (s *Table) Upsert(ctx context.Context, upsert any) (updateAffectedRows int64, insertResult int64, err error) {
-	err = s.groupTransaction(ctx, func(tx *Way) error {
-		exist, err0 := s.Exists(ctx)
-		if err0 != nil {
-			return err0
+func (s *myComplex) Upsert(ctx context.Context, upsert any) (updateAffectedRows int64, insertResult int64, err error) {
+	err = s.atomic(ctx, func(tx *Way) error {
+		exist, table := false, s.table
+		exist, err = table.Exists(ctx)
+		if err != nil {
+			return err
 		}
 		if exist {
-			updateAffectedRows, err = s.UpdateFunc(func(f Filter, u SQLUpdateSet) { u.Update(upsert) }).Update(ctx)
+			updateAffectedRows, err = table.UpdateFunc(func(f Filter, u SQLUpdateSet) { u.Update(upsert) }).Update(ctx)
 			if err != nil {
 				return err
 			}
 		} else {
-			insertResult, err = s.InsertFunc(func(i SQLInsert) { i.Create(upsert) }).Insert(ctx)
+			insertResult, err = table.InsertFunc(func(i SQLInsert) { i.Create(upsert) }).Insert(ctx)
 			if err != nil {
 				return err
 			}
@@ -595,17 +607,24 @@ func (s *Table) Upsert(ctx context.Context, upsert any) (updateAffectedRows int6
 }
 
 // DeleteCreate Delete data first, then insert data.
-func (s *Table) DeleteCreate(ctx context.Context, create any) (deleteAffectedRows int64, insertResult int64, err error) {
-	err = s.groupTransaction(ctx, func(tx *Way) error {
-		deleteAffectedRows, err = s.Delete(ctx)
+func (s *myComplex) DeleteCreate(ctx context.Context, create any) (deleteAffectedRows int64, insertResult int64, err error) {
+	err = s.atomic(ctx, func(tx *Way) error {
+		table := s.table
+		deleteAffectedRows, err = table.Delete(ctx)
 		if err != nil {
 			return err
 		}
-		insertResult, err = s.InsertFunc(func(i SQLInsert) { i.Create(create) }).Insert(ctx)
+		insertResult, err = table.InsertFunc(func(i SQLInsert) { i.Create(create) }).Insert(ctx)
 		if err != nil {
 			return err
 		}
 		return nil
 	})
 	return
+}
+
+func NewComplex(table *Table) Complex {
+	return &myComplex{
+		table: table,
+	}
 }
