@@ -518,7 +518,7 @@ func (s *Table) Exists(ctx context.Context) (bool, error) {
 			}
 		})
 	}()
-	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, ParcelSQL(s.ToSelect()), cst.AS, cst.A)
+	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, ParcelSQL(s.ToSelect()), cst.AS, s.way.Replace(cst.A))
 	var exist any
 	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
 		for rows.Next() {
