@@ -497,32 +497,40 @@ func (s *Table) MapScan(ctx context.Context, adjusts ...AdjustColumnAnyValue) ([
 	return s.way.MapScan(ctx, s.ToSelect(), adjusts...)
 }
 
-// Exists Determine if the data exists by querying.
-func (s *Table) Exists(ctx context.Context) (bool, error) {
+// Exists Determine if the data exists by querying, allow replacing or updating the subquery script of EXISTS.
+func (s *Table) Exists(ctx context.Context, exists ...func(script *SQL)) (bool, error) {
 	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
 	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
+	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
 	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
 	s.SelectFunc(func(q SQLSelect) {
 		if q.Len() > 0 {
 			columns, columnsArgs = q.Get()
+			q.ToEmpty()
 		}
-		q.ToEmpty()
 		q.Select("1")
 	})
 	defer func() {
 		s.SelectFunc(func(q SQLSelect) {
-			if columns == nil {
+			if len(columns) == 0 {
 				q.ToEmpty()
 			} else {
 				q.Set(columns, columnsArgs)
 			}
 		})
 	}()
-	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, ParcelSQL(s.ToSelect()), cst.AS, s.way.Replace(cst.A))
-	var exist any
+	defaultScript := s.ToSelect()
+	for i := len(exists) - 1; i >= 0; i-- {
+		if exists[i] != nil {
+			exists[i](defaultScript)
+			break
+		}
+	}
+	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, ParcelSQL(defaultScript), cst.AS, s.way.Replace(cst.A))
+	var result any
 	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
 		for rows.Next() {
-			if err := rows.Scan(&exist); err != nil {
+			if err := rows.Scan(&result); err != nil {
 				return err
 			}
 		}
@@ -531,31 +539,31 @@ func (s *Table) Exists(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	switch value := exist.(type) {
+	switch value := result.(type) {
 	case bool:
 		return value, nil
 	case int:
-		return value == 1, nil
+		return value != 0, nil
 	case int8:
-		return value == 1, nil
+		return value != 0, nil
 	case int16:
-		return value == 1, nil
+		return value != 0, nil
 	case int32:
-		return value == 1, nil
+		return value != 0, nil
 	case int64:
-		return value == 1, nil
+		return value != 0, nil
 	case uint:
-		return value == 1, nil
+		return value != 0, nil
 	case uint8:
-		return value == 1, nil
+		return value != 0, nil
 	case uint16:
-		return value == 1, nil
+		return value != 0, nil
 	case uint32:
-		return value == 1, nil
+		return value != 0, nil
 	case uint64:
-		return value == 1, nil
+		return value != 0, nil
 	default:
-		return false, fmt.Errorf("unexpected type %T %v", value, exist)
+		return false, fmt.Errorf("unexpected type %T %v", result, result)
 	}
 }
 
