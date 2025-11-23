@@ -409,7 +409,7 @@ func RowsTable(columns []string, rows func() [][]any, table func(values ...*SQL)
 	return table(result...)
 }
 
-// UnionSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )... )
+// UnionSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...
 func UnionSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -418,7 +418,7 @@ func UnionSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(result, JoinString(cst.Space, cst.UNION, cst.Space))
 }
 
-// UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )... )
+// UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )...
 func UnionAllSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -427,7 +427,7 @@ func UnionAllSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(result, JoinString(cst.Space, cst.UNION, cst.Space, cst.ALL, cst.Space))
 }
 
-// IntersectSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ( QUERY_B ) INTERSECT ( QUERY_C )... )
+// IntersectSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) INTERSECT ( QUERY_B ) INTERSECT ( QUERY_C )...
 func IntersectSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -436,7 +436,7 @@ func IntersectSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(result, JoinString(cst.Space, cst.INTERSECT, cst.Space))
 }
 
-// IntersectAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) INTERSECT ALL ( QUERY_B ) INTERSECT ALL ( QUERY_C )... )
+// IntersectAllSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) INTERSECT ALL ( QUERY_B ) INTERSECT ALL ( QUERY_C )...
 func IntersectAllSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -445,7 +445,7 @@ func IntersectAllSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(result, JoinString(cst.Space, cst.INTERSECT, cst.Space, cst.ALL, cst.Space))
 }
 
-// ExceptSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ( QUERY_B ) EXCEPT ( QUERY_C )... )
+// ExceptSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) EXCEPT ( QUERY_B ) EXCEPT ( QUERY_C )...
 func ExceptSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {
@@ -454,7 +454,7 @@ func ExceptSQL(scripts ...*SQL) *SQL {
 	return JoinSQL(result, JoinString(cst.Space, cst.EXCEPT, cst.Space))
 }
 
-// ExceptAllSQL *SQL1, *SQL2, *SQL3 ... => ( ( QUERY_A ) EXCEPT ALL ( QUERY_B ) EXCEPT ALL ( QUERY_C )... )
+// ExceptAllSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) EXCEPT ALL ( QUERY_B ) EXCEPT ALL ( QUERY_C )...
 func ExceptAllSQL(scripts ...*SQL) *SQL {
 	result := make([]any, len(scripts))
 	for index, value := range scripts {

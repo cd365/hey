@@ -519,14 +519,17 @@ func (s *Table) Exists(ctx context.Context, exists ...func(script *SQL)) (bool, 
 			}
 		})
 	}()
-	defaultScript := s.ToSelect()
+	query := s.ToSelect()
 	for i := len(exists) - 1; i >= 0; i-- {
 		if exists[i] != nil {
-			exists[i](defaultScript)
+			exists[i](query)
 			break
 		}
 	}
-	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, ParcelSQL(defaultScript), cst.AS, s.way.Replace(cst.A))
+	if query.IsEmpty() {
+		return false, ErrEmptyScript
+	}
+	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, cst.LeftParenthesis, query, cst.RightParenthesis, cst.AS, s.way.Replace(cst.A))
 	var result any
 	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
 		for rows.Next() {
