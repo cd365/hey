@@ -5,6 +5,7 @@ package hey
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -496,16 +497,66 @@ func (s *Table) MapScan(ctx context.Context, adjusts ...AdjustColumnAnyValue) ([
 	return s.way.MapScan(ctx, s.ToSelect(), adjusts...)
 }
 
-// Exists Determine if the data exists by querying. It's recommended to query only one column.
+// Exists Determine if the data exists by querying.
 func (s *Table) Exists(ctx context.Context) (bool, error) {
-	exists, err := s.LimitFunc(func(o SQLLimit) {
-		o.ToEmpty()
-		o.Limit(1)
-	}).MapScan(ctx)
+	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
+	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
+	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
+	s.SelectFunc(func(q SQLSelect) {
+		if q.Len() > 0 {
+			columns, columnsArgs = q.Get()
+		}
+		q.ToEmpty()
+		q.Select("1")
+	})
+	defer func() {
+		s.SelectFunc(func(q SQLSelect) {
+			if columns == nil {
+				q.ToEmpty()
+			} else {
+				q.Set(columns, columnsArgs)
+			}
+		})
+	}()
+	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, ParcelSQL(s.ToSelect()), cst.AS, cst.A)
+	var exist any
+	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
+		for rows.Next() {
+			if err := rows.Scan(&exist); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-	return len(exists) > 0, nil
+	switch value := exist.(type) {
+	case bool:
+		return value, nil
+	case int:
+		return value == 1, nil
+	case int8:
+		return value == 1, nil
+	case int16:
+		return value == 1, nil
+	case int32:
+		return value == 1, nil
+	case int64:
+		return value == 1, nil
+	case uint:
+		return value == 1, nil
+	case uint8:
+		return value == 1, nil
+	case uint16:
+		return value == 1, nil
+	case uint32:
+		return value == 1, nil
+	case uint64:
+		return value == 1, nil
+	default:
+		return false, fmt.Errorf("unexpected type %T %v", value, exist)
+	}
 }
 
 // Insert Execute an INSERT INTO statement.
@@ -559,10 +610,10 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 // Complex Execute a set of SQL statements within a transaction.
 type Complex interface {
 	// Upsert Update or insert data.
-	Upsert(ctx context.Context, upsert any) (updateAffectedRows int64, insertResult int64, err error)
+	Upsert(ctx context.Context) (updateAffectedRows int64, insertResult int64, err error)
 
 	// DeleteCreate Delete data first, then insert data.
-	DeleteCreate(ctx context.Context, create any) (deleteAffectedRows int64, insertResult int64, err error)
+	DeleteCreate(ctx context.Context) (deleteAffectedRows int64, insertResult int64, err error)
 }
 
 // myComplex Implement Complex interface.
@@ -583,7 +634,7 @@ func (s *myComplex) atomic(ctx context.Context, group func(tx *Way) error) error
 }
 
 // Upsert If the data exists, update the data; otherwise, insert the data.
-func (s *myComplex) Upsert(ctx context.Context, upsert any) (updateAffectedRows int64, insertResult int64, err error) {
+func (s *myComplex) Upsert(ctx context.Context) (updateAffectedRows int64, insertResult int64, err error) {
 	err = s.atomic(ctx, func(tx *Way) error {
 		exist, table := false, s.table
 		exist, err = table.Exists(ctx)
@@ -591,12 +642,12 @@ func (s *myComplex) Upsert(ctx context.Context, upsert any) (updateAffectedRows 
 			return err
 		}
 		if exist {
-			updateAffectedRows, err = table.UpdateFunc(func(f Filter, u SQLUpdateSet) { u.Update(upsert) }).Update(ctx)
+			updateAffectedRows, err = table.Update(ctx)
 			if err != nil {
 				return err
 			}
 		} else {
-			insertResult, err = table.InsertFunc(func(i SQLInsert) { i.Create(upsert) }).Insert(ctx)
+			insertResult, err = table.Insert(ctx)
 			if err != nil {
 				return err
 			}
@@ -607,14 +658,14 @@ func (s *myComplex) Upsert(ctx context.Context, upsert any) (updateAffectedRows 
 }
 
 // DeleteCreate Delete data first, then insert data.
-func (s *myComplex) DeleteCreate(ctx context.Context, create any) (deleteAffectedRows int64, insertResult int64, err error) {
+func (s *myComplex) DeleteCreate(ctx context.Context) (deleteAffectedRows int64, insertResult int64, err error) {
 	err = s.atomic(ctx, func(tx *Way) error {
 		table := s.table
 		deleteAffectedRows, err = table.Delete(ctx)
 		if err != nil {
 			return err
 		}
-		insertResult, err = table.InsertFunc(func(i SQLInsert) { i.Create(create) }).Insert(ctx)
+		insertResult, err = table.Insert(ctx)
 		if err != nil {
 			return err
 		}
