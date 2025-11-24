@@ -188,6 +188,15 @@ type config struct {
 	// tableMethodName Custom method name to get table name.
 	tableMethodName string
 
+	// maxLimit Check the maximum allowed LIMIT value; a value less than or equal to 0 will be unlimited.
+	maxLimit int64
+
+	// maxOffset Check the maximum allowed OFFSET value; a value less than or equal to 0 will be unlimited.
+	maxOffset int64
+
+	// defaultPageSize The default value of limit when querying data with the page parameter for pagination.
+	defaultPageSize int64
+
 	// txMaxDuration Maximum transaction execution time.
 	txMaxDuration time.Duration
 
@@ -209,9 +218,12 @@ func configDefault() *config {
 		scan:               RowsScan,
 		scanTag:            DefaultTag,
 		tableMethodName:    TableMethodName,
+		maxLimit:           10000,
+		maxOffset:          100000,
+		defaultPageSize:    10,
+		txMaxDuration:      time.Second * 5,
 		deleteRequireWhere: true,
 		updateRequireWhere: true,
-		txMaxDuration:      time.Second * 5,
 	}
 }
 
@@ -254,6 +266,30 @@ func WithScanTag(scanTag string) Option {
 func WithTableMethodName(tableMethodName string) Option {
 	return func(way *Way) {
 		way.cfg.tableMethodName = tableMethodName
+	}
+}
+
+func WithMaxLimit(maxLimit int64) Option {
+	return func(way *Way) {
+		if maxLimit >= 0 {
+			way.cfg.maxLimit = maxLimit
+		}
+	}
+}
+
+func WithMaxOffset(maxOffset int64) Option {
+	return func(way *Way) {
+		if maxOffset >= 0 {
+			way.cfg.maxOffset = maxOffset // The maximum range of data that can be queried is controlled by the business.
+		}
+	}
+}
+
+func WithDefaultPageSize(pageSize int64) Option {
+	return func(way *Way) {
+		if pageSize > 0 {
+			way.cfg.defaultPageSize = pageSize
+		}
 	}
 }
 

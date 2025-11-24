@@ -1048,17 +1048,30 @@ type SQLLimit interface {
 	Offset(offset int64) SQLLimit
 
 	// Page SQL LIMIT and OFFSET.
-	Page(page int64, limit ...int64) SQLLimit
+	Page(page int64, pageSize ...int64) SQLLimit
+
+	// DirectLimit Directly use the effective limit value, unaffected by the configured maximum.
+	DirectLimit(limit int64) SQLLimit
+
+	// DirectOffset Directly use the effective offset value, unaffected by the configured maximum.
+	DirectOffset(offset int64) SQLLimit
+
+	// DirectPage Directly use the effective limit and offset value, unaffected by the configured maximum.
+	DirectPage(page int64, pageSize ...int64) SQLLimit
 }
 
 type sqlLimit struct {
+	way *Way
+
 	limit *int64
 
 	offset *int64
 }
 
-func newSqlLimit() *sqlLimit {
-	return &sqlLimit{}
+func newSqlLimit(way *Way) *sqlLimit {
+	return &sqlLimit{
+		way: way,
+	}
 }
 
 func (s *sqlLimit) ToEmpty() {
@@ -1085,31 +1098,66 @@ func (s *sqlLimit) ToSQL() *SQL {
 	return JoinSQLSpace(makers...)
 }
 
-func (s *sqlLimit) Limit(limit int64) SQLLimit {
+func (s *sqlLimit) limitValue(direct bool, limit int64) *sqlLimit {
 	if limit > 0 {
+		if !direct && s.way.cfg.maxLimit > 0 && limit > s.way.cfg.maxLimit {
+			limit = s.way.cfg.maxLimit
+		}
 		s.limit = &limit
 	}
 	return s
 }
 
-func (s *sqlLimit) Offset(offset int64) SQLLimit {
+func (s *sqlLimit) offsetValue(direct bool, offset int64) *sqlLimit {
 	if offset > 0 {
+		if !direct && s.way.cfg.maxOffset > 0 && offset > s.way.cfg.maxOffset {
+			offset = s.way.cfg.maxOffset
+		}
 		s.offset = &offset
 	}
 	return s
 }
 
-func (s *sqlLimit) Page(page int64, limit ...int64) SQLLimit {
+func (s *sqlLimit) pageValue(direct bool, page int64, pageSize ...int64) *sqlLimit {
 	if page <= 0 {
 		return s
 	}
-	for i := len(limit) - 1; i >= 0; i-- {
-		if limit[i] > 0 {
-			s.Limit(limit[i]).Offset((page - 1) * limit[i])
+	limit := s.way.cfg.defaultPageSize
+	if s.limit != nil {
+		limit = *s.limit
+	}
+	for i := len(pageSize) - 1; i >= 0; i-- {
+		if pageSize[i] > 0 {
+			limit = pageSize[i]
 			break
 		}
 	}
-	return s
+	offset := (page - 1) * limit
+	return s.limitValue(direct, limit).offsetValue(direct, offset)
+}
+
+func (s *sqlLimit) Limit(limit int64) SQLLimit {
+	return s.limitValue(false, limit)
+}
+
+func (s *sqlLimit) Offset(offset int64) SQLLimit {
+	return s.offsetValue(false, offset)
+}
+
+func (s *sqlLimit) Page(page int64, pageSize ...int64) SQLLimit {
+	return s.pageValue(false, page, pageSize...)
+}
+
+func (s *sqlLimit) DirectLimit(limit int64) SQLLimit {
+	return s.limitValue(true, limit)
+}
+
+func (s *sqlLimit) DirectOffset(offset int64) SQLLimit {
+	return s.offsetValue(true, offset)
+}
+
+func (s *sqlLimit) DirectPage(page int64, pageSize ...int64) SQLLimit {
+	return s.pageValue(true, page, pageSize...)
 }
 
 // Limiter limit and offset.

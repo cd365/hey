@@ -79,7 +79,7 @@ func (s *Way) getTable(table any) *sqlAlias {
 	result := newSqlAlias(cst.Empty).v(s)
 	switch example := table.(type) {
 	case string:
-		result.SetSQL(s.Replace(example))
+		result.SetSQL(optimizeTableSQL(s, NewSQL(example)))
 	case *SQL:
 		result.SetSQL(optimizeTableSQL(s, example))
 	case Maker:
@@ -87,7 +87,7 @@ func (s *Way) getTable(table any) *sqlAlias {
 			result.SetSQL(optimizeTableSQL(s, example.ToSQL()))
 		}
 	case TableNamer:
-		result.SetSQL(s.Replace(example.Table()))
+		result.SetSQL(optimizeTableSQL(s, NewSQL(example.Table())))
 	default:
 		if value := reflect.ValueOf(table); !value.IsNil() {
 			if method := value.MethodByName(s.cfg.tableMethodName); method.IsValid() {
@@ -115,7 +115,7 @@ func (s *Way) Table(table any) *Table {
 		where:     s.F(),
 		groupBy:   newSqlGroupBy(s),
 		orderBy:   newSqlOrderBy(s),
-		limit:     newSqlLimit(),
+		limit:     newSqlLimit(s),
 		insert:    newSqlInsert(s),
 		updateSet: newSqlUpdateSet(s),
 	}
@@ -337,10 +337,10 @@ func (s *Table) Limiter(limiter Limiter) *Table {
 	})
 }
 
-// Page Pagination query, page number + page limit.
-func (s *Table) Page(page int64, limit ...int64) *Table {
+// Page Pagination query, page and pageSize.
+func (s *Table) Page(page int64, pageSize ...int64) *Table {
 	return s.LimitFunc(func(o SQLLimit) {
-		o.Page(page, limit...)
+		o.Page(page, pageSize...)
 	})
 }
 
