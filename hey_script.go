@@ -781,7 +781,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 		}
 		total := len(indexChain)
 		if total < 2 {
-			return fmt.Errorf("hey: unable to determine field `%s` mapping", columns[i])
+			return fmt.Errorf("hey: unable to determine column `%s` mapping", columns[i])
 		}
 		lists := make([]reflect.Value, total)
 		lists[0] = indirect
@@ -838,14 +838,37 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 		return fmt.Errorf("hey: the receiving parameter value is nil")
 	}
 
+	kind1SliceElem := reflect.Invalid // []byte
+	oneRowOneColumn := false
+
 	switch kind1 {
 	case reflect.Slice:
+		kind1SliceElem = refType1.Elem().Kind()
 	case reflect.Struct:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Bool, reflect.Float32, reflect.Float64, reflect.String, reflect.Interface:
+		oneRowOneColumn = true
 	default:
-		return fmt.Errorf("hey: the receiving parameter type needs to be slice or struct, yours is `%s`", refType.String())
+		return fmt.Errorf("hey: unsupported parameter type `%s`", refType.String())
 	}
 
-	// Query one, remember to use LIMIT 1 in your SQL statement.
+	// Query one row one column; or directly query a specific value, like: SELECT VERSION()
+	if oneRowOneColumn || (kind1 == reflect.Slice && kind1SliceElem == reflect.Uint8) {
+		for i := 0; i < depth1; i++ {
+			if refValue.IsNil() {
+				refValue.Set(reflect.New(refValue.Type().Elem()))
+			}
+		}
+		for rows.Next() {
+			if err := rows.Scan(result); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Query one row, remember to use LIMIT 1 in your SQL statement.
 	if kind1 == reflect.Struct {
 		refStructType := refType1
 		if rows.Next() {
@@ -889,13 +912,13 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 		return ErrNoRows
 	}
 
-	// Query multiple items.
+	// Query multiple rows.
 	depth2 := 0
 
-	// the type of slice elements.
+	// The type of slice elements.
 	sliceItemType := refType1.Elem()
 
-	// slice element type.
+	// Slice element type.
 	refItemType := sliceItemType
 
 	kind2 := refItemType.Kind()
@@ -905,24 +928,22 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 		kind2 = refItemType.Kind()
 	}
 
-	isSingle := false
+	// Check the element type of the slice.
+	isSimple := false
 	isStruct := false
 	switch kind2 {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64,
 		reflect.String:
-		isSingle = true
+		isSimple = true
 	case reflect.Struct:
 		isStruct = true
 	default:
+		return fmt.Errorf("hey: unsupported slice element type `%s`", refItemType.String())
 	}
 
-	if !(isSingle || isStruct) {
-		return fmt.Errorf("hey: the basic type of slice elements must be a struct, int, float64, string, *struct, *int, *float64, *string... yours is `%s`", refItemType.String())
-	}
-
-	// initialize slice object.
+	// Initialize slice object.
 	refValueSlice := refValue
 	for i := 0; i < depth1; i++ {
 		if refValueSlice.IsNil() {
@@ -932,7 +953,10 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 		refValueSlice = refValueSlice.Elem()
 	}
 
-	if isSingle {
+	/* Prepare scan data according to the type of slice element. */
+
+	// Query single column.
+	if isSimple {
 		for rows.Next() {
 			item := reflect.New(sliceItemType)
 			next := item
@@ -948,6 +972,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 		}
 	}
 
+	// Query multiple columns.
 	if isStruct {
 		var (
 			b        *bindScanStruct
