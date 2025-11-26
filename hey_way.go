@@ -862,6 +862,80 @@ func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]an
 	return affectedRows, nil
 }
 
+// GroupMultiStmtScan Call using the same prepared statement. Multi-statement query.
+func (s *Way) GroupMultiStmtScan(ctx context.Context, queries []Maker, results []any) (err error) {
+	length := len(queries)
+	if length == 0 {
+		return
+	}
+	prepare := make([]string, 0, 1<<1)
+	args := make(map[string][][]any, 1<<1)
+	scan := make(map[string][]any, 1<<1)
+	for index, value := range queries {
+		if value == nil {
+			continue
+		}
+		script := value.ToSQL()
+		if script == nil {
+			continue
+		}
+		if script.IsEmpty() {
+			return ErrEmptyScript
+		}
+		if _, ok := args[script.Prepare]; !ok {
+			args[script.Prepare] = make([][]any, 0, 1)
+			scan[script.Prepare] = make([]any, 0, 1)
+			prepare = append(prepare, script.Prepare)
+		}
+		args[script.Prepare] = append(args[script.Prepare], script.Args)
+		scan[script.Prepare] = append(scan[script.Prepare], results[index])
+	}
+	for _, value := range prepare {
+		err = s.MultiStmtScan(ctx, value, args[value], scan[value])
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+// GroupMultiStmtExecute Call using the same prepared statement. Multi-statement insert and update.
+func (s *Way) GroupMultiStmtExecute(ctx context.Context, executes []Maker) (affectedRows int64, err error) {
+	length := len(executes)
+	if length == 0 {
+		return
+	}
+	prepare := make([]string, 0, 1<<1)
+	args := make(map[string][][]any, 1<<1)
+	for _, value := range executes {
+		if value == nil {
+			continue
+		}
+		script := value.ToSQL()
+		if script == nil {
+			continue
+		}
+		if script.IsEmpty() {
+			err = ErrEmptyScript
+			return
+		}
+		if _, ok := args[script.Prepare]; !ok {
+			args[script.Prepare] = make([][]any, 0, 1)
+			prepare = append(prepare, script.Prepare)
+		}
+		args[script.Prepare] = append(args[script.Prepare], script.Args)
+	}
+	rows := int64(0)
+	for _, value := range prepare {
+		rows, err = s.MultiStmtExecute(ctx, value, args[value])
+		if err != nil {
+			return
+		}
+		affectedRows += rows
+	}
+	return
+}
+
 // F -> Quickly initialize a filter.
 func (s *Way) F(filters ...Filter) Filter {
 	result := F().New(filters...)
