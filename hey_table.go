@@ -757,6 +757,7 @@ func (s *myComplex) DeleteCreate(ctx context.Context) (deleteAffectedRows int64,
 	return
 }
 
+// NewComplex Create a Complex object.
 func NewComplex(table *Table) Complex {
 	return &myComplex{
 		table: table,

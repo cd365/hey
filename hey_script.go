@@ -1329,13 +1329,31 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 			for indexValue.Kind() == reflect.Pointer {
 				indexValue = indexValue.Elem()
 			}
-			if indexValue.Kind() != reflect.Struct {
-				continue
-			}
-			if i == 0 {
-				columns, values[i] = s.structColumnValue(indexValue, allowed)
+			indexValueKind := indexValue.Kind()
+			if indexValueKind == reflect.Struct {
+				if i == 0 {
+					columns, values[i] = s.structColumnValue(indexValue, allowed)
+				} else {
+					values[i] = s.structValue(indexValue, allowed)
+				}
 			} else {
-				values[i] = s.structValue(indexValue, allowed)
+				if indexValueKind != reflect.Interface {
+					panic(fmt.Sprintf("hey: unsupported data type %T", indexValue.Interface()))
+				}
+				value := indexValue.Interface()
+				indexValue = reflect.ValueOf(value)
+				indexValueKind = indexValue.Kind()
+				for ; indexValueKind == reflect.Pointer; indexValueKind = indexValue.Kind() {
+					indexValue = indexValue.Elem()
+				}
+				if indexValueKind != reflect.Struct {
+					panic(fmt.Sprintf("hey: unsupported data type %T", value))
+				}
+				if i == 0 {
+					columns, values[i] = s.structColumnValue(indexValue, allowed)
+				} else {
+					values[i] = s.structValue(indexValue, allowed)
+				}
 			}
 		}
 		return
@@ -1389,7 +1407,12 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 		ofType = ofType.Elem()
 		ofValue = ofValue.Elem()
 	}
-	if ofKind != reflect.Struct {
+	switch ofKind {
+	case reflect.Struct:
+	case reflect.Interface:
+		columns, values = ObjectModify(ofValue.Interface(), tag, except...)
+		return columns, values
+	default:
 		return columns, values
 	}
 
@@ -1528,7 +1551,12 @@ func ObjectObtain(object any, tag string, except ...string) (columns []string, v
 		ofType = ofType.Elem()
 		ofValue = ofValue.Elem()
 	}
-	if ofKind != reflect.Struct {
+	switch ofKind {
+	case reflect.Struct:
+	case reflect.Interface:
+		columns, values = ObjectModify(ofValue.Interface(), tag, except...)
+		return columns, values
+	default:
 		return columns, values
 	}
 
