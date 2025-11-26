@@ -618,6 +618,78 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	}).Update(ctx)
 }
 
+// BatchCreate Split a large slice of data into multiple smaller slices and insert them in batches.
+func (s *Table) BatchCreate(ctx context.Context, batchSize int, creates []any, prefix func(i SQLInsert), suffix func(i SQLInsert)) (affectedRows int64, err error) {
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+
+	size := batchSize
+	pending := creates[:]
+
+	var (
+		length int
+		create []any
+		script *SQL
+		stmt   *Stmt
+		rows   int64
+	)
+
+	defer func() {
+		if stmt != nil {
+			_ = stmt.Close()
+		}
+	}()
+
+	makeScript := func() {
+		script = s.InsertFunc(func(i SQLInsert) {
+			i.ToEmpty()
+			if prefix != nil {
+				prefix(i)
+			}
+			i.Create(create)
+			if suffix != nil {
+				suffix(i)
+			}
+		}).ToInsert()
+	}
+
+	makeStmt := func() {
+		if stmt != nil {
+			if err = stmt.Close(); err != nil {
+				return
+			}
+		}
+		stmt, err = s.way.Prepare(ctx, script.Prepare)
+	}
+
+	for {
+		length = len(pending)
+		if length == 0 {
+			break
+		}
+		if length < size {
+			size = length
+		}
+		create = pending[:size]
+		pending = pending[size:]
+		makeScript()
+		if stmt == nil || length < batchSize {
+			makeStmt()
+		}
+		if err != nil {
+			return
+		}
+		rows, err = stmt.Execute(ctx, script.Args...)
+		if err != nil {
+			return
+		}
+		affectedRows += rows
+	}
+
+	return
+}
+
 // Complex Execute a set of SQL statements within a transaction.
 type Complex interface {
 	// Upsert Update or insert data.
