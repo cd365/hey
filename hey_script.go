@@ -1992,6 +1992,7 @@ type SQLWindowFuncFrame interface {
 type sqlWindowFuncFrame struct {
 	// script Custom SQL statement, priority is higher than prepare + args.
 	script *SQL
+
 	// frame Value is `RANGE` or `ROWS`.
 	frame string
 }

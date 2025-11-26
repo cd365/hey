@@ -30,24 +30,33 @@ type SQLComment interface {
 }
 
 type sqlComment struct {
+	commentMap map[string]*struct{}
+
 	comment []string
 }
 
 func newSqlComment() *sqlComment {
 	return &sqlComment{
-		comment: make([]string, 0, 1<<1),
+		commentMap: make(map[string]*struct{}, 1),
+		comment:    make([]string, 0, 1),
 	}
 }
 
 func (s *sqlComment) ToEmpty() {
-	s.comment = nil
+	s.commentMap = make(map[string]*struct{}, 1)
+	s.comment = make([]string, 0, 1)
 }
 
 func (s *sqlComment) Comment(comment string) SQLComment {
+	comment = strings.TrimSpace(comment)
 	if comment == cst.Empty {
 		return s
 	}
+	if _, ok := s.commentMap[comment]; ok {
+		return s
+	}
 	s.comment = append(s.comment, comment)
+	s.commentMap[comment] = nil
 	return s
 }
 
@@ -1547,7 +1556,6 @@ func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 		script.Args = append(script.Args, nil)
 		return s.columnUpdate(column, script)
 	}
-	script := NewEmptySQL()
 	values := make([]any, 0, 1)
 	update := make([]any, 0, 3)
 	update = append(update, s.way.Replace(column), cst.Equal)
@@ -1560,7 +1568,7 @@ func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 		update = append(update, cst.Placeholder)
 		values = append(values, value)
 	}
-	script = JoinSQLSpace(update...)
+	script := JoinSQLSpace(update...)
 	if len(values) > 0 {
 		script.Args = append(script.Args, values...)
 	}

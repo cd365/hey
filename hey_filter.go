@@ -720,11 +720,15 @@ func (s *filter) exists(subquery Maker, not bool) Filter {
 		return s
 	}
 
-	next := make([]any, 0, 3)
+	capacity := 1 << 2
+	if not {
+		capacity++
+	}
+	next := make([]any, 0, capacity)
 	if not {
 		next = append(next, cst.NOT)
 	}
-	next = append(next, cst.EXISTS, ParcelSQL(script))
+	next = append(next, cst.EXISTS, cst.LeftParenthesis, script, cst.RightParenthesis)
 
 	return s.add(cst.AND, JoinSQLSpace(next...))
 }

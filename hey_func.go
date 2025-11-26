@@ -205,7 +205,7 @@ func ValuePascal(value string) string {
 	length := len(value)
 	result := make([]byte, 0, length)
 	next2upper := true
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if value[i] == '_' {
 			next2upper = true
 			continue
@@ -236,7 +236,7 @@ func ValueUnderline(value string) string {
 	}
 	length := len(value)
 	result := make([]byte, 0, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		if value[i] >= 'A' && value[i] <= 'Z' {
 			if i > 0 {
 				result = append(result, '_')
