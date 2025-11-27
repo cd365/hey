@@ -64,17 +64,17 @@ func WayContext(ctx context.Context, way *Way) context.Context {
 }
 
 type myHook struct {
-	after  func(ctx context.Context) (context.Context, error)
+	after  func(ctx context.Context) error
 	before func(ctx context.Context) (context.Context, error)
 }
 
 // MyInsert For INSERT.
 type MyInsert interface {
 	// AfterInsert Set post-insert data hook.
-	AfterInsert(fc func(ctx context.Context) (context.Context, error))
+	AfterInsert(fc func(ctx context.Context) error)
 
 	// AfterInsertValue Get post-insert data hook.
-	AfterInsertValue() func(ctx context.Context) (context.Context, error)
+	AfterInsertValue() func(ctx context.Context) error
 
 	// BeforeInsert Set pre-insert data hook.
 	BeforeInsert(fc func(ctx context.Context) (context.Context, error))
@@ -122,11 +122,11 @@ func (s *Way) MyInsert(table string) MyInsert {
 	return newMyInsert(s, table)
 }
 
-func (s *myInsert) AfterInsert(fc func(ctx context.Context) (context.Context, error)) {
+func (s *myInsert) AfterInsert(fc func(ctx context.Context) error) {
 	s.after = fc
 }
 
-func (s *myInsert) AfterInsertValue() func(ctx context.Context) (context.Context, error) {
+func (s *myInsert) AfterInsertValue() func(ctx context.Context) error {
 	return s.after
 }
 
@@ -170,7 +170,7 @@ func (s *myInsert) InsertOne(ctx context.Context, insert any) (id int64, err err
 	}
 	ctx = context.WithValue(ctx, MyInsertId, id)
 	if s.after != nil {
-		if ctx, err = s.after(ctx); err != nil {
+		if err = s.after(ctx); err != nil {
 			return id, err
 		}
 	}
@@ -197,7 +197,7 @@ func (s *myInsert) InsertAll(ctx context.Context, insert any) (affectedRows int6
 	}
 	ctx = context.WithValue(ctx, MyAffectedRows, affectedRows)
 	if s.after != nil {
-		if ctx, err = s.after(ctx); err != nil {
+		if err = s.after(ctx); err != nil {
 			return affectedRows, err
 		}
 	}
@@ -227,7 +227,7 @@ func (s *myInsert) InsertFromQuery(ctx context.Context, columns []string, query 
 	}
 	ctx = context.WithValue(ctx, MyAffectedRows, affectedRows)
 	if s.after != nil {
-		if ctx, err = s.after(ctx); err != nil {
+		if err = s.after(ctx); err != nil {
 			return affectedRows, err
 		}
 	}
@@ -245,10 +245,10 @@ type myFilter struct {
 // MyDelete For DELETE.
 type MyDelete interface {
 	// AfterDelete Set post-delete data hook.
-	AfterDelete(fc func(ctx context.Context) (context.Context, error))
+	AfterDelete(fc func(ctx context.Context) error)
 
 	// AfterDeleteValue Get post-delete data hook.
-	AfterDeleteValue() func(ctx context.Context) (context.Context, error)
+	AfterDeleteValue() func(ctx context.Context) error
 
 	// BeforeDelete Set pre-delete data hook.
 	BeforeDelete(fc func(ctx context.Context) (context.Context, error))
@@ -293,11 +293,11 @@ func (s *Way) MyDelete(table string) MyDelete {
 	return newMyDelete(s, table)
 }
 
-func (s *myDelete) AfterDelete(fc func(ctx context.Context) (context.Context, error)) {
+func (s *myDelete) AfterDelete(fc func(ctx context.Context) error) {
 	s.after = fc
 }
 
-func (s *myDelete) AfterDeleteValue() func(ctx context.Context) (context.Context, error) {
+func (s *myDelete) AfterDeleteValue() func(ctx context.Context) error {
 	return s.after
 }
 
@@ -335,10 +335,10 @@ func (s *myDelete) DeleteById(ctx context.Context, ids any) (affectedRows int64,
 // MyUpdate For UPDATE.
 type MyUpdate interface {
 	// AfterUpdate Set post-update data hook.
-	AfterUpdate(fc func(ctx context.Context) (context.Context, error))
+	AfterUpdate(fc func(ctx context.Context) error)
 
 	// AfterUpdateValue Get post-update data hook.
-	AfterUpdateValue() func(ctx context.Context) (context.Context, error)
+	AfterUpdateValue() func(ctx context.Context) error
 
 	// BeforeUpdate Set pre-update data hook.
 	BeforeUpdate(fc func(ctx context.Context) (context.Context, error))
@@ -389,11 +389,11 @@ func (s *Way) MyUpdate(table string) MyUpdate {
 	return newMyUpdate(s, table)
 }
 
-func (s *myUpdate) AfterUpdate(fc func(ctx context.Context) (context.Context, error)) {
+func (s *myUpdate) AfterUpdate(fc func(ctx context.Context) error) {
 	s.after = fc
 }
 
-func (s *myUpdate) AfterUpdateValue() func(ctx context.Context) (context.Context, error) {
+func (s *myUpdate) AfterUpdateValue() func(ctx context.Context) error {
 	return s.after
 }
 
@@ -441,7 +441,7 @@ func (s *myUpdate) Update(ctx context.Context, where Filter, update func(u SQLUp
 	}
 	ctx = context.WithValue(ctx, MyAffectedRows, affectedRows)
 	if s.after != nil {
-		if ctx, err = s.after(ctx); err != nil {
+		if err = s.after(ctx); err != nil {
 			return affectedRows, err
 		}
 	}
@@ -660,10 +660,10 @@ func (s *mySelect) SelectCountScan(ctx context.Context, receiver any, options ..
 // MyHidden Logical deletion of data.
 type MyHidden interface {
 	// AfterHidden Set post-hidden data hook.
-	AfterHidden(fc func(ctx context.Context) (context.Context, error))
+	AfterHidden(fc func(ctx context.Context) error)
 
 	// AfterHiddenValue Get post-hidden data hook.
-	AfterHiddenValue() func(ctx context.Context) (context.Context, error)
+	AfterHiddenValue() func(ctx context.Context) error
 
 	// BeforeHidden Set pre-hidden data hook.
 	BeforeHidden(fc func(ctx context.Context) (context.Context, error))
@@ -721,11 +721,11 @@ func (s *myHidden) BeforeHiddenValue() func(ctx context.Context) (context.Contex
 	return s.before
 }
 
-func (s *myHidden) AfterHidden(fc func(ctx context.Context) (context.Context, error)) {
+func (s *myHidden) AfterHidden(fc func(ctx context.Context) error) {
 	s.after = fc
 }
 
-func (s *myHidden) AfterHiddenValue() func(ctx context.Context) (context.Context, error) {
+func (s *myHidden) AfterHiddenValue() func(ctx context.Context) error {
 	return s.after
 }
 

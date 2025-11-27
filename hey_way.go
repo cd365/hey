@@ -727,6 +727,13 @@ func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows)
 	return stmt.Query(ctx, query, script.Args...)
 }
 
+// RowScan Scan a row of SQL results containing one or more columns.
+func (s *Way) RowScan(dest ...any) func(row *sql.Row) error {
+	return func(row *sql.Row) error {
+		return row.Scan(dest...)
+	}
+}
+
 // QueryRow -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
 func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) error {
 	script := maker.ToSQL()
@@ -758,6 +765,57 @@ func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnA
 		return nil, err
 	}
 	return result, err
+}
+
+// Exists -> Execute a query SQL statement to check if the data exists.
+func (s *Way) Exists(ctx context.Context, maker Maker) (bool, error) {
+	// SQL statement format: SELECT EXISTS ( subquery ) AS a
+	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
+	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
+	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
+
+	// Database drivers typically return a boolean or integer value, where 0 indicates that the data does not exist and 1 indicates that the data exists.
+	var result any
+
+	err := s.Query(ctx, maker, func(rows *sql.Rows) error {
+		for rows.Next() {
+			err := rows.Scan(&result)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+
+	switch value := result.(type) {
+	case bool:
+		return value, nil
+	case int:
+		return value != 0, nil
+	case int8:
+		return value != 0, nil
+	case int16:
+		return value != 0, nil
+	case int32:
+		return value != 0, nil
+	case int64:
+		return value != 0, nil
+	case uint:
+		return value != 0, nil
+	case uint8:
+		return value != 0, nil
+	case uint16:
+		return value != 0, nil
+	case uint32:
+		return value != 0, nil
+	case uint64:
+		return value != 0, nil
+	default:
+		return false, fmt.Errorf("unexpected type %T %v", result, result)
+	}
 }
 
 // Exec -> Execute the execute sql statement.

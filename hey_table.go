@@ -5,7 +5,6 @@ package hey
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -448,6 +447,44 @@ func (s *Table) ToCount(counts ...string) *SQL {
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
+// ToExists Build SELECT EXISTS statement, allow replacing or updating the subquery script of EXISTS.
+func (s *Table) ToExists(exists ...func(script *SQL)) *SQL {
+	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
+	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
+	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
+
+	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
+	s.SelectFunc(func(q SQLSelect) {
+		if q.Len() > 0 {
+			columns, columnsArgs = q.Get()
+			q.ToEmpty()
+		}
+		q.Select("1")
+	})
+	defer func() {
+		s.SelectFunc(func(q SQLSelect) {
+			if len(columns) == 0 {
+				q.ToEmpty()
+			} else {
+				q.Set(columns, columnsArgs)
+			}
+		})
+	}()
+	query := s.ToSelect()
+	for i := len(exists) - 1; i >= 0; i-- {
+		if exists[i] != nil {
+			exists[i](query)
+			break
+		}
+	}
+	if query.IsEmpty() {
+		return NewEmptySQL()
+	}
+	lists := make([]any, 0, 8)
+	lists = append(lists, cst.SELECT, cst.EXISTS, cst.LeftParenthesis, query, cst.RightParenthesis, cst.AS, s.way.Replace(cst.A))
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
 // Query Execute a SELECT statement.
 func (s *Table) Query(ctx context.Context, query func(rows *sql.Rows) error) error {
 	return s.way.Query(ctx, s.ToSelect(), query)
@@ -469,6 +506,12 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// Exists Check if the data exists, allow replacing or updating the subquery script of EXISTS.
+func (s *Table) Exists(ctx context.Context, exists ...func(script *SQL)) (bool, error) {
+	script := s.ToExists(exists...)
+	return s.way.Exists(ctx, script)
 }
 
 // Scan Scanning data into result by reflect.
@@ -495,79 +538,6 @@ func (s *Table) CountScan(ctx context.Context, result any, counts ...string) (co
 // MapScan Scanning the query results into []map[string]any.
 func (s *Table) MapScan(ctx context.Context, adjusts ...AdjustColumnAnyValue) ([]map[string]any, error) {
 	return s.way.MapScan(ctx, s.ToSelect(), adjusts...)
-}
-
-// Exists Determine if the data exists by querying, allow replacing or updating the subquery script of EXISTS.
-func (s *Table) Exists(ctx context.Context, exists ...func(script *SQL)) (bool, error) {
-	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
-	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
-	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
-	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
-	s.SelectFunc(func(q SQLSelect) {
-		if q.Len() > 0 {
-			columns, columnsArgs = q.Get()
-			q.ToEmpty()
-		}
-		q.Select("1")
-	})
-	defer func() {
-		s.SelectFunc(func(q SQLSelect) {
-			if len(columns) == 0 {
-				q.ToEmpty()
-			} else {
-				q.Set(columns, columnsArgs)
-			}
-		})
-	}()
-	query := s.ToSelect()
-	for i := len(exists) - 1; i >= 0; i-- {
-		if exists[i] != nil {
-			exists[i](query)
-			break
-		}
-	}
-	if query.IsEmpty() {
-		return false, ErrEmptyScript
-	}
-	script := JoinSQLSpace(cst.SELECT, cst.EXISTS, cst.LeftParenthesis, query, cst.RightParenthesis, cst.AS, s.way.Replace(cst.A))
-	var result any
-	err := s.way.Query(ctx, script, func(rows *sql.Rows) error {
-		for rows.Next() {
-			if err := rows.Scan(&result); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return false, err
-	}
-	switch value := result.(type) {
-	case bool:
-		return value, nil
-	case int:
-		return value != 0, nil
-	case int8:
-		return value != 0, nil
-	case int16:
-		return value != 0, nil
-	case int32:
-		return value != 0, nil
-	case int64:
-		return value != 0, nil
-	case uint:
-		return value != 0, nil
-	case uint8:
-		return value != 0, nil
-	case uint16:
-		return value != 0, nil
-	case uint32:
-		return value != 0, nil
-	case uint64:
-		return value != 0, nil
-	default:
-		return false, fmt.Errorf("unexpected type %T %v", result, result)
-	}
 }
 
 // Insert Execute an INSERT INTO statement.
