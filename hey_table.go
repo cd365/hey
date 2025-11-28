@@ -5,6 +5,7 @@ package hey
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -589,19 +590,35 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	}).Update(ctx)
 }
 
-// BatchCreate Split a large slice of data into multiple smaller slices and insert them in batches.
-func (s *Table) BatchCreate(ctx context.Context, batchSize int, creates []any, prefix func(i SQLInsert), suffix func(i SQLInsert)) (affectedRows int64, err error) {
+// LargerCreate Split a large slice of data into multiple smaller slices and insert them in batches.
+func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, prefix func(i SQLInsert), suffix func(i SQLInsert)) (affectedRows int64, err error) {
 	if batchSize <= 0 {
 		batchSize = 1000
 	}
 
+	reflectValue := reflect.ValueOf(create)
+	if reflectValue.Kind() != reflect.Slice {
+		panic(fmt.Errorf("hey: unsupported data type %T", create))
+	}
+	length := reflectValue.Len()
+	if length == 0 {
+		return
+	}
+
+	type group struct {
+		script *SQL
+		size   int
+	}
+
 	size := batchSize
-	pending := creates[:]
+	pending := make([]any, length)
+	for i := range length {
+		pending[i] = reflectValue.Index(i).Interface()
+	}
 
 	var (
-		length int
-		create []any
-		script *SQL
+		groups []*group
+		insert []any
 		stmt   *Stmt
 		rows   int64
 	)
@@ -612,28 +629,6 @@ func (s *Table) BatchCreate(ctx context.Context, batchSize int, creates []any, p
 		}
 	}()
 
-	makeScript := func() {
-		script = s.InsertFunc(func(i SQLInsert) {
-			i.ToEmpty()
-			if prefix != nil {
-				prefix(i)
-			}
-			i.Create(create)
-			if suffix != nil {
-				suffix(i)
-			}
-		}).ToInsert()
-	}
-
-	makeStmt := func() {
-		if stmt != nil {
-			if err = stmt.Close(); err != nil {
-				return
-			}
-		}
-		stmt, err = s.way.Prepare(ctx, script.Prepare)
-	}
-
 	for {
 		length = len(pending)
 		if length == 0 {
@@ -642,16 +637,37 @@ func (s *Table) BatchCreate(ctx context.Context, batchSize int, creates []any, p
 		if length < size {
 			size = length
 		}
-		create = pending[:size]
+		insert = pending[:size]
 		pending = pending[size:]
-		makeScript()
-		if stmt == nil || length < batchSize {
-			makeStmt()
+		script := s.InsertFunc(func(i SQLInsert) {
+			i.ToEmpty()
+			if prefix != nil {
+				prefix(i)
+			}
+			i.Create(insert)
+			if suffix != nil {
+				suffix(i)
+			}
+		}).ToInsert()
+		groups = append(groups, &group{
+			size:   size,
+			script: script,
+		})
+	}
+
+	for _, v := range groups {
+		if stmt == nil || v.size < batchSize {
+			if stmt != nil {
+				if err = stmt.Close(); err != nil {
+					return
+				}
+			}
+			stmt, err = s.way.Prepare(ctx, v.script.Prepare)
 		}
 		if err != nil {
 			return
 		}
-		rows, err = stmt.Execute(ctx, script.Args...)
+		rows, err = stmt.Execute(ctx, v.script.Args...)
 		if err != nil {
 			return
 		}
