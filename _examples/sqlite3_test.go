@@ -63,8 +63,8 @@ func TestInsert(t *testing.T) {
 		i.ColumnValue(field1, "value1")
 		i.ColumnValue(field2, "value2")
 		i.ColumnValue(status, 1)
-		// i.ColumnValue(createdAt, tmp.W().Now().Unix())
-		i.Default(createdAt, tmp.W().Now().Unix())
+		// i.ColumnValue(createdAt, tmp.V().Now().Unix())
+		i.Default(createdAt, tmp.V().Now().Unix())
 	})
 	script := tmp.ToInsert()
 	ast.Equal("INSERT INTO table1 ( field1, field2, status, created_at ) VALUES ( ?, ?, ?, ? )", script.Prepare)
@@ -144,7 +144,7 @@ func TestUpdate(t *testing.T) {
 		f.GreaterThan(id, 0)
 		u.Set(status, 1)
 		u.Set(field1, "")
-		u.Default(updatedAt, tmp.W().Now().Unix())
+		u.Default(updatedAt, tmp.V().Now().Unix())
 	})
 	script := tmp.ToUpdate()
 	ast.Equal("UPDATE table1 SET status = ?, field1 = ?, updated_at = ? WHERE ( id > ? )", script.Prepare)
@@ -163,7 +163,7 @@ func TestUpdate(t *testing.T) {
 			u.Compare("old-struct-pointer", "new-struct-pointer")
 			u.Decr("num", 10)
 			u.Incr("version_num", 1)
-			u.Default(updatedAt, tmp.W().Now().Unix())
+			u.Default(updatedAt, tmp.V().Now().Unix())
 			u.Forbid(id, createdAt)
 			u.Remove("username", "email")
 			u.Select("age", "gender", "address")
@@ -324,7 +324,8 @@ func TestTransaction(t *testing.T) {
 			if rows <= 0 {
 				return hey.ErrNoRowsAffected
 			}
-			rows, err = delete4.V(tx).Delete(ctx)
+			delete4.W(tx)
+			rows, err = delete4.Delete(ctx)
 			if err != nil {
 				return err
 			}

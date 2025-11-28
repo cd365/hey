@@ -142,15 +142,16 @@ func (s *Table) F(filters ...Filter) Filter {
 	return s.way.F(filters...)
 }
 
-// V Use *Way given a non-nil value.
-func (s *Table) V(values ...*Way) *Table {
-	s.way = s.way.V(values...)
-	return s
+// V Get the currently used *Way object.
+func (s *Table) V() *Way {
+	return s.way
 }
 
-// W Get the currently used *Way object.
-func (s *Table) W() *Way {
-	return s.way
+// W Use *Way given a non-nil value.
+func (s *Table) W(way *Way) {
+	if way != nil {
+		s.way = way
+	}
 }
 
 // Comment SQL statement notes.
@@ -679,9 +680,9 @@ func (s *myComplex) atomic(ctx context.Context, group func(tx *Way) error) error
 	if way.IsInTransaction() {
 		return group(way)
 	}
-	defer func() { s.table.V(way) }()
+	defer func() { s.table.W(way) }()
 	return way.TransactionNew(ctx, func(tx *Way) error {
-		s.table.V(tx)
+		s.table.W(tx)
 		return group(tx)
 	})
 }

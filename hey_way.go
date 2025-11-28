@@ -994,6 +994,16 @@ func (s *Way) GroupMultiStmtExecute(ctx context.Context, executes []Maker) (affe
 	return
 }
 
+// Debug Debugging output SQL script.
+func (s *Way) Debug(maker Maker) *Way {
+	if s.track == nil || maker == nil {
+		return s
+	}
+	ctx := context.Background()
+	s.track.Track(ctx, trackDebug(ctx, maker))
+	return s
+}
+
 // F -> Quickly initialize a filter.
 func (s *Way) F(filters ...Filter) Filter {
 	result := F().New(filters...)
@@ -1003,23 +1013,11 @@ func (s *Way) F(filters ...Filter) Filter {
 	return result
 }
 
-// V -> Prioritize the specified non-empty object, otherwise use the current object.
-func (s *Way) V(values ...*Way) *Way {
-	for i := len(values) - 1; i >= 0; i-- {
-		if values[i] != nil {
-			return values[i]
-		}
+// W -> Prioritize the specified non-nil object, otherwise use the current object.
+func (s *Way) W(way *Way) *Way {
+	if way != nil {
+		return way
 	}
-	return s
-}
-
-// Debug Debugging output SQL script.
-func (s *Way) Debug(maker Maker) *Way {
-	if s.track == nil || maker == nil {
-		return s
-	}
-	ctx := context.Background()
-	s.track.Track(ctx, trackDebug(ctx, maker))
 	return s
 }
 
@@ -1054,4 +1052,16 @@ func NewReader(choose func(n int) int, reads []*Way) Reader {
 // Read Get an instance for querying.
 func (s *reader) Read() *Way {
 	return s.reads[s.choose(s.total)]
+}
+
+// V Get the currently used *Way object value.
+type V interface {
+	// V Get the currently used *Way object value.
+	V() *Way
+}
+
+// W Use the non-nil value *Way.
+type W interface {
+	// W Use the non-nil value *Way.
+	W(way *Way)
 }

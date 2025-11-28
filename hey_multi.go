@@ -8,25 +8,31 @@ import (
 	"reflect"
 )
 
+// Run Call all stored business logic.
+type Run interface {
+	// Run Call all stored business logic.
+	Run(ctx context.Context) error
+}
+
 // MyMulti This stacks multiple SQL statements sequentially and executes them one by one at the end. You can add custom logic anywhere.
 // For each SQL statement to be executed, you only need to focus on the following three points:
 // 1. The SQL statement to be executed and its corresponding parameter list.
 // 2. Receive or process SQL execution results.
 // 3. Should custom logic be executed after the SQL statement executes successfully?
 type MyMulti interface {
+	Run
+
 	ToEmpty
+
+	V
+
+	W
 
 	// Len Number of SQL statements to be executed.
 	Len() int
 
 	// IsEmpty Are there no pending SQL statements?
 	IsEmpty() bool
-
-	// V Use *Way given a non-nil value.
-	V(values ...*Way) MyMulti
-
-	// W Get the currently used *Way object.
-	W() *Way
 
 	// Custom Add custom logic.
 	Custom(handle func(ctx context.Context) error) MyMulti
@@ -51,9 +57,6 @@ type MyMulti interface {
 
 	// Exists Add a query exists statement.
 	Exists(maker Maker, exists *bool, success ...func(ctx context.Context) error) MyMulti
-
-	// Run Execute multiple SQL statements.
-	Run(ctx context.Context) error
 }
 
 func (s *Way) MyMulti() MyMulti {
@@ -80,13 +83,14 @@ func (s *myMulti) IsEmpty() bool {
 	return s.Len() == 0
 }
 
-func (s *myMulti) V(values ...*Way) MyMulti {
-	s.way = s.way.V(values...)
-	return s
+func (s *myMulti) V() *Way {
+	return s.way
 }
 
-func (s *myMulti) W() *Way {
-	return s.way
+func (s *myMulti) W(way *Way) {
+	if way != nil {
+		s.way = way
+	}
 }
 
 func (s *myMulti) custom(handle func(ctx context.Context) error, success ...func(ctx context.Context) error) *myMulti {
