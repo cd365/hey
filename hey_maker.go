@@ -1386,7 +1386,7 @@ type SQLUpdateSet interface {
 type sqlUpdateSet struct {
 	forbidSet map[string]*struct{}
 
-	exists map[string][]string // column => expression lists
+	exists map[string]string // Existing update column, map[column-name]column-update-expression
 
 	onlyAllow map[string]*struct{} // Set columns that only allow updates.
 
@@ -1403,7 +1403,7 @@ type sqlUpdateSet struct {
 
 func (s *sqlUpdateSet) init() {
 	s.forbidSet = make(map[string]*struct{}, 1<<3)
-	s.exists = make(map[string][]string, 1<<3)
+	s.exists = make(map[string]string, 1<<3)
 	s.updateMap = make(map[string]int, 1<<3)
 	s.updateExpr = make([]string, 0, 1<<3)
 	s.updateArgs = make([][]any, 0, 1<<3)
@@ -1411,7 +1411,7 @@ func (s *sqlUpdateSet) init() {
 
 func (s *sqlUpdateSet) toEmpty() {
 	s.forbidSet = make(map[string]*struct{}, 1<<3)
-	s.exists = make(map[string][]string, 1<<3)
+	s.exists = make(map[string]string, 1<<3)
 	s.onlyAllow = nil
 	s.updateMap = make(map[string]int, 1<<3)
 	s.updateExpr = make([]string, 0, 1<<3)
@@ -1543,7 +1543,10 @@ func (s *sqlUpdateSet) columnUpdate(column string, script *SQL) SQLUpdateSet {
 			return s
 		}
 	}
-	s.exists[column] = append(s.exists[column], script.Prepare)
+	if _, ok := s.exists[column]; ok {
+		return s
+	}
+	s.exists[column] = script.Prepare
 	return s.exprArgs(script)
 }
 
@@ -1646,8 +1649,8 @@ func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 	removes := make(map[string]*struct{})
 	for _, column := range columns {
-		if tmp, ok := s.exists[column]; ok {
-			removes = MergeAssoc(removes, ArrayToAssoc(tmp, func(v string) (string, *struct{}) { return v, nil }))
+		if value, ok := s.exists[column]; ok {
+			removes[value] = nil
 		}
 	}
 	dropExpr := make(map[string]*struct{}, 1<<3)
@@ -1671,7 +1674,11 @@ func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 		_, ok := dropExpr[k]
 		return ok
 	})
-	s.updateExpr, s.updateArgs, s.updateMap = updateExpr, updateArgs, updateMap
+	updateExists := AssocDiscard(s.exists, func(k string, v string) bool {
+		_, ok := dropExpr[v]
+		return ok
+	})
+	s.updateExpr, s.updateArgs, s.updateMap, s.exists = updateExpr, updateArgs, updateMap, updateExists
 	if s.defaults != nil {
 		s.defaults.Remove(columns...)
 	}

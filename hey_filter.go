@@ -902,15 +902,37 @@ func (s *filter) compares(column1 any, compare string, column2 any) Filter {
 		column1 = column
 	}
 
+	prefix := AnyToSQL(column1)
+	if prefix == nil || prefix.IsEmpty() {
+		return s
+	}
+
+	var suffix *SQL
 	if column, ok := column2.(string); ok {
 		if column = s.get(column); column == cst.Empty {
 			return s
 		}
-		column2 = column
+		suffix = AnyToSQL(column)
+	} else {
+		switch value := column2.(type) {
+		case *SQL:
+			suffix = value.Clone()
+			if suffix.IsEmpty() {
+				return s
+			}
+			suffix.Prepare = ParcelPrepare(suffix.Prepare)
+		case Maker:
+			suffix = value.ToSQL()
+			if suffix.IsEmpty() {
+				return s
+			}
+			suffix.Prepare = ParcelPrepare(suffix.Prepare)
+		default:
+			suffix = AnyToSQL(column)
+		}
 	}
 
-	prefix, suffix := AnyToSQL(column1), AnyToSQL(column2)
-	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
+	if suffix == nil || suffix.IsEmpty() {
 		return s
 	}
 
