@@ -1,7 +1,10 @@
 ## What is hey?
-
-Hey is a simple, high-performance ORM for Go. <br>
-For example: INSERT, DELETE, UPDATE, SELECT ...
+Hey is a Go-based SQL builder and ORM.<br>
+It has no third-party library dependencies and does not restrict you to using any drivers.<br>
+It supports common databases such as PostgreSQL, MySQL, SQLite...<br>
+When constructing regular SQL, you only need to set the identifier and its corresponding value.<br>
+During the development phase, you can view the dynamically generated SQL statements at any time.<br>
+Log the executed SQL statements and transactions(Use it as an ORM).<br>
 
 ## hey's mission
 1. Support as many SQL general syntax as possible.

@@ -1,0 +1,865 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/cd365/hey/v6"
+	"github.com/cd365/hey/v6/cst"
+	_ "github.com/lib/pq"
+)
+
+const (
+	initSql = `
+DROP TABLE IF EXISTS department;
+CREATE TABLE IF NOT EXISTS department (
+  id bigserial NOT NULL,
+  name character varying(32) DEFAULT NULL,
+  serial_num integer NOT NULL DEFAULT 0,
+  created_at bigint NOT NULL DEFAULT 0,
+  updated_at bigint NOT NULL DEFAULT 0,
+  deleted_at bigint NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS department_name ON department USING btree (name);
+CREATE INDEX IF NOT EXISTS department_serial_num ON department USING btree (serial_num);
+CREATE INDEX IF NOT EXISTS department_deleted_at ON department USING btree (deleted_at);
+COMMENT ON TABLE department IS 'department table';
+COMMENT ON COLUMN department.id IS 'id';
+
+DROP TABLE IF EXISTS employee;
+CREATE TABLE IF NOT EXISTS employee (
+  id bigserial NOT NULL,
+  age int NOT NULL DEFAULT 0,
+  name character varying(32) NOT NULL DEFAULT ''::character varying,
+  email character varying(128) DEFAULT NULL,
+  gender character varying(1) NOT NULL DEFAULT ''::character varying,
+  height decimal(6,2) NOT NULL DEFAULT 0,
+  weight decimal(6,2) NOT NULL DEFAULT 0,
+  salary decimal(20,2) NOT NULL DEFAULT 0,
+  department_id bigint NOT NULL DEFAULT 0,
+  serial_num integer NOT NULL DEFAULT 0,
+  created_at bigint NOT NULL DEFAULT 0,
+  updated_at bigint NOT NULL DEFAULT 0,
+  deleted_at bigint NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS employee_email ON employee USING btree (email);
+CREATE INDEX IF NOT EXISTS employee_serial_num ON employee USING btree (serial_num);
+CREATE INDEX IF NOT EXISTS employee_deleted_at ON employee USING btree (deleted_at);
+COMMENT ON TABLE employee IS 'employee table';
+COMMENT ON COLUMN employee.id IS 'id';
+`
+)
+
+type myTrack struct{}
+
+func (s *myTrack) Track(ctx context.Context, track any) {
+	tmp, ok := track.(*hey.MyTrack)
+	if !ok || tmp == nil {
+		return
+	}
+	switch tmp.Type {
+	case hey.TrackDebug:
+		// _ = log.Output(3, fmt.Sprintf("%s %v", tmp.Prepare, tmp.Args))
+		_ = log.Output(3, hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
+	case hey.TrackSQL:
+		// The code package contains call encapsulation, but the actual call location may differ.
+		// _ = log.Output(1, fmt.Sprintf("%s %v %s", tmp.Prepare, tmp.Args, tmp.TimeEnd.Sub(tmp.TimeStart).String()))
+		_ = log.Output(1, hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
+	case hey.TrackTransaction:
+		if tmp.TxState == cst.BEGIN {
+			_ = log.Output(3, fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeStart.Format(time.DateTime)))
+		} else {
+			_ = log.Output(3, fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeEnd.Sub(tmp.TimeStart).String()))
+		}
+	default:
+
+	}
+}
+
+var way *hey.Way
+
+func initial() error {
+	db, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
+	if err != nil {
+		return err
+	}
+	db.SetMaxIdleConns(10)
+	db.SetMaxOpenConns(20)
+	db.SetConnMaxIdleTime(time.Minute * 3)
+	db.SetConnMaxLifetime(time.Minute * 3)
+	_, err = db.Exec(initSql)
+	if err != nil {
+		return err
+	}
+	options := make([]hey.Option, 0, 8)
+	manual := hey.Postgresql()
+	manual.Replacer = hey.NewReplacer()
+	options = append(options, hey.WithManual(manual))
+	options = append(options, hey.WithDatabase(db))
+	options = append(options, hey.WithTrack(&myTrack{}))
+	way = hey.NewWay(options...)
+	return nil
+}
+
+func main() {
+	log.Default().SetFlags(log.Ldate | log.Ltime | log.Lshortfile | log.Lmicroseconds)
+
+	if err := initial(); err != nil {
+		panic(err)
+	}
+
+	Delete()
+	Insert()
+	Update()
+	Select()
+	Transaction()
+}
+
+/* The following structured code can all be generated through code generation. */
+
+const (
+	DEPARTMENT = "public.department" // or "department"
+	EMPLOYEE   = "public.employee"   // or "employee"
+)
+
+type Department struct {
+	Id        int64   `json:"id" db:"id"`
+	Name      *string `json:"name" db:"name"`
+	SerialNum int     `json:"serial_num" db:"serial_num"`
+	CreatedAt int64   `json:"created_at" db:"created_at"`
+	UpdatedAt int64   `json:"updated_at" db:"updated_at"`
+	DeletedAt int64   `json:"deleted_at" db:"deleted_at"`
+}
+
+type Employee struct {
+	Id           int64   `json:"id" db:"id"`
+	Age          int     `json:"age" db:"age"`
+	Name         string  `json:"name" db:"name"`
+	Email        *string `json:"email" db:"email"`
+	Gender       string  `json:"gender" db:"gender"`
+	Height       float64 `json:"height" db:"height"`
+	Weight       float64 `json:"weight" db:"weight"`
+	Salary       float64 `json:"salary" db:"salary"`
+	DepartmentId int64   `json:"department_id" db:"department_id"`
+	SerialNum    int     `json:"serial_num" db:"serial_num"`
+	CreatedAt    int64   `json:"created_at" db:"created_at"`
+	UpdatedAt    int64   `json:"updated_at" db:"updated_at"`
+	DeletedAt    int64   `json:"deleted_at" db:"deleted_at"`
+}
+
+type SchemaDepartment struct {
+	Id        string
+	Name      string
+	SerialNum string
+	CreatedAt string
+	UpdatedAt string
+	DeletedAt string
+}
+
+func (s *SchemaDepartment) ColumnString() string {
+	return `"id", "name", "serial_num", "created_at", "updated_at", "deleted_at"`
+}
+
+func (s *SchemaDepartment) init() *SchemaDepartment {
+	s.Id = "id"
+	s.Name = "name"
+	s.SerialNum = "serial_num"
+	s.CreatedAt = "created_at"
+	s.UpdatedAt = "updated_at"
+	s.DeletedAt = "deleted_at"
+	return s
+}
+
+type SchemaEmployee struct {
+	Id           string
+	Age          string
+	Name         string
+	Email        string
+	Gender       string
+	Height       string
+	Weight       string
+	Salary       string
+	DepartmentId string
+	SerialNum    string
+	CreatedAt    string
+	UpdatedAt    string
+	DeletedAt    string
+}
+
+func (s *SchemaEmployee) ColumnString() string {
+	return `"id", "age", "name", "email", "gender", "height", "weight", "salary", "department_id", "serial_num", "created_at", "updated_at", "deleted_at"`
+}
+
+func (s *SchemaEmployee) init() *SchemaEmployee {
+	s.Id = "id"
+	s.Age = "age"
+	s.Name = "name"
+	s.Email = "email"
+	s.Gender = "gender"
+	s.Height = "height"
+	s.Weight = "weight"
+	s.Salary = "salary"
+	s.DepartmentId = "department_id"
+	s.SerialNum = "serial_num"
+	s.CreatedAt = "created_at"
+	s.UpdatedAt = "updated_at"
+	s.DeletedAt = "deleted_at"
+	return s
+}
+
+type DELETEDepartment struct {
+	Id *int64 `json:"id" db:"id" validate:"required,min=1"` // id
+}
+
+type UPDATEDepartment struct {
+	DELETEDepartment
+	Name      *string `json:"name" db:"name" validate:"omitempty,min=0,max=32"`
+	SerialNum *int    `json:"serial_num" db:"serial_num" validate:"omitempty"`
+	UpdatedAt *int64  `json:"-" db:"updated_at" validate:"omitempty"`
+	DeletedAt *int64  `json:"-" db:"deleted_at" validate:"omitempty"`
+}
+
+type DELETEEmployee struct {
+	Id *int64 `json:"id" db:"id" validate:"required,min=1"` // id
+}
+
+type UPDATEEmployee struct {
+	DELETEEmployee
+	Age          *int     `json:"age" db:"age" validate:"omitempty"`
+	Name         *string  `json:"name" db:"name" validate:"omitempty,min=0,max=32"`
+	Email        *string  `json:"email" db:"email" validate:"omitempty,min=0,max=128"`
+	Gender       *string  `json:"gender" db:"gender" validate:"omitempty,min=0,max=1"`
+	Height       *float64 `json:"height" db:"height" validate:"omitempty"`
+	Weight       *float64 `json:"weight" db:"weight" validate:"omitempty"`
+	Salary       *float64 `json:"salary" db:"salary" validate:"omitempty"`
+	DepartmentId *int64   `json:"department_id" db:"department_id" validate:"omitempty"`
+	SerialNum    *int     `json:"serial_num" db:"serial_num" validate:"omitempty"`
+	UpdatedAt    *int64   `json:"-" db:"updated_at" validate:"omitempty"`
+	DeletedAt    *int64   `json:"-" db:"deleted_at" validate:"omitempty"`
+}
+
+/*
+The following code demonstrates how to construct SQL statements using `way` and how to interact with the database using `way`.
+*/
+
+var (
+	department = (&SchemaDepartment{}).init()
+	employee   = (&SchemaEmployee{}).init()
+)
+
+func Delete() {
+	// Example 1: Simple condition deletion.
+	{
+		script := way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
+			f.Equal(department.Id, 1)
+		}).ToDelete()
+		way.Debug(script)
+	}
+
+	// Example 2: Deleting based on multiple values from the same column.
+	{
+		script := way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
+			f.In(department.Id, 1, 2, 3)
+		}).ToDelete()
+		way.Debug(script)
+	}
+
+	// Example 3: Combination conditions of multiple columns.
+	{
+		script := way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
+			f.GreaterThanEqual(department.Id, 1).Group(func(g hey.Filter) {
+				g.IsNull(department.DeletedAt)
+				g.OrGroup(func(g hey.Filter) {
+					g.Equal(department.DeletedAt, 0)
+				})
+			})
+		}).ToDelete()
+		way.Debug(script)
+	}
+
+	// Example 4: Deletion of combined conditions with multiple columns and multiple logic.
+	{
+		script := way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
+			f.InGroup([]string{department.Id, department.SerialNum}, [][]any{
+				{1, 1},
+				{2, 1},
+				{3, 1},
+			})
+			f.OrGroup(func(g hey.Filter) {
+				g.In(department.Id, way.Table(DEPARTMENT).Select(department.Id).WhereFunc(func(f hey.Filter) {
+					f.GreaterThan(department.DeletedAt, 0)
+				}))
+			})
+		}).ToDelete()
+		way.Debug(script)
+	}
+}
+
+func Insert() {
+	// Example 1: Simple insertion.
+	{
+		script := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(department.Name, "Sales Department")
+			i.ColumnValue(department.SerialNum, 1)
+		}).ToInsert()
+		way.Debug(script)
+	}
+
+	// Example 2: Use default values and set SQL statement comments.
+	{
+		timestamp := way.Now().Unix()
+		table := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(department.Name, "Sales Department")
+			i.ColumnValue(department.SerialNum, 1)
+			i.Default(department.CreatedAt, timestamp)
+			i.Default(department.UpdatedAt, timestamp)
+		})
+		way.Debug(table.ToInsert())
+		table.Comment("Example comment")
+		way.Debug(table.ToInsert())
+
+		// Not setting any columns will result in an incorrectly formatted SQL statement.
+		table = way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Default(department.CreatedAt, timestamp)
+			i.Default(department.UpdatedAt, timestamp)
+		})
+		way.Debug(table.ToInsert())
+	}
+
+	// Example 3: Delete the specified column before inserting data.
+	{
+		timestamp := way.Now().Unix()
+		script := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(department.Name, "Sales Department")
+			i.ColumnValue(department.SerialNum, 1)
+			i.ColumnValue(department.DeletedAt, timestamp)
+			i.Default(department.CreatedAt, timestamp)
+			i.Default(department.UpdatedAt, timestamp)
+			// This deletes columns that have already been added.
+			i.Remove(department.DeletedAt)
+		}).ToInsert()
+		way.Debug(script)
+	}
+
+	// Example 4: Use map insertion.
+	{
+		timestamp := way.Now().Unix()
+		script := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Create(map[string]any{
+				department.Name:      "Sales Department",
+				department.SerialNum: 1,
+				department.CreatedAt: timestamp,
+				department.UpdatedAt: timestamp,
+			})
+		}).ToInsert()
+		way.Debug(script)
+	}
+
+	// Example 5: Batch insertion using map slices.
+	{
+		timestamp := way.Now().Unix()
+		script := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Create([]map[string]any{
+				{
+					department.Name:      "Sales Department1",
+					department.SerialNum: 1,
+					department.CreatedAt: timestamp,
+					department.UpdatedAt: timestamp,
+				},
+				{
+					department.Name:      "Sales Department2",
+					department.SerialNum: 1,
+					department.CreatedAt: timestamp,
+					department.UpdatedAt: timestamp,
+				},
+			})
+		}).ToInsert()
+		way.Debug(script)
+	}
+
+	// Example 6: Inserting a structure.
+	{
+		timestamp := way.Now().Unix()
+		script := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(department.Id, department.DeletedAt)
+			name := "Sales Department"
+			i.Create(&Department{
+				Name:      &name,
+				SerialNum: 1,
+				CreatedAt: timestamp,
+				UpdatedAt: timestamp,
+			})
+		}).ToInsert()
+		way.Debug(script)
+	}
+
+	// Example 7: Batch insertion using structure slices.
+	{
+		timestamp := way.Now().Unix()
+		script := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(department.Id, department.DeletedAt)
+			name1 := "Sales Department1"
+			name2 := "Sales Department2"
+			name3 := "Sales Department3"
+			i.Create([]*Department{
+				{
+					Name:      &name1,
+					SerialNum: 1,
+					CreatedAt: timestamp,
+					UpdatedAt: timestamp,
+				},
+				{
+					Name:      &name2,
+					SerialNum: 1,
+					CreatedAt: timestamp,
+					UpdatedAt: timestamp,
+				},
+				{
+					Name:      &name3,
+					SerialNum: 1,
+					CreatedAt: timestamp,
+					UpdatedAt: timestamp,
+				},
+			})
+		}).ToInsert()
+		way.Debug(script)
+	}
+
+	// Example 8: Large amounts of data inserted in batches.
+	{
+		timestamp := way.Now().Unix()
+		length := 100
+		create := make([]*Department, 0, length)
+		for i := range length {
+			name := fmt.Sprintf("Sales Department %d %d", i+1, time.Now().Nanosecond())
+			create = append(create, &Department{
+				Name:      &name,
+				SerialNum: 1,
+				CreatedAt: timestamp,
+				UpdatedAt: timestamp,
+			})
+		}
+		rows, err := way.Table(DEPARTMENT).LargerCreate(context.Background(), 3, create, func(i hey.SQLInsert) {
+			i.Forbid(department.Id, department.DeletedAt)
+		}, nil)
+		if err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println(rows)
+		}
+	}
+
+	// Example 9: Insert a record and retrieve the id value of the inserted record(pgsql).
+	{
+		timestamp := way.Now().Unix()
+		ctx := context.Background()
+		id, err := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(department.Id, department.DeletedAt)
+			name := fmt.Sprintf("Sales Department %d", time.Now().Nanosecond())
+			i.Create(&Department{
+				Name:      &name,
+				SerialNum: 1,
+				CreatedAt: timestamp,
+				UpdatedAt: timestamp,
+			})
+			i.Returning(func(r hey.SQLReturning) {
+				r.Returning(department.Id)
+				r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
+					err = stmt.QueryRow(ctx, func(row *sql.Row) error {
+						return row.Scan(&id)
+					}, args...)
+					return
+				})
+			})
+		}).Insert(ctx)
+		if err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println("id:", id)
+		}
+	}
+
+	// Example 10: Insert a record and retrieve the id value of the inserted record(mysql).
+	if false {
+		timestamp := way.Now().Unix()
+		ctx := context.Background()
+		id, err := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(department.Id, department.DeletedAt)
+			name := fmt.Sprintf("Sales Department %d", time.Now().Nanosecond())
+			i.Create(&Department{
+				Name:      &name,
+				SerialNum: 1,
+				CreatedAt: timestamp,
+				UpdatedAt: timestamp,
+			})
+			i.Returning(func(r hey.SQLReturning) {
+				r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
+					result, err := stmt.Exec(ctx, args...)
+					if err != nil {
+						return 0, err
+					}
+					return result.LastInsertId()
+				})
+			})
+		}).Insert(ctx)
+		if err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println("id:", id)
+		}
+	}
+
+	// Example 11: Insert a single data record and retrieve one or more columns of the inserted data(pgsql).
+	{
+		timestamp := way.Now().Unix()
+		ctx := context.Background()
+		scanName := ""
+		id, err := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(department.Id, department.DeletedAt)
+			name := fmt.Sprintf("Sales Department %d", time.Now().Nanosecond())
+			i.Create(&Department{
+				Name:      &name,
+				SerialNum: 1,
+				CreatedAt: timestamp,
+				UpdatedAt: timestamp,
+			})
+			i.Returning(func(r hey.SQLReturning) {
+				r.Returning(department.Id, department.Name)
+				r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
+					err = stmt.QueryRow(ctx, func(row *sql.Row) error {
+						return row.Scan(&id, &scanName)
+					}, args...)
+					return
+				})
+			})
+		}).Insert(ctx)
+		if err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println("id:", id, "scan-name:", scanName)
+		}
+	}
+
+	// Example 12: Use the query result set as the data source for insertion.
+	{
+		ctx := context.Background()
+		rows, err := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
+			i.Column(department.Name, department.SerialNum)
+			i.Subquery(way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
+				f.LessThan(department.Id, 0)
+			}).Select(department.Name, department.SerialNum).Desc(department.Id).Limit(1000))
+		}).Insert(ctx)
+		if err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println("rows:", rows)
+		}
+	}
+}
+
+func Update() {
+	// Example 1: Simple update.
+	{
+		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(department.Id, 1)
+			u.Set(department.SerialNum, 999)
+		}).Comment("Example").ToUpdate()
+		way.Debug(script)
+	}
+
+	// Example 2: Update conditions using subquery.
+	{
+		ctx := context.Background()
+		rows, err := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			subquery := way.Table(DEPARTMENT).Limit(1).Select(department.Id).WhereFunc(func(f hey.Filter) {
+				f.Equal(department.SerialNum, 11)
+			}).Desc(department.Id)
+			f.CompareEqual(department.Id, subquery)
+			f.OrGroup(func(g hey.Filter) {
+				g.In(department.Id, subquery)
+			})
+			u.Set(department.SerialNum, 999)
+		}).Update(ctx)
+		if err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println("rows:", rows)
+		}
+	}
+
+	// Example 3: Set the default update column.
+	{
+		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(department.Id, 1)
+			u.Set(department.SerialNum, 999)
+			u.Default(department.UpdatedAt, way.Now().Unix())
+		}).ToUpdate()
+		way.Debug(script)
+	}
+
+	// Example 4: Update using map[string]any.
+	{
+		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(department.Id, 1)
+			u.Update(map[string]any{
+				department.SerialNum: 999,
+				department.Name:      "Sales Department",
+			})
+			u.Default(department.UpdatedAt, way.Now().Unix())
+		}).ToUpdate()
+		way.Debug(script)
+	}
+
+	// Example 5: Update using struct.
+	{
+		id := int64(1)
+		name := "Sales Department"
+		serialNum := 123
+		update := &UPDATEDepartment{
+			Name:      &name,
+			SerialNum: &serialNum,
+		}
+		update.Id = &id
+		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(department.Id, 1)
+			u.Forbid(department.Id)
+			u.Update(update)
+			u.Remove(department.UpdatedAt)
+			u.Default(department.UpdatedAt, way.Now().Unix())
+		}).ToUpdate()
+		way.Debug(script)
+	}
+
+	// Example 6: Set column values to increment/decrement.
+	{
+		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(department.Id, 1)
+			u.Set(department.Name, "Sales Department")
+			u.Incr(department.SerialNum, 1)
+			u.Default(department.UpdatedAt, way.Now().Unix())
+		}).ToUpdate()
+		way.Debug(script)
+	}
+
+	// Example 7: Assign values directly to columns, or set raw values in the SQL script.
+	{
+		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(department.Id, 1)
+			u.Assign(department.DeletedAt, department.UpdatedAt)
+			u.Assign(department.SerialNum, "123")
+			// u.Assign(department.Name, cst.Empty)
+			u.Assign(department.Name, cst.NULL)
+			u.Remove(department.Name)
+			u.Assign(department.Name, "'Sales Department'")
+			u.Remove(department.CreatedAt)
+		}).ToUpdate()
+		way.Debug(script)
+	}
+}
+
+func Select() {
+	tmp := way.Table(EMPLOYEE)
+
+	script := tmp.ToSelect()
+	way.Debug(script)
+
+	// ORDER BY xxx LIMIT n
+	{
+		tmp.ToEmpty()
+		tmp.Asc(employee.Id).Limit(1)
+		script = tmp.ToSelect()
+		way.Debug(script)
+	}
+
+	// OFFSET
+	{
+		tmp.ToEmpty()
+		tmp.Asc(employee.Id).Limit(1).Offset(10)
+		script = tmp.ToSelect()
+		way.Debug(script)
+	}
+
+	// PAGE
+	{
+		tmp.ToEmpty()
+		tmp.Asc(employee.Id).Page(2, 10)
+		script = tmp.ToSelect()
+		way.Debug(script)
+	}
+
+	// comment
+	{
+		tmp.ToEmpty()
+		tmp.Comment("test comment").Asc(employee.Id).Page(2, 10)
+		script = tmp.ToSelect()
+		way.Debug(script)
+	}
+
+	// SELECT columns
+	{
+		tmp.ToEmpty()
+		tmp.Select(employee.Id, employee.Salary).Asc(employee.Id).Limit(1)
+		script = tmp.ToSelect()
+		way.Debug(script)
+	}
+
+	// GROUP BY
+	{
+		tmp.ToEmpty()
+		tmp.Select(employee.Id).Group(employee.Id).GroupFunc(func(g hey.SQLGroupBy) {
+			g.Having(func(having hey.Filter) {
+				having.GreaterThanEqual(employee.Id, 0)
+			})
+		}).Asc(employee.Id).Limit(1)
+		script = tmp.ToSelect()
+		way.Debug(script)
+	}
+
+	// DISTINCT
+	{
+		tmp.ToEmpty()
+		tmp.Distinct().Select(employee.Id, employee.SerialNum).Asc(employee.Id).Limit(1)
+		script = tmp.ToSelect()
+		way.Debug(script)
+	}
+
+	// WITH
+	{
+		a := "a"
+		c := DEPARTMENT
+		tmpWith := way.Table(a).Comment("test1").WithFunc(func(w hey.SQLWith) {
+			w.Set(
+				a,
+				way.Table(c).Select(employee.Id, employee.SerialNum).WhereFunc(func(f hey.Filter) {
+					f.Equal(employee.Id, 1)
+				}).Desc(employee.Id).Limit(10).ToSelect(),
+			)
+		}).Asc(employee.Id).Limit(1)
+		script = tmpWith.ToSelect()
+		way.Debug(script)
+	}
+
+	// JOIN
+	{
+		a, b := "a", "b"
+		where := way.F()
+		get := way.Table(EMPLOYEE).Alias(a)
+		get.LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
+			right = j.NewTable(DEPARTMENT, b)
+			// j.TableColumn(j.GetMaster(), cst.Asterisk)
+			j.Select(
+				j.TableColumn(j.GetMaster(), cst.Asterisk),
+				hey.Alias(hey.Coalesce(j.TableColumn(right, department.Name), hey.SQLString("")), "department_name"), // string
+				j.TableColumn(right, department.SerialNum, "department_serial_num"),                                  // pointer int
+			)
+			assoc = j.OnEqual(employee.DepartmentId, department.Id)
+			aid := j.TableColumn(j.GetMaster(), employee.Id)
+			where.GreaterThan(aid, 0)
+			get.Desc(aid)
+			return
+		})
+		get.Where(where)
+		get.Limit(10).Offset(1)
+		// count, err := get.Count(context.Background())
+		script = get.ToSelect()
+		way.Debug(script)
+	}
+
+	// More ways to call ...
+}
+
+func Transaction() {
+	var err error
+
+	rows := int64(0)
+
+	idEqual := func(idValue any) hey.Filter { return way.F().Equal(employee.Id, idValue) }
+	modify := map[string]any{
+		"salary": 1500,
+	}
+
+	delete3 := way.Table("example3").Where(idEqual(3))
+	delete4 := way.Table("example4").Where(idEqual(4))
+
+	ctx := context.Background()
+	err = way.Transaction(ctx, func(tx *hey.Way) error {
+		tx.TransactionMessage("transaction-message-1")
+		remove := tx.Table(EMPLOYEE).Where(idEqual(1))
+		// _, _ = remove.Delete(ctx)
+		script := remove.ToDelete()
+		way.Debug(script)
+
+		update := tx.Table(DEPARTMENT).Where(idEqual(1)).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			u.Update(modify)
+		})
+		// _, _ = update.Update(ctx)
+		script = update.ToDelete()
+		way.Debug(script)
+
+		if false {
+			rows, err = tx.Execute(ctx, delete3.ToDelete())
+			if err != nil {
+				return err
+			}
+			if rows <= 0 {
+				return hey.ErrNoRowsAffected
+			}
+			delete4.W(tx)
+			rows, err = delete4.Delete(ctx)
+			if err != nil {
+				return err
+			}
+			if rows <= 0 {
+				return hey.ErrNoRowsAffected
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	// Custom handling of transaction.
+	err = func() (err error) {
+		tx := (*hey.Way)(nil)
+		tx, err = way.Begin(ctx)
+		if err != nil {
+			return err
+		}
+
+		tx.TransactionMessage("transaction-message-2")
+
+		success := false
+
+		defer func() {
+			if !success {
+				// for example:
+				_ = tx.Rollback()
+				if err == nil {
+					// panic occurred in the database transaction.
+					err = fmt.Errorf("%v", recover())
+				}
+			}
+		}()
+
+		/*
+			This is where your business logic is handled.
+		*/
+
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+
+		success = true
+		return err
+	}()
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
