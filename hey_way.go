@@ -609,10 +609,14 @@ func (s *Way) Now() time.Time {
 
 // Stmt Prepare a handle.
 type Stmt struct {
-	way      *Way
-	stmt     *sql.Stmt
-	prepare  string
-	prepared string
+	// way Original *Way object.
+	way *Way
+
+	// stmt A prepared statement for later queries or executions.
+	stmt *sql.Stmt
+
+	// prepare SQL prepare statement.
+	prepare string
 }
 
 // Close -> Close prepare a handle.
@@ -698,23 +702,24 @@ func (s *Stmt) Scan(ctx context.Context, result any, args ...any) error {
 }
 
 // Prepare -> Prepare SQL statement, remember to call *Stmt.Close().
-func (s *Way) Prepare(ctx context.Context, prepare string) (stmt *Stmt, err error) {
+func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error) {
 	if s.db == nil {
 		return nil, ErrDatabaseIsNil
 	}
-
+	if query == cst.Empty {
+		return nil, ErrEmptyScript
+	}
 	stmt = &Stmt{
-		way:      s,
-		prepare:  prepare,
-		prepared: prepare,
+		way:     s,
+		prepare: query,
 	}
 	if manual := s.cfg.manual; manual != nil && manual.Prepare != nil {
-		stmt.prepared = manual.Prepare(prepare)
+		query = manual.Prepare(query)
 	}
 	if s.IsInTransaction() {
-		stmt.stmt, err = s.transaction.tx.PrepareContext(ctx, stmt.prepared)
+		stmt.stmt, err = s.transaction.tx.PrepareContext(ctx, query)
 	} else {
-		stmt.stmt, err = s.db.PrepareContext(ctx, stmt.prepared)
+		stmt.stmt, err = s.db.PrepareContext(ctx, query)
 	}
 	if err != nil {
 		return nil, err
