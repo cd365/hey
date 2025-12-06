@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/cd365/hey/v6/cst"
 )
@@ -590,6 +591,12 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	}).Update(ctx)
 }
 
+type largerCreate struct {
+	script *SQL
+
+	batchSize int
+}
+
 // LargerCreate Split a large slice of data into multiple smaller slices and insert them in batches.
 func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, prefix func(i SQLInsert), suffix func(i SQLInsert)) (affectedRows int64, err error) {
 	if batchSize <= 0 {
@@ -605,11 +612,6 @@ func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, pre
 		return
 	}
 
-	type group struct {
-		script *SQL
-		size   int
-	}
-
 	size := batchSize
 	pending := make([]any, length)
 	for i := range length {
@@ -617,11 +619,31 @@ func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, pre
 	}
 
 	var (
-		groups []*group
-		insert []any
-		stmt   *Stmt
-		rows   int64
+		adds []any
+		stmt *Stmt
+		rows int64
 	)
+
+	queue := make(chan *largerCreate, 1<<5)
+	ready := true          // Queue ready state.
+	mutex := &sync.Mutex{} // Mutex locks ensure safe writing of data to the queue.
+	abort := func() {      // Preventing secondary shutdown of the queue.
+		mutex.Lock()
+		defer mutex.Unlock()
+		if ready {
+			ready = false
+			close(queue)
+		}
+	}
+	write := func(value *largerCreate) bool { // Safely write data to the queue.
+		mutex.Lock()
+		defer mutex.Unlock()
+		if ready {
+			queue <- value
+			return true
+		}
+		return false
+	}
 
 	defer func() {
 		if stmt != nil {
@@ -629,51 +651,70 @@ func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, pre
 		}
 	}()
 
-	for {
-		length = len(pending)
-		if length == 0 {
-			break
-		}
-		if length < size {
-			size = length
-		}
-		insert = pending[:size]
-		pending = pending[size:]
-		script := s.InsertFunc(func(i SQLInsert) {
-			i.ToEmpty()
-			if prefix != nil {
-				prefix(i)
-			}
-			i.Create(insert)
-			if suffix != nil {
-				suffix(i)
-			}
-		}).ToInsert()
-		groups = append(groups, &group{
-			size:   size,
-			script: script,
-		})
-	}
+	wg := &sync.WaitGroup{}
 
-	for _, v := range groups {
-		if stmt == nil || v.size < batchSize {
-			if stmt != nil {
-				if err = stmt.Close(); err != nil {
-					return
+	// producer
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() { abort() }() // Production complete, close the queue.
+		ok := false
+		for {
+			length = len(pending)
+			if length == 0 {
+				break
+			}
+			if length < size {
+				size = length
+			}
+			adds = pending[:size]
+			pending = pending[size:]
+			script := s.InsertFunc(func(i SQLInsert) {
+				i.ToEmpty()
+				if prefix != nil {
+					prefix(i)
 				}
+				i.Create(adds)
+				if suffix != nil {
+					suffix(i)
+				}
+			}).ToInsert()
+			value := &largerCreate{
+				script:    script,
+				batchSize: size,
 			}
-			stmt, err = s.way.Prepare(ctx, v.script.Prepare)
+			if ok = write(value); !ok {
+				break
+			}
 		}
-		if err != nil {
-			return
-		}
-		rows, err = stmt.Execute(ctx, v.script.Args...)
-		if err != nil {
-			return
-		}
-		affectedRows += rows
-	}
+	}()
 
+	// consumer
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() { abort() }() // In theory, the queue should be closed. If it is not already closed, it needs to be closed to prevent permanent blocking.
+		for v := range queue {
+			if stmt == nil || v.batchSize < batchSize {
+				if stmt != nil {
+					if err = stmt.Close(); err != nil {
+						return
+					}
+				}
+				stmt, err = s.way.Prepare(ctx, v.script.Prepare)
+			}
+			if err != nil {
+				return
+			}
+			rows, err = stmt.Execute(ctx, v.script.Args...)
+			if err != nil {
+				return
+			}
+			affectedRows += rows
+		}
+	}()
+
+	wg.Wait()
 	return
 }
 

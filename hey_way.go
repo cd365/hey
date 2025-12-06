@@ -879,15 +879,19 @@ func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, 
 	if prepare == cst.Empty {
 		return ErrEmptyScript
 	}
-	stmt := (*Stmt)(nil)
-	stmt, err = s.Prepare(ctx, prepare)
-	if err != nil {
-		return err
-	}
+	var stmt *Stmt
 	defer func() {
-		_ = stmt.Close()
+		if stmt != nil {
+			_ = stmt.Close()
+		}
 	}()
 	for index, value := range lists {
+		if stmt == nil {
+			stmt, err = s.Prepare(ctx, prepare)
+			if err != nil {
+				return err
+			}
+		}
 		err = stmt.Scan(ctx, results[index], value...)
 		if err != nil {
 			return err
@@ -901,16 +905,20 @@ func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]an
 	if prepare == cst.Empty {
 		return 0, ErrEmptyScript
 	}
-	stmt := (*Stmt)(nil)
-	stmt, err = s.Prepare(ctx, prepare)
-	if err != nil {
-		return affectedRows, err
-	}
+	var stmt *Stmt
 	defer func() {
-		_ = stmt.Close()
+		if stmt != nil {
+			_ = stmt.Close()
+		}
 	}()
 	rows := int64(0)
 	for _, args := range lists {
+		if stmt == nil {
+			stmt, err = s.Prepare(ctx, prepare)
+			if err != nil {
+				return affectedRows, err
+			}
+		}
 		rows, err = stmt.Execute(ctx, args...)
 		if err != nil {
 			return affectedRows, err
