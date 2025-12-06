@@ -86,14 +86,19 @@ func SQLToString(script *SQL) string {
 
 // transaction Information for transaction.
 type transaction struct {
+	// ctx Context object.
 	ctx context.Context
 
+	// way Original *Way object.
 	way *Way
 
+	// tx Transaction object.
 	tx *sql.Tx
 
+	// track Tracking transaction.
 	track *MyTrack
 
+	// script List of SQL statements that have been executed within a transaction.
 	script []*MyTrack
 }
 
@@ -338,16 +343,22 @@ type Reader interface {
 }
 
 type Way struct {
+	// cfg Configuration information.
 	cfg *config
 
+	// db Database object.
 	db *sql.DB
 
+	// track Tracing SQL statements.
 	track Track
 
+	// transaction Transaction object.
 	transaction *transaction
 
+	// reader A *Way object used only for reading data.
 	reader Reader
 
+	// isRead Is the current object a read-only object?
 	isRead bool
 }
 

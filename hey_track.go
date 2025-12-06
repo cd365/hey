@@ -13,10 +13,12 @@ const (
 	TrackTransaction MyTrackType = "TRANSACTION"
 )
 
+// Track Tracing SQL statements.
 type Track interface {
 	Track(ctx context.Context, track any)
 }
 
+// MyTrack Implement Track interface.
 type MyTrack struct {
 	// Context Value of context.
 	Context context.Context
