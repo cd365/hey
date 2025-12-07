@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/cd365/hey/v6"
@@ -55,6 +57,50 @@ COMMENT ON COLUMN employee.id IS 'id';
 `
 )
 
+type FileLineMethod struct {
+	file   string // file name
+	line   int    // file line
+	method string // method name
+}
+
+func caller() string {
+	callers := make([]*FileLineMethod, 0)
+	for skip := 1; true; skip++ {
+		pc, file, line, ok := runtime.Caller(skip)
+		if !ok {
+			break
+		}
+		tmp := &FileLineMethod{
+			file:   file,
+			line:   line,
+			method: runtime.FuncForPC(pc).Name(),
+		}
+		callers = append(callers, tmp)
+	}
+	latest := 0
+	for index, value := range callers {
+		if strings.Contains(value.method, "github.com/cd365/hey/v6.") {
+			latest = index
+		}
+	}
+	length := len(callers)
+	if latest == length-1 {
+		v := callers[latest]
+		return fmt.Sprintf("%s:%d %s", v.file, v.line, v.method)
+	}
+	next := latest + 1
+	method := callers[next].method
+	if method != "runtime.goexit" && !strings.Contains(method, "github.com/cd365/hey/v6.") {
+		v := callers[next]
+		return fmt.Sprintf("%s:%d %s", v.file, v.line, v.method)
+	}
+	if method == "runtime.goexit" {
+		v := callers[latest]
+		return fmt.Sprintf("%s:%d %s", v.file, v.line, v.method)
+	}
+	return ""
+}
+
 type myTrack struct{}
 
 func (s *myTrack) Track(ctx context.Context, track any) {
@@ -64,17 +110,14 @@ func (s *myTrack) Track(ctx context.Context, track any) {
 	}
 	switch tmp.Type {
 	case hey.TrackDebug:
-		// _ = log.Output(3, fmt.Sprintf("%s %v", tmp.Prepare, tmp.Args))
-		_ = log.Output(3, hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
+		log.Println(caller(), "<<DEBUG>>", hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
 	case hey.TrackSQL:
-		// The code package contains call encapsulation, but the actual call location may differ.
-		// _ = log.Output(1, fmt.Sprintf("%s %v %s", tmp.Prepare, tmp.Args, tmp.TimeEnd.Sub(tmp.TimeStart).String()))
-		_ = log.Output(1, hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
+		log.Println(caller(), "<<SQL>>", hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
 	case hey.TrackTransaction:
 		if tmp.TxState == cst.BEGIN {
-			_ = log.Output(3, fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeStart.Format(time.DateTime)))
+			log.Println(caller(), "<<TRANSACTION>>", fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeStart.Format(time.DateTime)))
 		} else {
-			_ = log.Output(3, fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeEnd.Sub(tmp.TimeStart).String()))
+			log.Println(caller(), "<<TRANSACTION>>", fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeEnd.Sub(tmp.TimeStart).String()))
 		}
 	default:
 
@@ -107,7 +150,7 @@ func initial() error {
 }
 
 func main() {
-	log.Default().SetFlags(log.Ldate | log.Ltime | log.Lshortfile | log.Lmicroseconds)
+	log.Default().SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 
 	if err := initial(); err != nil {
 		panic(err)
@@ -432,6 +475,7 @@ func Insert() {
 
 	// Example 8: Large amounts of data inserted in batches.
 	{
+		ctx := context.Background()
 		timestamp := way.Now().Unix()
 		length := 100
 		create := make([]*Department, 0, length)
@@ -444,7 +488,7 @@ func Insert() {
 				UpdatedAt: timestamp,
 			})
 		}
-		rows, err := way.Table(DEPARTMENT).LargerCreate(context.Background(), 3, create, func(i hey.SQLInsert) {
+		rows, err := way.Table(DEPARTMENT).LargerCreate(ctx, 30, create, func(i hey.SQLInsert) {
 			i.Forbid(department.Id, department.DeletedAt)
 		}, nil)
 		if err != nil {
@@ -558,6 +602,20 @@ func Insert() {
 			log.Println(err.Error())
 		} else {
 			log.Println("rows:", rows)
+		}
+	}
+
+	{
+		ctx := context.Background()
+		timestamp := time.Now().Unix()
+		_, err := way.Table(EMPLOYEE).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(employee.Name, "Jack")
+			i.ColumnValue(employee.Age, 18)
+			i.ColumnValue(employee.CreatedAt, timestamp)
+			i.ColumnValue(employee.UpdatedAt, timestamp)
+		}).Insert(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
 		}
 	}
 }
@@ -674,6 +732,22 @@ func Select() {
 		tmp.Asc(employee.Id).Limit(1)
 		script = tmp.ToSelect()
 		way.Debug(script)
+
+		ctx := context.Background()
+		value := &Employee{}
+		if err := tmp.Scan(ctx, value); err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Printf("%#v", value)
+
+		// values := make([]Employee, 0)
+		values := make([]*Employee, 0) // make([]**Employee, 0) // Allow multilevel pointers
+		if err := tmp.Scan(ctx, &values); err != nil {
+			log.Fatal(err.Error())
+		}
+		for _, v := range values {
+			log.Printf("%#v", v)
+		}
 	}
 
 	// OFFSET
