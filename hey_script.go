@@ -75,25 +75,24 @@ func (s *SQL) ToSQL() *SQL {
 
 // AnyToSQL Convert values of any type into SQL expressions or SQL statements.
 func AnyToSQL(i any) *SQL {
-	result := NewEmptySQL()
 	switch value := i.(type) {
 	case bool:
-		result = NewSQL(fmt.Sprintf("%t", value))
+		return NewSQL(fmt.Sprintf("%t", value))
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		result = NewSQL(fmt.Sprintf("%d", value))
+		return NewSQL(fmt.Sprintf("%d", value))
 	case float32:
-		result = NewSQL(strconv.FormatFloat(float64(value), 'f', -1, 64))
+		return NewSQL(strconv.FormatFloat(float64(value), 'f', -1, 64))
 	case float64:
-		result = NewSQL(strconv.FormatFloat(value, 'f', -1, 64))
+		return NewSQL(strconv.FormatFloat(value, 'f', -1, 64))
 	case string:
-		result.Prepare = value
+		return NewSQL(value)
 	case *SQL:
 		if value != nil {
-			result = value
+			return value
 		}
 	case Maker:
 		if tmp := value.ToSQL(); tmp != nil {
-			result = tmp
+			return tmp
 		}
 	default:
 		v := reflect.ValueOf(i)
@@ -101,7 +100,7 @@ func AnyToSQL(i any) *SQL {
 		k := t.Kind()
 		for k == reflect.Pointer {
 			if v.IsNil() {
-				return result
+				return NewEmptySQL()
 			}
 			v = v.Elem()
 			t = v.Type()
@@ -116,7 +115,7 @@ func AnyToSQL(i any) *SQL {
 
 		}
 	}
-	return result
+	return NewEmptySQL()
 }
 
 // JoinMaker Concatenate multiple SQL scripts and their parameter lists using a specified delimiter.
@@ -138,7 +137,9 @@ func JoinMaker(elems []Maker, sep string) *SQL {
 			builder.WriteString(sep)
 		}
 		builder.WriteString(shard.Prepare)
-		script.Args = append(script.Args, shard.Args...)
+		if shard.Args != nil {
+			script.Args = append(script.Args, shard.Args...)
+		}
 	}
 	script.Prepare = builder.String()
 	return script
@@ -1946,7 +1947,7 @@ SQL WINDOW FUNCTION
 function_name() OVER (
 	[PARTITION BY column1, column2, ...]
 	[ORDER BY column3 [ASC|DESC], ...]
-	[RANGE | ROWS frame_specification]
+	[GROUPS | RANGE | ROWS frame_specification]
 ) [AS alias_name]
 
 RANGE | ROWS BETWEEN frame_start AND frame_end
@@ -1993,7 +1994,7 @@ type sqlWindowFuncFrame struct {
 	// script Custom SQL statement, priority is higher than prepare + args.
 	script *SQL
 
-	// frame Value is `RANGE` or `ROWS`.
+	// frame Value is one of `GROUPS`, `RANGE`, `ROWS`.
 	frame string
 }
 
@@ -2063,7 +2064,10 @@ type WindowFunc struct {
 	// window The window function used.
 	window *SQL
 
-	// frameRows Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
+	// frameGroups Define the window based on the sort column values.
+	frameGroups *SQL
+
+	// frameRange Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
 	frameRange *SQL
 
 	// frameRows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
@@ -2201,13 +2205,29 @@ func (s *WindowFunc) Desc(column string) *WindowFunc {
 	return s
 }
 
+// Groups Define the window based on the sort column values.
+func (s *WindowFunc) Groups(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
+	if fc != nil {
+		frame := NewSQLWindowFuncFrame(cst.GROUPS)
+		fc(frame)
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			s.frameGroups = tmp
+			s.frameRange = nil
+			s.frameRows = nil
+		}
+	}
+	return s
+}
+
 // Range Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
 func (s *WindowFunc) Range(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 	if fc != nil {
 		frame := NewSQLWindowFuncFrame(cst.RANGE)
 		fc(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			s.frameRange, s.frameRows = tmp, nil
+			s.frameGroups = nil
+			s.frameRange = tmp
+			s.frameRows = nil
 		}
 	}
 	return s
@@ -2219,7 +2239,9 @@ func (s *WindowFunc) Rows(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
 		frame := NewSQLWindowFuncFrame(cst.ROWS)
 		fc(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			s.frameRows, s.frameRange = tmp, nil
+			s.frameGroups = nil
+			s.frameRange = nil
+			s.frameRows = tmp
 		}
 	}
 	return s
@@ -2254,6 +2276,13 @@ func (s *WindowFunc) ToSQL() *SQL {
 		num++
 		b.WriteString(JoinString(cst.Space, cst.ORDER, cst.Space, cst.BY, cst.Space))
 		b.WriteString(strings.Join(s.order, cst.CommaSpace))
+	}
+	if frame := s.frameGroups; frame != nil {
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			num++
+			b.WriteString(JoinString(cst.Space, tmp.Prepare))
+			result.Args = append(result.Args, tmp.Args...)
+		}
 	}
 	if frame := s.frameRange; frame != nil {
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {

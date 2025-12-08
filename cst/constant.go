@@ -58,6 +58,7 @@ const (
 	THEN      = "THEN"
 	ELSE      = "ELSE"
 	END       = "END"
+	GROUPS    = "GROUPS"
 	RANGE     = "RANGE"
 	ROWS      = "ROWS"
 	COUNT     = "COUNT"
