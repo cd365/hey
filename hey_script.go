@@ -1680,10 +1680,14 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (columns
 // ExecuteScript Execute SQL script.
 func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any) error {
 	if execute = strings.TrimSpace(execute); execute == cst.Empty {
-		return nil
+		return ErrEmptyScript
 	}
-	if _, err := db.ExecContext(ctx, execute, args...); err != nil {
+	if result, err := db.ExecContext(ctx, execute, args...); err != nil {
 		return err
+	} else {
+		if _, err = result.RowsAffected(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
