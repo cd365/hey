@@ -75,6 +75,9 @@ func (s *SQL) ToSQL() *SQL {
 
 // AnyToSQL Convert values of any type into SQL expressions or SQL statements.
 func AnyToSQL(i any) *SQL {
+	if i == nil {
+		return NewEmptySQL()
+	}
 	switch value := i.(type) {
 	case bool:
 		return NewSQL(fmt.Sprintf("%t", value))

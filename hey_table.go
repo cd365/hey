@@ -78,6 +78,10 @@ func optimizeTableSQL(way *Way, table *SQL) *SQL {
 // getTable Extract table names from any type.
 func (s *Way) getTable(table any) *sqlAlias {
 	result := newSqlAlias(cst.Empty).v(s)
+	if table == nil {
+		result.SetSQL(AnyToSQL(table))
+		return result
+	}
 	switch example := table.(type) {
 	case string:
 		result.SetSQL(optimizeTableSQL(s, NewSQL(example)))
@@ -189,9 +193,9 @@ func (s *Table) Distinct() *Table {
 }
 
 // Select Add one or more query lists. If no parameter is provided, all existing query lists will be deleted.
-func (s *Table) Select(selects ...any) *Table {
+func (s *Table) Select(columns ...any) *Table {
 	return s.SelectFunc(func(q SQLSelect) {
-		q.Select(selects...)
+		q.Select(columns...)
 	})
 }
 
@@ -361,7 +365,12 @@ func (s *Table) UpdateFunc(fc func(f Filter, u SQLUpdateSet)) *Table {
 // ToSelect Build SELECT statement.
 func (s *Table) ToSelect() *SQL {
 	if s.table.IsEmpty() {
-		return NewEmptySQL()
+		if s.query.IsEmpty() {
+			return NewEmptySQL()
+		}
+		lists := make([]any, 0, 3)
+		lists = append(lists, s.comment, cst.SELECT, s.query)
+		return JoinSQLSpace(lists...).ToSQL()
 	}
 	lists := make([]any, 0, 12)
 	lists = append(lists, s.comment, s.with, cst.SELECT)

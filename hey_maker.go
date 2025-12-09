@@ -356,7 +356,9 @@ func (s *sqlSelect) AddAll(columns ...string) SQLSelect {
 
 func (s *sqlSelect) Del(columns ...string) SQLSelect {
 	if columns == nil {
-		s.ToEmpty()
+		if s.IsEmpty() || !s.distinct {
+			s.ToEmpty()
+		}
 		return s
 	}
 	deletes := make(map[int]*struct{}, len(columns))

@@ -721,6 +721,30 @@ func Update() {
 }
 
 func Select() {
+	// SELECT VERSION()
+	{
+		ctx := context.Background()
+		version := ""
+		err := way.Table(nil).
+			Select("VERSION()").
+			Scan(ctx, &version)
+		if err != nil {
+			panic(err)
+		}
+		log.Println(version)
+
+		// OR
+
+		version = ""
+		err = way.Table(nil).
+			Select(hey.FuncSQL("VERSION")).
+			Scan(ctx, &version)
+		if err != nil {
+			panic(err)
+		}
+		log.Println(version)
+	}
+
 	tmp := way.Table(EMPLOYEE)
 
 	script := tmp.ToSelect()
