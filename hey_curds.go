@@ -48,14 +48,14 @@ func ContextWay(ctx context.Context, defaultWay *Way) *Way {
 	if ctx == nil {
 		return defaultWay
 	}
-	if value := ctx.Value(MyWay); value == nil {
-		return defaultWay
-	} else {
-		if way, ok := value.(*Way); ok && way != nil {
-			return way
-		}
+	value := ctx.Value(MyWay)
+	if value == nil {
 		return defaultWay
 	}
+	if way, ok := value.(*Way); ok && way != nil {
+		return way
+	}
+	return defaultWay
 }
 
 // WayContext Store *Way in the context.

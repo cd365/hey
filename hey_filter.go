@@ -521,13 +521,12 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 	if start == nil {
 		if end == nil {
 			return s
-		} else {
-			return s.LessThanEqual(column, end)
 		}
-	} else {
-		if end == nil {
-			return s.GreaterThanEqual(column, start)
-		}
+		return s.LessThanEqual(column, end)
+	}
+
+	if end == nil {
+		return s.GreaterThanEqual(column, start)
 	}
 
 	if script, ok := column.(string); ok {
@@ -688,11 +687,12 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		}
 		values = ParcelSQL(value)
 	case Maker:
-		if tmp := value.ToSQL(); tmp == nil || tmp.IsEmpty() {
+		tmp := value.ToSQL()
+		if tmp == nil || tmp.IsEmpty() {
 			return s
-		} else {
-			values = ParcelSQL(tmp)
 		}
+		tmp.Prepare = ParcelPrepare(tmp.Prepare)
+		values = tmp
 	default:
 		return s
 	}

@@ -1685,12 +1685,12 @@ func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any)
 	if execute = strings.TrimSpace(execute); execute == cst.Empty {
 		return ErrEmptyScript
 	}
-	if result, err := db.ExecContext(ctx, execute, args...); err != nil {
+	result, err := db.ExecContext(ctx, execute, args...)
+	if err != nil {
 		return err
-	} else {
-		if _, err = result.RowsAffected(); err != nil {
-			return err
-		}
+	}
+	if _, err = result.RowsAffected(); err != nil {
+		return err
 	}
 	return nil
 }
