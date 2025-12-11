@@ -628,28 +628,31 @@ func (s *Stmt) Close() (err error) {
 }
 
 // Query -> Query prepared, that can be called repeatedly.
-func (s *Stmt) Query(ctx context.Context, query func(rows *sql.Rows) error, args ...any) error {
+func (s *Stmt) Query(ctx context.Context, query func(rows *sql.Rows) error, args ...any) (err error) {
 	var tracked *MyTrack
 	if track := s.way.track; track != nil {
 		tracked = trackSQL(ctx, s.prepare, args)
 		defer tracked.write(track, s.way)
 	}
-	rows, err := s.stmt.QueryContext(ctx, args...)
+	var rows *sql.Rows
+	rows, err = s.stmt.QueryContext(ctx, args...)
 	if tracked != nil {
 		tracked.TimeEnd = time.Now()
 		tracked.Err = err
 	}
 	if err != nil {
-		return err
+		return
 	}
 	defer func() {
-		_ = rows.Close()
+		if e := rows.Close(); err == nil && e != nil {
+			err = e
+		}
 	}()
 	err = query(rows)
 	if tracked != nil {
 		tracked.Err = err
 	}
-	return err
+	return
 }
 
 // QueryRow -> Query prepared, that can be called repeatedly.
@@ -728,19 +731,24 @@ func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error)
 }
 
 // Query -> Execute the query sql statement.
-func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) error {
+func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) (err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return ErrEmptyScript
+		err = ErrEmptyScript
+		return
 	}
-	stmt, err := s.Prepare(ctx, script.Prepare)
+	var stmt *Stmt
+	stmt, err = s.Prepare(ctx, script.Prepare)
 	if err != nil {
-		return err
+		return
 	}
 	defer func() {
-		_ = stmt.Close()
+		if e := stmt.Close(); err == nil && e != nil {
+			err = e
+		}
 	}()
-	return stmt.Query(ctx, query, script.Args...)
+	err = stmt.Query(ctx, query, script.Args...)
+	return
 }
 
 // RowScan Scan a row of SQL results containing one or more columns.
@@ -751,19 +759,24 @@ func (s *Way) RowScan(dest ...any) func(row *sql.Row) error {
 }
 
 // QueryRow -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
-func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) error {
+func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) (err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return ErrEmptyScript
+		err = ErrEmptyScript
+		return
 	}
-	stmt, err := s.Prepare(ctx, script.Prepare)
+	var stmt *Stmt
+	stmt, err = s.Prepare(ctx, script.Prepare)
 	if err != nil {
-		return err
+		return
 	}
 	defer func() {
-		_ = stmt.Close()
+		if e := stmt.Close(); err == nil && e != nil {
+			err = e
+		}
 	}()
-	return stmt.QueryRow(ctx, query, script.Args...)
+	err = stmt.QueryRow(ctx, query, script.Args...)
+	return
 }
 
 // Scan -> Query prepared and get all query results, through the mapping of column names and struct tags.
@@ -835,35 +848,45 @@ func (s *Way) Exists(ctx context.Context, maker Maker) (bool, error) {
 }
 
 // Exec -> Execute the execute sql statement.
-func (s *Way) Exec(ctx context.Context, maker Maker) (sql.Result, error) {
+func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return nil, ErrEmptyScript
+		err = ErrEmptyScript
+		return
 	}
-	stmt, err := s.Prepare(ctx, script.Prepare)
+	var stmt *Stmt
+	stmt, err = s.Prepare(ctx, script.Prepare)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer func() {
-		_ = stmt.Close()
+		if e := stmt.Close(); err == nil && e != nil {
+			err = e
+		}
 	}()
-	return stmt.Exec(ctx, script.Args...)
+	result, err = stmt.Exec(ctx, script.Args...)
+	return
 }
 
 // Execute -> Execute the execute sql statement.
-func (s *Way) Execute(ctx context.Context, maker Maker) (int64, error) {
+func (s *Way) Execute(ctx context.Context, maker Maker) (affectedRows int64, err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return 0, ErrEmptyScript
+		err = ErrEmptyScript
+		return
 	}
-	stmt, err := s.Prepare(ctx, script.Prepare)
+	var stmt *Stmt
+	stmt, err = s.Prepare(ctx, script.Prepare)
 	if err != nil {
-		return 0, err
+		return
 	}
 	defer func() {
-		_ = stmt.Close()
+		if e := stmt.Close(); err == nil && e != nil {
+			err = e
+		}
 	}()
-	return stmt.Execute(ctx, script.Args...)
+	affectedRows, err = stmt.Execute(ctx, script.Args...)
+	return
 }
 
 // MultiScan Execute multiple DQL statements.
@@ -893,38 +916,44 @@ func (s *Way) MultiExecute(ctx context.Context, makers []Maker) (affectedRows in
 // MultiStmtScan Executing a DQL statement multiple times using the same prepared statement.
 func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, results []any) (err error) {
 	if prepare == cst.Empty {
-		return ErrEmptyScript
+		err = ErrEmptyScript
+		return
 	}
 	var stmt *Stmt
 	defer func() {
 		if stmt != nil {
-			_ = stmt.Close()
+			if e := stmt.Close(); err == nil && e != nil {
+				err = e
+			}
 		}
 	}()
 	for index, value := range lists {
 		if stmt == nil {
 			stmt, err = s.Prepare(ctx, prepare)
 			if err != nil {
-				return err
+				return
 			}
 		}
 		err = stmt.Scan(ctx, results[index], value...)
 		if err != nil {
-			return err
+			return
 		}
 	}
-	return nil
+	return
 }
 
 // MultiStmtExecute Executing a DML statement multiple times using the same prepared statement.
 func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]any) (affectedRows int64, err error) {
 	if prepare == cst.Empty {
-		return 0, ErrEmptyScript
+		err = ErrEmptyScript
+		return
 	}
 	var stmt *Stmt
 	defer func() {
 		if stmt != nil {
-			_ = stmt.Close()
+			if e := stmt.Close(); err == nil && e != nil {
+				err = e
+			}
 		}
 	}()
 	rows := int64(0)
@@ -932,16 +961,16 @@ func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]an
 		if stmt == nil {
 			stmt, err = s.Prepare(ctx, prepare)
 			if err != nil {
-				return affectedRows, err
+				return
 			}
 		}
 		rows, err = stmt.Execute(ctx, args...)
 		if err != nil {
-			return affectedRows, err
+			return
 		}
 		affectedRows += rows
 	}
-	return affectedRows, nil
+	return
 }
 
 // GroupMultiStmtScan Call using the same prepared statement. Multi-statement query.
@@ -962,7 +991,8 @@ func (s *Way) GroupMultiStmtScan(ctx context.Context, queries []Maker, results [
 			continue
 		}
 		if script.IsEmpty() {
-			return ErrEmptyScript
+			err = ErrEmptyScript
+			return
 		}
 		if _, ok := args[script.Prepare]; !ok {
 			args[script.Prepare] = make([][]any, 0, 1)
