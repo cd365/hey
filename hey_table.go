@@ -660,12 +660,8 @@ func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, pre
 		}
 	}()
 
-	wg := &sync.WaitGroup{}
-
 	// producer
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		defer func() { abort() }() // Production complete, close the queue.
 		ok := false
 		for {
@@ -699,31 +695,26 @@ func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, pre
 	}()
 
 	// consumer
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() { abort() }() // In theory, the queue should be closed. If it is not already closed, it needs to be closed to prevent permanent blocking.
-		for v := range queue {
-			if stmt == nil || v.batchSize < batchSize {
-				if stmt != nil {
-					if err = stmt.Close(); err != nil {
-						return
-					}
+	defer func() { abort() }() // In theory, the queue should be closed. If it is not already closed, it needs to be closed to prevent permanent blocking.
+	for v := range queue {
+		if stmt == nil || v.batchSize < batchSize {
+			if stmt != nil {
+				if err = stmt.Close(); err != nil {
+					return
 				}
-				stmt, err = s.way.Prepare(ctx, v.script.Prepare)
 			}
-			if err != nil {
-				return
-			}
-			rows, err = stmt.Execute(ctx, v.script.Args...)
-			if err != nil {
-				return
-			}
-			affectedRows += rows
+			stmt, err = s.way.Prepare(ctx, v.script.Prepare)
 		}
-	}()
+		if err != nil {
+			return
+		}
+		rows, err = stmt.Execute(ctx, v.script.Args...)
+		if err != nil {
+			return
+		}
+		affectedRows += rows
+	}
 
-	wg.Wait()
 	return
 }
 
