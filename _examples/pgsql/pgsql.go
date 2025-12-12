@@ -1,13 +1,13 @@
-package main
+package pgsql
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 	"log"
-	"runtime"
-	"strings"
 	"time"
+
+	"examples/common"
 
 	"github.com/cd365/hey/v6"
 	"github.com/cd365/hey/v6/cst"
@@ -57,73 +57,6 @@ COMMENT ON COLUMN employee.id IS 'id';
 `
 )
 
-type FileLineMethod struct {
-	file   string // file name
-	line   int    // file line
-	method string // method name
-}
-
-func caller() string {
-	callers := make([]*FileLineMethod, 0)
-	for skip := 1; true; skip++ {
-		pc, file, line, ok := runtime.Caller(skip)
-		if !ok {
-			break
-		}
-		tmp := &FileLineMethod{
-			file:   file,
-			line:   line,
-			method: runtime.FuncForPC(pc).Name(),
-		}
-		callers = append(callers, tmp)
-	}
-	latest := 0
-	for index, value := range callers {
-		if strings.Contains(value.method, "github.com/cd365/hey/v6.") {
-			latest = index
-		}
-	}
-	length := len(callers)
-	if latest == length-1 {
-		v := callers[latest]
-		return fmt.Sprintf("%s:%d %s", v.file, v.line, v.method)
-	}
-	next := latest + 1
-	method := callers[next].method
-	if method != "runtime.goexit" && !strings.Contains(method, "github.com/cd365/hey/v6.") {
-		v := callers[next]
-		return fmt.Sprintf("%s:%d %s", v.file, v.line, v.method)
-	}
-	if method == "runtime.goexit" {
-		v := callers[latest]
-		return fmt.Sprintf("%s:%d %s", v.file, v.line, v.method)
-	}
-	return ""
-}
-
-type myTrack struct{}
-
-func (s *myTrack) Track(ctx context.Context, track any) {
-	tmp, ok := track.(*hey.MyTrack)
-	if !ok || tmp == nil {
-		return
-	}
-	switch tmp.Type {
-	case hey.TrackDebug:
-		log.Println(caller(), "<<DEBUG>>", hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
-	case hey.TrackSQL:
-		log.Println(caller(), "<<SQL>>", hey.SQLToString(hey.NewSQL(tmp.Prepare, tmp.Args...)))
-	case hey.TrackTransaction:
-		if tmp.TxState == cst.BEGIN {
-			log.Println(caller(), "<<TRANSACTION>>", fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeStart.Format(time.DateTime)))
-		} else {
-			log.Println(caller(), "<<TRANSACTION>>", fmt.Sprintf("%s %s %s %s", tmp.TxId, tmp.TxMsg, tmp.TxState, tmp.TimeEnd.Sub(tmp.TimeStart).String()))
-		}
-	default:
-
-	}
-}
-
 var way *hey.Way
 
 func initial() error {
@@ -144,22 +77,22 @@ func initial() error {
 	manual.Replacer = hey.NewReplacer()
 	options = append(options, hey.WithManual(manual))
 	options = append(options, hey.WithDatabase(db))
-	options = append(options, hey.WithTrack(&myTrack{}))
+	options = append(options, hey.WithTrack(&common.MyTrack{}))
 	way = hey.NewWay(options...)
 	return nil
 }
 
-func main() {
+func Main() {
 	log.Default().SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 
 	if err := initial(); err != nil {
 		panic(err)
 	}
 
-	Delete()
 	Insert()
 	Update()
 	Select()
+	Delete()
 	Transaction()
 }
 
@@ -298,10 +231,15 @@ var (
 func Delete() {
 	// Example 1: Simple condition deletion.
 	{
+		ctx := context.Background()
 		script := way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
 			f.Equal(department.Id, 1)
-		}).ToDelete()
-		way.Debug(script)
+		})
+		way.Debug(script.ToDelete())
+		_, err := script.Delete(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	// Example 2: Deleting based on multiple values from the same column.
