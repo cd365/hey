@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"reflect"
 	"time"
 
 	"github.com/cd365/hey/v6/status"
@@ -844,6 +845,41 @@ func Select() {
 		// count, err := get.Count(context.Background())
 		script = get.ToSelect()
 		way.Debug(script)
+	}
+
+	// SELECT EXISTS, COUNT, Scan by map[string]any
+	{
+		tmp.ToEmpty()
+		ctx := context.Background()
+		exists, err := tmp.Table(EMPLOYEE).Exists(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(exists)
+		count, err := tmp.Count(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(count)
+		result, err := tmp.Limit(1).
+			MapScan(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		if len(result) > 0 {
+			first := result[0]
+			for k, v := range first {
+				if v == nil {
+					fmt.Printf("%s = %#v\n", k, v)
+				} else {
+					value := reflect.ValueOf(v).Elem().Interface()
+					if val, ok := value.([]byte); ok {
+						value = string(val)
+					}
+					fmt.Printf("%s = %#v\n", k, value)
+				}
+			}
+		}
 	}
 
 	// More ways to call ...
