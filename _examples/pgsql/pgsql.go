@@ -89,10 +89,12 @@ func Main() {
 		panic(err)
 	}
 
+	defer func() {
+		Delete()
+	}()
 	Insert()
 	Update()
 	Select()
-	Delete()
 	Transaction()
 }
 
@@ -278,6 +280,23 @@ func Delete() {
 			})
 		}).ToDelete()
 		way.Debug(script)
+	}
+
+	// Delete example data
+	{
+		ctx := context.Background()
+		_, err := way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(department.Id, 0)
+		}).Delete(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		_, err = way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(employee.Id, 0)
+		}).Delete(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
