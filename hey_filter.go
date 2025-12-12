@@ -36,8 +36,8 @@ func inArgs(args ...any) []any {
 		return AnyAny(v)
 	case []uint:
 		return AnyAny(v)
-	case []uint8: // []byte
-		return args
+	case []uint8: // Do not consider byte slices
+		return AnyAny(v)
 	case []uint16:
 		return AnyAny(v)
 	case []uint32:
