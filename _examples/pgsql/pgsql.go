@@ -3,9 +3,12 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/cd365/hey/v6/status"
 
 	"examples/common"
 
@@ -92,10 +95,12 @@ func Main() {
 	defer func() {
 		Delete()
 	}()
+	SelectEmpty()
 	Insert()
 	Update()
 	Select()
 	Transaction()
+	Filter()
 }
 
 /* The following structured code can all be generated through code generation. */
@@ -229,6 +234,22 @@ var (
 	department = (&SchemaDepartment{}).init()
 	employee   = (&SchemaEmployee{}).init()
 )
+
+func SelectEmpty() {
+	tmp := way.Table(EMPLOYEE)
+	tmp.Select(employee.ColumnString()).Desc(employee.Id).Limit(1)
+	ctx := context.Background()
+	exists := &Employee{}
+	err := tmp.Scan(ctx, exists)
+	if err != nil {
+		if errors.Is(err, hey.ErrNoRows) {
+			log.Printf("数据不存在: %s", err.Error())
+		} else {
+			log.Fatal(err.Error())
+		}
+	}
+	log.Printf("%#v", exists)
+}
 
 func Delete() {
 	// Example 1: Simple condition deletion.
@@ -916,5 +937,284 @@ func Transaction() {
 	}()
 	if err != nil {
 		fmt.Println(err.Error())
+	}
+}
+
+type (
+	MyFilterInInt int
+	MyFilterInAll interface {
+		string | int | int8 | int16 | int32 | int64 | uint | uint8 | uint16 | uint32 | uint64 | bool | float32 | float64 | MyFilterInInt
+	}
+)
+
+func filterInAll[T MyFilterInAll](v []T) []*T {
+	result := make([]*T, len(v))
+	for i := range result {
+		result[i] = &v[i]
+	}
+	return result
+}
+
+func Filter() {
+	f := way.F()
+	{
+		a1 := []string{"1", "2", "3"}
+		a2 := []int{1, 2, 3}
+		a3 := []int8{1, 2, 3}
+		a4 := []int16{1, 2, 3}
+		a5 := []int32{1, 2, 3}
+		a6 := []int64{1, 2, 3}
+		a7 := []uint{1, 2, 3}
+		a8 := []uint8{1, 2, 3}
+		a9 := []uint16{1, 2, 3}
+		a10 := []uint32{1, 2, 3}
+		a11 := []uint64{1, 2, 3}
+		a12 := []bool{false, true}
+		a13 := []float32{1, 2, 3}
+		a14 := []float64{1, 2, 3}
+		a15 := []MyFilterInInt{1, 2, 3}
+		base := []any{
+			a1, a2, a3,
+			a4, a5, a6,
+			a7, a8, a9,
+			a10, a11, a12,
+			a13, a14, a15,
+		}
+		inList := []any{
+			[]any{1},
+			[]any{1, 2, 3},
+		}
+		inList = append(inList, base...)
+		inList = append(inList, filterInAll(a1))
+		inList = append(inList, filterInAll(a2))
+		inList = append(inList, filterInAll(a3))
+		inList = append(inList, filterInAll(a4))
+		inList = append(inList, filterInAll(a5))
+		inList = append(inList, filterInAll(a6))
+		inList = append(inList, filterInAll(a7))
+		inList = append(inList, filterInAll(a8))
+		inList = append(inList, filterInAll(a9))
+		inList = append(inList, filterInAll(a10))
+		inList = append(inList, filterInAll(a11))
+		inList = append(inList, filterInAll(a12))
+		inList = append(inList, filterInAll(a13))
+		inList = append(inList, filterInAll(a14))
+		inList = append(inList, filterInAll(a15))
+		for _, v := range inList {
+			f.ToEmpty()
+			f.In(employee.Id, v)
+			way.Debug(f)
+		}
+	}
+	{
+		g := f.Clone()
+		way.Debug(f)
+		way.Debug(g)
+		g.Not()
+		way.Debug(f)
+		way.Debug(g)
+		g.Between(employee.Age, 18, 20)
+		way.Debug(g)
+	}
+	{
+		f.ToEmpty()
+		f.Equal(employee.Id, 1).Or(way.F().LessThanEqual(employee.Age, 18).ToSQL())
+		way.Debug(f)
+	}
+	{
+		f.ToEmpty()
+		startAge := 18
+		endAge := 20
+		f.ToEmpty().Between(employee.Age, startAge, nil)
+		way.Debug(f)
+		f.ToEmpty().Between(employee.Age, nil, endAge)
+		way.Debug(f)
+		f.ToEmpty().Between(employee.Age, startAge, endAge)
+		way.Debug(f)
+		f.ToEmpty().Between(employee.Age, &startAge, nil)
+		way.Debug(f)
+		f.ToEmpty().Between(employee.Age, nil, &endAge)
+		way.Debug(f)
+		f.ToEmpty().Between(employee.Age, &startAge, &endAge)
+		way.Debug(f)
+
+		f.ToEmpty().Equal(
+			employee.Id,
+			way.Table(EMPLOYEE).Select(employee.Id).Desc(employee.Id).Limit(1),
+		)
+		way.Debug(f)
+
+		f.ToEmpty().Equal(
+			employee.Id,
+			way.Table(EMPLOYEE).Select(employee.Id).Desc(employee.Id).Limit(1).ToSQL(),
+		)
+		way.Debug(f)
+
+		f.ToEmpty().In(
+			employee.Id,
+			way.Table(EMPLOYEE).Select(employee.Id).Desc(employee.Id).Limit(10),
+		)
+		way.Debug(f)
+	}
+	{
+		f.ToEmpty().Exists(way.Table(EMPLOYEE).Select(employee.Id).Desc(employee.Id).Limit(1))
+		way.Debug(f)
+
+		f.ToEmpty().NotExists(way.Table(EMPLOYEE).Select(employee.Id).Desc(employee.Id).Limit(1))
+		way.Debug(f)
+
+		f.ToEmpty().Like(employee.Name, "%Jick%")
+		way.Debug(f)
+
+		f.ToEmpty().NotLike(employee.Name, "%Jick%")
+		way.Debug(f)
+
+		f.ToEmpty().IsNotNull(employee.Email)
+		way.Debug(f)
+
+		f.ToEmpty().NotEqual(employee.Id, 1)
+		way.Debug(f)
+
+		f.ToEmpty().NotBetween(employee.Id, 1, 10)
+		way.Debug(f)
+
+		f.ToEmpty().NotIn(employee.Id, 1, 2, 3)
+		way.Debug(f)
+
+		f.ToEmpty().NotIn(employee.Id, []int64{1, 2, 3})
+		way.Debug(f)
+
+		f.ToEmpty().NotInGroup([]string{employee.Gender, employee.Age}, [][]any{
+			{
+				status.MALE,
+				18,
+			},
+			{
+				status.FEMALE,
+				20,
+			},
+		})
+		way.Debug(f)
+
+		f.ToEmpty().InGroup([]string{employee.Gender, employee.Age}, way.Table(EMPLOYEE).Select(employee.Gender, employee.Age).Desc(employee.Id).Limit(10))
+		way.Debug(f)
+
+		f.ToEmpty().InGroup([]string{employee.Gender, employee.Age}, way.Table(EMPLOYEE).Select(employee.Gender, employee.Age).Desc(employee.Id).Limit(10).ToSQL())
+		way.Debug(f)
+
+		f.ToEmpty().Keyword("%test%", employee.Name, employee.Email)
+		way.Debug(f)
+	}
+
+	{
+		f.ToEmpty().CompareNotEqual(employee.CreatedAt, employee.UpdatedAt)
+		f.CompareGreaterThan(employee.CreatedAt, employee.UpdatedAt)
+		f.CompareGreaterThanEqual(employee.CreatedAt, employee.UpdatedAt)
+		f.CompareLessThan(employee.CreatedAt, employee.UpdatedAt)
+		f.CompareLessThanEqual(employee.CreatedAt, employee.UpdatedAt)
+		way.Debug(f)
+	}
+
+	{
+		queryId := way.Table(EMPLOYEE).Select(employee.Id).Desc(employee.Id).Limit(10)
+		queryAge := way.Table(EMPLOYEE).Select(employee.Age).Group(employee.Age).HavingFunc(func(h hey.Filter) {
+			h.Between(employee.Age, 18, 25)
+		}).Desc(employee.Id).Limit(10)
+		f.ToEmpty().AllQuantifier(func(q hey.Quantifier) {
+			q.SetQuantifier(q.GetQuantifier())
+			q.Equal(employee.Age, queryAge)
+			q.NotEqual(employee.Id, queryId)
+			q.LessThan(employee.Age, queryAge)
+			q.LessThanEqual(employee.Age, queryAge)
+			q.GreaterThan(employee.Age, queryAge)
+			q.GreaterThanEqual(employee.Age, queryAge)
+		})
+		way.Debug(f)
+
+		f.ToEmpty().AnyQuantifier(func(q hey.Quantifier) {
+			q.Equal(employee.Age, queryAge)
+			q.NotEqual(employee.Id, queryId)
+		})
+		way.Debug(f)
+	}
+
+	{
+		createdAt := "1701234567,1801234567"
+		salary := "1000,5000"
+		name := "aaa,ccc"
+		f.ToEmpty()
+		f.ExtractFilter(func(e hey.ExtractFilter) {
+			e.BetweenInt(employee.CreatedAt, &createdAt)
+			e.BetweenInt64(employee.UpdatedAt, nil)
+			f.OrGroup(func(g hey.Filter) {
+				g.ExtractFilter(func(e hey.ExtractFilter) {
+					e.BetweenInt64(employee.UpdatedAt, &createdAt)
+				})
+			})
+			e.BetweenFloat64(employee.Salary, &salary)
+			e.BetweenString(employee.Name, &name)
+			e.InIntDirect(employee.Id, &createdAt)
+			e.InInt64Direct(employee.Id, &createdAt)
+			e.InStringDirect(employee.Name, &name)
+			e.InIntVerify(employee.Id, &createdAt, func(index int, value int) bool {
+				return true
+			})
+			e.InInt64Verify(employee.Id, &createdAt, func(index int, value int64) bool {
+				return true
+			})
+			e.InStringVerify(employee.Name, &name, func(index int, value string) bool {
+				return false
+			})
+		})
+		way.Debug(f)
+
+		f.ToEmpty()
+		like := "Jack"
+		f.ExtractFilter(func(g hey.ExtractFilter) {
+			g.LikeSearch(&like, employee.Email, employee.Name)
+		})
+		way.Debug(f)
+		f.ToEmpty()
+		f.ExtractFilter(func(g hey.ExtractFilter) {
+			g.LikeSearch(nil, employee.Email, employee.Name)
+		})
+		way.Debug(f)
+		like = ""
+		f.ToEmpty()
+		f.ExtractFilter(func(g hey.ExtractFilter) {
+			g.LikeSearch(&like, employee.Email, employee.Name)
+		})
+		way.Debug(f)
+	}
+
+	{
+		f.ToEmpty()
+		now := time.Now()
+		f.TimeFilter(func(g hey.TimeFilter) {
+			g.Timestamp(now.Unix())
+			g.TimeLocation(now.Location())
+			g.LastMinutes(employee.CreatedAt, 7)
+			g.LastMinutes(employee.CreatedAt, 0)
+			g.LastHours(employee.CreatedAt, 7)
+			g.LastHours(employee.CreatedAt, -1)
+			g.Today(employee.CreatedAt)
+			g.Yesterday(employee.CreatedAt)
+			g.LastDays(employee.CreatedAt, 7)
+			g.LastDays(employee.CreatedAt, -7)
+			g.ThisMonth(employee.CreatedAt)
+			g.LastMonth(employee.CreatedAt)
+			g.LastMonths(employee.CreatedAt, 3)
+			g.LastMonths(employee.CreatedAt, -2)
+			g.ThisQuarter(employee.CreatedAt)
+			g.LastQuarter(employee.CreatedAt)
+			g.LastQuarters(employee.CreatedAt, 2)
+			g.LastQuarters(employee.CreatedAt, -1)
+			g.LastQuarters(employee.CreatedAt, 20)
+			g.ThisYear(employee.CreatedAt)
+			g.LastYear(employee.CreatedAt)
+			g.LastYears(employee.CreatedAt, 3)
+			g.LastYears(employee.CreatedAt, 0)
+		})
+		way.Debug(f)
 	}
 }

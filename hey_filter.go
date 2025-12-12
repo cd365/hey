@@ -294,20 +294,16 @@ func (s *filter) ToSQL() *SQL {
 	}
 
 	if s.num > 1 {
-		b.WriteString(ParcelPrepare(s.prepare.String()))
+		b.WriteString(cst.LeftParenthesis)
+		b.WriteString(cst.Space)
+		b.WriteString(s.prepare.String())
+		b.WriteString(cst.Space)
+		b.WriteString(cst.RightParenthesis)
 	} else {
 		b.WriteString(s.prepare.String())
 	}
 
-	args := make([]any, len(s.args))
-	copy(args, s.args)
-
-	prepare := b.String()
-	if s.not {
-		return NewSQL(ParcelPrepare(prepare), args...)
-	}
-
-	return NewSQL(prepare, args...)
+	return NewSQL(b.String(), s.args[:]...)
 }
 
 func (s *filter) toEmpty() *filter {
@@ -452,10 +448,6 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 		return s
 	}
 
-	if value = filterUsingValue(value); value == nil {
-		return s
-	}
-
 	if script, ok := column.(string); ok {
 		column = s.get(script)
 	}
@@ -481,6 +473,9 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 		}
 		next = append(next, ParcelSQL(tmp))
 	default:
+		if value = filterUsingValue(value); value == nil {
+			return s
+		}
 		next = append(next, cst.Placeholder)
 		args = []any{value}
 	}
