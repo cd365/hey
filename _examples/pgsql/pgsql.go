@@ -103,6 +103,7 @@ func Main() {
 	Select()
 	Transaction()
 	Filter()
+	MyMulti()
 	MySchema()
 }
 
@@ -1257,6 +1258,97 @@ func Filter() {
 	}
 }
 
+func MyMulti() {
+	ctx := context.Background()
+	m := way.MyMulti()
+	m.W(way)
+	script := m.V().
+		Table(EMPLOYEE).
+		WhereFunc(func(f hey.Filter) {
+			f.Equal(employee.Id, 1)
+		}).
+		Select(employee.Id, employee.Name, employee.Email, employee.CreatedAt).
+		Limit(1)
+	first := &Employee{}
+	firstDepartment := &Department{}
+
+	m.Add()    // for test
+	m.Add(nil) // for test
+
+	m.AddQuery(script, first)
+
+	first1 := &Employee{}
+	m.AddQuery(script.ToSelect(), func(rows *sql.Rows) error {
+		return hey.RowsScan(rows, &first1, hey.DefaultTag)
+	})
+	m.Add(func(ctx context.Context) error {
+		departmentId := first.DepartmentId
+		if departmentId <= 0 {
+			departmentId = 1
+		}
+		err := m.V().
+			Table(DEPARTMENT).
+			WhereFunc(func(f hey.Filter) {
+				f.Equal(department.Id, departmentId)
+			}).
+			Limit(1).
+			Scan(ctx, firstDepartment)
+		if err != nil {
+			if errors.Is(err, hey.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
+	m.Add(func(ctx context.Context) error {
+		if firstDepartment.Id > 0 {
+			_, err := m.V().
+				Table(EMPLOYEE).
+				UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+					f.Equal(employee.Id, first.Id)
+					u.Incr(employee.SerialNum, 1)
+				}).
+				Update(ctx)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+		return nil
+	})
+
+	exists := false
+	m.AddExists(m.V().Table(DEPARTMENT).ToExists(), &exists)
+
+	execute := m.V().Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+		f.GreaterThan(department.Id, 0)
+		u.Decr(department.SerialNum, 1)
+	}).ToUpdate()
+	m.AddExec(execute, nil)
+	rows := int64(0)
+	m.AddExec(execute, &rows)
+	type myInt64 int64
+	i64 := myInt64(0)
+	m.AddExec(execute, &i64)
+	m.AddExec(execute, m.RowsAffected(&rows))
+
+	departmentRow := &Department{}
+	queryRow := m.V().Table(DEPARTMENT).Select(department.Id, department.Name).Limit(1)
+	m.AddQueryRow(queryRow, &departmentRow.Id, &departmentRow.Name)
+	departmentRow1 := &Department{}
+	m.AddQueryRow(queryRow, way.RowScan(&departmentRow1.Id, &departmentRow1.Name))
+
+	if !m.IsEmpty() {
+		err := m.Run(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println("multi success")
+	}
+	m.ToEmpty()
+}
+
 func MySchema() {
 	ctx := context.Background()
 	columnString := strings.ReplaceAll(employee.ColumnString(), " ", "")
@@ -1265,15 +1357,18 @@ func MySchema() {
 	{
 		deleteAt := "deleted_at"
 		updateAt := "updated_at"
+
 		// Special note: If a table does not have a `deleted_at` field, special handling is required here.
 		schema.SelectFilter(func(f hey.Filter) { f.Equal(deleteAt, 0) })
 		schema.UpdateFilter(func(f hey.Filter) { f.Equal(deleteAt, 0) })
+
 		// Reset hidden method
 		schema.ResetHidden(func(ctx context.Context, where hey.Filter) (affectedRows int64, err error) {
 			return schema.Update(ctx, where, func(u hey.SQLUpdateSet) {
 				u.Set(deleteAt, way.Now().Unix())
 			})
 		})
+
 		// Reset delete method
 		schema.ResetDelete(func(ctx context.Context, where hey.Filter) (affectedRows int64, err error) {
 			return way.Table(schema.Table()).Where(where.GreaterThan(deleteAt, 0)).Delete(ctx)
@@ -1290,9 +1385,12 @@ func MySchema() {
 		})
 	}
 	{
+		// View table-name and columns.
 		log.Println(schema.Table())
 		log.Println(schema.Columns())
 	}
+
+	// query
 	{
 		count, err := schema.SelectCount(ctx)
 		if err != nil {
@@ -1305,19 +1403,46 @@ func MySchema() {
 		if err != nil {
 			log.Fatal(err.Error())
 		}
-		log.Println(lists)
+		for _, tmp := range lists {
+			log.Printf("%#v\n", tmp)
+		}
+
 		first := &Employee{}
 		err = schema.SelectOne(ctx, &first)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 		log.Printf("%#v", first)
+
 		exists, err := schema.SelectExists(ctx)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 		log.Println(exists)
+
+		first = &Employee{}
+		err = schema.SelectOneById(ctx, 1, first)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Printf("%#v\n", first)
+
+		lists = make([]*Employee, 0)
+		err = schema.SelectAll(ctx, &lists, func(o *hey.Table) {
+			o.WhereFunc(func(f hey.Filter) {
+				f.In(employee.Id, 1, 2)
+			})
+			o.Limit(10)
+		})
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		for _, tmp := range lists {
+			log.Printf("%#v\n", tmp)
+		}
 	}
+
+	// execute
 	{
 		_, err := schema.UpdateById(ctx, 1, func(u hey.SQLUpdateSet) {
 			u.Decr(employee.Age, -1)
@@ -1325,7 +1450,50 @@ func MySchema() {
 		if err != nil {
 			log.Fatal(err.Error())
 		}
-		_, err = schema.InsertOne(ctx, map[string]any{
+
+		// reset insert one func
+		schema.ResetInsertOne(func(ctx context.Context, insert any) (id int64, err error) {
+			tmp := hey.ContextWay(ctx, way)
+			table := tmp.Table(schema.Table())
+			// context value
+			ctx = context.WithValue(ctx, hey.MyInsertOne, true)
+			ctx = context.WithValue(ctx, hey.MyTableName, schema.Table())
+			ctx = context.WithValue(ctx, hey.MyTable, table)
+			ctx = context.WithValue(ctx, hey.MyInsertData, insert)
+			// prefix
+			if before := schema.BeforeInsertValue(); before != nil {
+				if ctx, err = before(ctx); err != nil {
+					return
+				}
+			}
+			// insert
+			table.InsertFunc(func(i hey.SQLInsert) {
+				i.Forbid(employee.Id)
+				i.Create(insert)
+				i.Returning(func(r hey.SQLReturning) {
+					r.Returning(employee.Id)
+					r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
+						err = stmt.QueryRow(ctx, func(row *sql.Row) error {
+							return row.Scan(&id)
+						}, args...)
+						return
+					})
+				})
+			})
+			if id, err = table.Insert(ctx); err != nil {
+				return
+			}
+			// suffix
+			ctx = context.WithValue(ctx, hey.MyInsertId, id)
+			if after := schema.AfterInsertValue(); after != nil {
+				if err = after(ctx); err != nil {
+					return
+				}
+			}
+			return
+		})
+
+		id, err := schema.InsertOne(ctx, map[string]any{
 			employee.Email:     "example@gmail.com",
 			employee.Name:      "example",
 			employee.Age:       18,
@@ -1334,5 +1502,41 @@ func MySchema() {
 		if err != nil {
 			log.Fatal(err.Error())
 		}
+		log.Println(id)
+
+		rows := int64(0)
+		timestamp := time.Now().Unix()
+		rows, err = schema.InsertAll(ctx, []map[string]any{
+			{
+				employee.Email:     "example1@gmail.com",
+				employee.Name:      "example1",
+				employee.Age:       18,
+				employee.CreatedAt: timestamp,
+				employee.UpdatedAt: timestamp,
+			},
+			{
+				employee.Email:     "example2@gmail.com",
+				employee.Name:      "example2",
+				employee.Age:       19,
+				employee.CreatedAt: timestamp,
+				employee.UpdatedAt: timestamp,
+			},
+		})
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(rows)
+
+		rows, err = schema.HiddenById(ctx, 2)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(rows)
+
+		rows, err = schema.DeleteById(ctx, 2)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(rows)
 	}
 }
