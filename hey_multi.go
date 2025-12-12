@@ -37,6 +37,9 @@ type MyMulti interface {
 	// Add custom logic.
 	Add(values ...func(ctx context.Context) error) MyMulti
 
+	// AddExists Add a query exists statement.
+	AddExists(maker Maker, exists *bool) MyMulti
+
 	// AddQuery Add a query statement; `result` is the container for processing or storing the returned results.
 	AddQuery(maker Maker, result any) MyMulti
 
@@ -51,9 +54,6 @@ type MyMulti interface {
 
 	// AddExec Add a non-query statement; `result` is the container for processing or storing the returned results.
 	AddExec(maker Maker, result any) MyMulti
-
-	// AddExists Add a query exists statement.
-	AddExists(maker Maker, exists *bool) MyMulti
 }
 
 func (s *Way) MyMulti() MyMulti {
@@ -106,6 +106,17 @@ func (s *myMulti) Add(values ...func(ctx context.Context) error) MyMulti {
 		s.values = append(s.values, value)
 	}
 	return s
+}
+
+func (s *myMulti) AddExists(maker Maker, exists *bool) MyMulti {
+	return s.Add(func(ctx context.Context) error {
+		tmp, err := s.way.Exists(ctx, maker)
+		if err != nil {
+			return err
+		}
+		*exists = tmp
+		return nil
+	})
 }
 
 func (s *myMulti) AddQuery(maker Maker, result any) MyMulti {
@@ -209,17 +220,6 @@ func (s *myMulti) AddExec(maker Maker, result any) MyMulti {
 			return err
 		}
 		return handle(tmp)
-	})
-}
-
-func (s *myMulti) AddExists(maker Maker, exists *bool) MyMulti {
-	return s.Add(func(ctx context.Context) error {
-		tmp, err := s.way.Exists(ctx, maker)
-		if err != nil {
-			return err
-		}
-		*exists = tmp
-		return nil
 	})
 }
 
