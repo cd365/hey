@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/cd365/hey/v6/status"
@@ -102,6 +103,7 @@ func Main() {
 	Select()
 	Transaction()
 	Filter()
+	MySchema()
 }
 
 /* The following structured code can all be generated through code generation. */
@@ -1252,5 +1254,85 @@ func Filter() {
 			g.LastYears(employee.CreatedAt, 0)
 		})
 		way.Debug(f)
+	}
+}
+
+func MySchema() {
+	ctx := context.Background()
+	columnString := strings.ReplaceAll(employee.ColumnString(), " ", "")
+	// columnString = strings.ReplaceAll(columnString, "\"", "")
+	schema := way.MySchema(EMPLOYEE, strings.Split(columnString, ","))
+	{
+		deleteAt := "deleted_at"
+		updateAt := "updated_at"
+		// Special note: If a table does not have a `deleted_at` field, special handling is required here.
+		schema.SelectFilter(func(f hey.Filter) { f.Equal(deleteAt, 0) })
+		schema.UpdateFilter(func(f hey.Filter) { f.Equal(deleteAt, 0) })
+		// Reset hidden method
+		schema.ResetHidden(func(ctx context.Context, where hey.Filter) (affectedRows int64, err error) {
+			return schema.Update(ctx, where, func(u hey.SQLUpdateSet) {
+				u.Set(deleteAt, way.Now().Unix())
+			})
+		})
+		// Reset delete method
+		schema.ResetDelete(func(ctx context.Context, where hey.Filter) (affectedRows int64, err error) {
+			return way.Table(schema.Table()).Where(where.GreaterThan(deleteAt, 0)).Delete(ctx)
+		})
+
+		// Reset update method
+		schema.ResetUpdate(func(ctx context.Context, where hey.Filter, update func(u hey.SQLUpdateSet)) (affectedRows int64, err error) {
+			return way.Table(schema.Table()).Where(where.Equal(deleteAt, 0)).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+				update(u)
+				if !u.IsEmpty() {
+					u.Set(updateAt, way.Now().Unix())
+				}
+			}).Update(ctx)
+		})
+	}
+	{
+		log.Println(schema.Table())
+		log.Println(schema.Columns())
+	}
+	{
+		count, err := schema.SelectCount(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(count)
+
+		lists := make([]*Employee, 0)
+		err = schema.SelectAll(ctx, &lists)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(lists)
+		first := &Employee{}
+		err = schema.SelectOne(ctx, &first)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Printf("%#v", first)
+		exists, err := schema.SelectExists(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(exists)
+	}
+	{
+		_, err := schema.UpdateById(ctx, 1, func(u hey.SQLUpdateSet) {
+			u.Decr(employee.Age, -1)
+		})
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		_, err = schema.InsertOne(ctx, map[string]any{
+			employee.Email:     "example@gmail.com",
+			employee.Name:      "example",
+			employee.Age:       18,
+			employee.CreatedAt: time.Now().Unix(),
+		})
+		if err != nil {
+			log.Fatal(err.Error())
+		}
 	}
 }
