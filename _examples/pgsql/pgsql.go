@@ -247,7 +247,7 @@ func SelectEmpty() {
 	err := tmp.Scan(ctx, exists)
 	if err != nil {
 		if errors.Is(err, hey.ErrNoRows) {
-			log.Printf("数据不存在: %s", err.Error())
+			log.Printf("Data does not exist: %s", err.Error())
 		} else {
 			log.Fatal(err.Error())
 		}

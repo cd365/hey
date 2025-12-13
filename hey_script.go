@@ -1970,12 +1970,12 @@ ROWS UNBOUNDED PRECEDING <=> ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
 */
 
 // SQLWindowFuncFrame Define a window based on a start and end, the end position can be omitted and SQL defaults to the current row.
-// Allows independent use of custom SQL statements and parameters as values for ROWS or RANGE statements.
+// Allows independent use of custom SQL statements and parameters as values for GROUPS, ROWS or RANGE statements.
 type SQLWindowFuncFrame interface {
 	Maker
 
-	// SQL Custom SQL statement.
-	SQL(value any) SQLWindowFuncFrame
+	// Script Custom SQL statement.
+	Script(maker Maker) SQLWindowFuncFrame
 
 	// UnboundedPreceding Start of partition.
 	UnboundedPreceding() *SQL
@@ -2012,7 +2012,7 @@ func NewSQLWindowFuncFrame(frame string) SQLWindowFuncFrame {
 }
 
 func (s *sqlWindowFuncFrame) ToSQL() *SQL {
-	if s.frame == cst.Empty {
+	if s.frame == cst.Empty || s.script == nil || s.script.IsEmpty() {
 		return NewSQL(cst.Empty)
 	}
 	b := poolGetStringBuilder()
@@ -2020,18 +2020,21 @@ func (s *sqlWindowFuncFrame) ToSQL() *SQL {
 	b.WriteString(s.frame)
 	b.WriteString(cst.Space)
 
-	if script := s.script; script != nil {
-		if !script.IsEmpty() {
-			b.WriteString(script.Prepare)
-			script.Prepare = b.String()
-			return script
-		}
-	}
-	return NewEmptySQL()
+	script := s.script.Clone()
+	b.WriteString(script.Prepare)
+	script.Prepare = b.String()
+	return script
 }
 
-func (s *sqlWindowFuncFrame) SQL(value any) SQLWindowFuncFrame {
-	s.script = AnyToSQL(value)
+func (s *sqlWindowFuncFrame) Script(maker Maker) SQLWindowFuncFrame {
+	if maker == nil {
+		return s
+	}
+	script := maker.ToSQL()
+	if script == nil || script.IsEmpty() {
+		return s
+	}
+	s.script = script
 	return s
 }
 
@@ -2058,7 +2061,7 @@ func (s *sqlWindowFuncFrame) UnboundedFollowing() *SQL {
 func (s *sqlWindowFuncFrame) Between(fc func(ff SQLWindowFuncFrame) (*SQL, *SQL)) SQLWindowFuncFrame {
 	if fc != nil {
 		if start, end := fc(s); start != nil && end != nil && !start.IsEmpty() && !end.IsEmpty() {
-			s.SQL(JoinSQLSpace(cst.BETWEEN, start, cst.AND, end))
+			s.Script(JoinSQLSpace(cst.BETWEEN, start, cst.AND, end))
 		}
 	}
 	return s
@@ -2069,8 +2072,8 @@ type SQLWindowFuncOver interface {
 
 	ToEmpty
 
-	// Over Set the OVER statement.
-	Over(script Maker) SQLWindowFuncOver
+	// Script Custom OVER statement.
+	Script(maker Maker) SQLWindowFuncOver
 
 	// Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
 	Partition(column ...string) SQLWindowFuncOver
@@ -2177,15 +2180,15 @@ func (s *sqlWindowFuncOver) ToSQL() *SQL {
 	return result
 }
 
-func (s *sqlWindowFuncOver) Over(script Maker) SQLWindowFuncOver {
-	if script == nil {
+func (s *sqlWindowFuncOver) Script(maker Maker) SQLWindowFuncOver {
+	if maker == nil {
 		return s
 	}
-	value := script.ToSQL()
-	if value == nil || value.IsEmpty() {
+	script := maker.ToSQL()
+	if script == nil || script.IsEmpty() {
 		return s
 	}
-	over := value.Clone()
+	over := script.Clone()
 	over.Prepare = strings.TrimSpace(over.Prepare)
 	if over.Prepare == cst.Empty {
 		return s
@@ -2276,55 +2279,55 @@ func (s *Way) WindowFunc(alias string) *WindowFunc {
 	return NewWindowFunc(s, alias)
 }
 
-// Window Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...
-func (s *WindowFunc) Window(funcName string, funcArgs ...any) *WindowFunc {
+// WindowFunc Using custom function. for example: CUME_DIST(), PERCENT_RANK(), PERCENTILE_CONT(), PERCENTILE_DISC()...
+func (s *WindowFunc) WindowFunc(funcName string, funcArgs ...any) *WindowFunc {
 	s.window = FuncSQL(funcName, funcArgs...)
 	return s
 }
 
 // RowNumber ROW_NUMBER() Assign a unique serial number to each row, in the order specified, starting with 1.
 func (s *WindowFunc) RowNumber() *WindowFunc {
-	return s.Window("ROW_NUMBER")
+	return s.WindowFunc("ROW_NUMBER")
 }
 
 // Rank RANK() Assign a rank to each row, if there are duplicate values, the rank is skipped.
 func (s *WindowFunc) Rank() *WindowFunc {
-	return s.Window("RANK")
+	return s.WindowFunc("RANK")
 }
 
 // DenseRank DENSE_RANK() Similar to RANK(), but does not skip rankings.
 func (s *WindowFunc) DenseRank() *WindowFunc {
-	return s.Window("DENSE_RANK")
+	return s.WindowFunc("DENSE_RANK")
 }
 
 // PercentRank PERCENT_RANK()
 func (s *WindowFunc) PercentRank() *WindowFunc {
-	return s.Window("PERCENT_RANK")
+	return s.WindowFunc("PERCENT_RANK")
 }
 
 // CumeDist CUME_DIST()
 func (s *WindowFunc) CumeDist() *WindowFunc {
-	return s.Window("CUME_DIST")
+	return s.WindowFunc("CUME_DIST")
 }
 
 // Sum SUM() Returns the sum of all rows in the window.
 func (s *WindowFunc) Sum(column string) *WindowFunc {
-	return s.Window("SUM", s.way.Replace(column))
+	return s.WindowFunc("SUM", s.way.Replace(column))
 }
 
 // Max MAX() Returns the maximum value within the window.
 func (s *WindowFunc) Max(column string) *WindowFunc {
-	return s.Window("MAX", s.way.Replace(column))
+	return s.WindowFunc("MAX", s.way.Replace(column))
 }
 
 // Min MIN() Returns the minimum value within the window.
 func (s *WindowFunc) Min(column string) *WindowFunc {
-	return s.Window("MIN", s.way.Replace(column))
+	return s.WindowFunc("MIN", s.way.Replace(column))
 }
 
 // Avg AVG() Returns the average of all rows in the window.
 func (s *WindowFunc) Avg(column string) *WindowFunc {
-	return s.Window("AVG", s.way.Replace(column))
+	return s.WindowFunc("AVG", s.way.Replace(column))
 }
 
 // Count COUNT() Returns the number of rows in the window.
@@ -2336,37 +2339,37 @@ func (s *WindowFunc) Count(columns ...string) *WindowFunc {
 			break
 		}
 	}
-	return s.Window("COUNT", column)
+	return s.WindowFunc("COUNT", column)
 }
 
 // Lag LAG() Returns the value of the row before the current row.
 func (s *WindowFunc) Lag(column string, args ...any) *WindowFunc {
-	return s.Window("LAG", firstNext(s.way.Replace(column), args...))
+	return s.WindowFunc("LAG", firstNext(s.way.Replace(column), args...))
 }
 
 // Lead LEAD() Returns the value of a row after the current row.
 func (s *WindowFunc) Lead(column string, args ...any) *WindowFunc {
-	return s.Window("LEAD", firstNext(s.way.Replace(column), args...))
+	return s.WindowFunc("LEAD", firstNext(s.way.Replace(column), args...))
 }
 
 // NTile N-TILE Divide the rows in the window into n buckets and assign a bucket number to each row.
 func (s *WindowFunc) NTile(buckets int64, args ...any) *WindowFunc {
-	return s.Window("NTILE", firstNext(buckets, args...))
+	return s.WindowFunc("NTILE", firstNext(buckets, args...))
 }
 
 // FirstValue FIRST_VALUE() Returns the value of the first row in the window.
 func (s *WindowFunc) FirstValue(column string) *WindowFunc {
-	return s.Window("FIRST_VALUE", firstNext(s.way.Replace(column)))
+	return s.WindowFunc("FIRST_VALUE", firstNext(s.way.Replace(column)))
 }
 
 // LastValue LAST_VALUE() Returns the value of the last row in the window.
 func (s *WindowFunc) LastValue(column string) *WindowFunc {
-	return s.Window("LAST_VALUE", firstNext(s.way.Replace(column)))
+	return s.WindowFunc("LAST_VALUE", firstNext(s.way.Replace(column)))
 }
 
 // NthValue NTH_VALUE() The Nth value can be returned according to the specified order. This is very useful when you need to get data at a specific position.
 func (s *WindowFunc) NthValue(column string, args ...any) *WindowFunc {
-	return s.Window("NTH_VALUE", firstNext(s.way.Replace(column), args...))
+	return s.WindowFunc("NTH_VALUE", firstNext(s.way.Replace(column), args...))
 }
 
 // OverFunc Define the OVER clause.
@@ -2387,7 +2390,7 @@ func (s *WindowFunc) Over(prepare string, args ...any) *WindowFunc {
 		return s
 	}
 	return s.OverFunc(func(o SQLWindowFuncOver) {
-		o.Over(NewSQL(prepare, args...))
+		o.Script(NewSQL(prepare, args...))
 	})
 }
 
