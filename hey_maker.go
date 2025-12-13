@@ -749,6 +749,96 @@ func (s *sqlJoin) TableColumns(table SQLAlias, columns ...string) []string {
 	return s.tableColumns(table, columns)
 }
 
+type SQLWindow interface {
+	Maker
+
+	ToEmpty
+
+	// Set Setting window expression.
+	Set(alias string, maker Maker) SQLWindow
+
+	// Del Removing window expression.
+	Del(alias string) SQLWindow
+}
+
+type sqlWindow struct {
+	prepare map[string]Maker
+
+	alias []string
+}
+
+func newSqlWindow() *sqlWindow {
+	return &sqlWindow{
+		prepare: make(map[string]Maker, 1<<1),
+		alias:   make([]string, 0, 1<<1),
+	}
+}
+
+func (s *sqlWindow) ToEmpty() {
+	s.prepare = make(map[string]Maker, 1<<1)
+	s.alias = make([]string, 0, 1<<1)
+}
+
+func (s *sqlWindow) IsEmpty() bool {
+	return len(s.alias) == 0
+}
+
+func (s *sqlWindow) ToSQL() *SQL {
+	if s.IsEmpty() {
+		return NewSQL(cst.Empty)
+	}
+
+	b := poolGetStringBuilder()
+	defer poolPutStringBuilder(b)
+	b.WriteString(cst.WINDOW)
+	b.WriteString(cst.Space)
+	result := NewEmptySQL()
+	for index, alias := range s.alias {
+		if index > 0 {
+			b.WriteString(cst.CommaSpace)
+		}
+		script := s.prepare[alias]
+		b.WriteString(alias)
+		b.WriteString(cst.Space)
+		b.WriteString(JoinString(cst.AS, cst.Space, cst.LeftParenthesis, cst.Space))
+		tmp := script.ToSQL()
+		b.WriteString(tmp.Prepare)
+		b.WriteString(JoinString(cst.Space, cst.RightParenthesis))
+		result.Args = append(result.Args, tmp.Args...)
+	}
+	result.Prepare = b.String()
+	return result
+}
+
+func (s *sqlWindow) Set(alias string, maker Maker) SQLWindow {
+	if alias == cst.Empty || maker == nil || maker.ToSQL().IsEmpty() {
+		return s
+	}
+	if _, ok := s.prepare[alias]; !ok {
+		s.alias = append(s.alias, alias)
+	}
+	s.prepare[alias] = maker
+	return s
+}
+
+func (s *sqlWindow) Del(alias string) SQLWindow {
+	if alias == cst.Empty {
+		return s
+	}
+	if _, ok := s.prepare[alias]; !ok {
+		return s
+	}
+	keeps := make([]string, 0, len(s.alias))
+	for _, tmp := range s.alias {
+		if tmp != alias {
+			keeps = append(keeps, tmp)
+		}
+	}
+	s.alias = keeps
+	delete(s.prepare, alias)
+	return s
+}
+
 // SQLGroupBy Build GROUP BY statements.
 type SQLGroupBy interface {
 	Maker
@@ -2243,7 +2333,7 @@ func (s *sqlInsert) OnConflict(fc func(o SQLOnConflict)) SQLInsert {
 	return s
 }
 
-// SQLString Convert a go string to a sql string.
+// SQLString Convert a go string to a SQL string.
 func SQLString(value string) string {
 	return JoinString(cst.SingleQuotationMark, value, cst.SingleQuotationMark)
 }

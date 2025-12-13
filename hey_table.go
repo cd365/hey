@@ -33,6 +33,8 @@ type Table struct {
 
 	joins *sqlJoin
 
+	window *sqlWindow
+
 	where Filter
 
 	groupBy *sqlGroupBy
@@ -117,6 +119,7 @@ func (s *Way) Table(table any) *Table {
 		query:     query,
 		table:     s.getTable(table),
 		joins:     newSqlJoin(s),
+		window:    newSqlWindow(),
 		where:     s.F(),
 		groupBy:   newSqlGroupBy(s),
 		orderBy:   newSqlOrderBy(s),
@@ -134,6 +137,7 @@ func (s *Table) ToEmpty() *Table {
 	s.with.ToEmpty()
 	s.query.ToEmpty()
 	s.joins.ToEmpty()
+	s.window.ToEmpty()
 	s.where.ToEmpty()
 	s.groupBy.ToEmpty()
 	s.orderBy.ToEmpty()
@@ -246,6 +250,32 @@ func (s *Table) LeftJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, asso
 func (s *Table) RightJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JoinFunc(func(j SQLJoin) {
 		j.RightJoin(fc(j))
+	})
+}
+
+// WINDOW Statements:
+// WINDOW alias1 AS ( PARTITION BY column1, column2 ORDER BY column3 DESC, column4 DESC ), alias2 AS ( PARTITION BY column5 ) ...
+
+// WindowFunc Custom window statements.
+func (s *Table) WindowFunc(fc func(w SQLWindow)) *Table {
+	if fc == nil {
+		return s
+	}
+	fc(s.window)
+	return s
+}
+
+// Window Add a window expression.
+func (s *Table) Window(alias string, maker Maker) *Table {
+	if alias == cst.Empty || maker == nil {
+		return s
+	}
+	script := maker.ToSQL()
+	if script == nil || script.IsEmpty() {
+		return s
+	}
+	return s.WindowFunc(func(w SQLWindow) {
+		w.Set(alias, script)
 	})
 }
 
@@ -372,11 +402,17 @@ func (s *Table) ToSelect() *SQL {
 		lists = append(lists, s.comment, cst.SELECT, s.query)
 		return JoinSQLSpace(lists...).ToSQL()
 	}
-	lists := make([]any, 0, 12)
+	lists := make([]any, 0, 13)
 	lists = append(lists, s.comment, s.with, cst.SELECT)
 	lists = append(lists, s.query, cst.FROM, s.table)
 	if len(s.joins.joins) > 0 {
 		lists = append(lists, s.joins)
+	}
+	if s.window != nil {
+		script := s.window.ToSQL()
+		if script != nil && !script.IsEmpty() {
+			lists = append(lists, script)
+		}
 	}
 	if !s.where.IsEmpty() {
 		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))

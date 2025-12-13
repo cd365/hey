@@ -2064,12 +2064,38 @@ func (s *sqlWindowFuncFrame) Between(fc func(ff SQLWindowFuncFrame) (*SQL, *SQL)
 	return s
 }
 
-// WindowFunc SQL window function.
-type WindowFunc struct {
+type SQLWindowFuncOver interface {
+	Maker
+
+	ToEmpty
+
+	// Over Set the OVER statement.
+	Over(script Maker) SQLWindowFuncOver
+
+	// Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
+	Partition(column ...string) SQLWindowFuncOver
+
+	// Asc Define the sorting within the partition so that the window function is calculated in order.
+	Asc(column string) SQLWindowFuncOver
+
+	// Desc Define the sorting within the partition so that the window function is calculated in descending order.
+	Desc(column string) SQLWindowFuncOver
+
+	// Groups Define the window based on the sort column values.
+	Groups(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver
+
+	// Range Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
+	Range(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver
+
+	// Rows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
+	Rows(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver
+}
+
+type sqlWindowFuncOver struct {
 	way *Way
 
-	// window The window function used.
-	window *SQL
+	// over The over statement.
+	over *SQL
 
 	// frameGroups Define the window based on the sort column values.
 	frameGroups *SQL
@@ -2080,14 +2106,163 @@ type WindowFunc struct {
 	// frameRows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
 	frameRows *SQL
 
-	// alias Serial number column alias.
-	alias string
-
 	// partition Setting up window partitions.
 	partition []string
 
 	// order Sorting data within a group.
 	order []string
+}
+
+func NewSQLWindowFuncOver(way *Way) SQLWindowFuncOver {
+	return &sqlWindowFuncOver{
+		way: way,
+	}
+}
+
+func (s *sqlWindowFuncOver) ToEmpty() {
+	s.over = nil
+	s.frameGroups = nil
+	s.frameRange = nil
+	s.frameRows = nil
+	s.partition = nil
+	s.order = nil
+}
+
+func (s *sqlWindowFuncOver) ToSQL() *SQL {
+	if s.over != nil && !s.over.IsEmpty() {
+		return s.over
+	}
+	result := NewEmptySQL()
+	b := poolGetStringBuilder()
+	defer poolPutStringBuilder(b)
+	b.WriteString(cst.LeftParenthesis)
+	num := 0
+	if len(s.partition) > 0 {
+		num++
+		b.WriteString(JoinString(cst.Space, cst.PARTITION, cst.Space, cst.BY, cst.Space))
+		b.WriteString(strings.Join(s.partition, cst.CommaSpace))
+	}
+	if len(s.order) > 0 {
+		num++
+		b.WriteString(JoinString(cst.Space, cst.ORDER, cst.Space, cst.BY, cst.Space))
+		b.WriteString(strings.Join(s.order, cst.CommaSpace))
+	}
+	if frame := s.frameGroups; frame != nil {
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			num++
+			b.WriteString(JoinString(cst.Space, tmp.Prepare))
+			result.Args = append(result.Args, tmp.Args...)
+		}
+	}
+	if frame := s.frameRange; frame != nil {
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			num++
+			b.WriteString(JoinString(cst.Space, tmp.Prepare))
+			result.Args = append(result.Args, tmp.Args...)
+		}
+	}
+	if frame := s.frameRows; frame != nil {
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			num++
+			b.WriteString(JoinString(cst.Space, tmp.Prepare))
+			result.Args = append(result.Args, tmp.Args...)
+		}
+	}
+
+	if num > 0 {
+		b.WriteString(cst.Space)
+	}
+	b.WriteString(cst.RightParenthesis)
+	result.Prepare = b.String()
+	return result
+}
+
+func (s *sqlWindowFuncOver) Over(script Maker) SQLWindowFuncOver {
+	if script == nil {
+		return s
+	}
+	value := script.ToSQL()
+	if value == nil || value.IsEmpty() {
+		return s
+	}
+	over := value.Clone()
+	over.Prepare = strings.TrimSpace(over.Prepare)
+	if over.Prepare == cst.Empty {
+		return s
+	}
+	if strings.Index(over.Prepare, cst.Space) > 0 && over.Prepare[0] != cst.LeftParenthesis[0] {
+		over.Prepare = ParcelPrepare(over.Prepare)
+	}
+	s.over = over
+	return s
+}
+
+func (s *sqlWindowFuncOver) Partition(column ...string) SQLWindowFuncOver {
+	s.partition = append(s.partition, s.way.ReplaceAll(column)...)
+	return s
+}
+
+func (s *sqlWindowFuncOver) Asc(column string) SQLWindowFuncOver {
+	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), cst.ASC))
+	return s
+}
+
+func (s *sqlWindowFuncOver) Desc(column string) SQLWindowFuncOver {
+	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), cst.DESC))
+	return s
+}
+
+func (s *sqlWindowFuncOver) Groups(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
+	if fc != nil {
+		frame := NewSQLWindowFuncFrame(cst.GROUPS)
+		fc(frame)
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			s.frameGroups = tmp
+			s.frameRange = nil
+			s.frameRows = nil
+		}
+	}
+	return s
+}
+
+func (s *sqlWindowFuncOver) Range(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
+	if fc != nil {
+		frame := NewSQLWindowFuncFrame(cst.RANGE)
+		fc(frame)
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			s.frameGroups = nil
+			s.frameRange = tmp
+			s.frameRows = nil
+		}
+	}
+	return s
+}
+
+func (s *sqlWindowFuncOver) Rows(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
+	if fc != nil {
+		frame := NewSQLWindowFuncFrame(cst.ROWS)
+		fc(frame)
+		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
+			s.frameGroups = nil
+			s.frameRange = nil
+			s.frameRows = tmp
+		}
+	}
+	return s
+}
+
+// WindowFunc SQL window function.
+type WindowFunc struct {
+	way *Way
+
+	// window The window function used.
+	window *SQL
+
+	// over The over statement.
+	over SQLWindowFuncOver
+
+	// alias Serial number column alias.
+	alias string
 }
 
 func NewWindowFunc(way *Way, aliases ...string) *WindowFunc {
@@ -2194,64 +2369,26 @@ func (s *WindowFunc) NthValue(column string, args ...any) *WindowFunc {
 	return s.Window("NTH_VALUE", firstNext(s.way.Replace(column), args...))
 }
 
-// Partition The OVER clause defines window partitions so that the window function is calculated independently in each partition.
-func (s *WindowFunc) Partition(column ...string) *WindowFunc {
-	s.partition = append(s.partition, s.way.ReplaceAll(column)...)
-	return s
-}
-
-// Asc Define the sorting within the partition so that the window function is calculated in order.
-func (s *WindowFunc) Asc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), cst.ASC))
-	return s
-}
-
-// Desc Define the sorting within the partition so that the window function is calculated in descending order.
-func (s *WindowFunc) Desc(column string) *WindowFunc {
-	s.order = append(s.order, fmt.Sprintf("%s %s", s.way.Replace(column), cst.DESC))
-	return s
-}
-
-// Groups Define the window based on the sort column values.
-func (s *WindowFunc) Groups(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
-	if fc != nil {
-		frame := NewSQLWindowFuncFrame(cst.GROUPS)
-		fc(frame)
-		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			s.frameGroups = tmp
-			s.frameRange = nil
-			s.frameRows = nil
-		}
+// OverFunc Define the OVER clause.
+func (s *WindowFunc) OverFunc(fc func(o SQLWindowFuncOver)) *WindowFunc {
+	if fc == nil {
+		return s
 	}
+	if s.over == nil {
+		s.over = NewSQLWindowFuncOver(s.way)
+	}
+	fc(s.over)
 	return s
 }
 
-// Range Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
-func (s *WindowFunc) Range(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
-	if fc != nil {
-		frame := NewSQLWindowFuncFrame(cst.RANGE)
-		fc(frame)
-		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			s.frameGroups = nil
-			s.frameRange = tmp
-			s.frameRows = nil
-		}
+// Over Define the OVER clause.
+func (s *WindowFunc) Over(prepare string, args ...any) *WindowFunc {
+	if prepare = strings.TrimSpace(prepare); prepare == cst.Empty {
+		return s
 	}
-	return s
-}
-
-// Rows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
-func (s *WindowFunc) Rows(fc func(frame SQLWindowFuncFrame)) *WindowFunc {
-	if fc != nil {
-		frame := NewSQLWindowFuncFrame(cst.ROWS)
-		fc(frame)
-		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			s.frameGroups = nil
-			s.frameRange = nil
-			s.frameRows = tmp
-		}
-	}
-	return s
+	return s.OverFunc(func(o SQLWindowFuncOver) {
+		o.Over(NewSQL(prepare, args...))
+	})
 }
 
 // Alias Set the alias of the column that uses the window function.
@@ -2271,45 +2408,22 @@ func (s *WindowFunc) ToSQL() *SQL {
 
 	b.WriteString(window.Prepare)
 	result.Args = append(result.Args, window.Args...)
-	b.WriteString(JoinString(cst.Space, cst.OVER, cst.Space, cst.LeftParenthesis))
+	b.WriteString(JoinString(cst.Space, cst.OVER, cst.Space))
 
-	num := 0
-	if len(s.partition) > 0 {
-		num++
-		b.WriteString(JoinString(cst.Space, cst.PARTITION, cst.Space, cst.BY, cst.Space))
-		b.WriteString(strings.Join(s.partition, cst.CommaSpace))
-	}
-	if len(s.order) > 0 {
-		num++
-		b.WriteString(JoinString(cst.Space, cst.ORDER, cst.Space, cst.BY, cst.Space))
-		b.WriteString(strings.Join(s.order, cst.CommaSpace))
-	}
-	if frame := s.frameGroups; frame != nil {
-		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			num++
-			b.WriteString(JoinString(cst.Space, tmp.Prepare))
-			result.Args = append(result.Args, tmp.Args...)
-		}
-	}
-	if frame := s.frameRange; frame != nil {
-		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			num++
-			b.WriteString(JoinString(cst.Space, tmp.Prepare))
-			result.Args = append(result.Args, tmp.Args...)
-		}
-	}
-	if frame := s.frameRows; frame != nil {
-		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
-			num++
-			b.WriteString(JoinString(cst.Space, tmp.Prepare))
-			result.Args = append(result.Args, tmp.Args...)
+	if s.over == nil {
+		b.WriteString(cst.LeftParenthesis)
+		b.WriteString(cst.RightParenthesis)
+	} else {
+		script := s.over.ToSQL()
+		if script == nil || script.IsEmpty() {
+			b.WriteString(cst.LeftParenthesis)
+			b.WriteString(cst.RightParenthesis)
+		} else {
+			b.WriteString(script.Prepare)
+			result.Args = append(result.Args, script.Args...)
 		}
 	}
 
-	if num > 0 {
-		b.WriteString(cst.Space)
-	}
-	b.WriteString(cst.RightParenthesis)
 	result.Prepare = b.String()
 	return newSqlAlias(result).v(s.way).SetAlias(s.alias).ToSQL()
 }
