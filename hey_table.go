@@ -119,7 +119,7 @@ func (s *Way) Table(table any) *Table {
 		query:     query,
 		table:     s.getTable(table),
 		joins:     newSqlJoin(s),
-		window:    newSqlWindow(),
+		window:    nil,
 		where:     s.F(),
 		groupBy:   newSqlGroupBy(s),
 		orderBy:   newSqlOrderBy(s),
@@ -137,7 +137,9 @@ func (s *Table) ToEmpty() *Table {
 	s.with.ToEmpty()
 	s.query.ToEmpty()
 	s.joins.ToEmpty()
-	s.window.ToEmpty()
+	if s.window != nil {
+		s.window.ToEmpty()
+	}
 	s.where.ToEmpty()
 	s.groupBy.ToEmpty()
 	s.orderBy.ToEmpty()
@@ -261,21 +263,20 @@ func (s *Table) WindowFunc(fc func(w SQLWindow)) *Table {
 	if fc == nil {
 		return s
 	}
+	if s.window == nil {
+		s.window = newSqlWindow(s.way)
+	}
 	fc(s.window)
 	return s
 }
 
 // Window Add a window expression.
-func (s *Table) Window(alias string, maker Maker) *Table {
+func (s *Table) Window(alias string, maker func(o SQLWindowFuncOver)) *Table {
 	if alias == cst.Empty || maker == nil {
 		return s
 	}
-	script := maker.ToSQL()
-	if script == nil || script.IsEmpty() {
-		return s
-	}
 	return s.WindowFunc(func(w SQLWindow) {
-		w.Set(alias, script)
+		w.Set(alias, maker)
 	})
 }
 

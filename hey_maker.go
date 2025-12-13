@@ -143,12 +143,28 @@ func (s *sqlWith) ToSQL() *SQL {
 	}
 	result := NewEmptySQL()
 	for index, alias := range s.alias {
+		prepare := s.prepare[alias]
+		if prepare == nil {
+			continue
+		}
+
+		script := prepare.ToSQL()
+		if script == nil || script.IsEmpty() {
+			continue
+		}
+
+		script.Prepare = strings.TrimSpace(script.Prepare)
+		if script.Prepare == cst.Empty {
+			continue
+		}
+
 		if index > 0 {
 			b.WriteString(cst.CommaSpace)
 		}
-		script := s.prepare[alias]
+
 		b.WriteString(alias)
 		b.WriteString(cst.Space)
+
 		if columns := s.column[alias]; len(columns) > 0 {
 			// Displays the column alias that defines the CTE, overwriting the original column name of the query result.
 			b.WriteString(cst.LeftParenthesis)
@@ -158,11 +174,17 @@ func (s *sqlWith) ToSQL() *SQL {
 			b.WriteString(cst.RightParenthesis)
 			b.WriteString(cst.Space)
 		}
-		b.WriteString(JoinString(cst.AS, cst.Space, cst.LeftParenthesis, cst.Space))
-		tmp := script.ToSQL()
-		b.WriteString(tmp.Prepare)
-		b.WriteString(JoinString(cst.Space, cst.RightParenthesis))
-		result.Args = append(result.Args, tmp.Args...)
+
+		notLeftParenthesis := script.Prepare[0] != cst.LeftParenthesis[0]
+		b.WriteString(JoinString(cst.AS, cst.Space))
+		if notLeftParenthesis {
+			b.WriteString(JoinString(cst.LeftParenthesis, cst.Space))
+		}
+		b.WriteString(script.Prepare)
+		if notLeftParenthesis {
+			b.WriteString(JoinString(cst.Space, cst.RightParenthesis))
+		}
+		result.Args = append(result.Args, script.Args...)
 	}
 	result.Prepare = b.String()
 	return result
@@ -755,20 +777,23 @@ type SQLWindow interface {
 	ToEmpty
 
 	// Set Setting window expression.
-	Set(alias string, maker Maker) SQLWindow
+	Set(alias string, maker func(o SQLWindowFuncOver)) SQLWindow
 
 	// Del Removing window expression.
 	Del(alias string) SQLWindow
 }
 
 type sqlWindow struct {
+	way *Way
+
 	prepare map[string]Maker
 
 	alias []string
 }
 
-func newSqlWindow() *sqlWindow {
+func newSqlWindow(way *Way) *sqlWindow {
 	return &sqlWindow{
+		way:     way,
 		prepare: make(map[string]Maker, 1<<1),
 		alias:   make([]string, 0, 1<<1),
 	}
@@ -794,30 +819,57 @@ func (s *sqlWindow) ToSQL() *SQL {
 	b.WriteString(cst.Space)
 	result := NewEmptySQL()
 	for index, alias := range s.alias {
+		prepare := s.prepare[alias]
+		if prepare == nil {
+			continue
+		}
+
+		script := prepare.ToSQL()
+		if script == nil || script.IsEmpty() {
+			continue
+		}
+
+		script.Prepare = strings.TrimSpace(script.Prepare)
+		if script.Prepare == cst.Empty {
+			continue
+		}
+
 		if index > 0 {
 			b.WriteString(cst.CommaSpace)
 		}
-		script := s.prepare[alias]
+
 		b.WriteString(alias)
 		b.WriteString(cst.Space)
-		b.WriteString(JoinString(cst.AS, cst.Space, cst.LeftParenthesis, cst.Space))
-		tmp := script.ToSQL()
-		b.WriteString(tmp.Prepare)
-		b.WriteString(JoinString(cst.Space, cst.RightParenthesis))
-		result.Args = append(result.Args, tmp.Args...)
+
+		notLeftParenthesis := script.Prepare[0] != cst.LeftParenthesis[0]
+		b.WriteString(JoinString(cst.AS, cst.Space))
+		if notLeftParenthesis {
+			b.WriteString(JoinString(cst.LeftParenthesis, cst.Space))
+		}
+		b.WriteString(script.Prepare)
+		if notLeftParenthesis {
+			b.WriteString(JoinString(cst.Space, cst.RightParenthesis))
+		}
+		result.Args = append(result.Args, script.Args...)
 	}
 	result.Prepare = b.String()
 	return result
 }
 
-func (s *sqlWindow) Set(alias string, maker Maker) SQLWindow {
-	if alias == cst.Empty || maker == nil || maker.ToSQL().IsEmpty() {
+func (s *sqlWindow) Set(alias string, maker func(o SQLWindowFuncOver)) SQLWindow {
+	if alias == cst.Empty || maker == nil {
+		return s
+	}
+	windowFuncOver := NewSQLWindowFuncOver(s.way)
+	maker(windowFuncOver)
+	script := windowFuncOver.ToSQL()
+	if script == nil || script.IsEmpty() {
 		return s
 	}
 	if _, ok := s.prepare[alias]; !ok {
 		s.alias = append(s.alias, alias)
 	}
-	s.prepare[alias] = maker
+	s.prepare[alias] = script
 	return s
 }
 
