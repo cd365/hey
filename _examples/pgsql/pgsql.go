@@ -1384,6 +1384,7 @@ func MySchema() {
 			}).Update(ctx)
 		})
 	}
+
 	{
 		// View table-name and columns.
 		log.Println(schema.Table())
