@@ -37,9 +37,6 @@ type MyMulti interface {
 	// Add custom logic.
 	Add(values ...func(ctx context.Context) error) MyMulti
 
-	// SkipEmptySQL Skip empty SQL statements.
-	SkipEmptySQL() MyMulti
-
 	// AddExists Add a query exists statement.
 	AddExists(maker Maker, exists *bool) MyMulti
 
@@ -71,13 +68,10 @@ type myMulti struct {
 	way *Way
 
 	values [][]func(ctx context.Context) error
-
-	skipEmptySQL bool
 }
 
 func (s *myMulti) ToEmpty() {
 	s.values = make([][]func(ctx context.Context) error, 0, 1<<1)
-	s.skipEmptySQL = false
 }
 
 func (s *myMulti) Len() int {
@@ -116,27 +110,15 @@ func (s *myMulti) Add(values ...func(ctx context.Context) error) MyMulti {
 	return s
 }
 
-func (s *myMulti) SkipEmptySQL() MyMulti {
-	if !s.skipEmptySQL {
-		s.skipEmptySQL = true
-	}
-	return s
-}
-
+// getScript If the statement to be executed is empty, it will be discarded;
+// Using the Add method is not subject to this limitation.
 func (s *myMulti) getScript(maker Maker) *SQL {
 	if maker == nil {
 		return nil
 	}
 	script := maker.ToSQL()
-	if script == nil {
+	if script == nil || script.IsEmpty() {
 		return nil
-	}
-	if s.skipEmptySQL {
-		// Skip empty SQL statements.
-		if script.IsEmpty() {
-			// If the statement to be executed is empty, discard it.
-			return nil
-		}
 	}
 	return script
 }
