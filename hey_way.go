@@ -554,26 +554,32 @@ func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts .
 	tx := (*Way)(nil)
 	tx, err = s.begin(ctx, nil, opts...)
 	if err != nil {
-		return err
+		return
 	}
 
 	ok := false
 
 	defer func() {
 		if err == nil && ok {
-			err = tx.commit()
+			if e := tx.commit(); e != nil {
+				err = e
+			}
 		} else {
-			err = tx.rollback()
+			if e := tx.rollback(); e != nil {
+				if err == nil {
+					err = e
+				}
+			}
 		}
 	}()
 
 	if err = fc(tx); err != nil {
-		return err
+		return
 	}
 
 	ok = true
 
-	return err
+	return
 }
 
 // Transaction -> Atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
@@ -644,7 +650,7 @@ func (s *Stmt) Query(ctx context.Context, query func(rows *sql.Rows) error, args
 		return
 	}
 	defer func() {
-		if e := rows.Close(); err == nil && e != nil {
+		if e := rows.Close(); e != nil && err == nil {
 			err = e
 		}
 	}()
@@ -743,7 +749,7 @@ func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows)
 		return
 	}
 	defer func() {
-		if e := stmt.Close(); err == nil && e != nil {
+		if e := stmt.Close(); e != nil && err == nil {
 			err = e
 		}
 	}()
@@ -771,7 +777,7 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 		return
 	}
 	defer func() {
-		if e := stmt.Close(); err == nil && e != nil {
+		if e := stmt.Close(); e != nil && err == nil {
 			err = e
 		}
 	}()
@@ -860,7 +866,7 @@ func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err err
 		return
 	}
 	defer func() {
-		if e := stmt.Close(); err == nil && e != nil {
+		if e := stmt.Close(); e != nil && err == nil {
 			err = e
 		}
 	}()
@@ -881,7 +887,7 @@ func (s *Way) Execute(ctx context.Context, maker Maker) (affectedRows int64, err
 		return
 	}
 	defer func() {
-		if e := stmt.Close(); err == nil && e != nil {
+		if e := stmt.Close(); e != nil && err == nil {
 			err = e
 		}
 	}()
@@ -922,7 +928,7 @@ func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, 
 	var stmt *Stmt
 	defer func() {
 		if stmt != nil {
-			if e := stmt.Close(); err == nil && e != nil {
+			if e := stmt.Close(); e != nil && err == nil {
 				err = e
 			}
 		}
@@ -951,7 +957,7 @@ func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]an
 	var stmt *Stmt
 	defer func() {
 		if stmt != nil {
-			if e := stmt.Close(); err == nil && e != nil {
+			if e := stmt.Close(); e != nil && err == nil {
 				err = e
 			}
 		}
