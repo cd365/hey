@@ -1618,9 +1618,12 @@ func TableColumn() {
 		DepartmentName      *string `db:"department_name"`
 		DepartmentCreatedAt *int64  `db:"department_created_at"`
 	}
+
 	a := cst.A
 	b := cst.B
 	ac := way.T(a)
+	bc := way.T(b)
+
 	query := way.Table(EMPLOYEE).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
 		ta := j.GetMaster()
 		// left = ta // The left table is the default master table.
@@ -1628,7 +1631,6 @@ func TableColumn() {
 		assoc = j.OnEqual(employee.DepartmentId, department.Id)
 		j.Select(j.TableColumn(ta, employee.Id, employee.Id))
 		j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
-		bc := way.T(b)
 		j.Select(
 			bc.Column(department.Name, "department_name"),
 		)
@@ -1657,6 +1659,7 @@ func WindowFunc() {
 	a := cst.A
 	b := cst.B
 	ac := way.T(a)
+	bc := way.T(b)
 	{
 		query := way.Table(EMPLOYEE).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
 			ta := j.GetMaster()
@@ -1664,22 +1667,20 @@ func WindowFunc() {
 			assoc = j.OnEqual(employee.DepartmentId, department.Id)
 			j.Select(j.TableColumn(ta, employee.Id, employee.Id))
 			j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
-			ap := way.T(a).Column
 			j.Select(
-				way.WindowFunc("max_salary").Max(ap(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ap(employee.DepartmentId))
-					o.Desc(ap(employee.Id))
+				way.WindowFunc("max_salary").Max(ac.Column(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ac.Column(employee.DepartmentId))
+					o.Desc(ac.Column(employee.Id))
 				}),
-				way.WindowFunc("avg_salary").Avg(ap(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ap(employee.DepartmentId))
-					o.Desc(ap(employee.Id))
+				way.WindowFunc("avg_salary").Avg(ac.Column(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ac.Column(employee.DepartmentId))
+					o.Desc(ac.Column(employee.Id))
 				}),
-				way.WindowFunc("min_salary").Min(ap(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ap(employee.DepartmentId))
-					o.Desc(ap(employee.Id))
+				way.WindowFunc("min_salary").Min(ac.Column(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ac.Column(employee.DepartmentId))
+					o.Desc(ac.Column(employee.Id))
 				}),
 			)
-			bc := way.T(b)
 			j.Select(
 				bc.Column(department.Name, "department_name"),
 			)
@@ -1728,7 +1729,6 @@ func WindowFunc() {
 				way.WindowFunc("avg_salary").Avg(ac.Column(employee.DepartmentId)).Over("w1"),
 				way.WindowFunc("min_salary").Min(ac.Column(employee.DepartmentId)).Over("w1"),
 			)
-			bc := way.T(b)
 			j.Select(
 				bc.Column(department.Name, "department_name"),
 			)
