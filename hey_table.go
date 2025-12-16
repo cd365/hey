@@ -403,22 +403,24 @@ func (s *Table) ToSelect() *SQL {
 		lists = append(lists, s.comment, cst.SELECT, s.query)
 		return JoinSQLSpace(lists...).ToSQL()
 	}
+
 	lists := make([]any, 0, 13)
 	lists = append(lists, s.comment, s.with, cst.SELECT)
 	lists = append(lists, s.query, cst.FROM, s.table)
 	if len(s.joins.joins) > 0 {
 		lists = append(lists, s.joins)
 	}
+	if !s.where.IsEmpty() {
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
+	}
+	lists = append(lists, s.groupBy)
 	if s.window != nil {
 		script := s.window.ToSQL()
 		if script != nil && !script.IsEmpty() {
 			lists = append(lists, script)
 		}
 	}
-	if !s.where.IsEmpty() {
-		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
-	}
-	lists = append(lists, s.groupBy, s.orderBy, s.limit)
+	lists = append(lists, s.orderBy, s.limit)
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
