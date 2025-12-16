@@ -3,6 +3,7 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -97,14 +98,29 @@ func Main() {
 	defer func() {
 		Delete()
 	}()
+
 	SelectEmpty()
 	Insert()
 	Update()
 	Select()
+
 	Transaction()
+
 	Filter()
+
 	MyMulti()
+
 	MySchema()
+
+	Complex()
+
+	TableColumn()
+
+	WindowFunc()
+
+	WayMulti()
+
+	Cache()
 }
 
 /* The following structured code can all be generated through code generation. */
@@ -1539,5 +1555,471 @@ func MySchema() {
 			log.Fatal(err.Error())
 		}
 		log.Println(rows)
+	}
+}
+
+func Complex() {
+	table := way.Table(EMPLOYEE)
+
+	name := "test-complex"
+	email := fmt.Sprintf("%s@gmail.com", name)
+	timestamp := way.Now().Unix()
+
+	// Preset insert data.
+	table.InsertFunc(func(i hey.SQLInsert) {
+		i.Forbid(employee.Id, employee.DeletedAt)
+		i.Create(&Employee{
+			Age:          18,
+			Name:         name,
+			Email:        &email,
+			Gender:       "F",
+			Height:       0,
+			Weight:       0,
+			Salary:       0,
+			DepartmentId: 0,
+			SerialNum:    0,
+			CreatedAt:    timestamp,
+			UpdatedAt:    timestamp,
+		})
+	})
+
+	// Preset update data, data filtering conditions, and general deletion.
+	table.UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+		f.Equal(employee.Email, email)
+		u.Set(employee.Name, name)
+		u.Default(employee.UpdatedAt, timestamp)
+	})
+
+	// UPDATE or INSERT
+	c := hey.NewComplex(table)
+	ctx := context.Background()
+	updateRows, insertRows, err := c.Upsert(ctx)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	log.Printf("Update: %d Insert: %d\n", updateRows, insertRows)
+	updateRows, insertRows, err = c.Upsert(ctx)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	log.Printf("Update: %d Insert: %d\n", updateRows, insertRows)
+
+	// DELETE and INSERT
+	deleteRows, insertRows, err := c.DeleteCreate(ctx)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	log.Printf("Delete: %d Insert: %d\n", deleteRows, insertRows)
+}
+
+func TableColumn() {
+	type QueryTableColumn struct {
+		Employee
+		DepartmentName      *string `db:"department_name"`
+		DepartmentCreatedAt *int64  `db:"department_created_at"`
+	}
+	a := cst.A
+	b := cst.B
+	ac := way.T(a)
+	query := way.Table(EMPLOYEE).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
+		ta := j.GetMaster()
+		// left = ta // The left table is the default master table.
+		right = j.NewTable(DEPARTMENT, b)
+		assoc = j.OnEqual(employee.DepartmentId, department.Id)
+		j.Select(j.TableColumn(ta, employee.Id, employee.Id))
+		j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
+		bc := way.T(b)
+		j.Select(
+			bc.Column(department.Name, "department_name"),
+		)
+		dca := bc.Column(department.CreatedAt)
+		j.Select(
+			hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
+		)
+		return
+	})
+	query.WhereFunc(func(f hey.Filter) {
+		f.GreaterThan(ac.Column(employee.Id), 0)
+	})
+	query.Desc(ac.Column(employee.Id))
+	query.Desc(ac.Column(employee.SerialNum))
+	query.Limit(1)
+	ctx := context.Background()
+	result := &QueryTableColumn{}
+	err := query.Scan(ctx, result)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	log.Printf("%#v\n", result)
+}
+
+func WindowFunc() {
+	a := cst.A
+	b := cst.B
+	ac := way.T(a)
+	{
+		query := way.Table(EMPLOYEE).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
+			ta := j.GetMaster()
+			right = j.NewTable(DEPARTMENT, b)
+			assoc = j.OnEqual(employee.DepartmentId, department.Id)
+			j.Select(j.TableColumn(ta, employee.Id, employee.Id))
+			j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
+			ap := way.T(a).Column
+			j.Select(
+				way.WindowFunc("max_salary").Max(ap(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ap(employee.DepartmentId))
+					o.Desc(ap(employee.Id))
+				}),
+				way.WindowFunc("avg_salary").Avg(ap(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ap(employee.DepartmentId))
+					o.Desc(ap(employee.Id))
+				}),
+				way.WindowFunc("min_salary").Min(ap(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ap(employee.DepartmentId))
+					o.Desc(ap(employee.Id))
+				}),
+			)
+			bc := way.T(b)
+			j.Select(
+				bc.Column(department.Name, "department_name"),
+			)
+			dca := bc.Column(department.CreatedAt)
+			j.Select(
+				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
+			)
+			return
+		})
+		query.WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(ac.Column(employee.Id), 0)
+		})
+		query.Desc(ac.Column(employee.Id))
+		query.Desc(ac.Column(employee.SerialNum))
+		query.Limit(1)
+		ctx := context.Background()
+		result, err := query.MapScan(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		for _, tmp := range result {
+			for k, v := range tmp {
+				if v == nil {
+					fmt.Printf("%s = %#v\n", k, v)
+				} else {
+					value := reflect.ValueOf(v).Elem().Interface()
+					if val, ok := value.([]byte); ok {
+						value = string(val)
+					}
+					fmt.Printf("%s = %#v\n", k, value)
+				}
+			}
+		}
+	}
+
+	// With window alias
+	{
+		query := way.Table(EMPLOYEE).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
+			ta := j.GetMaster()
+			right = j.NewTable(DEPARTMENT, b)
+			assoc = j.OnEqual(employee.DepartmentId, department.Id)
+			j.Select(j.TableColumn(ta, employee.Id, employee.Id))
+			j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
+			j.Select(
+				way.WindowFunc("max_salary").Max(ac.Column(employee.DepartmentId)).Over("w1"),
+				way.WindowFunc("avg_salary").Avg(ac.Column(employee.DepartmentId)).Over("w1"),
+				way.WindowFunc("min_salary").Min(ac.Column(employee.DepartmentId)).Over("w1"),
+			)
+			bc := way.T(b)
+			j.Select(
+				bc.Column(department.Name, "department_name"),
+			)
+			dca := bc.Column(department.CreatedAt)
+			j.Select(
+				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
+			)
+			return
+		})
+		query.Window("w1", func(o hey.SQLWindowFuncOver) {
+			o.Partition(ac.Column(employee.DepartmentId))
+			o.Desc(ac.Column(employee.Id))
+		})
+		query.WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(ac.Column(employee.Id), 0)
+		})
+		query.Desc(ac.Column(employee.Id))
+		query.Desc(ac.Column(employee.SerialNum))
+		query.Limit(1)
+		ctx := context.Background()
+		result, err := query.MapScan(ctx)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		for _, tmp := range result {
+			for k, v := range tmp {
+				if v == nil {
+					fmt.Printf("%s = %#v\n", k, v)
+				} else {
+					value := reflect.ValueOf(v).Elem().Interface()
+					if val, ok := value.([]byte); ok {
+						value = string(val)
+					}
+					fmt.Printf("%s = %#v\n", k, value)
+				}
+			}
+		}
+	}
+}
+
+func WayMulti() {
+	ctx := context.Background()
+	timestamp := way.Now().Unix()
+
+	// Query
+	{
+		employees := make([]*Employee, 0)
+		{
+			for _, id := range []int64{1, 3, 5, 7, 9} {
+				tmp := &Employee{}
+				tmp.Id = id
+				employees = append(employees, tmp)
+			}
+			// OR
+			// employee1 := &Employee{
+			// 	Id: 1,
+			// }
+			// employee3 := &Employee{
+			// 	Id: 3,
+			// }
+			// employee5 := &Employee{
+			// 	Id: 5,
+			// }
+			// employee7 := &Employee{
+			// 	Id: 7,
+			// }
+			// employee9 := &Employee{
+			// 	Id: 9,
+			// }
+			// employees = append(employees, employee1, employee3, employee5, employee7, employee9)
+		}
+		lists := make([]any, 0)
+		assoc := make(map[int64]*Employee)
+		for _, v := range employees {
+			tmp := &Employee{}
+			if _, ok := assoc[v.Id]; ok {
+				continue
+			}
+			lists = append(lists, tmp)
+			assoc[v.Id] = tmp
+		}
+		script := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
+			f.Equal(employee.Id, 0)
+		}).
+			Select(employee.Id, employee.Name, employee.Email, employee.CreatedAt).
+			ToSelect()
+		if script == nil || script.IsEmpty() {
+			return
+		}
+		makers := make([]hey.Maker, 0, len(employees))
+		for _, e := range employees {
+			makers = append(makers, hey.NewSQL(script.Prepare, e.Id))
+		}
+		err := way.MultiScan(ctx, makers, lists)
+		if err != nil {
+			if !errors.Is(err, hey.ErrNoRows) {
+				log.Fatal(err.Error())
+			}
+		}
+	}
+
+	// Execute
+	{
+		update := map[int64]string{
+			1: "multi-1",
+			3: "multi-3",
+			5: "multi-5",
+		}
+		args := make([][]any, 0, len(update))
+		for k, v := range update {
+			args = append(args, []any{
+				v, timestamp, k,
+			})
+		}
+		script := way.Table(EMPLOYEE).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(employee.Id, 0)
+			u.Set(employee.Name, "")
+			u.Default(employee.UpdatedAt, 0)
+		}).ToUpdate()
+		makers := make([]hey.Maker, 0, len(args))
+		for _, arg := range args {
+			makers = append(makers, hey.NewSQL(script.Prepare, arg...))
+		}
+
+		// Execute in batch directly.
+		{
+			rows, err := way.MultiExecute(ctx, makers)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+			log.Println(rows)
+		}
+
+		// Ensure atomic operations through transactions.
+		{
+			var fail *hey.SQL
+			for i, v := range makers {
+				tmp, ok := v.(*hey.SQL)
+				if ok && tmp != nil {
+					if len(tmp.Args) > 0 {
+						val, str := tmp.Args[0].(string)
+						if str {
+							tmp.Args[0] = fmt.Sprintf("%s-transaction", val)
+							if i == 1 {
+								fail = tmp
+							}
+						}
+					}
+				}
+			}
+			var err error
+			rows := int64(0)
+			err = way.Transaction(ctx, func(tx *hey.Way) error {
+				rows, err = way.MultiExecute(ctx, makers)
+				return err
+			})
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+			log.Println(rows)
+			if fail != nil {
+				b := &strings.Builder{}
+				for range 300 {
+					b.WriteString("x")
+				}
+				fail.Args[0] = fmt.Sprintf("%s-%s", fail.Args[0].(string), b.String())
+				err = way.Transaction(ctx, func(tx *hey.Way) error {
+					rows, err = way.MultiExecute(ctx, makers)
+					return err
+				})
+				if err != nil {
+					fmt.Println(err.Error())
+				} else {
+					log.Println(rows)
+				}
+			}
+		}
+	}
+}
+
+// myCache Simulate the implementation of the hey.Cacher interface.
+type myCache struct {
+	data map[string][]byte
+}
+
+func newMyCache() *myCache {
+	return &myCache{
+		data: make(map[string][]byte),
+	}
+}
+
+func (s *myCache) Key(key string) string {
+	return key
+}
+
+func (s *myCache) Get(ctx context.Context, key string) ([]byte, error) {
+	tmp, ok := s.data[key]
+	if !ok {
+		return nil, hey.ErrNoDataInCache
+	}
+	return tmp, nil
+}
+
+func (s *myCache) Set(ctx context.Context, key string, value []byte, duration time.Duration) error {
+	s.data[key] = value
+	return nil
+}
+
+func (s *myCache) Del(ctx context.Context, key string) error {
+	delete(s.data, key)
+	return nil
+}
+
+func (s *myCache) Marshal(v any) ([]byte, error) {
+	return json.Marshal(v)
+}
+
+func (s *myCache) Unmarshal(data []byte, v any) error {
+	return json.Unmarshal(data, v)
+}
+
+var (
+	cacheObject = hey.NewCache(newMyCache())
+	cacheMutex  = hey.NewStringMutex(32)
+)
+
+func cacheQuery() (data *Employee, err error) {
+	ctx := context.Background()
+
+	query := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
+		f.Equal(employee.Id, 1)
+	}).
+		Select(employee.Id, employee.Name, employee.Email, employee.CreatedAt).
+		Desc(employee.SerialNum).
+		Limit(1).
+		Offset(0)
+
+	cacheMaker := hey.NewCacheMaker(cacheObject, query)
+	cacheKey := ""
+	cacheKey, err = cacheMaker.GetCacheKey()
+	if err != nil {
+		return
+	}
+	if cacheKey == "" {
+		err = errors.New("cache key is empty")
+		return
+	}
+	data = &Employee{}
+
+	err = cacheMaker.GetUnmarshal(ctx, data)
+	if err != nil {
+		if !errors.Is(err, hey.ErrNoDataInCache) {
+			return
+		}
+		err = nil
+	}
+	if data.Id > 0 {
+		return
+	}
+
+	mu := cacheMutex.Get(cacheKey)
+	mu.Lock()
+	defer mu.Unlock()
+
+	err = cacheMaker.GetUnmarshal(ctx, data)
+	if err != nil {
+		if !errors.Is(err, hey.ErrNoDataInCache) {
+			return
+		}
+		err = nil
+	}
+	if data.Id > 0 {
+		return
+	}
+	err = query.Scan(ctx, data)
+	if err != nil {
+		return
+	}
+	rd := hey.NewMinMaxDuration(time.Millisecond, 10, 30)
+	err = cacheMaker.MarshalSet(ctx, data, rd.Get())
+	return
+}
+
+func Cache() {
+	total := 101
+	for i := range total {
+		data, err := cacheQuery()
+		if err != nil {
+			log.Printf("Get cache query error: %03d %s\n", i, err.Error())
+			break
+		}
+		log.Printf("Get cache query data: %03d %#v\n", i, data)
 	}
 }
