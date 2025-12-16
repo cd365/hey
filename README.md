@@ -21,3 +21,8 @@ Log the executed SQL statements and transactions(Use it as an ORM).<br>
 ```shell
 go get github.com/cd365/hey/v6@latest
 ```
+
+## EXAMPLE
+Currently, only PostgreSQL is used in this case; the usage methods for other databases are similar.<br>
+[All](https://github.com/cd365/hey/tree/master/_examples)<br>
+[PostgreSQL](https://github.com/cd365/hey/blob/master/_examples/pgsql)<br>
