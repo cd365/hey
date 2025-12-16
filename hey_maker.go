@@ -673,7 +673,7 @@ func (s *sqlJoin) ToSQL() *SQL {
 }
 
 func (s *sqlJoin) NewTable(table any, alias string) SQLAlias {
-	return s.way.getTable(table).SetAlias(alias)
+	return getTable(table, s.way).SetAlias(alias)
 }
 
 func (s *sqlJoin) joinOn() SQLJoinOn {
@@ -1188,7 +1188,7 @@ func (s *sqlOrderBy) OrderString(order *string) SQLOrderBy {
 	return s
 }
 
-// SQLLimit Build LIMIT n[ OFFSET m] statements.
+// SQLLimit Build LIMIT n[ OFFSET m] or [OFFSET m] ROWS FETCH NEXT n ROWS ONLY statements.
 type SQLLimit interface {
 	Maker
 
@@ -1221,7 +1221,7 @@ type sqlLimit struct {
 	offset *int64
 }
 
-func newSqlLimit(way *Way) *sqlLimit {
+func newSQLLimit(way *Way) SQLLimit {
 	return &sqlLimit{
 		way: way,
 	}

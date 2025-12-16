@@ -94,8 +94,18 @@ func AnyToSQL(i any) *SQL {
 			return value
 		}
 	case Maker:
-		if tmp := value.ToSQL(); tmp != nil {
-			return tmp
+		v := reflect.ValueOf(value)
+		if v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				return NewEmptySQL()
+			}
+			if tmp := value.ToSQL(); tmp != nil {
+				return tmp
+			}
+		} else {
+			if tmp := value.ToSQL(); tmp != nil {
+				return tmp
+			}
 		}
 	default:
 		v := reflect.ValueOf(i)
@@ -646,6 +656,67 @@ func (s *sqlAlias) ToSQL() *SQL {
 	}
 	if !has {
 		result.Prepare = JoinString(result.Prepare, asAlias)
+	}
+	return result
+}
+
+// optimizeTableSQL Optimize table SQL.
+func optimizeTableSQL(way *Way, table *SQL) *SQL {
+	result := NewEmptySQL()
+	if way == nil || table == nil || table.IsEmpty() {
+		return result
+	}
+	latest := table.Clone()
+	latest.Prepare = strings.TrimSpace(latest.Prepare)
+	if latest.IsEmpty() {
+		return result
+	}
+	single := cst.Space
+	double := JoinString(single, single)
+	for strings.Contains(latest.Prepare, double) {
+		latest.Prepare = strings.ReplaceAll(latest.Prepare, double, single)
+	}
+	count := strings.Count(latest.Prepare, cst.Space)
+	if count == 0 {
+		latest.Prepare = way.Replace(latest.Prepare)
+	} else {
+		if count > 2 {
+			// Using a subquery as a table.
+			// Consider subqueries with alias name.
+			latest = ParcelSQL(latest)
+		}
+	}
+	return latest
+}
+
+// getTable Extract table names from any type.
+func getTable(table any, way *Way) *sqlAlias {
+	result := newSqlAlias(cst.Empty).v(way)
+	if table == nil {
+		result.SetSQL(AnyToSQL(table))
+		return result
+	}
+	switch example := table.(type) {
+	case string:
+		result.SetSQL(optimizeTableSQL(way, NewSQL(example)))
+	case *SQL:
+		result.SetSQL(optimizeTableSQL(way, example))
+	case Maker:
+		if example != nil {
+			result.SetSQL(optimizeTableSQL(way, example.ToSQL()))
+		}
+	case TableNamer:
+		result.SetSQL(optimizeTableSQL(way, NewSQL(example.Table())))
+	default:
+		if value := reflect.ValueOf(table); !value.IsNil() {
+			if method := value.MethodByName(way.cfg.tableMethodName); method.IsValid() {
+				if values := method.Call(nil); len(values) == 1 {
+					return getTable(values[0].Interface(), way)
+				}
+			}
+		}
+		// Consider multi-level pointers.
+		result.SetSQL(AnyToSQL(table))
 	}
 	return result
 }

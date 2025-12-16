@@ -187,6 +187,9 @@ type config struct {
 	// txOptions Start transaction options.
 	txOptions *sql.TxOptions
 
+	// newLimit Custom SQLLimit interface.
+	newLimit func(way *Way) SQLLimit
+
 	// scanTag Scan data to tag mapping on structure.
 	scanTag string
 
@@ -221,6 +224,7 @@ func configDefault() *config {
 	return &config{
 		mapScanner:         NewMapScanner(),
 		scan:               RowsScan,
+		newLimit:           newSQLLimit,
 		scanTag:            DefaultTag,
 		tableMethodName:    TableMethodName,
 		maxLimit:           10000,
@@ -259,6 +263,14 @@ func WithScan(scan func(rows *sql.Rows, result any, tag string) error) Option {
 func WithTxOptions(txOptions *sql.TxOptions) Option {
 	return func(way *Way) {
 		way.cfg.txOptions = txOptions
+	}
+}
+
+func WithLimit(limit func(way *Way) SQLLimit) Option {
+	return func(way *Way) {
+		if limit != nil {
+			way.cfg.newLimit = limit
+		}
 	}
 }
 

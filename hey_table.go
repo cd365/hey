@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
-	"strings"
 	"sync"
 
 	"github.com/cd365/hey/v6/cst"
@@ -41,111 +40,56 @@ type Table struct {
 
 	orderBy *sqlOrderBy
 
-	limit *sqlLimit
+	limit SQLLimit
 
 	insert *sqlInsert
 
 	updateSet *sqlUpdateSet
 }
 
-// optimizeTableSQL Optimize table SQL.
-func optimizeTableSQL(way *Way, table *SQL) *SQL {
-	result := NewEmptySQL()
-	if way == nil || table == nil || table.IsEmpty() {
-		return result
-	}
-	latest := table.Clone()
-	latest.Prepare = strings.TrimSpace(latest.Prepare)
-	if latest.IsEmpty() {
-		return result
-	}
-	single := cst.Space
-	double := JoinString(single, single)
-	for strings.Contains(latest.Prepare, double) {
-		latest.Prepare = strings.ReplaceAll(latest.Prepare, double, single)
-	}
-	count := strings.Count(latest.Prepare, cst.Space)
-	if count == 0 {
-		latest.Prepare = way.Replace(latest.Prepare)
-	} else {
-		if count > 2 {
-			// Using a subquery as a table.
-			// Consider subqueries with alias name.
-			latest = ParcelSQL(latest)
-		}
-	}
-	return latest
-}
-
-// getTable Extract table names from any type.
-func (s *Way) getTable(table any) *sqlAlias {
-	result := newSqlAlias(cst.Empty).v(s)
-	if table == nil {
-		result.SetSQL(AnyToSQL(table))
-		return result
-	}
-	switch example := table.(type) {
-	case string:
-		result.SetSQL(optimizeTableSQL(s, NewSQL(example)))
-	case *SQL:
-		result.SetSQL(optimizeTableSQL(s, example))
-	case Maker:
-		if example != nil {
-			result.SetSQL(optimizeTableSQL(s, example.ToSQL()))
-		}
-	case TableNamer:
-		result.SetSQL(optimizeTableSQL(s, NewSQL(example.Table())))
-	default:
-		if value := reflect.ValueOf(table); !value.IsNil() {
-			if method := value.MethodByName(s.cfg.tableMethodName); method.IsValid() {
-				if values := method.Call(nil); len(values) == 1 {
-					return s.getTable(values[0].Interface())
-				}
-			}
-		}
-		// Consider multi-level pointers.
-		result.SetSQL(AnyToSQL(table))
-	}
-	return result
-}
-
 // Table Create a *Table object to execute SELECT, INSERT, UPDATE, and DELETE statements.
 func (s *Way) Table(table any) *Table {
-	query := newSqlSelect(s)
-	result := &Table{
-		way:       s,
-		comment:   newSqlComment(),
-		with:      newSqlWith(),
-		query:     query,
-		table:     s.getTable(table),
-		joins:     newSqlJoin(s),
-		window:    nil,
-		where:     s.F(),
-		groupBy:   newSqlGroupBy(s),
-		orderBy:   newSqlOrderBy(s),
-		limit:     newSqlLimit(s),
-		insert:    newSqlInsert(s),
-		updateSet: newSqlUpdateSet(s),
+	return &Table{
+		way:   s,
+		table: getTable(table, s),
 	}
-	result.joins.query = query
-	return result
 }
 
 // ToEmpty Do not reset table.
 func (s *Table) ToEmpty() *Table {
-	s.comment.ToEmpty()
-	s.with.ToEmpty()
-	s.query.ToEmpty()
-	s.joins.ToEmpty()
+	if s.comment != nil {
+		s.comment.ToEmpty()
+	}
+	if s.with != nil {
+		s.with.ToEmpty()
+	}
+	if s.query != nil {
+		s.query.ToEmpty()
+	}
+	if s.joins != nil {
+		s.joins.ToEmpty()
+	}
+	if s.where != nil {
+		s.where.ToEmpty()
+	}
+	if s.groupBy != nil {
+		s.groupBy.ToEmpty()
+	}
 	if s.window != nil {
 		s.window.ToEmpty()
 	}
-	s.where.ToEmpty()
-	s.groupBy.ToEmpty()
-	s.orderBy.ToEmpty()
-	s.limit.ToEmpty()
-	s.insert.ToEmpty()
-	s.updateSet.ToEmpty()
+	if s.orderBy != nil {
+		s.orderBy.ToEmpty()
+	}
+	if s.limit != nil {
+		s.limit.ToEmpty()
+	}
+	if s.insert != nil {
+		s.insert.ToEmpty()
+	}
+	if s.updateSet != nil {
+		s.updateSet.ToEmpty()
+	}
 	return s
 }
 
@@ -166,14 +110,27 @@ func (s *Table) W(way *Way) {
 	}
 }
 
-// Comment SQL statement notes.
-func (s *Table) Comment(comment string) *Table {
-	s.comment.Comment(comment)
+// CommentFunc Set comment through func.
+func (s *Table) CommentFunc(fc func(c SQLComment)) *Table {
+	if s.comment == nil {
+		s.comment = newSqlComment()
+	}
+	fc(s.comment)
 	return s
+}
+
+// Comment SQL statement comment.
+func (s *Table) Comment(comment string) *Table {
+	return s.CommentFunc(func(c SQLComment) {
+		c.Comment(comment)
+	})
 }
 
 // WithFunc Custom common table expression (CTE).
 func (s *Table) WithFunc(fc func(w SQLWith)) *Table {
+	if s.with == nil {
+		s.with = newSqlWith()
+	}
 	fc(s.with)
 	return s
 }
@@ -187,6 +144,9 @@ func (s *Table) With(alias string, maker Maker, columns ...string) *Table {
 
 // SelectFunc Set SELECT through func.
 func (s *Table) SelectFunc(fc func(q SQLSelect)) *Table {
+	if s.query == nil {
+		s.query = newSqlSelect(s.way)
+	}
 	fc(s.query)
 	return s
 }
@@ -214,7 +174,7 @@ func (s *Table) TableFunc(fc func(t SQLAlias)) *Table {
 // Table Set the table name, or possibly a subquery with an alias.
 func (s *Table) Table(table any) *Table {
 	return s.TableFunc(func(t SQLAlias) {
-		t.SetSQL(s.way.getTable(table).GetSQL())
+		t.SetSQL(getTable(table, s.way).GetSQL())
 	})
 }
 
@@ -227,7 +187,12 @@ func (s *Table) Alias(alias string) *Table {
 
 // JoinFunc Custom join query.
 func (s *Table) JoinFunc(fc func(j SQLJoin)) *Table {
-	if s.joins.table == nil {
+	if s.query == nil {
+		s.query = newSqlSelect(s.way)
+	}
+	if s.joins == nil {
+		s.joins = newSqlJoin(s.way)
+		s.joins.query = s.query
 		s.joins.table = s.table
 	}
 	fc(s.joins)
@@ -282,6 +247,9 @@ func (s *Table) Window(alias string, maker func(o SQLWindowFuncOver)) *Table {
 
 // WhereFunc Set WHERE through func.
 func (s *Table) WhereFunc(fc func(f Filter)) *Table {
+	if s.where == nil {
+		s.where = s.way.F()
+	}
 	fc(s.where)
 	return s
 }
@@ -295,6 +263,9 @@ func (s *Table) Where(filters ...Filter) *Table {
 
 // GroupFunc Set GROUP BY through func.
 func (s *Table) GroupFunc(fc func(g SQLGroupBy)) *Table {
+	if s.groupBy == nil {
+		s.groupBy = newSqlGroupBy(s.way)
+	}
 	fc(s.groupBy)
 	return s
 }
@@ -322,6 +293,9 @@ func (s *Table) Having(filters ...Filter) *Table {
 
 // OrderFunc Set ORDER BY through func.
 func (s *Table) OrderFunc(fc func(o SQLOrderBy)) *Table {
+	if s.orderBy == nil {
+		s.orderBy = newSqlOrderBy(s.way)
+	}
 	fc(s.orderBy)
 	return s
 }
@@ -349,6 +323,9 @@ func (s *Table) Desc(columns ...string) *Table {
 
 // LimitFunc Set LIMIT x [OFFSET x] through func.
 func (s *Table) LimitFunc(fc func(o SQLLimit)) *Table {
+	if s.limit == nil {
+		s.limit = s.way.cfg.newLimit(s.way)
+	}
 	fc(s.limit)
 	return s
 }
@@ -383,18 +360,30 @@ func (s *Table) Page(page int64, pageSize ...int64) *Table {
 
 // InsertFunc Set inserting data through func.
 func (s *Table) InsertFunc(fc func(i SQLInsert)) *Table {
+	if s.insert == nil {
+		s.insert = newSqlInsert(s.way)
+	}
 	fc(s.insert)
 	return s
 }
 
 // UpdateFunc Set updating data through func.
 func (s *Table) UpdateFunc(fc func(f Filter, u SQLUpdateSet)) *Table {
+	if s.where == nil {
+		s.where = s.way.F()
+	}
+	if s.updateSet == nil {
+		s.updateSet = newSqlUpdateSet(s.way)
+	}
 	fc(s.where, s.updateSet)
 	return s
 }
 
 // ToSelect Build SELECT statement.
 func (s *Table) ToSelect() *SQL {
+	if s.query == nil {
+		s.query = newSqlSelect(s.way)
+	}
 	if s.table.IsEmpty() {
 		if s.query.IsEmpty() {
 			return NewEmptySQL()
@@ -405,12 +394,13 @@ func (s *Table) ToSelect() *SQL {
 	}
 
 	lists := make([]any, 0, 13)
-	lists = append(lists, s.comment, s.with, cst.SELECT)
-	lists = append(lists, s.query, cst.FROM, s.table)
-	if len(s.joins.joins) > 0 {
-		lists = append(lists, s.joins)
-	}
-	if !s.where.IsEmpty() {
+	lists = append(
+		lists,
+		s.comment, s.with, cst.SELECT,
+		s.query, cst.FROM, s.table,
+		s.joins,
+	)
+	if s.where != nil && !s.where.IsEmpty() {
 		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
 	}
 	lists = append(lists, s.groupBy)
@@ -439,13 +429,16 @@ func (s *Table) ToInsert() *SQL {
 
 // ToUpdate Build UPDATE statement.
 func (s *Table) ToUpdate() *SQL {
-	if s.table.IsEmpty() || s.updateSet.IsEmpty() {
+	if s.updateSet == nil || s.table.IsEmpty() || s.updateSet.IsEmpty() {
 		return NewEmptySQL()
 	}
 	lists := make([]any, 0, 8)
-	lists = append(lists, s.comment, s.with, cst.UPDATE, s.table)
-	lists = append(lists, cst.SET, s.updateSet)
-	if s.where.IsEmpty() {
+	lists = append(
+		lists,
+		s.comment, s.with, cst.UPDATE,
+		s.table, cst.SET, s.updateSet,
+	)
+	if s.where == nil || s.where.IsEmpty() {
 		if s.way.cfg.updateRequireWhere {
 			return NewEmptySQL()
 		}
@@ -461,8 +454,13 @@ func (s *Table) ToDelete() *SQL {
 		return NewEmptySQL()
 	}
 	lists := make([]any, 0, 8)
-	lists = append(lists, s.comment, s.with, cst.DELETE, cst.FROM, s.table, s.joins)
-	if s.where.IsEmpty() {
+	lists = append(
+		lists,
+		s.comment, s.with,
+		cst.DELETE, cst.FROM, s.table,
+		s.joins,
+	)
+	if s.where == nil || s.where.IsEmpty() {
 		if s.way.cfg.deleteRequireWhere {
 			return NewEmptySQL()
 		}
@@ -488,11 +486,12 @@ func (s *Table) ToCount(counts ...string) *SQL {
 		}
 	}
 	lists := make([]any, 0, 1<<3)
-	lists = append(lists, s.comment, s.with, cst.SELECT, newSqlSelect(s.way).AddAll(counts...), cst.FROM, s.table)
-	if len(s.joins.joins) > 0 {
-		lists = append(lists, s.joins)
-	}
-	if !s.where.IsEmpty() {
+	lists = append(
+		lists,
+		s.comment, s.with, cst.SELECT, newSqlSelect(s.way).AddAll(counts...),
+		cst.FROM, s.table, s.joins,
+	)
+	if s.where != nil && !s.where.IsEmpty() {
 		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
 	}
 	return JoinSQLSpace(lists...).ToSQL()
@@ -532,7 +531,12 @@ func (s *Table) ToExists(exists ...func(script *SQL)) *SQL {
 		return NewEmptySQL()
 	}
 	lists := make([]any, 0, 8)
-	lists = append(lists, cst.SELECT, cst.EXISTS, cst.LeftParenthesis, query, cst.RightParenthesis, cst.AS, s.way.Replace(cst.A))
+	lists = append(
+		lists,
+		cst.SELECT, cst.EXISTS,
+		cst.LeftParenthesis, query, cst.RightParenthesis,
+		cst.AS, s.way.Replace(cst.A),
+	)
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
