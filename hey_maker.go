@@ -175,15 +175,8 @@ func (s *sqlWith) ToSQL() *SQL {
 			b.WriteString(cst.Space)
 		}
 
-		notLeftParenthesis := script.Prepare[0] != cst.LeftParenthesis[0]
 		b.WriteString(JoinString(cst.AS, cst.Space))
-		if notLeftParenthesis {
-			b.WriteString(JoinString(cst.LeftParenthesis, cst.Space))
-		}
-		b.WriteString(script.Prepare)
-		if notLeftParenthesis {
-			b.WriteString(JoinString(cst.Space, cst.RightParenthesis))
-		}
+		b.WriteString(ParcelPrepare(script.Prepare))
 		result.Args = append(result.Args, script.Args...)
 	}
 	result.Prepare = b.String()

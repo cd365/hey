@@ -423,58 +423,60 @@ func RowsTable(columns []string, rows func() [][]any, table func(values ...*SQL)
 	return table(result...)
 }
 
+// keysJoin Connect multiple SQL substatements using one or more keywords.
+func keysJoin(scripts []*SQL, keys ...string) *SQL {
+	length := len(keys)
+	separators := make([]string, 0, length*2+1)
+	for index := range keys {
+		if keys[index] == cst.Empty {
+			continue
+		}
+		separators = append(separators, cst.Space, keys[index])
+	}
+	if len(separators) == 0 {
+		return NewEmptySQL()
+	}
+	separators = append(separators, cst.Space)
+	result := make([]any, 0, len(scripts))
+	for _, value := range scripts {
+		if value == nil || value.IsEmpty() {
+			continue
+		}
+		clone := value.Clone()
+		clone.Prepare = ParcelPrepare(clone.Prepare) // The addition of "( " and " )" is mandatory.
+		result = append(result, clone)
+	}
+	return JoinSQL(result, JoinString(separators...))
+}
+
 // UnionSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...
 func UnionSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(result, JoinString(cst.Space, cst.UNION, cst.Space))
+	return keysJoin(scripts, cst.UNION)
 }
 
 // UnionAllSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) UNION ALL ( QUERY_B ) UNION ALL ( QUERY_C )...
 func UnionAllSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(result, JoinString(cst.Space, cst.UNION, cst.Space, cst.ALL, cst.Space))
+	return keysJoin(scripts, cst.UNION, cst.ALL)
 }
 
 // IntersectSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) INTERSECT ( QUERY_B ) INTERSECT ( QUERY_C )...
 func IntersectSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(result, JoinString(cst.Space, cst.INTERSECT, cst.Space))
+	return keysJoin(scripts, cst.INTERSECT)
 }
 
 // IntersectAllSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) INTERSECT ALL ( QUERY_B ) INTERSECT ALL ( QUERY_C )...
 func IntersectAllSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(result, JoinString(cst.Space, cst.INTERSECT, cst.Space, cst.ALL, cst.Space))
+	return keysJoin(scripts, cst.INTERSECT, cst.ALL)
 }
 
 // ExceptSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) EXCEPT ( QUERY_B ) EXCEPT ( QUERY_C )...
 func ExceptSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(result, JoinString(cst.Space, cst.EXCEPT, cst.Space))
+	return keysJoin(scripts, cst.EXCEPT)
 }
 
 // ExceptAllSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) EXCEPT ALL ( QUERY_B ) EXCEPT ALL ( QUERY_C )...
 func ExceptAllSQL(scripts ...*SQL) *SQL {
-	result := make([]any, len(scripts))
-	for index, value := range scripts {
-		result[index] = ParcelSQL(value)
-	}
-	return JoinSQL(result, JoinString(cst.Space, cst.EXCEPT, cst.Space, cst.ALL, cst.Space))
+	return keysJoin(scripts, cst.EXCEPT, cst.ALL)
 }
 
 // Replacer SQL Identifier Replacer.
