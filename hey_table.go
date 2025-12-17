@@ -346,6 +346,9 @@ func (s *Table) Offset(offset int64) *Table {
 
 // Limiter Set limit and offset at the same time.
 func (s *Table) Limiter(limiter Limiter) *Table {
+	if limiter == nil {
+		return s
+	}
 	return s.LimitFunc(func(o SQLLimit) {
 		o.Limit(limiter.GetLimit()).Offset(limiter.GetOffset())
 	})

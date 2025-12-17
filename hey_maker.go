@@ -1188,11 +1188,13 @@ func (s *sqlOrderBy) OrderString(order *string) SQLOrderBy {
 	return s
 }
 
-// SQLLimit Build LIMIT n[ OFFSET m] or [OFFSET m] ROWS FETCH NEXT n ROWS ONLY statements.
+// SQLLimit Build LIMIT n[ OFFSET m] or OFFSET m ROWS FETCH NEXT n ROWS ONLY statements.
 type SQLLimit interface {
 	Maker
 
 	ToEmpty
+
+	IsEmpty() bool
 
 	// Limit SQL LIMIT.
 	Limit(limit int64) SQLLimit
@@ -1213,6 +1215,7 @@ type SQLLimit interface {
 	DirectPage(page int64, pageSize ...int64) SQLLimit
 }
 
+// sqlLimit Implement `LIMIT n[ OFFSET m]` SQL statements.
 type sqlLimit struct {
 	way *Way
 
@@ -1310,6 +1313,116 @@ func (s *sqlLimit) DirectOffset(offset int64) SQLLimit {
 }
 
 func (s *sqlLimit) DirectPage(page int64, pageSize ...int64) SQLLimit {
+	return s.pageValue(true, page, pageSize...)
+}
+
+// offsetRowsFetchNextRowsOnly Implement `OFFSET m ROWS FETCH NEXT n ROWS ONLY` SQL statements.
+type offsetRowsFetchNextRowsOnly struct {
+	way *Way
+
+	limit *int64
+
+	offset *int64
+}
+
+func NewOffsetRowsFetchNextRowsOnly(way *Way) SQLLimit {
+	return &offsetRowsFetchNextRowsOnly{
+		way: way,
+	}
+}
+
+func (s *offsetRowsFetchNextRowsOnly) ToEmpty() {
+	s.limit = nil
+	s.offset = nil
+}
+
+func (s *offsetRowsFetchNextRowsOnly) IsEmpty() bool {
+	return s.limit == nil
+}
+
+func (s *offsetRowsFetchNextRowsOnly) ToSQL() *SQL {
+	if s.limit == nil || *s.limit <= 0 {
+		return NewEmptySQL()
+	}
+	limit := *s.limit
+	makers := make([]any, 0, 1<<3)
+	offset := int64(0)
+	if s.offset != nil && *s.offset >= 0 {
+		offset = *s.offset
+	}
+	makers = append(
+		makers,
+		AnyToSQL(cst.OFFSET),
+		AnyToSQL(offset),
+		AnyToSQL(cst.ROWS),
+		AnyToSQL(cst.FETCH),
+		AnyToSQL(cst.NEXT),
+		AnyToSQL(limit),
+		AnyToSQL(cst.ROWS),
+		AnyToSQL(cst.ONLY),
+	)
+	return JoinSQLSpace(makers...)
+}
+
+func (s *offsetRowsFetchNextRowsOnly) limitValue(direct bool, limit int64) *offsetRowsFetchNextRowsOnly {
+	if limit > 0 {
+		if !direct && s.way.cfg.maxLimit > 0 && limit > s.way.cfg.maxLimit {
+			limit = s.way.cfg.maxLimit
+		}
+		s.limit = &limit
+	}
+	return s
+}
+
+func (s *offsetRowsFetchNextRowsOnly) offsetValue(direct bool, offset int64) *offsetRowsFetchNextRowsOnly {
+	if offset > 0 {
+		if !direct && s.way.cfg.maxOffset > 0 && offset > s.way.cfg.maxOffset {
+			offset = s.way.cfg.maxOffset
+		}
+		s.offset = &offset
+	}
+	return s
+}
+
+func (s *offsetRowsFetchNextRowsOnly) pageValue(direct bool, page int64, pageSize ...int64) *offsetRowsFetchNextRowsOnly {
+	if page <= 0 {
+		return s
+	}
+	limit := s.way.cfg.defaultPageSize
+	if s.limit != nil {
+		limit = *s.limit
+	}
+	for i := len(pageSize) - 1; i >= 0; i-- {
+		if pageSize[i] > 0 {
+			limit = pageSize[i]
+			break
+		}
+	}
+	offset := (page - 1) * limit
+	return s.limitValue(direct, limit).offsetValue(direct, offset)
+}
+
+func (s *offsetRowsFetchNextRowsOnly) Limit(limit int64) SQLLimit {
+	return s.limitValue(false, limit)
+}
+
+func (s *offsetRowsFetchNextRowsOnly) Offset(offset int64) SQLLimit {
+	return s.offsetValue(false, offset)
+}
+
+func (s *offsetRowsFetchNextRowsOnly) Page(page int64, pageSize ...int64) SQLLimit {
+	return s.pageValue(false, page, pageSize...)
+}
+
+func (s *offsetRowsFetchNextRowsOnly) DirectLimit(limit int64) SQLLimit {
+	return s.limitValue(true, limit)
+}
+
+func (s *offsetRowsFetchNextRowsOnly) DirectOffset(offset int64) SQLLimit {
+	return s.offsetValue(true, offset)
+}
+
+func (s *offsetRowsFetchNextRowsOnly) DirectPage(page int64, pageSize ...int64) SQLLimit {
 	return s.pageValue(true, page, pageSize...)
 }
 

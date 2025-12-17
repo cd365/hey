@@ -83,6 +83,7 @@ func initial() error {
 	manual.Replacer = hey.NewReplacer()
 	options = append(options, hey.WithManual(manual))
 	options = append(options, hey.WithDatabase(db))
+	// options = append(options, hey.WithLimit(hey.NewOffsetRowsFetchNextRowsOnly))
 	options = append(options, hey.WithTrack(&common.MyTrack{}))
 	way = hey.NewWay(options...)
 	return nil

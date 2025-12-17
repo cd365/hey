@@ -67,6 +67,9 @@ const (
 	MAX       = "MAX"
 	MIN       = "MIN"
 	SUM       = "SUM"
+	FETCH     = "FETCH"
+	NEXT      = "NEXT"
+	ONLY      = "ONLY"
 )
 
 const (
