@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"math"
@@ -180,9 +181,9 @@ func (s *Cache) SetBool(ctx context.Context, key string, value bool, duration ti
 	return s.Set(ctx, key, fmt.Appendf(nil, "%t", value), duration)
 }
 
-// RangeRandomDuration Get a random Duration between minValue*duration and maxValue*duration.
-func (s *Cache) RangeRandomDuration(duration time.Duration, minValue int, maxValue int) time.Duration {
-	return time.Duration(minValue+rand.IntN(maxValue-minValue+1)) * duration
+// RangeRandomDuration Get a random Duration between minValue*baseDuration and maxValue*baseDuration.
+func (s *Cache) RangeRandomDuration(baseDuration time.Duration, minValue int, maxValue int) time.Duration {
+	return time.Duration(minValue+rand.IntN(maxValue-minValue+1)) * baseDuration
 }
 
 // Maker New CacheMaker.
@@ -475,7 +476,6 @@ func NewMultiMutex(length int) MultiMutex {
 	return result
 }
 
-// Get returns the sync.Mutex corresponding to the given key.
 func (s *multiMutex) Get(key string) *sync.Mutex {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(key))
@@ -484,21 +484,25 @@ func (s *multiMutex) Get(key string) *sync.Mutex {
 	return s.mutexes[index]
 }
 
-// Len returns the number of mutexes.
 func (s *multiMutex) Len() int {
 	return s.length
 }
 
 // RangeRandomDuration Get a random duration within a range.
 type RangeRandomDuration interface {
+	// Get a random duration.
 	Get() time.Duration
 
+	// GetBaseDuration Get base duration.
 	GetBaseDuration() time.Duration
 
+	// SetBaseDuration Set base duration.
 	SetBaseDuration(baseDuration time.Duration) RangeRandomDuration
 
+	// GetRange Get duration range.
 	GetRange() (int, int)
 
+	// SetRange Set duration range.
 	SetRange(minValue int, maxValue int) RangeRandomDuration
 }
 
@@ -547,4 +551,275 @@ func (s *rangeRandomDuration) SetRange(minValue int, maxValue int) RangeRandomDu
 	}
 	s.minValue, s.maxValue = minValue, maxValue
 	return s
+}
+
+// CacheQuery Use cache to query data.
+type CacheQuery interface {
+	// Cache Get Cache.
+	Cache() *Cache
+
+	// MultiMutex Get MultiMutex.
+	MultiMutex() MultiMutex
+
+	// CacheKey Using custom method to build cache key.
+	CacheKey(cacheKey func(maker Maker) (string, error)) CacheQuery
+
+	// RangeRandomDuration Get a random Duration between minValue*baseDuration and maxValue*baseDuration.
+	RangeRandomDuration(baseDuration time.Duration, minValue int, maxValue int) time.Duration
+
+	// Scan Use cache to query data.
+	Scan(ctx context.Context, maker Maker, duration time.Duration, data any) error
+
+	// ScanString Use cache to query data, query a single value whose type is string.
+	ScanString(ctx context.Context, maker Maker, duration time.Duration) (result string, err error)
+
+	// ScanFloat Use cache to query data, query a single value whose type is float64.
+	ScanFloat(ctx context.Context, maker Maker, duration time.Duration) (result float64, err error)
+
+	// ScanInt Use cache to query data, query a single value whose type is int64.
+	ScanInt(ctx context.Context, maker Maker, duration time.Duration) (result int64, err error)
+
+	// ScanBool Use cache to query data, query a single value whose type is bool.
+	ScanBool(ctx context.Context, maker Maker, duration time.Duration) (result bool, err error)
+}
+
+func NewCacheQuery(cache *Cache, multiMutex MultiMutex, way *Way) CacheQuery {
+	if cache == nil || multiMutex == nil || way == nil {
+		panic("hey: illegal parameter value")
+	}
+	return &cacheQuery{
+		cache:      cache,
+		multiMutex: multiMutex,
+		way:        way,
+	}
+}
+
+type cacheQuery struct {
+	cache *Cache
+
+	multiMutex MultiMutex
+
+	way *Way
+
+	cacheKey func(maker Maker) (string, error)
+}
+
+func (s *cacheQuery) Cache() *Cache {
+	return s.cache
+}
+
+func (s *cacheQuery) MultiMutex() MultiMutex {
+	return s.multiMutex
+}
+
+func (s *cacheQuery) CacheKey(cacheKey func(maker Maker) (string, error)) CacheQuery {
+	if cacheKey != nil {
+		s.cacheKey = cacheKey
+	}
+	return s
+}
+
+func (s *cacheQuery) RangeRandomDuration(baseDuration time.Duration, minValue int, maxValue int) time.Duration {
+	return s.cache.RangeRandomDuration(baseDuration, minValue, maxValue)
+}
+
+func (s *cacheQuery) newCacheMaker(script *SQL) CacheMaker {
+	cache := s.cache.Maker(script)
+	if s.cacheKey != nil {
+		cache.UseCacheKey(s.cacheKey)
+	}
+	return cache
+}
+
+func (s *cacheQuery) cacheQuery(
+	ctx context.Context,
+	maker Maker,
+	duration time.Duration,
+	query func(ctx context.Context, script *SQL) error,
+	cacheGet func(ctx context.Context, cache CacheMaker) error,
+	cacheSet func(ctx context.Context, cache CacheMaker, duration time.Duration) error,
+) error {
+	if maker == nil {
+		return ErrInvalidMaker
+	}
+
+	script := maker.ToSQL()
+	if script == nil || script.IsEmpty() {
+		return ErrEmptyScript
+	}
+
+	// No caching is used in transactions.
+	if s.way.IsInTransaction() {
+		return query(ctx, script)
+	}
+
+	cache := s.newCacheMaker(script)
+
+	// Query cached data.
+	err := cacheGet(ctx, cache)
+	if err != nil {
+		if !errors.Is(err, ErrNoDataInCache) {
+			return err
+		}
+	} else {
+		return nil
+	}
+
+	// Get the key corresponding to the cached data.
+	key, err := cache.GetCacheKey()
+	if err != nil {
+		return err
+	}
+
+	// Acquire the mutex using the cache key.
+	mutex := s.multiMutex.Get(key)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	// Check the cache again to see if there is any data.
+	err = cacheGet(ctx, cache)
+	if err != nil {
+		if !errors.Is(err, ErrNoDataInCache) {
+			return err
+		}
+	} else {
+		return nil
+	}
+
+	// Query data from the database.
+	err = query(ctx, script)
+	if err != nil {
+		if errors.Is(err, ErrNoRows) {
+			// Cache even if there is no data in the database.
+			return cacheSet(ctx, cache, duration)
+		}
+		return err
+	}
+	// Cache query data.
+	return cacheSet(ctx, cache, duration)
+}
+
+func (s *cacheQuery) Scan(ctx context.Context, maker Maker, duration time.Duration, data any) error {
+	return s.cacheQuery(
+		ctx,
+		maker,
+		duration,
+		func(ctx context.Context, script *SQL) error {
+			return s.way.Scan(ctx, script, data)
+		},
+		func(ctx context.Context, cache CacheMaker) error {
+			return cache.GetUnmarshal(ctx, data)
+		},
+		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
+			return cache.MarshalSet(ctx, data, duration)
+		},
+	)
+}
+
+func (s *cacheQuery) ScanString(ctx context.Context, maker Maker, duration time.Duration) (result string, err error) {
+	err = s.cacheQuery(
+		ctx,
+		maker,
+		duration,
+		func(ctx context.Context, script *SQL) error {
+			tmp := make([]string, 0, 1)
+			err = s.way.Scan(ctx, script, &tmp)
+			if err != nil {
+				return err
+			}
+			if len(tmp) > 0 {
+				result = tmp[0]
+			}
+			return nil
+		},
+		func(ctx context.Context, cache CacheMaker) error {
+			result, err = cache.GetString(ctx)
+			return err
+		},
+		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
+			return cache.SetString(ctx, result, duration)
+		},
+	)
+	return
+}
+
+func (s *cacheQuery) ScanFloat(ctx context.Context, maker Maker, duration time.Duration) (result float64, err error) {
+	err = s.cacheQuery(
+		ctx,
+		maker,
+		duration,
+		func(ctx context.Context, script *SQL) error {
+			tmp := make([]float64, 0, 1)
+			err = s.way.Scan(ctx, script, &tmp)
+			if err != nil {
+				return err
+			}
+			if len(tmp) > 0 {
+				result = tmp[0]
+			}
+			return nil
+		},
+		func(ctx context.Context, cache CacheMaker) error {
+			result, err = cache.GetFloat(ctx)
+			return err
+		},
+		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
+			return cache.SetFloat(ctx, result, duration)
+		},
+	)
+	return
+}
+
+func (s *cacheQuery) ScanInt(ctx context.Context, maker Maker, duration time.Duration) (result int64, err error) {
+	err = s.cacheQuery(
+		ctx,
+		maker,
+		duration,
+		func(ctx context.Context, script *SQL) error {
+			tmp := make([]int64, 0, 1)
+			err = s.way.Scan(ctx, script, &tmp)
+			if err != nil {
+				return err
+			}
+			if len(tmp) > 0 {
+				result = tmp[0]
+			}
+			return nil
+		},
+		func(ctx context.Context, cache CacheMaker) error {
+			result, err = cache.GetInt(ctx)
+			return err
+		},
+		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
+			return cache.SetInt(ctx, result, duration)
+		},
+	)
+	return
+}
+
+func (s *cacheQuery) ScanBool(ctx context.Context, maker Maker, duration time.Duration) (result bool, err error) {
+	err = s.cacheQuery(
+		ctx,
+		maker,
+		duration,
+		func(ctx context.Context, script *SQL) error {
+			tmp := make([]bool, 0, 1)
+			err = s.way.Scan(ctx, script, &tmp)
+			if err != nil {
+				return err
+			}
+			if len(tmp) > 0 {
+				result = tmp[0]
+			}
+			return nil
+		},
+		func(ctx context.Context, cache CacheMaker) error {
+			result, err = cache.GetBool(ctx)
+			return err
+		},
+		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
+			return cache.SetBool(ctx, result, duration)
+		},
+	)
+	return
 }
