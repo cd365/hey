@@ -1952,8 +1952,8 @@ func (s *myCache) Unmarshal(data []byte, v any) error {
 }
 
 var (
-	cacheObject = hey.NewCache(newMyCache())
-	cacheMutex  = hey.NewStringMutex(32)
+	cache      = hey.NewCache(newMyCache())
+	cacheMutex = hey.NewStringMutex(32)
 )
 
 func cacheQuery() (data *Employee, err error) {
@@ -1967,16 +1967,14 @@ func cacheQuery() (data *Employee, err error) {
 		Limit(1).
 		Offset(0)
 
-	cacheMaker := hey.NewCacheMaker(cacheObject, query)
+	cacheMaker := cache.Maker(query)
+
 	cacheKey := ""
 	cacheKey, err = cacheMaker.GetCacheKey()
 	if err != nil {
 		return
 	}
-	if cacheKey == "" {
-		err = errors.New("cache key is empty")
-		return
-	}
+
 	data = &Employee{}
 
 	err = cacheMaker.GetUnmarshal(ctx, data)
@@ -2004,6 +2002,7 @@ func cacheQuery() (data *Employee, err error) {
 	if data.Id > 0 {
 		return
 	}
+
 	err = query.Scan(ctx, data)
 	if err != nil {
 		return
