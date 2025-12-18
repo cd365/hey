@@ -26,4 +26,7 @@ const (
 
 	// ErrMethodNotImplemented Error method not implemented.
 	ErrMethodNotImplemented = Err("hey: method not implemented")
+
+	// ErrInvalidMaker Invalid maker
+	ErrInvalidMaker = Err("hey: invalid maker")
 )
