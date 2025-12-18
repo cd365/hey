@@ -1953,7 +1953,7 @@ func (s *myCache) Unmarshal(data []byte, v any) error {
 
 var (
 	cache      = hey.NewCache(newMyCache())
-	cacheMutex = hey.NewStringMutex(32)
+	multiMutex = hey.NewMultiMutex(32)
 )
 
 func cacheQuery() (data *Employee, err error) {
@@ -1988,7 +1988,7 @@ func cacheQuery() (data *Employee, err error) {
 		return
 	}
 
-	mu := cacheMutex.Get(cacheKey)
+	mu := multiMutex.Get(cacheKey)
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -2007,7 +2007,7 @@ func cacheQuery() (data *Employee, err error) {
 	if err != nil {
 		return
 	}
-	rd := hey.NewMinMaxDuration(time.Millisecond, 10, 30)
+	rd := hey.NewRangeRandomDuration(time.Millisecond, 10, 30)
 	err = cacheMaker.MarshalSet(ctx, data, rd.Get())
 	return
 }
