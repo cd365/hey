@@ -180,8 +180,8 @@ func (s *Cache) SetBool(ctx context.Context, key string, value bool, duration ti
 	return s.Set(ctx, key, fmt.Appendf(nil, "%t", value), duration)
 }
 
-// DurationRange Get a random Duration between minValue*duration and maxValue*duration.
-func (s *Cache) DurationRange(duration time.Duration, minValue int, maxValue int) time.Duration {
+// RangeRandomDuration Get a random Duration between minValue*duration and maxValue*duration.
+func (s *Cache) RangeRandomDuration(duration time.Duration, minValue int, maxValue int) time.Duration {
 	return time.Duration(minValue+rand.IntN(maxValue-minValue+1)) * duration
 }
 
@@ -197,9 +197,6 @@ type CacheMaker interface {
 
 	// GetCacheKey Use prepare and args to calculate the hash value as the cache key.
 	GetCacheKey() (string, error)
-
-	// Reset For reset maker and it's related property values.
-	Reset(maker ...Maker) CacheMaker
 
 	// Get For get value from cache.
 	Get(ctx context.Context) ([]byte, error)
@@ -251,6 +248,9 @@ type cacheMaker struct {
 
 	// cacheKey Allows custom unique cache keys to be constructed based on query objects.
 	cacheKey func(maker Maker) (string, error)
+
+	// key Cache key.
+	key string
 }
 
 // NewCacheMaker Create a new CacheMaker object.
@@ -310,6 +310,9 @@ func (s *cacheMaker) UseCacheKey(cacheKey func(maker Maker) (string, error)) Cac
 
 // GetCacheKey Build cache key, custom method is used first.
 func (s *cacheMaker) GetCacheKey() (string, error) {
+	if s.key != cst.Empty {
+		return s.key, nil
+	}
 	key, err := s.cacheKey(s.maker)
 	if err != nil {
 		return cst.Empty, err
@@ -318,18 +321,8 @@ func (s *cacheMaker) GetCacheKey() (string, error) {
 	if key == cst.Empty {
 		return cst.Empty, ErrEmptyCacheKey
 	}
+	s.key = key
 	return key, nil
-}
-
-// Reset Resetting cache related properties.
-func (s *cacheMaker) Reset(maker ...Maker) CacheMaker {
-	for _, tmp := range maker {
-		if tmp != nil {
-			s.maker = tmp
-			break
-		}
-	}
-	return s
 }
 
 // Get Read data from cache.
@@ -449,8 +442,16 @@ func (s *cacheMaker) SetBool(ctx context.Context, value bool, duration time.Dura
 	return s.cache.SetBool(ctx, key, value, duration)
 }
 
-// StringMutex maps string keys to a fixed set of sync.Mutex locks using hashing.
-type StringMutex struct {
+// MultiMutex Maps string keys to a fixed set of *sync.Mutex locks using hashing.
+type MultiMutex interface {
+	// Get returns the sync.Mutex corresponding to the given key.
+	Get(key string) *sync.Mutex
+
+	// Len returns the number of mutexes.
+	Len() int
+}
+
+type multiMutex struct {
 	// mutexes Slice of mutexes, fixed after initialization.
 	mutexes []*sync.Mutex
 
@@ -458,13 +459,13 @@ type StringMutex struct {
 	length int
 }
 
-// NewStringMutex creates a new StringMutex with the specified number of mutexes.
+// NewMultiMutex creates a new MultiMutex with the specified number of mutexes.
 // If length is invalid (< 1 or > math.MaxUint16), it defaults to 256.
-func NewStringMutex(length int) *StringMutex {
+func NewMultiMutex(length int) MultiMutex {
 	if length < 1 || length > math.MaxUint16 {
 		length = 256
 	}
-	result := &StringMutex{
+	result := &multiMutex{
 		length:  length,
 		mutexes: make([]*sync.Mutex, length),
 	}
@@ -475,7 +476,7 @@ func NewStringMutex(length int) *StringMutex {
 }
 
 // Get returns the sync.Mutex corresponding to the given key.
-func (s *StringMutex) Get(key string) *sync.Mutex {
+func (s *multiMutex) Get(key string) *sync.Mutex {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(key))
 	value := h.Sum64()
@@ -484,34 +485,66 @@ func (s *StringMutex) Get(key string) *sync.Mutex {
 }
 
 // Len returns the number of mutexes.
-func (s *StringMutex) Len() int {
+func (s *multiMutex) Len() int {
 	return s.length
 }
 
-type MinMaxDuration struct {
+// RangeRandomDuration Get a random duration within a range.
+type RangeRandomDuration interface {
+	Get() time.Duration
+
+	GetBaseDuration() time.Duration
+
+	SetBaseDuration(baseDuration time.Duration) RangeRandomDuration
+
+	GetRange() (int, int)
+
+	SetRange(minValue int, maxValue int) RangeRandomDuration
+}
+
+type rangeRandomDuration struct {
 	minValue int // Range minimum value.
 
 	maxValue int // Range maximum value.
 
-	duration time.Duration // Base duration value.
+	baseDuration time.Duration // Base duration value.
 }
 
-// NewMinMaxDuration The minimum value of all values should be granter than 0, unless you want to cache permanently.
-func NewMinMaxDuration(duration time.Duration, minValue int, maxValue int) *MinMaxDuration {
-	return (&MinMaxDuration{}).init(duration, minValue, maxValue)
+// NewRangeRandomDuration The minimum value of all values should be granter than 0, unless you want to cache permanently.
+func NewRangeRandomDuration(baseDuration time.Duration, minValue int, maxValue int) RangeRandomDuration {
+	return (&rangeRandomDuration{}).init(baseDuration, minValue, maxValue)
 }
 
-func (s *MinMaxDuration) init(duration time.Duration, minValue int, maxValue int) *MinMaxDuration {
-	if maxValue < minValue {
-		minValue, maxValue = maxValue, minValue
-	}
-	s.duration, s.minValue, s.maxValue = duration, minValue, maxValue
+func (s *rangeRandomDuration) init(baseDuration time.Duration, minValue int, maxValue int) RangeRandomDuration {
+	s.baseDuration = baseDuration
+	s.SetRange(minValue, maxValue)
 	return s
 }
 
-func (s *MinMaxDuration) Get() time.Duration {
-	if s.duration <= 0 || s.minValue <= 0 || s.maxValue <= 0 {
+func (s *rangeRandomDuration) Get() time.Duration {
+	if s.baseDuration <= 0 || s.minValue <= 0 || s.maxValue <= 0 {
 		return time.Duration(0)
 	}
-	return s.duration * time.Duration(s.minValue+rand.IntN(s.maxValue-s.minValue+1))
+	return s.baseDuration * time.Duration(s.minValue+rand.IntN(s.maxValue-s.minValue+1))
+}
+
+func (s *rangeRandomDuration) GetBaseDuration() time.Duration {
+	return s.baseDuration
+}
+
+func (s *rangeRandomDuration) SetBaseDuration(baseDuration time.Duration) RangeRandomDuration {
+	s.baseDuration = baseDuration
+	return s
+}
+
+func (s *rangeRandomDuration) GetRange() (int, int) {
+	return s.minValue, s.maxValue
+}
+
+func (s *rangeRandomDuration) SetRange(minValue int, maxValue int) RangeRandomDuration {
+	if maxValue < minValue {
+		minValue, maxValue = maxValue, minValue
+	}
+	s.minValue, s.maxValue = minValue, maxValue
+	return s
 }
