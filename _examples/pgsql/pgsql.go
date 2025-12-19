@@ -1945,6 +1945,16 @@ func (s *myCache) Del(ctx context.Context, key string) error {
 	return nil
 }
 
+func (s *myCache) Exists(ctx context.Context, key string) (bool, error) {
+	if _, err := s.Get(ctx, key); err != nil {
+		if errors.Is(err, hey.ErrNoDataInCache) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *myCache) Marshal(v any) ([]byte, error) {
 	return json.Marshal(v)
 }
