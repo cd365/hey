@@ -567,6 +567,9 @@ type CacheQuery interface {
 	// RangeRandomDuration Get a random Duration between minValue*baseDuration and maxValue*baseDuration.
 	RangeRandomDuration(baseDuration time.Duration, minValue int, maxValue int) time.Duration
 
+	// Del Delete data from cache by maker.
+	Del(ctx context.Context, maker Maker) error
+
 	// Scan Use cache to query data.
 	Scan(ctx context.Context, maker Maker, duration time.Duration, data any) error
 
@@ -623,12 +626,16 @@ func (s *cacheQuery) RangeRandomDuration(baseDuration time.Duration, minValue in
 	return s.cache.RangeRandomDuration(baseDuration, minValue, maxValue)
 }
 
-func (s *cacheQuery) newCacheMaker(script *SQL) CacheMaker {
+func (s *cacheQuery) newCacheMaker(script Maker) CacheMaker {
 	cache := s.cache.Maker(script)
 	if s.cacheKey != nil {
 		cache.UseCacheKey(s.cacheKey)
 	}
 	return cache
+}
+
+func (s *cacheQuery) Del(ctx context.Context, maker Maker) error {
+	return s.newCacheMaker(maker).Del(ctx)
 }
 
 func (s *cacheQuery) cacheQuery(
@@ -642,19 +649,15 @@ func (s *cacheQuery) cacheQuery(
 	if maker == nil {
 		return ErrInvalidMaker
 	}
-
 	script := maker.ToSQL()
 	if script == nil || script.IsEmpty() {
 		return ErrEmptyScript
 	}
-
 	// No caching is used in transactions.
 	if s.way.IsInTransaction() {
 		return query(ctx, script)
 	}
-
 	cache := s.newCacheMaker(script)
-
 	// Query cached data.
 	err := cacheGet(ctx, cache)
 	if err != nil {
@@ -664,18 +667,15 @@ func (s *cacheQuery) cacheQuery(
 	} else {
 		return nil
 	}
-
 	// Get the key corresponding to the cached data.
 	key, err := cache.GetCacheKey()
 	if err != nil {
 		return err
 	}
-
 	// Acquire the mutex using the cache key.
 	mutex := s.multiMutex.Get(key)
 	mutex.Lock()
 	defer mutex.Unlock()
-
 	// Check the cache again to see if there is any data.
 	err = cacheGet(ctx, cache)
 	if err != nil {
@@ -685,7 +685,6 @@ func (s *cacheQuery) cacheQuery(
 	} else {
 		return nil
 	}
-
 	// Query data from the database.
 	err = query(ctx, script)
 	if err != nil {
