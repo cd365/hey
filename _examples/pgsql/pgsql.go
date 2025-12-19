@@ -122,6 +122,8 @@ func Main() {
 	WayMulti()
 
 	Cache()
+
+	CacheQuery()
 }
 
 /* The following structured code can all be generated through code generation. */
@@ -2021,5 +2023,111 @@ func Cache() {
 			break
 		}
 		log.Printf("Get cache query data: %03d %#v\n", i, data)
+	}
+}
+
+var cacheQueryInstance hey.CacheQuery
+
+func CacheQuery() {
+	if cacheQueryInstance == nil {
+		cacheQueryInstance = hey.NewCacheQuery(cache, multiMutex, way)
+	}
+	ctx := context.Background()
+	query1 := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
+		f.GreaterThan(employee.Id, 0)
+	}).Desc(employee.SerialNum).Limit(1).Offset(100)
+	first1 := &Employee{}
+	script := query1.ToSelect()
+	err := cacheQueryInstance.Scan(ctx, script, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5), first1)
+	if err != nil {
+		if !errors.Is(err, hey.ErrNoRows) {
+			log.Fatal(err.Error())
+		}
+		log.Println("data is not found")
+	} else {
+		log.Printf("%#v\n", first1)
+	}
+
+	query1.Offset(0)
+	script = query1.ToSelect()
+	for i := range 10 {
+		err = cacheQueryInstance.Scan(ctx, script, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5), first1)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		if i == 7 {
+			err = cacheQueryInstance.Del(ctx, script)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+		}
+		log.Printf("%02d %#v\n", i, first1)
+	}
+
+	version := ""
+	query2 := way.Table(nil).Select(hey.FuncSQL("VERSION"))
+	script = query2.ToSelect()
+	for range 3 {
+		version, err = cacheQueryInstance.ScanString(ctx, script, time.Second)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println("version:", version)
+	}
+
+	count := int64(0)
+	query3 := way.Table(EMPLOYEE)
+	script = query3.ToCount()
+	for range 3 {
+		count, err = cacheQueryInstance.ScanInt(ctx, script, time.Second)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println("count:", count)
+	}
+
+	exists := false
+	query4 := way.Table(EMPLOYEE)
+	script = query4.ToExists()
+	for range 3 {
+		exists, err = cacheQueryInstance.ScanBool(ctx, script, time.Second)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println("exists:", exists)
+	}
+
+	salary := float64(0)
+	query5 := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
+		f.GreaterThan(employee.Id, 10000)
+	}).Asc(employee.Id).Limit(1).Select(hey.Coalesce(salary, 0))
+	script = query5.ToSelect()
+	for i := range 3 {
+		salary, err = cacheQueryInstance.ScanFloat(ctx, script, time.Second)
+		if err != nil {
+			if !errors.Is(err, hey.ErrNoRows) {
+				log.Fatal(err.Error())
+			}
+			log.Printf("%02d select employee.salary data is not found, error is: %s\n", i, err.Error())
+			continue
+		}
+		log.Printf("%02d salary: %f\n", i, salary)
+	}
+
+	name := ""
+	query6 := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
+		f.GreaterThan(employee.Id, 10000)
+	}).Asc(employee.Id).Limit(1).Select(employee.Name)
+	script = query6.ToSelect()
+	for i := range 3 {
+		name, err = cacheQueryInstance.ScanString(ctx, script, time.Second)
+		if err != nil {
+			if !errors.Is(err, hey.ErrNoRows) {
+				log.Fatal(err.Error())
+			}
+			log.Printf("%02d select employee.name data is not found, error is: %s\n", i, err.Error())
+			continue
+		}
+		log.Printf("%02d name: %s\n", i, name)
 	}
 }
