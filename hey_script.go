@@ -1011,7 +1011,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 	switch kind2 {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64,
+		reflect.Bool, reflect.Float32, reflect.Float64,
 		reflect.String:
 		isSimple = true
 	case reflect.Struct:
