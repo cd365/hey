@@ -691,7 +691,11 @@ func (s *cacheQuery) cacheQuery(
 	if err != nil {
 		if errors.Is(err, ErrNoRows) {
 			// Cache even if there is no data in the database.
-			return cacheSet(ctx, cache, duration)
+			result := cacheSet(ctx, cache, duration)
+			if result != nil {
+				return result
+			}
+			return err
 		}
 		return err
 	}
@@ -727,9 +731,10 @@ func (s *cacheQuery) ScanString(ctx context.Context, maker Maker, duration time.
 			if err != nil {
 				return err
 			}
-			if len(tmp) > 0 {
-				result = tmp[0]
+			if len(tmp) == 0 {
+				return ErrNoRows
 			}
+			result = tmp[0]
 			return nil
 		},
 		func(ctx context.Context, cache CacheMaker) error {
@@ -754,9 +759,10 @@ func (s *cacheQuery) ScanFloat(ctx context.Context, maker Maker, duration time.D
 			if err != nil {
 				return err
 			}
-			if len(tmp) > 0 {
-				result = tmp[0]
+			if len(tmp) == 0 {
+				return ErrNoRows
 			}
+			result = tmp[0]
 			return nil
 		},
 		func(ctx context.Context, cache CacheMaker) error {
@@ -781,9 +787,10 @@ func (s *cacheQuery) ScanInt(ctx context.Context, maker Maker, duration time.Dur
 			if err != nil {
 				return err
 			}
-			if len(tmp) > 0 {
-				result = tmp[0]
+			if len(tmp) == 0 {
+				return ErrNoRows
 			}
+			result = tmp[0]
 			return nil
 		},
 		func(ctx context.Context, cache CacheMaker) error {
@@ -808,9 +815,10 @@ func (s *cacheQuery) ScanBool(ctx context.Context, maker Maker, duration time.Du
 			if err != nil {
 				return err
 			}
-			if len(tmp) > 0 {
-				result = tmp[0]
+			if len(tmp) == 0 {
+				return ErrNoRows
 			}
+			result = tmp[0]
 			return nil
 		},
 		func(ctx context.Context, cache CacheMaker) error {
