@@ -33,7 +33,7 @@ type Cacher interface {
 	// Key Customize cache key processing before reading and writing cache.
 	Key(key string) string
 
-	// Get Reading data from the cache.
+	// Get Reading data from the cache, if the data does not exist, an ErrNoDataInCache error should be returned.
 	Get(ctx context.Context, key string) ([]byte, error)
 
 	// Set Writing data to the cache, a cache duration of 0 or a negative number indicates a permanent cache.
