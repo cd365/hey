@@ -42,6 +42,9 @@ type Cacher interface {
 	// Del Deleting data from the cache.
 	Del(ctx context.Context, key string) error
 
+	// Exists Is there data in the cache?
+	Exists(ctx context.Context, key string) (bool, error)
+
 	// Marshal Serialize cache data.
 	Marshal(v any) ([]byte, error)
 
@@ -93,6 +96,12 @@ func (s *Cache) Set(ctx context.Context, key string, value []byte, duration time
 func (s *Cache) Del(ctx context.Context, key string) error {
 	cacheKey := s.cacher.Key(key)
 	return s.cacher.Del(ctx, cacheKey)
+}
+
+// Exists Is there data in the cache?
+func (s *Cache) Exists(ctx context.Context, key string) (bool, error) {
+	cacheKey := s.cacher.Key(key)
+	return s.cacher.Exists(ctx, cacheKey)
 }
 
 // GetUnmarshal Read cached data from the cache and deserialize cached data.
@@ -207,6 +216,9 @@ type CacheMaker interface {
 
 	// Del Delete data in the cache based on cache key.
 	Del(ctx context.Context) error
+
+	// Exists Is there data in the cache?
+	Exists(ctx context.Context) (bool, error)
 
 	// GetUnmarshal Query data and unmarshal data.
 	GetUnmarshal(ctx context.Context, value any) error
@@ -351,6 +363,15 @@ func (s *cacheMaker) Del(ctx context.Context) error {
 		return err
 	}
 	return s.cache.Del(ctx, key)
+}
+
+// Exists Is there data in the cache?
+func (s *cacheMaker) Exists(ctx context.Context) (bool, error) {
+	key, err := s.GetCacheKey()
+	if err != nil {
+		return false, err
+	}
+	return s.cache.Exists(ctx, key)
 }
 
 // GetUnmarshal Get cached value and deserialize.
@@ -570,6 +591,9 @@ type CacheQuery interface {
 	// Del Delete data from cache by maker.
 	Del(ctx context.Context, maker Maker) error
 
+	// Exists Is there data in the cache?
+	Exists(ctx context.Context, maker Maker) (bool, error)
+
 	// Scan Use cache to query data.
 	Scan(ctx context.Context, maker Maker, duration time.Duration, data any) error
 
@@ -636,6 +660,10 @@ func (s *cacheQuery) newCacheMaker(script Maker) CacheMaker {
 
 func (s *cacheQuery) Del(ctx context.Context, maker Maker) error {
 	return s.newCacheMaker(maker).Del(ctx)
+}
+
+func (s *cacheQuery) Exists(ctx context.Context, maker Maker) (bool, error) {
+	return s.newCacheMaker(maker).Exists(ctx)
 }
 
 func (s *cacheQuery) cacheQuery(
