@@ -220,31 +220,6 @@ func (s *Table) RightJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, ass
 	})
 }
 
-// WINDOW Statements:
-// WINDOW alias1 AS ( PARTITION BY column1, column2 ORDER BY column3 DESC, column4 DESC ), alias2 AS ( PARTITION BY column5 ) ...
-
-// WindowFunc Custom window statements.
-func (s *Table) WindowFunc(fc func(w SQLWindow)) *Table {
-	if fc == nil {
-		return s
-	}
-	if s.window == nil {
-		s.window = newSqlWindow(s.way)
-	}
-	fc(s.window)
-	return s
-}
-
-// Window Add a window expression.
-func (s *Table) Window(alias string, maker func(o SQLWindowFuncOver)) *Table {
-	if alias == cst.Empty || maker == nil {
-		return s
-	}
-	return s.WindowFunc(func(w SQLWindow) {
-		w.Set(alias, maker)
-	})
-}
-
 // WhereFunc Set WHERE through func.
 func (s *Table) WhereFunc(fc func(f Filter)) *Table {
 	if s.where == nil {
@@ -288,6 +263,31 @@ func (s *Table) HavingFunc(fc func(h Filter)) *Table {
 func (s *Table) Having(filters ...Filter) *Table {
 	return s.HavingFunc(func(f Filter) {
 		f.ToEmpty().Use(filters...)
+	})
+}
+
+// WINDOW Statements:
+// WINDOW alias1 AS ( PARTITION BY column1, column2 ORDER BY column3 DESC, column4 DESC ), alias2 AS ( PARTITION BY column5 ) ...
+
+// WindowFunc Custom window statements.
+func (s *Table) WindowFunc(fc func(w SQLWindow)) *Table {
+	if fc == nil {
+		return s
+	}
+	if s.window == nil {
+		s.window = newSqlWindow(s.way)
+	}
+	fc(s.window)
+	return s
+}
+
+// Window Add a window expression.
+func (s *Table) Window(alias string, maker func(o SQLWindowFuncOver)) *Table {
+	if alias == cst.Empty || maker == nil {
+		return s
+	}
+	return s.WindowFunc(func(w SQLWindow) {
+		w.Set(alias, maker)
 	})
 }
 
