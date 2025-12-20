@@ -1302,6 +1302,13 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		return columns, values
 	}
 
+	if tmp, ok := object.(Map); ok {
+		if tmp == nil || tmp.IsEmpty() {
+			return columns, values
+		}
+		return s.Insert(tmp.Map(), tag, except, allow)
+	}
+
 	s.setExcept(except)
 
 	allowed := len(allow) > 0
@@ -1452,6 +1459,13 @@ func ObjectInsert(object any, tag string, except []string, allow []string) (colu
 func ObjectModify(object any, tag string, except ...string) (columns []string, values []any) {
 	if object == nil {
 		return columns, values
+	}
+
+	if tmp, ok := object.(Map); ok {
+		if tmp == nil || tmp.IsEmpty() {
+			return
+		}
+		return ObjectModify(tmp.Map(), tag, except...)
 	}
 
 	excepted := make(map[string]*struct{}, 1<<3)
