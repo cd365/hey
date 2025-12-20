@@ -1137,3 +1137,77 @@ type W interface {
 	// W Use the non-nil value *Way.
 	W(way *Way)
 }
+
+// Map Store key-value to the map.
+type Map interface {
+	// Get Getting the value corresponding to a key from the map.
+	Get(key string) (value any, ok bool)
+
+	// Set Storing key-value to the map.
+	Set(key string, value any) Map
+
+	// Has Checking if the key exists in the map.
+	Has(key string) bool
+
+	// Del Deleting map key.
+	Del(key string) Map
+
+	// Map Getting the map value.
+	Map() map[string]any
+
+	// Len Getting the map length.
+	Len() int
+
+	// IsEmpty Is the map empty?
+	IsEmpty() bool
+
+	// ToEmpty Setting the map to empty value.
+	ToEmpty() Map
+}
+
+type myMap struct {
+	m map[string]any
+}
+
+func (s *myMap) Get(key string) (value any, ok bool) {
+	value, ok = s.m[key]
+	return
+}
+
+func (s *myMap) Set(key string, value any) Map {
+	s.m[key] = value
+	return s
+}
+
+func (s *myMap) Has(key string) bool {
+	_, has := s.m[key]
+	return has
+}
+
+func (s *myMap) Del(key string) Map {
+	delete(s.m, key)
+	return s
+}
+
+func (s *myMap) Map() map[string]any {
+	return s.m
+}
+
+func (s *myMap) Len() int {
+	return len(s.m)
+}
+
+func (s *myMap) IsEmpty() bool {
+	return s.Len() == 0
+}
+
+func (s *myMap) ToEmpty() Map {
+	s.m = make(map[string]any, 1<<1)
+	return s
+}
+
+func NewMap() Map {
+	return &myMap{
+		m: make(map[string]any, 1<<1),
+	}
+}
