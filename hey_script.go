@@ -937,10 +937,12 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				refValue.Set(reflect.New(refValue.Type().Elem()))
 			}
 		}
-		for rows.Next() {
+		if rows.Next() {
 			if err := rows.Scan(result); err != nil {
 				return err
 			}
+		} else {
+			return ErrNoRows
 		}
 		return nil
 	}
