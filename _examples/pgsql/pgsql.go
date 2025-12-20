@@ -1945,7 +1945,7 @@ func (s *myCache) Del(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *myCache) Exists(ctx context.Context, key string) (bool, error) {
+func (s *myCache) Has(ctx context.Context, key string) (bool, error) {
 	if _, err := s.Get(ctx, key); err != nil {
 		if errors.Is(err, hey.ErrNoDataInCache) {
 			return false, nil
