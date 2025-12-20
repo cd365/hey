@@ -594,20 +594,9 @@ type CacheQuery interface {
 	// Exists Is there data in the cache?
 	Exists(ctx context.Context, maker Maker) (bool, error)
 
-	// Scan Use cache to query data.
-	Scan(ctx context.Context, maker Maker, duration time.Duration, data any) error
-
-	// ScanString Use cache to query data, query a single value whose type is string.
-	ScanString(ctx context.Context, maker Maker, duration time.Duration) (result string, err error)
-
-	// ScanFloat Use cache to query data, query a single value whose type is float64.
-	ScanFloat(ctx context.Context, maker Maker, duration time.Duration) (result float64, err error)
-
-	// ScanInt Use cache to query data, query a single value whose type is int64.
-	ScanInt(ctx context.Context, maker Maker, duration time.Duration) (result int64, err error)
-
-	// ScanBool Use cache to query data, query a single value whose type is bool.
-	ScanBool(ctx context.Context, maker Maker, duration time.Duration) (result bool, err error)
+	// Get First, query the cache for data; if the data is not found in the cache, then query the database.
+	// It is strongly recommended to use slicing to cache data to avoid getting an ErrNoRows error when querying a single data record.
+	Get(ctx context.Context, maker Maker, data any, duration time.Duration) error
 }
 
 func NewCacheQuery(cache *Cache, multiMutex MultiMutex, way *Way) CacheQuery {
@@ -666,7 +655,7 @@ func (s *cacheQuery) Exists(ctx context.Context, maker Maker) (bool, error) {
 	return s.newCacheMaker(maker).Exists(ctx)
 }
 
-func (s *cacheQuery) cacheQuery(
+func (s *cacheQuery) get(
 	ctx context.Context,
 	maker Maker,
 	duration time.Duration,
@@ -730,8 +719,8 @@ func (s *cacheQuery) cacheQuery(
 	return cacheSet(ctx, cache, duration)
 }
 
-func (s *cacheQuery) Scan(ctx context.Context, maker Maker, duration time.Duration, data any) error {
-	return s.cacheQuery(
+func (s *cacheQuery) Get(ctx context.Context, maker Maker, data any, duration time.Duration) error {
+	return s.get(
 		ctx,
 		maker,
 		duration,
@@ -745,116 +734,4 @@ func (s *cacheQuery) Scan(ctx context.Context, maker Maker, duration time.Durati
 			return cache.MarshalSet(ctx, data, duration)
 		},
 	)
-}
-
-func (s *cacheQuery) ScanString(ctx context.Context, maker Maker, duration time.Duration) (result string, err error) {
-	err = s.cacheQuery(
-		ctx,
-		maker,
-		duration,
-		func(ctx context.Context, script *SQL) error {
-			tmp := make([]string, 0, 1)
-			err = s.way.Scan(ctx, script, &tmp)
-			if err != nil {
-				return err
-			}
-			if len(tmp) == 0 {
-				return ErrNoRows
-			}
-			result = tmp[0]
-			return nil
-		},
-		func(ctx context.Context, cache CacheMaker) error {
-			result, err = cache.GetString(ctx)
-			return err
-		},
-		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
-			return cache.SetString(ctx, result, duration)
-		},
-	)
-	return
-}
-
-func (s *cacheQuery) ScanFloat(ctx context.Context, maker Maker, duration time.Duration) (result float64, err error) {
-	err = s.cacheQuery(
-		ctx,
-		maker,
-		duration,
-		func(ctx context.Context, script *SQL) error {
-			tmp := make([]float64, 0, 1)
-			err = s.way.Scan(ctx, script, &tmp)
-			if err != nil {
-				return err
-			}
-			if len(tmp) == 0 {
-				return ErrNoRows
-			}
-			result = tmp[0]
-			return nil
-		},
-		func(ctx context.Context, cache CacheMaker) error {
-			result, err = cache.GetFloat(ctx)
-			return err
-		},
-		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
-			return cache.SetFloat(ctx, result, duration)
-		},
-	)
-	return
-}
-
-func (s *cacheQuery) ScanInt(ctx context.Context, maker Maker, duration time.Duration) (result int64, err error) {
-	err = s.cacheQuery(
-		ctx,
-		maker,
-		duration,
-		func(ctx context.Context, script *SQL) error {
-			tmp := make([]int64, 0, 1)
-			err = s.way.Scan(ctx, script, &tmp)
-			if err != nil {
-				return err
-			}
-			if len(tmp) == 0 {
-				return ErrNoRows
-			}
-			result = tmp[0]
-			return nil
-		},
-		func(ctx context.Context, cache CacheMaker) error {
-			result, err = cache.GetInt(ctx)
-			return err
-		},
-		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
-			return cache.SetInt(ctx, result, duration)
-		},
-	)
-	return
-}
-
-func (s *cacheQuery) ScanBool(ctx context.Context, maker Maker, duration time.Duration) (result bool, err error) {
-	err = s.cacheQuery(
-		ctx,
-		maker,
-		duration,
-		func(ctx context.Context, script *SQL) error {
-			tmp := make([]bool, 0, 1)
-			err = s.way.Scan(ctx, script, &tmp)
-			if err != nil {
-				return err
-			}
-			if len(tmp) == 0 {
-				return ErrNoRows
-			}
-			result = tmp[0]
-			return nil
-		},
-		func(ctx context.Context, cache CacheMaker) error {
-			result, err = cache.GetBool(ctx)
-			return err
-		},
-		func(ctx context.Context, cache CacheMaker, duration time.Duration) error {
-			return cache.SetBool(ctx, result, duration)
-		},
-	)
-	return
 }

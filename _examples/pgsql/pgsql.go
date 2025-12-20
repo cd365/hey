@@ -2043,12 +2043,16 @@ func CacheQuery() {
 		cacheQueryInstance = hey.NewCacheQuery(cache, multiMutex, way)
 	}
 	ctx := context.Background()
-	query1 := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
-		f.GreaterThan(employee.Id, 0)
-	}).Desc(employee.SerialNum).Limit(1).Offset(100)
+	query1 := way.Table(EMPLOYEE).
+		WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(employee.Id, 0)
+		}).
+		Desc(employee.SerialNum).
+		Limit(1).
+		Offset(100)
 	first1 := &Employee{}
 	script := query1.ToSelect()
-	err := cacheQueryInstance.Scan(ctx, script, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5), first1)
+	err := cacheQueryInstance.Get(ctx, script, first1, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5))
 	if err != nil {
 		if !errors.Is(err, hey.ErrNoRows) {
 			log.Fatal(err.Error())
@@ -2061,7 +2065,7 @@ func CacheQuery() {
 	query1.Offset(0)
 	script = query1.ToSelect()
 	for i := range 10 {
-		err = cacheQueryInstance.Scan(ctx, script, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5), first1)
+		err = cacheQueryInstance.Get(ctx, script, first1, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5))
 		if err != nil {
 			log.Fatal(err.Error())
 		}
@@ -2075,10 +2079,11 @@ func CacheQuery() {
 	}
 
 	version := ""
-	query2 := way.Table(nil).Select(hey.FuncSQL("VERSION"))
+	query2 := way.Table(nil).
+		Select(hey.FuncSQL("VERSION"))
 	script = query2.ToSelect()
 	for range 3 {
-		version, err = cacheQueryInstance.ScanString(ctx, script, time.Second)
+		err = cacheQueryInstance.Get(ctx, script, &version, time.Second)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
@@ -2089,7 +2094,7 @@ func CacheQuery() {
 	query3 := way.Table(EMPLOYEE)
 	script = query3.ToCount()
 	for range 3 {
-		count, err = cacheQueryInstance.ScanInt(ctx, script, time.Second)
+		err = cacheQueryInstance.Get(ctx, script, &count, time.Second)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
@@ -2100,7 +2105,7 @@ func CacheQuery() {
 	query4 := way.Table(EMPLOYEE)
 	script = query4.ToExists()
 	for range 3 {
-		exists, err = cacheQueryInstance.ScanBool(ctx, script, time.Second)
+		err = cacheQueryInstance.Get(ctx, script, &exists, time.Second)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
@@ -2108,34 +2113,42 @@ func CacheQuery() {
 	}
 
 	salary := float64(0)
-	query5 := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
-		f.GreaterThan(employee.Id, 10000)
-	}).Asc(employee.Id).Limit(1).Select(hey.Coalesce(salary, 0))
+	query5 := way.Table(EMPLOYEE).
+		WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(employee.Id, 10000)
+		}).
+		Asc(employee.Id).
+		Limit(1).
+		Select(hey.Coalesce(employee.Salary, 0))
 	script = query5.ToSelect()
 	for i := range 3 {
-		salary, err = cacheQueryInstance.ScanFloat(ctx, script, time.Second)
+		err = cacheQueryInstance.Get(ctx, script, &salary, time.Second)
 		if err != nil {
 			if !errors.Is(err, hey.ErrNoRows) {
 				log.Fatal(err.Error())
 			}
-			log.Printf("%02d select employee.salary data is not found, error is: %s\n", i, err.Error())
+			log.Printf("%02d select employee.salary data is not found\n", i)
 			continue
 		}
 		log.Printf("%02d salary: %f\n", i, salary)
 	}
 
 	name := ""
-	query6 := way.Table(EMPLOYEE).WhereFunc(func(f hey.Filter) {
-		f.GreaterThan(employee.Id, 10000)
-	}).Asc(employee.Id).Limit(1).Select(employee.Name)
+	query6 := way.Table(EMPLOYEE).
+		WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(employee.Id, 10000)
+		}).
+		Asc(employee.Id).
+		Limit(1).
+		Select(employee.Name)
 	script = query6.ToSelect()
 	for i := range 3 {
-		name, err = cacheQueryInstance.ScanString(ctx, script, time.Second)
+		err = cacheQueryInstance.Get(ctx, script, &name, time.Second)
 		if err != nil {
 			if !errors.Is(err, hey.ErrNoRows) {
 				log.Fatal(err.Error())
 			}
-			log.Printf("%02d select employee.name data is not found, error is: %s\n", i, err.Error())
+			log.Printf("%02d select employee.name data is not found\n", i)
 			continue
 		}
 		log.Printf("%02d name: %s\n", i, name)
