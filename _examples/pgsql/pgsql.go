@@ -904,6 +904,22 @@ func Select() {
 		}
 	}
 
+	// Query single column multiple rows.
+	{
+		tmp.ToEmpty()
+		ctx := context.Background()
+		ids := make([]int64, 0)
+		err := tmp.Table(EMPLOYEE).
+			Select(employee.Id).
+			Desc(employee.Id).
+			Limit(10).
+			Scan(ctx, &ids)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Printf("%#v\n", ids)
+	}
+
 	// More ways to call ...
 }
 
