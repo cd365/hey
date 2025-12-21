@@ -461,8 +461,6 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 	next = append(next, compare)
 	args := ([]any)(nil)
 	switch v := value.(type) {
-	case *SQL:
-		next = append(next, ParcelSQL(v))
 	case Maker:
 		if v == nil {
 			return s
@@ -471,7 +469,9 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 		if tmp == nil || tmp.IsEmpty() {
 			return s
 		}
-		next = append(next, ParcelSQL(tmp))
+		elem := tmp.Clone()
+		elem.Prepare = ParcelPrepare(elem.Prepare)
+		next = append(next, elem)
 	default:
 		if value = filterUsingValue(value); value == nil {
 			return s
