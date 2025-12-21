@@ -2037,6 +2037,38 @@ func cacheQuery() (data *Employee, err error) {
 	}
 	rd := hey.NewRangeRandomDuration(time.Millisecond, 10, 30)
 	err = cacheMaker.MarshalSet(ctx, data, rd.Get())
+	if err != nil {
+		return
+	}
+
+	// for test
+	{
+		cache.SetCacher(cache.GetCacher())
+		key := "test001"
+		has := false
+		has, err = cache.Has(ctx, key)
+		if err != nil {
+			return
+		}
+		log.Printf("cache test001: %t\b", has)
+
+		_, _ = cache.GetString(ctx, key)
+		_ = cache.SetString(ctx, key, "", time.Second)
+		_, _ = cache.GetString(ctx, key)
+
+		_, _ = cache.GetFloat(ctx, key)
+		_ = cache.SetFloat(ctx, key, 0.0, time.Second)
+		_, _ = cache.GetFloat(ctx, key)
+
+		_, _ = cache.GetInt(ctx, key)
+		_ = cache.SetInt(ctx, key, 0, time.Second)
+		_, _ = cache.GetInt(ctx, key)
+
+		_, _ = cache.GetBool(ctx, key)
+		_ = cache.SetBool(ctx, key, false, time.Second)
+		_, _ = cache.GetBool(ctx, key)
+	}
+
 	return
 }
 
@@ -2168,5 +2200,16 @@ func CacheQuery() {
 			continue
 		}
 		log.Printf("%02d name: %s\n", i, name)
+	}
+
+	// for test
+	{
+		cacheMaker := cache.Maker(script)
+		_, _ = cacheMaker.Has(ctx)
+		_, _ = cacheMaker.Get(ctx)
+		_, _ = cacheMaker.GetString(ctx)
+		_ = cacheMaker.SetString(ctx, name, time.Second)
+		_ = cacheMaker.Set(ctx, nil, time.Second)
+		_, _ = cacheQueryInstance.Has(ctx, script)
 	}
 }
