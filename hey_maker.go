@@ -1845,11 +1845,11 @@ func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 		_, ok := dropArgs[k]
 		return ok
 	})
-	updateMap := AssocDiscard(s.updateMap, func(k string, v int) bool {
+	updateMap := MapDiscard(s.updateMap, func(k string, v int) bool {
 		_, ok := dropExpr[k]
 		return ok
 	})
-	updateExists := AssocDiscard(s.exists, func(k string, v string) bool {
+	updateExists := MapDiscard(s.exists, func(k string, v string) bool {
 		_, ok := dropExpr[v]
 		return ok
 	})
@@ -2403,7 +2403,7 @@ func (s *sqlInsert) GetColumn(excludes ...string) []string {
 	if lengths == 0 {
 		return columns
 	}
-	discard := ArrayToAssoc(excludes, func(v string) (string, *struct{}) { return v, nil })
+	discard := ArrayToMap(excludes, func(v string) (string, *struct{}) { return v, nil })
 	columns = ArrayDiscard(columns, func(k int, v string) bool {
 		_, ok := discard[v]
 		return ok

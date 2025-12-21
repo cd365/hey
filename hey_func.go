@@ -40,16 +40,6 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 	return result
 }
 
-// MergeAssoc Merge maps.
-func MergeAssoc[K comparable, V any](values ...map[K]V) map[K]V {
-	length := len(values)
-	result := make(map[K]V, 8)
-	for i := range length {
-		maps.Copy(result, values[i])
-	}
-	return result
-}
-
 // MergeArray Merge slices.
 func MergeArray[V any](values ...[]V) []V {
 	length := len(values)
@@ -64,21 +54,18 @@ func MergeArray[V any](values ...[]V) []V {
 	return result
 }
 
-// AssocToAssoc Create a map based on another map.
-func AssocToAssoc[K comparable, V any, X comparable, Y any](values map[K]V, fc func(k K, v V) (X, Y)) map[X]Y {
-	if fc == nil {
-		return nil
-	}
-	result := make(map[X]Y, len(values))
-	for key, value := range values {
-		k, v := fc(key, value)
-		result[k] = v
+// MergeMap Merge maps.
+func MergeMap[K comparable, V any](values ...map[K]V) map[K]V {
+	length := len(values)
+	result := make(map[K]V, 8)
+	for i := range length {
+		maps.Copy(result, values[i])
 	}
 	return result
 }
 
-// AssocToArray Create a slice from a map.
-func AssocToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) W) []W {
+// MapToArray Create a slice from a map.
+func MapToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) W) []W {
 	if fc == nil {
 		return nil
 	}
@@ -90,15 +77,14 @@ func AssocToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) 
 	return result
 }
 
-// ArrayToAssoc Create a map from a slice.
-func ArrayToAssoc[V any, K comparable, W any](values []V, fc func(v V) (K, W)) map[K]W {
+// MapToMap Create a map based on another map.
+func MapToMap[K comparable, V any, X comparable, Y any](values map[K]V, fc func(k K, v V) (X, Y)) map[X]Y {
 	if fc == nil {
 		return nil
 	}
-	length := len(values)
-	result := make(map[K]W, length)
-	for i := range length {
-		k, v := fc(values[i])
+	result := make(map[X]Y, len(values))
+	for key, value := range values {
+		k, v := fc(key, value)
 		result[k] = v
 	}
 	return result
@@ -116,16 +102,16 @@ func ArrayToArray[V any, W any](values []V, fc func(k int, v V) W) []W {
 	return result
 }
 
-// AssocDiscard Delete some elements from the map.
-func AssocDiscard[K comparable, V any](values map[K]V, discard func(k K, v V) bool) map[K]V {
-	if values == nil || discard == nil {
-		return values
+// ArrayToMap Create a map from a slice.
+func ArrayToMap[V any, K comparable, W any](values []V, fc func(v V) (K, W)) map[K]W {
+	if fc == nil {
+		return nil
 	}
-	result := make(map[K]V, len(values))
-	for index, value := range values {
-		if !discard(index, value) {
-			result[index] = value
-		}
+	length := len(values)
+	result := make(map[K]W, length)
+	for i := range length {
+		k, v := fc(values[i])
+		result[k] = v
 	}
 	return result
 }
@@ -139,6 +125,20 @@ func ArrayDiscard[V any](values []V, discard func(k int, v V) bool) []V {
 	for index, value := range values {
 		if !discard(index, value) {
 			result = append(result, value)
+		}
+	}
+	return result
+}
+
+// MapDiscard Delete some elements from the map.
+func MapDiscard[K comparable, V any](values map[K]V, discard func(k K, v V) bool) map[K]V {
+	if values == nil || discard == nil {
+		return values
+	}
+	result := make(map[K]V, len(values))
+	for index, value := range values {
+		if !discard(index, value) {
+			result[index] = value
 		}
 	}
 	return result
