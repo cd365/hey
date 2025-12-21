@@ -292,8 +292,8 @@ func Delete() {
 	{
 		script := way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
 			f.In(department.Id, 1, 2, 3)
-		}).ToDelete()
-		way.Debug(script)
+		})
+		way.Debug(script.ToDelete())
 	}
 
 	// Example 3: Combination conditions of multiple columns.
@@ -305,8 +305,8 @@ func Delete() {
 					g.Equal(department.DeletedAt, 0)
 				})
 			})
-		}).ToDelete()
-		way.Debug(script)
+		})
+		way.Debug(script.ToDelete())
 	}
 
 	// Example 4: Deletion of combined conditions with multiple columns and multiple logic.
@@ -322,8 +322,8 @@ func Delete() {
 					f.GreaterThan(department.DeletedAt, 0)
 				}))
 			})
-		}).ToDelete()
-		way.Debug(script)
+		})
+		way.Debug(script.ToDelete())
 	}
 
 	// Delete example data
@@ -350,8 +350,8 @@ func Insert() {
 		script := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
 			i.ColumnValue(department.Name, "Sales Department")
 			i.ColumnValue(department.SerialNum, 1)
-		}).ToInsert()
-		way.Debug(script)
+		})
+		way.Debug(script.ToInsert())
 	}
 
 	// Example 2: Use default values and set SQL statement comments.
@@ -386,8 +386,8 @@ func Insert() {
 			i.Default(department.UpdatedAt, timestamp)
 			// This deletes columns that have already been added.
 			i.Remove(department.DeletedAt)
-		}).ToInsert()
-		way.Debug(script)
+		})
+		way.Debug(script.ToInsert())
 	}
 
 	// Example 4: Use map insertion.
@@ -400,8 +400,8 @@ func Insert() {
 				department.CreatedAt: timestamp,
 				department.UpdatedAt: timestamp,
 			})
-		}).ToInsert()
-		way.Debug(script)
+		})
+		way.Debug(script.ToInsert())
 	}
 
 	// Example 5: Batch insertion using map slices.
@@ -422,8 +422,8 @@ func Insert() {
 					department.UpdatedAt: timestamp,
 				},
 			})
-		}).ToInsert()
-		way.Debug(script)
+		})
+		way.Debug(script.ToInsert())
 	}
 
 	// Example 6: Inserting a structure.
@@ -438,8 +438,8 @@ func Insert() {
 				CreatedAt: timestamp,
 				UpdatedAt: timestamp,
 			})
-		}).ToInsert()
-		way.Debug(script)
+		})
+		way.Debug(script.ToInsert())
 	}
 
 	// Example 7: Batch insertion using structure slices.
@@ -470,8 +470,8 @@ func Insert() {
 					UpdatedAt: timestamp,
 				},
 			})
-		}).ToInsert()
-		way.Debug(script)
+		})
+		way.Debug(script.ToInsert())
 	}
 
 	// Example 8: Large amounts of data inserted in batches.
@@ -1177,7 +1177,7 @@ func Filter() {
 		queryId := way.Table(EMPLOYEE).Select(employee.Id).Desc(employee.Id).Limit(10)
 		queryAge := way.Table(EMPLOYEE).Select(employee.Age).Group(employee.Age).HavingFunc(func(h hey.Filter) {
 			h.Between(employee.Age, 18, 25)
-		}).Desc(employee.Id).Limit(10)
+		})
 		f.ToEmpty().AllQuantifier(func(q hey.Quantifier) {
 			q.SetQuantifier(q.GetQuantifier())
 			q.Equal(employee.Age, queryAge)
