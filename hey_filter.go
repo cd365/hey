@@ -539,15 +539,33 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 	}
 	next = append(next, cst.BETWEEN)
 	args := make([]any, 0, 2)
-	if value, ok := start.(*SQL); ok {
-		next = append(next, ParcelSQL(value.Clone()))
+	if value, ok := start.(Maker); ok {
+		if value == nil {
+			return s
+		}
+		script := value.ToSQL()
+		if script == nil || script.IsEmpty() {
+			return s
+		}
+		tmp := script.Clone()
+		tmp.Prepare = ParcelPrepare(tmp.Prepare)
+		next = append(next, tmp)
 	} else {
 		next = append(next, cst.Placeholder)
 		args = append(args, start)
 	}
 	next = append(next, cst.AND)
-	if value, ok := end.(*SQL); ok {
-		next = append(next, ParcelSQL(value.Clone()))
+	if value, ok := start.(Maker); ok {
+		if value == nil {
+			return s
+		}
+		script := value.ToSQL()
+		if script == nil || script.IsEmpty() {
+			return s
+		}
+		tmp := script.Clone()
+		tmp.Prepare = ParcelPrepare(tmp.Prepare)
+		next = append(next, tmp)
 	} else {
 		next = append(next, cst.Placeholder)
 		args = append(args, end)
