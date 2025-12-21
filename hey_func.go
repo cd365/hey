@@ -174,11 +174,16 @@ func InValues[T any](values []T, fc func(tmp T) any) []any {
 	if length == 0 {
 		return nil
 	}
-	result := make([]any, length)
-	for index, tmp := range values {
-		result[index] = fc(tmp)
+	num := 0
+	result := make([]any, 0, length)
+	for _, value := range values {
+		elem := fc(value)
+		if elem != nil {
+			num++
+			result = append(result, elem)
+		}
 	}
-	return result
+	return result[:num]
 }
 
 // InGroupValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )
@@ -190,11 +195,16 @@ func InGroupValues[T any](values []T, fc func(tmp T) []any) [][]any {
 	if length == 0 {
 		return nil
 	}
-	result := make([][]any, length)
-	for index, tmp := range values {
-		result[index] = fc(tmp)
+	num := 0
+	result := make([][]any, 0, length)
+	for _, value := range values {
+		elem := fc(value)
+		if elem != nil {
+			num++
+			result = append(result, elem)
+		}
 	}
-	return result
+	return result[:num]
 }
 
 // ValuePascal Pascal case.
