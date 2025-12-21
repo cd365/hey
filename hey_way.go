@@ -1141,7 +1141,7 @@ type W interface {
 // Map Store key-value to the map.
 type Map interface {
 	// Get Getting the value corresponding to a key from the map.
-	Get(key string) (value any, ok bool)
+	Get(key string) (value any, has bool)
 
 	// Set Storing key-value to the map.
 	Set(key string, value any) Map
@@ -1169,8 +1169,8 @@ type myMap struct {
 	m map[string]any
 }
 
-func (s *myMap) Get(key string) (value any, ok bool) {
-	value, ok = s.m[key]
+func (s *myMap) Get(key string) (value any, has bool) {
+	value, has = s.m[key]
 	return
 }
 
