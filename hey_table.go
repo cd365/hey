@@ -602,7 +602,7 @@ func (s *Table) MapScan(ctx context.Context, adjusts ...AdjustColumnAnyValue) ([
 func (s *Table) Insert(ctx context.Context) (int64, error) {
 	script := s.ToInsert()
 	if script.IsEmpty() {
-		return 0, ErrEmptyScript
+		return 0, ErrEmptySqlStatement
 	}
 	if insert := s.insert; insert != nil {
 		if returning := insert.returning; returning != nil && returning.execute != nil {
@@ -619,7 +619,7 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 // Update Execute an UPDATE statement.
 func (s *Table) Update(ctx context.Context) (int64, error) {
 	if s.way.cfg.updateRequireWhere && (s.where == nil || s.where.IsEmpty()) {
-		return 0, ErrNoRowsAffected
+		return 0, ErrNoWhereCondition
 	}
 	return s.way.Execute(ctx, s.ToUpdate())
 }
@@ -627,7 +627,7 @@ func (s *Table) Update(ctx context.Context) (int64, error) {
 // Delete Execute a DELETE statement.
 func (s *Table) Delete(ctx context.Context) (int64, error) {
 	if s.way.cfg.deleteRequireWhere && (s.where == nil || s.where.IsEmpty()) {
-		return 0, ErrNoRowsAffected
+		return 0, ErrNoWhereCondition
 	}
 	return s.way.Execute(ctx, s.ToDelete())
 }

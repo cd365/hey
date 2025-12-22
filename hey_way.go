@@ -728,7 +728,7 @@ func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error)
 		return nil, ErrDatabaseIsNil
 	}
 	if query == cst.Empty {
-		return nil, ErrEmptyScript
+		return nil, ErrEmptySqlStatement
 	}
 	stmt = &Stmt{
 		way:     s,
@@ -752,7 +752,7 @@ func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error)
 func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) (err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		err = ErrEmptyScript
+		err = ErrEmptySqlStatement
 		return
 	}
 	var stmt *Stmt
@@ -780,7 +780,7 @@ func (s *Way) RowScan(dest ...any) func(row *sql.Row) error {
 func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) (err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		err = ErrEmptyScript
+		err = ErrEmptySqlStatement
 		return
 	}
 	var stmt *Stmt
@@ -869,7 +869,7 @@ func (s *Way) Exists(ctx context.Context, maker Maker) (bool, error) {
 func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		err = ErrEmptyScript
+		err = ErrEmptySqlStatement
 		return
 	}
 	var stmt *Stmt
@@ -890,7 +890,7 @@ func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err err
 func (s *Way) Execute(ctx context.Context, maker Maker) (affectedRows int64, err error) {
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		err = ErrEmptyScript
+		err = ErrEmptySqlStatement
 		return
 	}
 	var stmt *Stmt
@@ -934,7 +934,7 @@ func (s *Way) MultiExecute(ctx context.Context, makers []Maker) (affectedRows in
 // MultiStmtScan Executing a DQL statement multiple times using the same prepared statement.
 func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, results []any) (err error) {
 	if prepare == cst.Empty {
-		err = ErrEmptyScript
+		err = ErrEmptySqlStatement
 		return
 	}
 	var stmt *Stmt
@@ -963,7 +963,7 @@ func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, 
 // MultiStmtExecute Executing a DML statement multiple times using the same prepared statement.
 func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]any) (affectedRows int64, err error) {
 	if prepare == cst.Empty {
-		err = ErrEmptyScript
+		err = ErrEmptySqlStatement
 		return
 	}
 	var stmt *Stmt
@@ -1009,7 +1009,7 @@ func (s *Way) GroupMultiStmtScan(ctx context.Context, queries []Maker, results [
 			continue
 		}
 		if script.IsEmpty() {
-			err = ErrEmptyScript
+			err = ErrEmptySqlStatement
 			return
 		}
 		if _, ok := args[script.Prepare]; !ok {
@@ -1046,7 +1046,7 @@ func (s *Way) GroupMultiStmtExecute(ctx context.Context, executes []Maker) (affe
 			continue
 		}
 		if script.IsEmpty() {
-			err = ErrEmptyScript
+			err = ErrEmptySqlStatement
 			return
 		}
 		if _, ok := args[script.Prepare]; !ok {

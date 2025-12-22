@@ -9,16 +9,16 @@ func (s Err) Error() string {
 }
 
 const (
-	// ErrEmptyScript The script value executed is an empty string.
-	ErrEmptyScript = Err("hey: the script value executed is an empty string")
-
-	// ErrNoRows Error no rows.
-	ErrNoRows = Err("hey: no rows")
+	// ErrEmptySqlStatement Error empty sql statement.
+	ErrEmptySqlStatement = Err("hey: empty sql statement")
 
 	// ErrNoRowsAffected Error no rows affected.
 	ErrNoRowsAffected = Err("hey: no rows affected")
 
-	// ErrTransactionIsNil Error transaction isn't started.
+	// ErrNoWhereCondition Error no where condition.
+	ErrNoWhereCondition = Err("hey: no where condition")
+
+	// ErrTransactionIsNil Error transaction is nil.
 	ErrTransactionIsNil = Err("hey: transaction is nil")
 
 	// ErrDatabaseIsNil Error database is nil.
@@ -27,6 +27,6 @@ const (
 	// ErrMethodNotImplemented Error method not implemented.
 	ErrMethodNotImplemented = Err("hey: method not implemented")
 
-	// ErrInvalidMaker Invalid maker
+	// ErrInvalidMaker Error invalid maker.
 	ErrInvalidMaker = Err("hey: invalid maker")
 )

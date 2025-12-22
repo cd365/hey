@@ -255,7 +255,7 @@ func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 	}
 	script := maker.ToSQL()
 	if script == nil || script.IsEmpty() {
-		return nil, ErrEmptyScript
+		return nil, ErrEmptySqlStatement
 	}
 	length := 16
 	if ctx == nil {
@@ -303,7 +303,7 @@ func MakerScanOne[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 	if len(lists) > 0 {
 		return lists[0], nil
 	}
-	return nil, ErrNoRows
+	return nil, sql.ErrNoRows
 }
 
 var poolStringBuilder = &sync.Pool{
@@ -942,7 +942,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				return err
 			}
 		} else {
-			return ErrNoRows
+			return sql.ErrNoRows
 		}
 		return nil
 	}
@@ -988,7 +988,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 			}
 			return nil
 		}
-		return ErrNoRows
+		return sql.ErrNoRows
 	}
 
 	// Query multiple rows.
@@ -1772,7 +1772,7 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (columns
 // ExecuteScript Execute SQL script.
 func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any) error {
 	if execute = strings.TrimSpace(execute); execute == cst.Empty {
-		return ErrEmptyScript
+		return ErrEmptySqlStatement
 	}
 	result, err := db.ExecContext(ctx, execute, args...)
 	if err != nil {

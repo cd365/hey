@@ -265,7 +265,7 @@ func SelectEmpty() {
 	exists := &Employee{}
 	err := tmp.Scan(ctx, exists)
 	if err != nil {
-		if errors.Is(err, hey.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			log.Printf("Data does not exist: %s", err.Error())
 		} else {
 			log.Fatal(err.Error())
@@ -1329,7 +1329,7 @@ func MyMulti() {
 			Limit(1).
 			Scan(ctx, firstDepartment)
 		if err != nil {
-			if errors.Is(err, hey.ErrNoRows) {
+			if errors.Is(err, sql.ErrNoRows) {
 				return nil
 			}
 			return err
@@ -1843,7 +1843,7 @@ func WayMulti() {
 		}
 		err := way.MultiScan(ctx, makers, lists)
 		if err != nil {
-			if !errors.Is(err, hey.ErrNoRows) {
+			if !errors.Is(err, sql.ErrNoRows) {
 				log.Fatal(err.Error())
 			}
 		}
@@ -2102,7 +2102,7 @@ func CacheQuery() {
 	script := query1.ToSelect()
 	err := cacheQueryInstance.Get(ctx, script, first1, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5))
 	if err != nil {
-		if !errors.Is(err, hey.ErrNoRows) {
+		if !errors.Is(err, sql.ErrNoRows) {
 			log.Fatal(err.Error())
 		}
 		log.Println("data is not found")
@@ -2172,7 +2172,7 @@ func CacheQuery() {
 	for i := range 3 {
 		err = cacheQueryInstance.Get(ctx, script, &salary, time.Second)
 		if err != nil {
-			if !errors.Is(err, hey.ErrNoRows) {
+			if !errors.Is(err, sql.ErrNoRows) {
 				log.Fatal(err.Error())
 			}
 			log.Printf("%02d select employee.salary data is not found\n", i)
@@ -2193,7 +2193,7 @@ func CacheQuery() {
 	for i := range 3 {
 		err = cacheQueryInstance.Get(ctx, script, &name, time.Second)
 		if err != nil {
-			if !errors.Is(err, hey.ErrNoRows) {
+			if !errors.Is(err, sql.ErrNoRows) {
 				log.Fatal(err.Error())
 			}
 			log.Printf("%02d select employee.name data is not found\n", i)

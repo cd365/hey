@@ -6,6 +6,7 @@ package hey
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -286,7 +287,7 @@ func (s *cacheMaker) getCacheKey(maker Maker) (string, error) {
 	}
 	script := maker.ToSQL()
 	if script.IsEmpty() {
-		return cst.Empty, ErrEmptyScript
+		return cst.Empty, ErrEmptySqlStatement
 	}
 
 	for index, value := range script.Args {
@@ -668,14 +669,14 @@ func (s *cacheQuery) get(
 	}
 	script := maker.ToSQL()
 	if script == nil || script.IsEmpty() {
-		return ErrEmptyScript
+		return ErrEmptySqlStatement
 	}
 	// No caching is used in transactions.
 	if s.way.IsInTransaction() {
 		return query(ctx, script)
 	}
-	cache := s.newCacheMaker(script)
 	// Query cached data.
+	cache := s.newCacheMaker(script)
 	err := cacheGet(ctx, cache)
 	if err != nil {
 		if !errors.Is(err, ErrNoDataInCache) {
@@ -702,10 +703,11 @@ func (s *cacheQuery) get(
 	} else {
 		return nil
 	}
+
 	// Query data from the database.
 	err = query(ctx, script)
 	if err != nil {
-		if errors.Is(err, ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			// Cache even if there is no data in the database.
 			result := cacheSet(ctx, cache, duration)
 			if result != nil {
