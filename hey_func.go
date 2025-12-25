@@ -70,7 +70,7 @@ func MapToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) W)
 		return nil
 	}
 	length := len(values)
-	result := make([]W, length)
+	result := make([]W, 0, length)
 	for index, value := range values {
 		result = append(result, fc(index, value))
 	}

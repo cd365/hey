@@ -2294,7 +2294,9 @@ func (s *sqlInsert) ColumnValue(column string, value any) SQLInsert {
 
 // Create value of creation should be one of struct{}, *struct{}, map[string]any, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *sqlInsert) Create(create any) SQLInsert {
-	columns, values := ObjectInsert(create, s.way.cfg.scanTag, nil, nil)
+	forbid := MapToArray(s.forbidSet, func(k string, v *struct{}) string { return k })
+	onlyAllow := MapToArray(s.onlyAllow, func(k string, v *struct{}) string { return k })
+	columns, values := ObjectInsert(create, s.way.cfg.scanTag, forbid, onlyAllow)
 	removes := make(map[int]*struct{}, len(columns))
 	for index, column := range columns {
 		if _, ok := s.forbidSet[column]; ok {
@@ -2322,12 +2324,12 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 		}
 		columns = ArrayDiscard(columns, func(k int, v string) bool {
 			_, ok := indexes[k]
-			return ok
+			return !ok
 		})
 		for index, value := range values {
 			values[index] = ArrayDiscard(value, func(k int, v any) bool {
 				_, ok := indexes[k]
-				return ok
+				return !ok
 			})
 		}
 	}
