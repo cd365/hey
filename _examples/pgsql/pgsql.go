@@ -82,8 +82,20 @@ func initial() error {
 	manual := hey.Postgresql()
 	manual.Replacer = hey.NewReplacer()
 	options = append(options, hey.WithManual(manual))
+	options = append(options, hey.WithInsertForbidColumn([]string{"id", "deleted_at"}))
+	options = append(options, hey.WithUpdateForbidColumn([]string{"id", "created_at"}))
 	options = append(options, hey.WithDatabase(db))
 	// options = append(options, hey.WithLimit(hey.NewOffsetRowsFetchNextRowsOnly))
+	maxLimit := int64(5000)
+	maxOffset := int64(500000) - maxLimit
+	options = append(options, hey.WithMaxLimit(maxLimit))
+	options = append(options, hey.WithMaxOffset(maxOffset))
+	options = append(options, hey.WithDefaultPageSize(20))
+	options = append(options, hey.WithTxMaxDuration(time.Second*5))
+	// options = append(options, hey.WithTxOptions(&sql.TxOptions{
+	// 	Isolation: sql.LevelReadCommitted,
+	// 	ReadOnly:  false,
+	// }))
 	options = append(options, hey.WithTrack(&common.MyTrack{}))
 	way = hey.NewWay(options...)
 	return nil
