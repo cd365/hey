@@ -196,6 +196,12 @@ type config struct {
 	// tableMethodName Custom method name to get table name.
 	tableMethodName string
 
+	// insertForbidColumn List of columns ignored when inserting data.
+	insertForbidColumn []string
+
+	// updateForbidColumn List of columns ignored when updating data.
+	updateForbidColumn []string
+
 	// maxLimit Check the maximum allowed LIMIT value; a value less than or equal to 0 will be unlimited.
 	maxLimit int64
 
@@ -283,6 +289,18 @@ func WithScanTag(scanTag string) Option {
 func WithTableMethodName(tableMethodName string) Option {
 	return func(way *Way) {
 		way.cfg.tableMethodName = tableMethodName
+	}
+}
+
+func WithInsertForbidColumn(insertForbidColumn []string) Option {
+	return func(way *Way) {
+		way.cfg.insertForbidColumn = insertForbidColumn
+	}
+}
+
+func WithUpdateForbidColumn(updateForbidColumn []string) Option {
+	return func(way *Way) {
+		way.cfg.updateForbidColumn = updateForbidColumn
 	}
 }
 

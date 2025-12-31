@@ -1603,6 +1603,10 @@ func newSqlUpdateSet(way *Way) *sqlUpdateSet {
 	result.init()
 	defaults.init()
 	result.defaults = defaults
+	forbid := way.cfg.updateForbidColumn
+	if len(forbid) > 0 {
+		result.Forbid(forbid...)
+	}
 	return result
 }
 
@@ -2117,6 +2121,10 @@ func newSqlInsert(way *Way) *sqlInsert {
 	result.init()
 	defaults.init()
 	result.defaults = defaults
+	forbid := way.cfg.insertForbidColumn
+	if len(forbid) > 0 {
+		result.Forbid(forbid...)
+	}
 	return result
 }
 
@@ -2525,7 +2533,14 @@ func (s *sqlCase) Case(value any) SQLCase {
 }
 
 func (s *sqlCase) WhenThen(when, then any) SQLCase {
-	s.whenThen = append(s.whenThen, JoinSQLSpace(cst.WHEN, handleCaseEmptyString(nullAnyToSQL(when)), cst.THEN, handleCaseEmptyString(nullAnyToSQL(then))))
+	s.whenThen = append(s.whenThen,
+		JoinSQLSpace(
+			cst.WHEN,
+			handleCaseEmptyString(nullAnyToSQL(when)),
+			cst.THEN,
+			handleCaseEmptyString(nullAnyToSQL(then)),
+		),
+	)
 	return s
 }
 
