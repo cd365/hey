@@ -4,6 +4,7 @@ package hey
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"maps"
 	"regexp"
@@ -1448,6 +1449,15 @@ type SQLReturning interface {
 	// Returning Set the RETURNING statement to return one or more columns.
 	Returning(columns ...string) SQLReturning
 
+	// LastInsertId The driver returns the id value of the inserted data.
+	LastInsertId() func(ctx context.Context, stmt *Stmt, args ...any) (lastInsertId int64, err error)
+
+	// QueryRowScan Return values from QueryRow scan for inserted data.
+	QueryRowScan(dest ...any) func(ctx context.Context, stmt *Stmt, args ...any) (int64, error)
+
+	// RowsAffected Returns the number of rows affected directly.
+	RowsAffected() func(ctx context.Context, stmt *Stmt, args ...any) (rowsAffected int64, err error)
+
 	// Execute When constructing a SQL statement that inserts a row of data and returns the id,
 	// get the id value of the inserted row (this may vary depending on the database driver)
 	Execute(execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)) SQLReturning
@@ -1500,6 +1510,37 @@ func (s *sqlReturning) ToSQL() *SQL {
 		prepare(result)
 	}
 	return result
+}
+
+// LastInsertId The driver returns the id value of the inserted data.
+func (s *sqlReturning) LastInsertId() func(ctx context.Context, stmt *Stmt, args ...any) (lastInsertId int64, err error) {
+	return func(ctx context.Context, stmt *Stmt, args ...any) (int64, error) {
+		result, err := stmt.Exec(ctx, args...)
+		if err != nil {
+			return 0, err
+		}
+		return result.LastInsertId()
+	}
+}
+
+// QueryRowScan Return values from QueryRow scan for inserted data.
+func (s *sqlReturning) QueryRowScan(dest ...any) func(ctx context.Context, stmt *Stmt, args ...any) (int64, error) {
+	return func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error) {
+		err = stmt.QueryRow(ctx, func(row *sql.Row) error {
+			if len(dest) > 0 {
+				return row.Scan(dest...)
+			}
+			return row.Scan(&id)
+		}, args...)
+		return
+	}
+}
+
+// RowsAffected Returns the number of rows affected directly.
+func (s *sqlReturning) RowsAffected() func(ctx context.Context, stmt *Stmt, args ...any) (rowsAffected int64, err error) {
+	return func(ctx context.Context, stmt *Stmt, args ...any) (int64, error) {
+		return stmt.Execute(ctx, args...)
+	}
 }
 
 // Execute Customize the method to return the sequence value of inserted data.
