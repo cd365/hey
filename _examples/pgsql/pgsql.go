@@ -526,12 +526,7 @@ func Insert() {
 			})
 			i.Returning(func(r hey.SQLReturning) {
 				r.Returning(department.Id)
-				r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
-					err = stmt.QueryRow(ctx, func(row *sql.Row) error {
-						return row.Scan(&id)
-					}, args...)
-					return
-				})
+				r.Execute(r.QueryRowScan())
 			})
 		}).Insert(ctx)
 		if err != nil {
@@ -555,13 +550,7 @@ func Insert() {
 				UpdatedAt: timestamp,
 			})
 			i.Returning(func(r hey.SQLReturning) {
-				r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
-					result, err := stmt.Exec(ctx, args...)
-					if err != nil {
-						return 0, err
-					}
-					return result.LastInsertId()
-				})
+				r.Execute(r.LastInsertId())
 			})
 		}).Insert(ctx)
 		if err != nil {
