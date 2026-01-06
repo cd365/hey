@@ -129,10 +129,10 @@ type Filter interface {
 	Not() Filter
 
 	// And Use logical operator `AND` to combine custom conditions.
-	And(script *SQL) Filter
+	And(maker Maker) Filter
 
 	// Or Use logical operator `OR` to combine custom conditions.
-	Or(script *SQL) Filter
+	Or(maker Maker) Filter
 
 	// Group Add a new condition group, which is connected by the `AND` logical operator by default.
 	Group(group func(g Filter)) Filter
@@ -344,7 +344,11 @@ func (s *filter) Not() Filter {
 	return s
 }
 
-func (s *filter) add(logic string, script *SQL) *filter {
+func (s *filter) add(logic string, maker Maker) *filter {
+	if logic == cst.Empty || maker == nil {
+		return s
+	}
+	script := maker.ToSQL()
 	if script == nil || script.IsEmpty() {
 		return s
 	}
@@ -404,12 +408,12 @@ func (s *filter) firstNext(first *SQL, next ...any) *SQL {
 	return JoinSQLSpace(firstNext(first, next...)...)
 }
 
-func (s *filter) And(script *SQL) Filter {
-	return s.add(cst.AND, script)
+func (s *filter) And(maker Maker) Filter {
+	return s.add(cst.AND, maker)
 }
 
-func (s *filter) Or(script *SQL) Filter {
-	return s.add(cst.OR, script)
+func (s *filter) Or(maker Maker) Filter {
+	return s.add(cst.OR, maker)
 }
 
 func (s *filter) Group(group func(g Filter)) Filter {
