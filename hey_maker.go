@@ -2098,6 +2098,10 @@ type SQLInsert interface {
 	// Create Parses the given insert data and sets the insert data.
 	Create(create any) SQLInsert
 
+	// CreateOne value of creation should be one of struct{}, *struct{}, map[string]any.
+	// Return the id value of the inserted data.
+	CreateOne(create any) SQLInsert
+
 	// Default Set the default column for inserted data, such as the creation timestamp.
 	Default(column string, value any) SQLInsert
 
@@ -2385,6 +2389,16 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 	return s.Column(columns...).Values(values...)
 }
 
+// CreateOne value of creation should be one of struct{}, *struct{}, map[string]any.
+// Return the id value of the inserted data.
+func (s *sqlInsert) CreateOne(create any) SQLInsert {
+	s.Create(create)
+	if manual := s.way.Manual(); manual != nil {
+		s.Returning(manual.InsertOneAndReturnId)
+	}
+	return s
+}
+
 func (s *sqlInsert) Default(column string, value any) SQLInsert {
 	s.defaults.ColumnValue(column, value)
 	return s
@@ -2441,6 +2455,9 @@ func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 }
 
 func (s *sqlInsert) Returning(fc func(r SQLReturning)) SQLInsert {
+	if fc == nil {
+		return s
+	}
 	if s.returning == nil {
 		s.returning = newReturning(s.way, NewEmptySQL())
 	}

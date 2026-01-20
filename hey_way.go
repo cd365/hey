@@ -129,10 +129,28 @@ type Manual struct {
 	// Prepare to adjust the SQL statement format to meet the current database SQL statement format.
 	Prepare func(prepare string) string
 
+	// InsertOneAndReturnId Insert a record and return the id value of the inserted data.
+	InsertOneAndReturnId func(r SQLReturning)
+
 	// DatabaseType Database type value.
 	DatabaseType cst.DatabaseType
 
 	// More custom methods can be added here to achieve the same function using different databases.
+}
+
+// InsertOneAndScanInsertId INSERT INTO xxx RETURNING id
+func (s *Manual) InsertOneAndScanInsertId() func(r SQLReturning) {
+	return func(r SQLReturning) {
+		r.Returning(cst.Id)
+		r.Execute(r.QueryRowScan())
+	}
+}
+
+// InsertOneGetLastInsertId INSERT INTO xxx; sql.Result
+func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
+	return func(r SQLReturning) {
+		r.Execute(r.LastInsertId())
+	}
 }
 
 func prepare63236(prepare string) string {
@@ -159,18 +177,21 @@ func Postgresql() *Manual {
 	manual := &Manual{}
 	manual.DatabaseType = cst.Postgresql
 	manual.Prepare = prepare63236
+	manual.InsertOneAndReturnId = manual.InsertOneAndScanInsertId()
 	return manual
 }
 
 func Sqlite() *Manual {
 	manual := &Manual{}
 	manual.DatabaseType = cst.Sqlite
+	manual.InsertOneAndReturnId = manual.InsertOneGetLastInsertId()
 	return manual
 }
 
 func Mysql() *Manual {
 	manual := &Manual{}
 	manual.DatabaseType = cst.Mysql
+	manual.InsertOneAndReturnId = manual.InsertOneGetLastInsertId()
 	return manual
 }
 

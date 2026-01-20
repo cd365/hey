@@ -639,6 +639,13 @@ func (s *Table) Create(ctx context.Context, create any) (int64, error) {
 	}).Insert(ctx)
 }
 
+// CreateOne Quickly insert a piece of data into the table and return the inserted data's id value.
+func (s *Table) CreateOne(ctx context.Context, create any) (id int64, err error) {
+	return s.InsertFunc(func(i SQLInsert) {
+		i.CreateOne(create)
+	}).Insert(ctx)
+}
+
 // Modify Quickly update data in the table.
 func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	return s.UpdateFunc(func(f Filter, u SQLUpdateSet) {
