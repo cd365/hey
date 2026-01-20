@@ -2221,7 +2221,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 				}
 			}
 		}
-		makers = append(makers, NewSQL(ParcelPrepare(strings.Join(columns, cst.CommaSpace))))
+		makers = append(makers, NewSQL(ParcelPrepare(strings.Join(s.way.ReplaceAll(columns), cst.CommaSpace))))
 	}
 
 	ok := false

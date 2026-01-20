@@ -141,7 +141,11 @@ type Manual struct {
 // InsertOneAndScanInsertId INSERT INTO xxx RETURNING id
 func (s *Manual) InsertOneAndScanInsertId() func(r SQLReturning) {
 	return func(r SQLReturning) {
-		r.Returning(cst.Id)
+		id := cst.Id
+		if replace := s.Replacer; replace != nil {
+			id = replace.Get(id)
+		}
+		r.Returning(id)
 		r.Execute(r.QueryRowScan())
 	}
 }
@@ -254,6 +258,8 @@ func configDefault() *config {
 		newLimit:           newSQLLimit,
 		scanTag:            DefaultTag,
 		tableMethodName:    TableMethodName,
+		insertForbidColumn: []string{cst.Id},
+		updateForbidColumn: []string{cst.Id},
 		maxLimit:           10000,
 		maxOffset:          100000,
 		defaultPageSize:    10,
