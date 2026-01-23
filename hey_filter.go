@@ -209,10 +209,10 @@ type Filter interface {
 	// AnyQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
 	AnyQuantifier(fc func(q Quantifier)) Filter
 
-	// GetReplacer For get *Way.
+	// GetReplacer For get Replacer.
 	GetReplacer() Replacer
 
-	// SetReplacer For set *Way.
+	// SetReplacer For set Replacer.
 	SetReplacer(replacer Replacer) Filter
 
 	// CompareEqual Implement conditional filtering: script1 = script2 .
