@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 // AnyAny Convert any type of slice to []any.
@@ -65,52 +65,52 @@ func MergeMap[K comparable, V any](values ...map[K]V) map[K]V {
 }
 
 // MapToArray Create a slice from a map.
-func MapToArray[K comparable, V any, W any](values map[K]V, fc func(k K, v V) W) []W {
-	if fc == nil {
+func MapToArray[K comparable, V any, W any](values map[K]V, fx func(k K, v V) W) []W {
+	if fx == nil {
 		return nil
 	}
 	length := len(values)
 	result := make([]W, 0, length)
 	for index, value := range values {
-		result = append(result, fc(index, value))
+		result = append(result, fx(index, value))
 	}
 	return result
 }
 
 // MapToMap Create a map based on another map.
-func MapToMap[K comparable, V any, X comparable, Y any](values map[K]V, fc func(k K, v V) (X, Y)) map[X]Y {
-	if fc == nil {
+func MapToMap[K comparable, V any, X comparable, Y any](values map[K]V, fx func(k K, v V) (X, Y)) map[X]Y {
+	if fx == nil {
 		return nil
 	}
 	result := make(map[X]Y, len(values))
 	for key, value := range values {
-		k, v := fc(key, value)
+		k, v := fx(key, value)
 		result[k] = v
 	}
 	return result
 }
 
 // ArrayToArray Create a slice from another slice.
-func ArrayToArray[V any, W any](values []V, fc func(k int, v V) W) []W {
-	if fc == nil {
+func ArrayToArray[V any, W any](values []V, fx func(k int, v V) W) []W {
+	if fx == nil {
 		return nil
 	}
 	result := make([]W, len(values))
 	for index, value := range values {
-		result[index] = fc(index, value)
+		result[index] = fx(index, value)
 	}
 	return result
 }
 
 // ArrayToMap Create a map from a slice.
-func ArrayToMap[V any, K comparable, W any](values []V, fc func(v V) (K, W)) map[K]W {
-	if fc == nil {
+func ArrayToMap[V any, K comparable, W any](values []V, fx func(v V) (K, W)) map[K]W {
+	if fx == nil {
 		return nil
 	}
 	length := len(values)
 	result := make(map[K]W, length)
 	for i := range length {
-		k, v := fc(values[i])
+		k, v := fx(values[i])
 		result[k] = v
 	}
 	return result
@@ -166,8 +166,8 @@ func LastNotEmptyString(sss []string) string {
 }
 
 // InValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
-func InValues[T any](values []T, fc func(tmp T) any) []any {
-	if fc == nil {
+func InValues[T any](values []T, fx func(tmp T) any) []any {
+	if fx == nil {
 		return nil
 	}
 	length := len(values)
@@ -177,7 +177,7 @@ func InValues[T any](values []T, fc func(tmp T) any) []any {
 	num := 0
 	result := make([]any, 0, length)
 	for _, value := range values {
-		elem := fc(value)
+		elem := fx(value)
 		if elem != nil {
 			num++
 			result = append(result, elem)
@@ -187,8 +187,8 @@ func InValues[T any](values []T, fc func(tmp T) any) []any {
 }
 
 // InGroupValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )
-func InGroupValues[T any](values []T, fc func(tmp T) []any) [][]any {
-	if fc == nil {
+func InGroupValues[T any](values []T, fx func(tmp T) []any) [][]any {
+	if fx == nil {
 		return nil
 	}
 	length := len(values)
@@ -198,7 +198,7 @@ func InGroupValues[T any](values []T, fc func(tmp T) []any) [][]any {
 	num := 0
 	result := make([][]any, 0, length)
 	for _, value := range values {
-		elem := fc(value)
+		elem := fx(value)
 		if elem != nil {
 			num++
 			result = append(result, elem)

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 // SQL Prepare SQL statements and parameter lists corresponding to placeholders.
@@ -251,7 +251,7 @@ const (
 // MakerScanAll Rows scan to any struct, based on struct scan data.
 func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(rows *sql.Rows, v *V) error) ([]*V, error) {
 	if way == nil || maker == nil || scan == nil {
-		return nil, Err("hey: unexpected parameter value")
+		return nil, ErrUnexpectedParameterValue
 	}
 	script := maker.ToSQL()
 	if script == nil || script.IsEmpty() {
@@ -691,8 +691,8 @@ func optimizeTableSQL(way *Way, table *SQL) *SQL {
 	return latest
 }
 
-// getTable Extract table names from any type.
-func getTable(table any, way *Way) *sqlAlias {
+// newSQLTable Extract table names from any type.
+func newSQLTable(way *Way, table any) SQLAlias {
 	result := newSqlAlias(cst.Empty).v(way)
 	if table == nil {
 		result.SetSQL(AnyToSQL(table))
@@ -710,10 +710,12 @@ func getTable(table any, way *Way) *sqlAlias {
 	case TableNamer:
 		result.SetSQL(optimizeTableSQL(way, NewSQL(example.Table())))
 	default:
-		if value := reflect.ValueOf(table); !value.IsNil() {
-			if method := value.MethodByName(way.cfg.tableMethodName); method.IsValid() {
-				if values := method.Call(nil); len(values) == 1 {
-					return getTable(values[0].Interface(), way)
+		if methodName := way.cfg.TableMethodName; methodName != cst.Empty {
+			if value := reflect.ValueOf(table); !value.IsNil() {
+				if method := value.MethodByName(methodName); method.IsValid() {
+					if values := method.Call(nil); len(values) == 1 {
+						return newSQLTable(way, values[0].Interface())
+					}
 				}
 			}
 		}
@@ -839,7 +841,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 			// root structure.
 			field := indirect.Field(index)
 			if !field.CanAddr() || !field.CanSet() {
-				return fmt.Errorf("hey: column `%s` cann't set value", columns[i])
+				return fmt.Errorf("hey: column `%s` can't set value", columns[i])
 			}
 			if field.Kind() == reflect.Pointer && field.IsNil() {
 				field.Set(reflect.New(field.Type()).Elem())
@@ -880,7 +882,7 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 			// The struct where the current column is located.
 			field := using.Field(indexChain[serial])
 			if !field.CanAddr() || !field.CanSet() {
-				return fmt.Errorf("hey: column `%s` cann't set value, multi-level", columns[i])
+				return fmt.Errorf("hey: column `%s` can't set value, multi-level", columns[i])
 			}
 			if field.Kind() == reflect.Pointer && field.IsNil() {
 				field.Set(reflect.New(field.Type()).Elem())
@@ -1177,6 +1179,16 @@ func basicTypeValue(value any) any {
 	return v.Interface()
 }
 
+type CategoryInsert int8
+
+const (
+	CategoryInsertUnknown CategoryInsert = iota // Unexpected parameter value.
+
+	CategoryInsertOne // Insert only one piece of data.
+
+	CategoryInsertAll // Insert multiple pieces of data (could be just one piece of data).
+)
+
 type objectInsert struct {
 	// only allowed columns Hash table.
 	allow map[string]*struct{}
@@ -1297,14 +1309,15 @@ func (s *objectInsert) structValue(structReflectValue reflect.Value, allowed boo
 }
 
 // Insert Object should be one of map[string]any, []map[string]any, struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
-func (s *objectInsert) Insert(object any, tag string, except []string, allow []string) (columns []string, values [][]any) {
+func (s *objectInsert) Insert(object any, tag string, except []string, allow []string) (columns []string, values [][]any, category CategoryInsert) {
+	category = CategoryInsertUnknown
 	if object == nil {
-		return columns, values
+		return columns, values, category
 	}
 
 	if tmp, ok := object.(Map); ok {
 		if tmp == nil || tmp.IsEmpty() {
-			return columns, values
+			return columns, values, CategoryInsertOne
 		}
 		return s.Insert(tmp.Map(), tag, except, allow)
 	}
@@ -1320,7 +1333,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 	if tmp, ok := object.(map[string]any); ok {
 		length := len(tmp)
 		if length == 0 {
-			return columns, values
+			return columns, values, CategoryInsertOne
 		}
 		columns = make([]string, 0, length)
 		for column := range tmp {
@@ -1340,14 +1353,14 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		for _, column := range columns {
 			values[0] = append(values[0], tmp[column])
 		}
-		return columns, values
+		return columns, values, CategoryInsertOne
 	}
 
 	// []map[string]any
 	if tmp, ok := object.([]map[string]any); ok {
 		length := len(tmp)
 		if length == 0 {
-			return columns, values
+			return columns, values, CategoryInsertAll
 		}
 		columns = make([]string, 0, length)
 		for column := range tmp[0] {
@@ -1363,7 +1376,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		}
 		count := len(columns)
 		if count == 0 {
-			return columns, values
+			return columns, values, CategoryInsertAll
 		}
 		sort.Strings(columns)
 		values = make([][]any, 0, length)
@@ -1379,11 +1392,11 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 			}
 			values = append(values, tmpValues)
 		}
-		return columns, values
+		return columns, values, CategoryInsertAll
 	}
 
 	if tag == cst.Empty {
-		return columns, values
+		return columns, values, CategoryInsertUnknown
 	}
 	s.tag = tag
 
@@ -1394,12 +1407,14 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 	}
 
 	if kind == reflect.Struct {
+		category = CategoryInsertOne
 		values = make([][]any, 1)
 		columns, values[0] = s.structColumnValue(reflectValue, allowed)
 		return
 	}
 
 	if kind == reflect.Slice {
+		category = CategoryInsertAll
 		sliceLength := reflectValue.Len()
 		values = make([][]any, sliceLength)
 		var indexValueType reflect.Type
@@ -1449,7 +1464,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 }
 
 // ObjectInsert Object should be one of map[string]any, []map[string]any, struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
-func ObjectInsert(object any, tag string, except []string, allow []string) (columns []string, values [][]any) {
+func ObjectInsert(object any, tag string, except []string, allow []string) (columns []string, values [][]any, category CategoryInsert) {
 	i := poolGetObjectInsert()
 	defer poolPutObjectInsert(i)
 	return i.Insert(object, tag, except, allow)
@@ -2034,7 +2049,7 @@ func (s *tableColumn) ColumnAllSQL(columnAll ...string) *SQL {
 
 // T Register a shortcut method T to quickly create a TableColumn instance.
 func (s *Way) T(tableName ...string) TableColumn {
-	return NewTableColumn(s, tableName...)
+	return s.cfg.NewTableColumn(s, tableName...)
 }
 
 /*
@@ -2082,7 +2097,7 @@ type SQLWindowFuncFrame interface {
 	UnboundedFollowing() *SQL
 
 	// Between Build BETWEEN start AND end.
-	Between(fc func(ff SQLWindowFuncFrame) (*SQL, *SQL)) SQLWindowFuncFrame
+	Between(fx func(ff SQLWindowFuncFrame) (*SQL, *SQL)) SQLWindowFuncFrame
 }
 
 // sqlWindowFuncFrame Implementing the SQLWindowFuncFrame interface.
@@ -2147,9 +2162,9 @@ func (s *sqlWindowFuncFrame) UnboundedFollowing() *SQL {
 	return AnyToSQL("UNBOUNDED FOLLOWING")
 }
 
-func (s *sqlWindowFuncFrame) Between(fc func(ff SQLWindowFuncFrame) (*SQL, *SQL)) SQLWindowFuncFrame {
-	if fc != nil {
-		if start, end := fc(s); start != nil && end != nil && !start.IsEmpty() && !end.IsEmpty() {
+func (s *sqlWindowFuncFrame) Between(fx func(ff SQLWindowFuncFrame) (*SQL, *SQL)) SQLWindowFuncFrame {
+	if fx != nil {
+		if start, end := fx(s); start != nil && end != nil && !start.IsEmpty() && !end.IsEmpty() {
 			s.Script(JoinSQLSpace(cst.BETWEEN, start, cst.AND, end))
 		}
 	}
@@ -2174,13 +2189,13 @@ type SQLWindowFuncOver interface {
 	Desc(column string) SQLWindowFuncOver
 
 	// Groups Define the window based on the sort column values.
-	Groups(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver
+	Groups(fx func(f SQLWindowFuncFrame)) SQLWindowFuncOver
 
 	// Range Define the window based on the physical row number, accurately control the number of rows (such as the first 2 rows and the last 3 rows).
-	Range(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver
+	Range(fx func(f SQLWindowFuncFrame)) SQLWindowFuncOver
 
 	// Rows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
-	Rows(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver
+	Rows(fx func(f SQLWindowFuncFrame)) SQLWindowFuncOver
 }
 
 type sqlWindowFuncOver struct {
@@ -2304,10 +2319,10 @@ func (s *sqlWindowFuncOver) Desc(column string) SQLWindowFuncOver {
 	return s
 }
 
-func (s *sqlWindowFuncOver) Groups(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
-	if fc != nil {
-		frame := NewSQLWindowFuncFrame(cst.GROUPS)
-		fc(frame)
+func (s *sqlWindowFuncOver) Groups(fx func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
+	if fx != nil {
+		frame := s.way.cfg.NewSQLWindowFuncFrame(cst.GROUPS)
+		fx(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			s.frameGroups = tmp
 			s.frameRange = nil
@@ -2317,10 +2332,10 @@ func (s *sqlWindowFuncOver) Groups(fc func(f SQLWindowFuncFrame)) SQLWindowFuncO
 	return s
 }
 
-func (s *sqlWindowFuncOver) Range(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
-	if fc != nil {
-		frame := NewSQLWindowFuncFrame(cst.RANGE)
-		fc(frame)
+func (s *sqlWindowFuncOver) Range(fx func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
+	if fx != nil {
+		frame := s.way.cfg.NewSQLWindowFuncFrame(cst.RANGE)
+		fx(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			s.frameGroups = nil
 			s.frameRange = tmp
@@ -2330,10 +2345,10 @@ func (s *sqlWindowFuncOver) Range(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOv
 	return s
 }
 
-func (s *sqlWindowFuncOver) Rows(fc func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
-	if fc != nil {
-		frame := NewSQLWindowFuncFrame(cst.ROWS)
-		fc(frame)
+func (s *sqlWindowFuncOver) Rows(fx func(f SQLWindowFuncFrame)) SQLWindowFuncOver {
+	if fx != nil {
+		frame := s.way.cfg.NewSQLWindowFuncFrame(cst.ROWS)
+		fx(frame)
 		if tmp := frame.ToSQL(); tmp != nil && !tmp.IsEmpty() {
 			s.frameGroups = nil
 			s.frameRange = nil
@@ -2462,14 +2477,14 @@ func (s *WindowFunc) NthValue(column string, args ...any) *WindowFunc {
 }
 
 // OverFunc Define the OVER clause.
-func (s *WindowFunc) OverFunc(fc func(o SQLWindowFuncOver)) *WindowFunc {
-	if fc == nil {
+func (s *WindowFunc) OverFunc(fx func(o SQLWindowFuncOver)) *WindowFunc {
+	if fx == nil {
 		return s
 	}
 	if s.over == nil {
-		s.over = NewSQLWindowFuncOver(s.way)
+		s.over = s.way.cfg.NewSQLWindowFuncOver(s.way)
 	}
-	fc(s.over)
+	fx(s.over)
 	return s
 }
 

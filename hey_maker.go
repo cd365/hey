@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 // ToEmpty Sets the property value of an object to empty value.
@@ -20,52 +20,60 @@ type ToEmpty interface {
 	ToEmpty()
 }
 
-// SQLComment Constructing SQL statement comments.
-type SQLComment interface {
+// SQLLabel Constructing SQL statement labels.
+type SQLLabel interface {
 	Maker
 
 	ToEmpty
 
-	// Comment Add comment.
-	Comment(comment string) SQLComment
+	// Label Add label.
+	Label(label string) SQLLabel
 }
 
-type sqlComment struct {
-	commentMap map[string]*struct{}
+type sqlLabel struct {
+	labelMap map[string]*struct{}
 
-	comment []string
+	// delimiter Set the delimiter between multiple labels.
+	delimiter string
+
+	label []string
 }
 
-func newSqlComment() *sqlComment {
-	return &sqlComment{
-		commentMap: make(map[string]*struct{}, 1),
-		comment:    make([]string, 0, 1),
+func newSQLLabel(way *Way) SQLLabel {
+	delimiter := way.cfg.LabelDelimiter
+	if delimiter == cst.Empty {
+		delimiter = cst.Comma
+	}
+	return &sqlLabel{
+		labelMap:  make(map[string]*struct{}, 1),
+		label:     make([]string, 0, 1),
+		delimiter: delimiter,
 	}
 }
 
-func (s *sqlComment) ToEmpty() {
-	s.commentMap = make(map[string]*struct{}, 1)
-	s.comment = make([]string, 0, 1)
+func (s *sqlLabel) ToEmpty() {
+	s.labelMap = make(map[string]*struct{}, 1)
+	s.label = make([]string, 0, 1)
 }
 
-func (s *sqlComment) Comment(comment string) SQLComment {
-	comment = strings.TrimSpace(comment)
-	if comment == cst.Empty {
+func (s *sqlLabel) Label(label string) SQLLabel {
+	label = strings.TrimSpace(label)
+	if label == cst.Empty {
 		return s
 	}
-	if _, ok := s.commentMap[comment]; ok {
+	if _, ok := s.labelMap[label]; ok {
 		return s
 	}
-	s.comment = append(s.comment, comment)
-	s.commentMap[comment] = nil
+	s.label = append(s.label, label)
+	s.labelMap[label] = nil
 	return s
 }
 
-func (s *sqlComment) ToSQL() *SQL {
-	if len(s.comment) == 0 {
+func (s *sqlLabel) ToSQL() *SQL {
+	if len(s.label) == 0 {
 		return NewEmptySQL()
 	}
-	return NewSQL(JoinString("/*", strings.Join(s.comment, cst.Comma), "*/"))
+	return NewSQL(JoinString("/*", strings.Join(s.label, s.delimiter), "*/"))
 }
 
 /*
@@ -111,7 +119,7 @@ type sqlWith struct {
 	recursive bool
 }
 
-func newSqlWith() *sqlWith {
+func newSQLWith(way *Way) SQLWith {
 	return &sqlWith{
 		column:  make(map[string][]string, 1<<1),
 		prepare: make(map[string]Maker, 1<<1),
@@ -266,7 +274,7 @@ type sqlSelect struct {
 	distinct bool
 }
 
-func newSqlSelect(way *Way) *sqlSelect {
+func newSQLSelect(way *Way) SQLSelect {
 	return &sqlSelect{
 		columnsMap:  make(map[string]int, 1<<5),
 		columnsArgs: make(map[int][]any, 1<<5),
@@ -351,23 +359,6 @@ func (s *sqlSelect) Add(maker Maker) SQLSelect {
 		return s
 	}
 	return s.add(script.Prepare, script.Args...)
-}
-
-func (s *sqlSelect) AddAll(columns ...string) SQLSelect {
-	index := len(s.columns)
-	for _, column := range columns {
-		if column == cst.Empty {
-			continue
-		}
-		if _, ok := s.columnsMap[column]; ok {
-			continue
-		}
-		s.columns = append(s.columns, column)
-		s.columnsMap[column] = index
-		s.columnsArgs[index] = nil
-		index++
-	}
-	return s
 }
 
 func (s *sqlSelect) Del(columns ...string) SQLSelect {
@@ -495,7 +486,7 @@ type sqlJoinOn struct {
 	usings []string
 }
 
-func newSQLJoinOn(way *Way) *sqlJoinOn {
+func newSQLJoinOn(way *Way) SQLJoinOn {
 	return &sqlJoinOn{
 		way: way,
 		on:  way.F(),
@@ -605,17 +596,18 @@ type SQLJoin interface {
 type sqlJoin struct {
 	table SQLAlias
 
-	query *sqlSelect
+	query SQLSelect
 
 	way *Way
 
 	joins []*sqlJoinSchema
 }
 
-func newSqlJoin(way *Way) *sqlJoin {
+func newSQLJoin(way *Way, query SQLSelect) SQLJoin {
 	tmp := &sqlJoin{
 		way:   way,
 		joins: make([]*sqlJoinSchema, 0, 1<<1),
+		query: query,
 	}
 	return tmp
 }
@@ -667,11 +659,11 @@ func (s *sqlJoin) ToSQL() *SQL {
 }
 
 func (s *sqlJoin) NewTable(table any, alias string) SQLAlias {
-	return getTable(table, s.way).SetAlias(alias)
+	return s.way.cfg.NewSQLTable(s.way, table).SetAlias(alias)
 }
 
 func (s *sqlJoin) joinOn() SQLJoinOn {
-	return newSQLJoinOn(s.way)
+	return s.way.cfg.NewSQLJoinOn(s.way)
 }
 
 // On For `... JOIN ON ...`
@@ -785,7 +777,7 @@ type sqlWindow struct {
 	alias []string
 }
 
-func newSqlWindow(way *Way) *sqlWindow {
+func newSQLWindow(way *Way) SQLWindow {
 	return &sqlWindow{
 		way:     way,
 		prepare: make(map[string]Maker, 1<<1),
@@ -854,7 +846,7 @@ func (s *sqlWindow) Set(alias string, maker func(o SQLWindowFuncOver)) SQLWindow
 	if alias == cst.Empty || maker == nil {
 		return s
 	}
-	windowFuncOver := NewSQLWindowFuncOver(s.way)
+	windowFuncOver := s.way.cfg.NewSQLWindowFuncOver(s.way)
 	maker(windowFuncOver)
 	script := windowFuncOver.ToSQL()
 	if script == nil || script.IsEmpty() {
@@ -910,7 +902,7 @@ type sqlGroupBy struct {
 	groupColumns []string
 }
 
-func newSqlGroupBy(way *Way) *sqlGroupBy {
+func newSQLGroupBy(way *Way) SQLGroupBy {
 	return &sqlGroupBy{
 		having:           way.F(),
 		groupColumnsMap:  make(map[string]int, 1<<1),
@@ -1041,7 +1033,7 @@ type sqlOrderBy struct {
 	orderBy []string
 }
 
-func newSqlOrderBy(way *Way) *sqlOrderBy {
+func newSQLOrderBy(way *Way) SQLOrderBy {
 	return &sqlOrderBy{
 		orderMap: make(map[string]int, 1<<1),
 		way:      way,
@@ -1250,8 +1242,8 @@ func (s *sqlLimit) ToSQL() *SQL {
 
 func (s *sqlLimit) limitValue(direct bool, limit int64) *sqlLimit {
 	if limit > 0 {
-		if !direct && s.way.cfg.maxLimit > 0 && limit > s.way.cfg.maxLimit {
-			limit = s.way.cfg.maxLimit
+		if !direct && s.way.cfg.MaxLimit > 0 && limit > s.way.cfg.MaxLimit {
+			limit = s.way.cfg.MaxLimit
 		}
 		s.limit = &limit
 	}
@@ -1260,8 +1252,8 @@ func (s *sqlLimit) limitValue(direct bool, limit int64) *sqlLimit {
 
 func (s *sqlLimit) offsetValue(direct bool, offset int64) *sqlLimit {
 	if offset >= 0 {
-		if !direct && s.way.cfg.maxOffset > 0 && offset > s.way.cfg.maxOffset {
-			offset = s.way.cfg.maxOffset
+		if !direct && s.way.cfg.MaxOffset > 0 && offset > s.way.cfg.MaxOffset {
+			offset = s.way.cfg.MaxOffset
 		}
 		s.offset = &offset
 	}
@@ -1272,7 +1264,7 @@ func (s *sqlLimit) pageValue(direct bool, page int64, pageSize ...int64) *sqlLim
 	if page <= 0 {
 		return s
 	}
-	limit := s.way.cfg.defaultPageSize
+	limit := s.way.cfg.DefaultPageSize
 	if s.limit != nil {
 		limit = *s.limit
 	}
@@ -1360,11 +1352,20 @@ type SQLValues interface {
 
 	IsEmpty() bool
 
-	// Subquery The inserted data is a subquery.
-	Subquery(subquery Maker) SQLValues
+	// GetSubquery Get subquery value.
+	GetSubquery() Maker
 
-	// Values The inserted data of VALUES.
-	Values(values ...[]any) SQLValues
+	// SetSubquery The inserted data is a subquery.
+	SetSubquery(subquery Maker) SQLValues
+
+	// GetValues Get values value.
+	GetValues() [][]any
+
+	// SetValues The inserted data of VALUES.
+	SetValues(values ...[]any) SQLValues
+
+	// ValuesToSQL Values to *SQL.
+	ValuesToSQL(values [][]any) *SQL
 }
 
 type sqlValues struct {
@@ -1373,7 +1374,7 @@ type sqlValues struct {
 	values [][]any
 }
 
-func newSqlValues() *sqlValues {
+func newSQLValues(way *Way) SQLValues {
 	return &sqlValues{
 		values: make([][]any, 1),
 	}
@@ -1388,7 +1389,38 @@ func (s *sqlValues) IsEmpty() bool {
 	return s.subquery == nil && (len(s.values) == 0 || len(s.values[0]) == 0)
 }
 
-func (s *sqlValues) valuesToSQL(values [][]any) *SQL {
+func (s *sqlValues) ToSQL() *SQL {
+	if s.subquery != nil {
+		return s.subquery.ToSQL()
+	}
+	return s.ValuesToSQL(s.values)
+}
+
+func (s *sqlValues) GetSubquery() Maker {
+	return s.subquery
+}
+
+func (s *sqlValues) SetSubquery(subquery Maker) SQLValues {
+	if subquery == nil {
+		return s
+	}
+	if script := subquery.ToSQL(); script == nil || script.IsEmpty() {
+		return s
+	}
+	s.subquery = subquery
+	return s
+}
+
+func (s *sqlValues) GetValues() [][]any {
+	return s.values
+}
+
+func (s *sqlValues) SetValues(values ...[]any) SQLValues {
+	s.values = values
+	return s
+}
+
+func (s *sqlValues) ValuesToSQL(values [][]any) *SQL {
 	script := NewEmptySQL()
 	count := len(values)
 	if count == 0 {
@@ -1413,29 +1445,6 @@ func (s *sqlValues) valuesToSQL(values [][]any) *SQL {
 	return script
 }
 
-func (s *sqlValues) ToSQL() *SQL {
-	if s.subquery != nil {
-		return s.subquery.ToSQL()
-	}
-	return s.valuesToSQL(s.values)
-}
-
-func (s *sqlValues) Subquery(subquery Maker) SQLValues {
-	if subquery == nil {
-		return s
-	}
-	if script := subquery.ToSQL(); script == nil || script.IsEmpty() {
-		return s
-	}
-	s.subquery = subquery
-	return s
-}
-
-func (s *sqlValues) Values(values ...[]any) SQLValues {
-	s.values = values
-	return s
-}
-
 // SQLReturning Build INSERT INTO xxx RETURNING xxx
 type SQLReturning interface {
 	Maker
@@ -1458,22 +1467,31 @@ type SQLReturning interface {
 	// RowsAffected Returns the number of rows affected directly.
 	RowsAffected() func(ctx context.Context, stmt *Stmt, args ...any) (rowsAffected int64, err error)
 
-	// Execute When constructing a SQL statement that inserts a row of data and returns the id,
+	// GetExecute Get execute function value.
+	GetExecute() func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)
+
+	// SetExecute When constructing a SQL statement that inserts a row of data and returns the id,
 	// get the id value of the inserted row (this may vary depending on the database driver)
-	Execute(execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)) SQLReturning
+	SetExecute(execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)) SQLReturning
+
+	// GetInsert Get insert Maker.
+	GetInsert() Maker
+
+	// SetInsert Set insert Maker.
+	SetInsert(script Maker) SQLReturning
 }
 
 type sqlReturning struct {
 	way *Way
 
-	insert *SQL
+	insert Maker
 
 	prepare func(tmp *SQL)
 
 	execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)
 }
 
-func newReturning(way *Way, insert *SQL) *sqlReturning {
+func newSQLReturning(way *Way, insert Maker) SQLReturning {
 	return &sqlReturning{
 		way:    way,
 		insert: insert,
@@ -1505,7 +1523,14 @@ func (s *sqlReturning) Returning(columns ...string) SQLReturning {
 
 // ToSQL Make SQL.
 func (s *sqlReturning) ToSQL() *SQL {
-	result := s.insert.Clone()
+	if s.insert == nil {
+		return NewEmptySQL()
+	}
+	script := s.insert.ToSQL()
+	if script == nil || script.IsEmpty() {
+		return NewEmptySQL()
+	}
+	result := script.Clone()
 	if prepare := s.prepare; prepare != nil {
 		prepare(result)
 	}
@@ -1543,9 +1568,22 @@ func (s *sqlReturning) RowsAffected() func(ctx context.Context, stmt *Stmt, args
 	}
 }
 
-// Execute Customize the method to return the sequence value of inserted data.
-func (s *sqlReturning) Execute(execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)) SQLReturning {
+func (s *sqlReturning) GetExecute() func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error) {
+	return s.execute
+}
+
+// SetExecute Customize the method to return the sequence value of inserted data.
+func (s *sqlReturning) SetExecute(execute func(ctx context.Context, stmt *Stmt, args ...any) (id int64, err error)) SQLReturning {
 	s.execute = execute
+	return s
+}
+
+func (s *sqlReturning) GetInsert() Maker {
+	return s.insert
+}
+
+func (s *sqlReturning) SetInsert(script Maker) SQLReturning {
+	s.insert = script
 	return s
 }
 
@@ -1634,7 +1672,7 @@ func (s *sqlUpdateSet) toEmpty() {
 	s.updateArgs = make([][]any, 0, 1<<3)
 }
 
-func newSqlUpdateSet(way *Way) *sqlUpdateSet {
+func newSQLUpdateSet(way *Way) SQLUpdateSet {
 	result := &sqlUpdateSet{
 		way: way,
 	}
@@ -1644,7 +1682,7 @@ func newSqlUpdateSet(way *Way) *sqlUpdateSet {
 	result.init()
 	defaults.init()
 	result.defaults = defaults
-	forbid := way.cfg.updateForbidColumn
+	forbid := way.cfg.UpdateForbidColumn
 	if len(forbid) > 0 {
 		result.Forbid(forbid...)
 	}
@@ -1838,13 +1876,13 @@ func (s *sqlUpdateSet) Update(update any) SQLUpdateSet {
 	if tmp, ok := update.(Maker); ok {
 		return s.exprArgs(tmp.ToSQL())
 	}
-	columns, values := ObjectModify(update, s.way.cfg.scanTag)
+	columns, values := ObjectModify(update, s.way.cfg.ScanTag)
 	return s.batchSet(columns, values)
 }
 
 // Compare For compare old and new to automatically calculate the need to update columns.
 func (s *sqlUpdateSet) Compare(old, new any, except ...string) SQLUpdateSet {
-	columns, values := StructUpdate(old, new, s.way.cfg.scanTag, except...)
+	columns, values := StructUpdate(old, new, s.way.cfg.ScanTag, except...)
 	return s.batchSet(columns, values)
 }
 
@@ -1948,11 +1986,11 @@ type sqlOnConflictUpdateSet struct {
 	way *Way
 }
 
-func newSqlOnConflictUpdateSet(way *Way) SQLOnConflictUpdateSet {
+func newSQLOnConflictUpdateSet(way *Way) SQLOnConflictUpdateSet {
 	tmp := &sqlOnConflictUpdateSet{
 		way: way,
 	}
-	tmp.SQLUpdateSet = newSqlUpdateSet(way)
+	tmp.SQLUpdateSet = way.cfg.NewSQLUpdateSet(way)
 	return tmp
 }
 
@@ -1972,14 +2010,23 @@ type SQLOnConflict interface {
 
 	ToEmpty
 
-	// OnConflict The column causing the conflict, such as a unique key or primary key, which can be a single column or multiple columns.
-	OnConflict(onConflicts ...string) SQLOnConflict
+	// GetOnConflict Get ON CONFLICT columns.
+	GetOnConflict() []string
+
+	// SetOnConflict The column causing the conflict, such as a unique key or primary key, which can be a single column or multiple columns.
+	SetOnConflict(onConflicts ...string) SQLOnConflict
 
 	// Do The SQL statement that needs to be executed when a data conflict occurs. By default, nothing is done.
 	Do(maker Maker) SQLOnConflict
 
 	// DoUpdateSet SQL update statements executed when data conflicts occur.
-	DoUpdateSet(fc func(u SQLOnConflictUpdateSet)) SQLOnConflict
+	DoUpdateSet(fx func(u SQLOnConflictUpdateSet)) SQLOnConflict
+
+	// GetInsert Get insert Maker.
+	GetInsert() Maker
+
+	// SetInsert Set insert Maker.
+	SetInsert(script Maker) SQLOnConflict
 }
 
 type sqlOnConflict struct {
@@ -1994,7 +2041,7 @@ type sqlOnConflict struct {
 	onConflicts []string
 }
 
-func newSqlOnConflict(way *Way, insert Maker) *sqlOnConflict {
+func newSQLOnConflict(way *Way, insert Maker) SQLOnConflict {
 	return &sqlOnConflict{
 		way:    way,
 		insert: insert,
@@ -2008,9 +2055,13 @@ func (s *sqlOnConflict) ToEmpty() {
 	s.onConflicts = make([]string, 0, 1<<1)
 }
 
-func (s *sqlOnConflict) OnConflict(onConflicts ...string) SQLOnConflict {
+func (s *sqlOnConflict) SetOnConflict(onConflicts ...string) SQLOnConflict {
 	s.onConflicts = onConflicts
 	return s
+}
+
+func (s *sqlOnConflict) GetOnConflict() []string {
+	return s.onConflicts
 }
 
 func (s *sqlOnConflict) Do(maker Maker) SQLOnConflict {
@@ -2018,13 +2069,13 @@ func (s *sqlOnConflict) Do(maker Maker) SQLOnConflict {
 	return s
 }
 
-func (s *sqlOnConflict) DoUpdateSet(fc func(u SQLOnConflictUpdateSet)) SQLOnConflict {
+func (s *sqlOnConflict) DoUpdateSet(fx func(u SQLOnConflictUpdateSet)) SQLOnConflict {
 	tmp := s.onConflictsDoUpdateSet
 	if tmp == nil {
-		s.onConflictsDoUpdateSet = newSqlOnConflictUpdateSet(s.way)
+		s.onConflictsDoUpdateSet = s.way.cfg.NewSQLOnConflictUpdateSet(s.way)
 		tmp = s.onConflictsDoUpdateSet
 	}
-	fc(tmp)
+	fx(tmp)
 	return s
 }
 
@@ -2065,6 +2116,15 @@ func (s *sqlOnConflict) ToSQL() *SQL {
 	return script
 }
 
+func (s *sqlOnConflict) GetInsert() Maker {
+	return s.insert
+}
+
+func (s *sqlOnConflict) SetInsert(script Maker) SQLOnConflict {
+	s.insert = script
+	return s
+}
+
 // SQLInsert Build INSERT statements.
 type SQLInsert interface {
 	Maker
@@ -2073,6 +2133,9 @@ type SQLInsert interface {
 
 	// Table Insert data into the target table.
 	Table(table Maker) SQLInsert
+
+	// TableIsValid Report whether the current table name is valid.
+	TableIsValid() bool
 
 	// Forbid When inserting data, it is forbidden to set certain columns, such as: auto-increment id.
 	Forbid(columns ...string) SQLInsert
@@ -2089,18 +2152,17 @@ type SQLInsert interface {
 	// Values Set the list of values to be inserted.
 	Values(values ...[]any) SQLInsert
 
-	// Subquery Use the query result as the values of the insert statement.
-	Subquery(subquery Maker) SQLInsert
+	// SetSubquery Use the query result as the values of the insert statement.
+	SetSubquery(subquery Maker) SQLInsert
 
 	// ColumnValue Set a single column and value.
 	ColumnValue(column string, value any) SQLInsert
 
+	// ReturningId Insert a single record and get the id of the inserted data.
+	ReturningId() SQLInsert
+
 	// Create Parses the given insert data and sets the insert data.
 	Create(create any) SQLInsert
-
-	// CreateOne value of creation should be one of struct{}, *struct{}, map[string]any.
-	// Return the id value of the inserted data.
-	CreateOne(create any) SQLInsert
 
 	// Default Set the default column for inserted data, such as the creation timestamp.
 	Default(column string, value any) SQLInsert
@@ -2108,14 +2170,17 @@ type SQLInsert interface {
 	// Remove Delete a column-value.
 	Remove(columns ...string) SQLInsert
 
+	// GetReturning Get returning value.
+	GetReturning() SQLReturning
+
 	// Returning Insert a piece of data and get the auto-increment value.
-	Returning(fc func(r SQLReturning)) SQLInsert
+	Returning(fx func(r SQLReturning)) SQLInsert
 
 	// GetColumn Get the list of inserted columns that have been set.
 	GetColumn(excludes ...string) []string
 
 	// OnConflict When inserting data, set the execution logic when there is a conflict.
-	OnConflict(fc func(o SQLOnConflict)) SQLInsert
+	OnConflict(fx func(o SQLOnConflict)) SQLInsert
 }
 
 type sqlInsert struct {
@@ -2127,13 +2192,13 @@ type sqlInsert struct {
 
 	onlyAllow map[string]*struct{} // Set the columns to allow inserts only.
 
-	columns *sqlSelect
+	columns SQLSelect
 
-	values *sqlValues
+	values SQLValues
 
-	returning *sqlReturning
+	returning SQLReturning
 
-	onConflict *sqlOnConflict
+	onConflict SQLOnConflict
 
 	defaults *sqlInsert
 }
@@ -2141,10 +2206,10 @@ type sqlInsert struct {
 func (s *sqlInsert) init() {
 	s.forbidSet = make(map[string]*struct{}, 1<<3)
 	s.table = NewEmptySQL()
-	s.columns = newSqlSelect(s.way)
-	s.values = newSqlValues()
-	s.returning = newReturning(s.way, NewEmptySQL())
-	s.onConflict = newSqlOnConflict(s.way, NewEmptySQL())
+	s.columns = s.way.cfg.NewSQLSelect(s.way)
+	s.values = s.way.cfg.NewSQLValues(s.way)
+	s.returning = s.way.cfg.NewSQLReturning(s.way, NewEmptySQL())
+	s.onConflict = s.way.cfg.NewSQLOnConflict(s.way, NewEmptySQL())
 }
 
 func (s *sqlInsert) toEmpty() {
@@ -2156,7 +2221,7 @@ func (s *sqlInsert) toEmpty() {
 	s.onConflict.ToEmpty()
 }
 
-func newSqlInsert(way *Way) *sqlInsert {
+func newSQLInsert(way *Way) SQLInsert {
 	result := &sqlInsert{
 		way: way,
 	}
@@ -2166,7 +2231,7 @@ func newSqlInsert(way *Way) *sqlInsert {
 	result.init()
 	defaults.init()
 	result.defaults = defaults
-	forbid := way.cfg.insertForbidColumn
+	forbid := way.cfg.InsertForbidColumn
 	if len(forbid) > 0 {
 		result.Forbid(forbid...)
 	}
@@ -2185,8 +2250,9 @@ func (s *sqlInsert) ToSQL() *SQL {
 	makers := []any{NewSQL(cst.INSERT), NewSQL(cst.INTO), s.table}
 
 	columns1, params1 := s.columns.Get()
-	values1 := make([][]any, len(s.values.values))
-	copy(values1, s.values.values)
+	values := s.values.GetValues()
+	values1 := make([][]any, len(values))
+	copy(values1, values)
 
 	columns, values := make([]string, len(columns1)), make([][]any, len(values1))
 	copy(columns, columns1)
@@ -2194,10 +2260,11 @@ func (s *sqlInsert) ToSQL() *SQL {
 	params := make(map[int][]any, len(params1))
 	maps.Copy(params, params1)
 	if len(columns) > 0 {
-		if len(values) > 0 && len(s.defaults.values.values) == 1 {
+		defaultsValues := s.defaults.values.GetValues()
+		if len(values) > 0 && len(defaultsValues) == 1 {
 			// add default columns and values.
 			defaultColumns, defaultParams := s.defaults.columns.Get()
-			defaultValuesSlice := s.defaults.values.values[0]
+			defaultValuesSlice := defaultsValues[0]
 			defaultValues := make([]any, len(defaultValuesSlice))
 			copy(defaultValues, defaultValuesSlice)
 			defaultColumnsLength, defaultValuesLength := len(defaultColumns), len(defaultValues)
@@ -2226,7 +2293,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 
 	ok := false
 
-	subquery := s.values.subquery
+	subquery := s.values.GetSubquery()
 	if subquery != nil {
 		if script := subquery.ToSQL(); !script.IsEmpty() {
 			makers = append(makers, script)
@@ -2237,7 +2304,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 	if !ok {
 		if len(values) > 0 {
 			makers = append(makers, NewSQL(cst.VALUES))
-			makers = append(makers, s.values.valuesToSQL(values))
+			makers = append(makers, s.values.ValuesToSQL(values))
 			ok = true
 		}
 	}
@@ -2246,18 +2313,25 @@ func (s *sqlInsert) ToSQL() *SQL {
 		return NewEmptySQL()
 	}
 
-	if s.returning != nil && s.returning.execute != nil {
-		s.returning.insert = JoinSQLSpace(makers...)
-		if script := s.returning.ToSQL(); !script.IsEmpty() {
-			return script
+	if s.returning != nil {
+		execute := s.returning.GetExecute()
+		if execute != nil {
+			s.returning.SetInsert(JoinSQLSpace(makers...))
+			if script := s.returning.ToSQL(); !script.IsEmpty() {
+				return script
+			}
 		}
 	}
 
-	if s.onConflict != nil && len(s.onConflict.onConflicts) > 0 {
-		s.onConflict.insert = JoinSQLSpace(makers...)
-		if script := s.onConflict.ToSQL(); !script.IsEmpty() {
-			return script
+	if s.onConflict != nil {
+		onConflicts := s.onConflict.GetOnConflict()
+		if len(onConflicts) > 0 {
+			s.onConflict.SetInsert(JoinSQLSpace(makers...))
+			if script := s.onConflict.ToSQL(); !script.IsEmpty() {
+				return script
+			}
 		}
+
 	}
 
 	return JoinSQLSpace(makers...)
@@ -2273,6 +2347,13 @@ func (s *sqlInsert) Table(table Maker) SQLInsert {
 	}
 	s.table = script
 	return s
+}
+
+func (s *sqlInsert) TableIsValid() bool {
+	if s.table == nil || s.table.IsEmpty() {
+		return false
+	}
+	return true
 }
 
 func (s *sqlInsert) Forbid(columns ...string) SQLInsert {
@@ -2317,12 +2398,12 @@ func (s *sqlInsert) Values(values ...[]any) SQLInsert {
 	if len(values) == 0 {
 		return s
 	}
-	s.values.Values(values...)
+	s.values.SetValues(values...)
 	return s
 }
 
-func (s *sqlInsert) Subquery(subquery Maker) SQLInsert {
-	s.values.Subquery(subquery)
+func (s *sqlInsert) SetSubquery(subquery Maker) SQLInsert {
+	s.values.SetSubquery(subquery)
 	return s
 }
 
@@ -2338,10 +2419,25 @@ func (s *sqlInsert) ColumnValue(column string, value any) SQLInsert {
 			return s
 		}
 	}
-	s.columns.AddAll(column)
-	for index := range s.values.values {
-		s.values.values[index] = append(s.values.values[index], value)
+	s.columns.Add(NewSQL(column))
+	values := s.values.GetValues()
+	for index := range values {
+		values[index] = append(values[index], value)
 	}
+	s.values.SetValues(values...)
+	return s
+}
+
+func (s *sqlInsert) ReturningId() SQLInsert {
+	subquery := s.values.GetSubquery()
+	if subquery != nil {
+		return s
+	}
+	length := len(s.values.GetValues())
+	if length != 1 {
+		return s
+	}
+	s.Returning(s.way.cfg.Manual.InsertOneReturningId)
 	return s
 }
 
@@ -2349,7 +2445,10 @@ func (s *sqlInsert) ColumnValue(column string, value any) SQLInsert {
 func (s *sqlInsert) Create(create any) SQLInsert {
 	forbid := MapToArray(s.forbidSet, func(k string, v *struct{}) string { return k })
 	onlyAllow := MapToArray(s.onlyAllow, func(k string, v *struct{}) string { return k })
-	columns, values := ObjectInsert(create, s.way.cfg.scanTag, forbid, onlyAllow)
+	columns, values, category := ObjectInsert(create, s.way.cfg.ScanTag, forbid, onlyAllow)
+	if category == CategoryInsertOne {
+		defer s.ReturningId()
+	}
 	removes := make(map[int]*struct{}, len(columns))
 	for index, column := range columns {
 		if _, ok := s.forbidSet[column]; ok {
@@ -2389,16 +2488,6 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 	return s.Column(columns...).Values(values...)
 }
 
-// CreateOne value of creation should be one of struct{}, *struct{}, map[string]any.
-// Return the id value of the inserted data.
-func (s *sqlInsert) CreateOne(create any) SQLInsert {
-	s.Create(create)
-	if manual := s.way.Manual(); manual != nil {
-		s.Returning(manual.InsertOneAndReturnId)
-	}
-	return s
-}
-
 func (s *sqlInsert) Default(column string, value any) SQLInsert {
 	s.defaults.ColumnValue(column, value)
 	return s
@@ -2406,7 +2495,7 @@ func (s *sqlInsert) Default(column string, value any) SQLInsert {
 
 func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 	fields, params := s.columns.Get()
-	values := s.values.values
+	values := s.values.GetValues()
 	length1, length2 := len(fields), len(values)
 	if length1 == 0 || length2 == 0 {
 		return s
@@ -2443,25 +2532,30 @@ func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 	})
 	s.columns.Del().Set(fields, params)
 	for index, value := range values {
-		s.values.values[index] = ArrayDiscard(value, func(k int, v any) bool {
+		values[index] = ArrayDiscard(value, func(k int, v any) bool {
 			_, ok = assoc[k]
 			return ok
 		})
 	}
+	s.values.SetValues(values...)
 	if s.defaults != nil {
 		s.defaults.Remove(columns...)
 	}
 	return s
 }
 
-func (s *sqlInsert) Returning(fc func(r SQLReturning)) SQLInsert {
-	if fc == nil {
+func (s *sqlInsert) GetReturning() SQLReturning {
+	return s.returning
+}
+
+func (s *sqlInsert) Returning(fx func(r SQLReturning)) SQLInsert {
+	if fx == nil {
 		return s
 	}
 	if s.returning == nil {
-		s.returning = newReturning(s.way, NewEmptySQL())
+		s.returning = s.way.cfg.NewSQLReturning(s.way, NewEmptySQL())
 	}
-	fc(s.returning)
+	fx(s.returning)
 	return s
 }
 
@@ -2479,8 +2573,8 @@ func (s *sqlInsert) GetColumn(excludes ...string) []string {
 	return columns
 }
 
-func (s *sqlInsert) OnConflict(fc func(o SQLOnConflict)) SQLInsert {
-	fc(s.onConflict)
+func (s *sqlInsert) OnConflict(fx func(o SQLOnConflict)) SQLInsert {
+	fx(s.onConflict)
 	return s
 }
 
@@ -2515,7 +2609,6 @@ type SQLCase interface {
 	Else(value any) SQLCase
 }
 
-// sqlCase Implement the SQLCase interface.
 type sqlCase struct {
 	sqlCase *SQL // CASE value, value is optional.
 
@@ -2535,10 +2628,9 @@ func NewSQLCase(way *Way) SQLCase {
 }
 
 func (s *Way) Case() SQLCase {
-	return NewSQLCase(s)
+	return s.cfg.NewSQLCase(s)
 }
 
-// ToSQL Build CASE statement.
 func (s *sqlCase) ToSQL() *SQL {
 	script := NewSQL(cst.Empty)
 	if len(s.whenThen) == 0 {
@@ -2572,7 +2664,6 @@ func (s *sqlCase) ToSQL() *SQL {
 	return newSqlAlias(script).v(s.way).SetAlias(s.alias).ToSQL()
 }
 
-// Alias Set the alias for the entire CASE.
 func (s *sqlCase) Alias(alias string) SQLCase {
 	s.alias = alias
 	return s

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cd365/hey/v6"
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7"
+	"github.com/cd365/hey/v7/cst"
 )
 
 const (
-	heyV6 = "github.com/cd365/hey/v6"
+	heyV6 = "github.com/cd365/hey/v7"
 )
 
 type FileLineMethod struct {

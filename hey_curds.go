@@ -8,7 +8,7 @@ package hey
 import (
 	"context"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 // MyContext Custom context key type.
@@ -71,25 +71,25 @@ type myHook struct {
 // MyInsert For INSERT.
 type MyInsert interface {
 	// AfterInsert Set post-insert data hook.
-	AfterInsert(fc func(ctx context.Context) error)
+	AfterInsert(fx func(ctx context.Context) error)
 
 	// AfterInsertValue Get post-insert data hook.
 	AfterInsertValue() func(ctx context.Context) error
 
 	// BeforeInsert Set pre-insert data hook.
-	BeforeInsert(fc func(ctx context.Context) (context.Context, error))
+	BeforeInsert(fx func(ctx context.Context) (context.Context, error))
 
 	// BeforeInsertValue Get pre-insert data hook.
 	BeforeInsertValue() func(ctx context.Context) (context.Context, error)
 
 	// ResetInsertOne Reset the default InsertOne method.
-	ResetInsertOne(fc func(ctx context.Context, insert any) (id int64, err error))
+	ResetInsertOne(fx func(ctx context.Context, insert any) (id int64, err error))
 
 	// ResetInsertAll Reset the default InsertAll method.
-	ResetInsertAll(fc func(ctx context.Context, insert any) (affectedRows int64, err error))
+	ResetInsertAll(fx func(ctx context.Context, insert any) (affectedRows int64, err error))
 
 	// ResetInsertFromQuery Reset the default InsertFromQuery method.
-	ResetInsertFromQuery(fc func(ctx context.Context, columns []string, query Maker) (affectedRows int64, err error))
+	ResetInsertFromQuery(fx func(ctx context.Context, columns []string, query Maker) (affectedRows int64, err error))
 
 	// InsertOne Insert a record and return the primary key value (usually an integer value).
 	InsertOne(ctx context.Context, insert any) (id int64, err error)
@@ -122,32 +122,32 @@ func (s *Way) MyInsert(table string) MyInsert {
 	return newMyInsert(s, table)
 }
 
-func (s *myInsert) AfterInsert(fc func(ctx context.Context) error) {
-	s.after = fc
+func (s *myInsert) AfterInsert(fx func(ctx context.Context) error) {
+	s.after = fx
 }
 
 func (s *myInsert) AfterInsertValue() func(ctx context.Context) error {
 	return s.after
 }
 
-func (s *myInsert) BeforeInsert(fc func(ctx context.Context) (context.Context, error)) {
-	s.before = fc
+func (s *myInsert) BeforeInsert(fx func(ctx context.Context) (context.Context, error)) {
+	s.before = fx
 }
 
 func (s *myInsert) BeforeInsertValue() func(ctx context.Context) (context.Context, error) {
 	return s.before
 }
 
-func (s *myInsert) ResetInsertOne(fc func(ctx context.Context, insert any) (id int64, err error)) {
-	s.resetInsertOne = fc
+func (s *myInsert) ResetInsertOne(fx func(ctx context.Context, insert any) (id int64, err error)) {
+	s.resetInsertOne = fx
 }
 
-func (s *myInsert) ResetInsertAll(fc func(ctx context.Context, insert any) (affectedRows int64, err error)) {
-	s.resetInsertAll = fc
+func (s *myInsert) ResetInsertAll(fx func(ctx context.Context, insert any) (affectedRows int64, err error)) {
+	s.resetInsertAll = fx
 }
 
-func (s *myInsert) ResetInsertFromQuery(fc func(ctx context.Context, columns []string, query Maker) (affectedRows int64, err error)) {
-	s.resetInsertFromQuery = fc
+func (s *myInsert) ResetInsertFromQuery(fx func(ctx context.Context, columns []string, query Maker) (affectedRows int64, err error)) {
+	s.resetInsertFromQuery = fx
 }
 
 func (s *myInsert) InsertOne(ctx context.Context, insert any) (id int64, err error) {
@@ -220,7 +220,7 @@ func (s *myInsert) InsertFromQuery(ctx context.Context, columns []string, query 
 		}
 	}
 	table.InsertFunc(func(i SQLInsert) {
-		i.Column(columns...).Subquery(script)
+		i.Column(columns...).SetSubquery(script)
 	})
 	if affectedRows, err = table.Insert(ctx); err != nil {
 		return affectedRows, err
@@ -245,25 +245,25 @@ type myFilter struct {
 // MyDelete For DELETE.
 type MyDelete interface {
 	// AfterDelete Set post-delete data hook.
-	AfterDelete(fc func(ctx context.Context) error)
+	AfterDelete(fx func(ctx context.Context) error)
 
 	// AfterDeleteValue Get post-delete data hook.
 	AfterDeleteValue() func(ctx context.Context) error
 
 	// BeforeDelete Set pre-delete data hook.
-	BeforeDelete(fc func(ctx context.Context) (context.Context, error))
+	BeforeDelete(fx func(ctx context.Context) (context.Context, error))
 
 	// BeforeDeleteValue Get pre-delete data hook.
 	BeforeDeleteValue() func(ctx context.Context) (context.Context, error)
 
 	// DeleteFilter Custom delete logic Filter.
-	DeleteFilter(fc func(f Filter))
+	DeleteFilter(fx func(f Filter))
 
 	// DeleteFilterValue Custom delete logic Filter value.
 	DeleteFilterValue() func(f Filter)
 
 	// ResetDelete Reset the default Delete method.
-	ResetDelete(fc func(ctx context.Context, where Filter) (affectedRows int64, err error))
+	ResetDelete(fx func(ctx context.Context, where Filter) (affectedRows int64, err error))
 
 	// Delete Physically delete data.
 	Delete(ctx context.Context, where Filter) (affectedRows int64, err error)
@@ -293,32 +293,32 @@ func (s *Way) MyDelete(table string) MyDelete {
 	return newMyDelete(s, table)
 }
 
-func (s *myDelete) AfterDelete(fc func(ctx context.Context) error) {
-	s.after = fc
+func (s *myDelete) AfterDelete(fx func(ctx context.Context) error) {
+	s.after = fx
 }
 
 func (s *myDelete) AfterDeleteValue() func(ctx context.Context) error {
 	return s.after
 }
 
-func (s *myDelete) BeforeDelete(fc func(ctx context.Context) (context.Context, error)) {
-	s.before = fc
+func (s *myDelete) BeforeDelete(fx func(ctx context.Context) (context.Context, error)) {
+	s.before = fx
 }
 
 func (s *myDelete) BeforeDeleteValue() func(ctx context.Context) (context.Context, error) {
 	return s.before
 }
 
-func (s *myDelete) DeleteFilter(fc func(f Filter)) {
-	s.filter = fc
+func (s *myDelete) DeleteFilter(fx func(f Filter)) {
+	s.filter = fx
 }
 
 func (s *myDelete) DeleteFilterValue() func(f Filter) {
 	return s.filter
 }
 
-func (s *myDelete) ResetDelete(fc func(ctx context.Context, where Filter) (affectedRows int64, err error)) {
-	s.resetDelete = fc
+func (s *myDelete) ResetDelete(fx func(ctx context.Context, where Filter) (affectedRows int64, err error)) {
+	s.resetDelete = fx
 }
 
 func (s *myDelete) Delete(ctx context.Context, where Filter) (affectedRows int64, err error) {
@@ -335,25 +335,25 @@ func (s *myDelete) DeleteById(ctx context.Context, ids any) (affectedRows int64,
 // MyUpdate For UPDATE.
 type MyUpdate interface {
 	// AfterUpdate Set post-update data hook.
-	AfterUpdate(fc func(ctx context.Context) error)
+	AfterUpdate(fx func(ctx context.Context) error)
 
 	// AfterUpdateValue Get post-update data hook.
 	AfterUpdateValue() func(ctx context.Context) error
 
 	// BeforeUpdate Set pre-update data hook.
-	BeforeUpdate(fc func(ctx context.Context) (context.Context, error))
+	BeforeUpdate(fx func(ctx context.Context) (context.Context, error))
 
 	// BeforeUpdateValue Get pre-update data hook.
 	BeforeUpdateValue() func(ctx context.Context) (context.Context, error)
 
 	// UpdateFilter Custom update logic Filter.
-	UpdateFilter(fc func(f Filter))
+	UpdateFilter(fx func(f Filter))
 
 	// UpdateFilterValue Custom update logic Filter value.
 	UpdateFilterValue() func(f Filter)
 
 	// ResetUpdate Reset the default Update method.
-	ResetUpdate(fc func(ctx context.Context, where Filter, update func(u SQLUpdateSet)) (affectedRows int64, err error))
+	ResetUpdate(fx func(ctx context.Context, where Filter, update func(u SQLUpdateSet)) (affectedRows int64, err error))
 
 	// Update Implementing updated data.
 	Update(ctx context.Context, where Filter, update func(u SQLUpdateSet)) (affectedRows int64, err error)
@@ -389,32 +389,32 @@ func (s *Way) MyUpdate(table string) MyUpdate {
 	return newMyUpdate(s, table)
 }
 
-func (s *myUpdate) AfterUpdate(fc func(ctx context.Context) error) {
-	s.after = fc
+func (s *myUpdate) AfterUpdate(fx func(ctx context.Context) error) {
+	s.after = fx
 }
 
 func (s *myUpdate) AfterUpdateValue() func(ctx context.Context) error {
 	return s.after
 }
 
-func (s *myUpdate) BeforeUpdate(fc func(ctx context.Context) (context.Context, error)) {
-	s.before = fc
+func (s *myUpdate) BeforeUpdate(fx func(ctx context.Context) (context.Context, error)) {
+	s.before = fx
 }
 
 func (s *myUpdate) BeforeUpdateValue() func(ctx context.Context) (context.Context, error) {
 	return s.before
 }
 
-func (s *myUpdate) UpdateFilter(fc func(f Filter)) {
-	s.filter = fc
+func (s *myUpdate) UpdateFilter(fx func(f Filter)) {
+	s.filter = fx
 }
 
 func (s *myUpdate) UpdateFilterValue() func(f Filter) {
 	return s.filter
 }
 
-func (s *myUpdate) ResetUpdate(fc func(ctx context.Context, where Filter, update func(u SQLUpdateSet)) (affectedRows int64, err error)) {
-	s.resetUpdate = fc
+func (s *myUpdate) ResetUpdate(fx func(ctx context.Context, where Filter, update func(u SQLUpdateSet)) (affectedRows int64, err error)) {
+	s.resetUpdate = fx
 }
 
 func (s *myUpdate) Update(ctx context.Context, where Filter, update func(u SQLUpdateSet)) (affectedRows int64, err error) {
@@ -432,7 +432,7 @@ func (s *myUpdate) Update(ctx context.Context, where Filter, update func(u SQLUp
 	}
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) { update(u) })
 	if s.filter != nil {
-		where = where.New(where)
+		where = where.New().Use(where)
 		s.filter(where)
 	}
 	table.Where(where)
@@ -473,13 +473,13 @@ type MySelect interface {
 	Columns() []string
 
 	// SelectFilter Custom select logic Filter.
-	SelectFilter(fc func(f Filter))
+	SelectFilter(fx func(f Filter))
 
 	// SelectFilterValue Custom select logic Filter value.
 	SelectFilterValue() func(f Filter)
 
 	// ResetSelect Reset the default Select method.
-	ResetSelect(fc func(ctx context.Context, selectAll func(ctx context.Context, table *Table) error, options ...func(o *Table)) error)
+	ResetSelect(fx func(ctx context.Context, selectAll func(ctx context.Context, table *Table) error, options ...func(o *Table)) error)
 
 	// SelectAll Query multiple data.
 	SelectAll(ctx context.Context, receiver any, options ...func(o *Table)) error
@@ -535,16 +535,16 @@ func (s *mySelect) Columns() []string {
 	return s.columns
 }
 
-func (s *mySelect) SelectFilter(fc func(f Filter)) {
-	s.filter = fc
+func (s *mySelect) SelectFilter(fx func(f Filter)) {
+	s.filter = fx
 }
 
 func (s *mySelect) SelectFilterValue() func(f Filter) {
 	return s.filter
 }
 
-func (s *mySelect) ResetSelect(fc func(ctx context.Context, selectAll func(ctx context.Context, table *Table) error, options ...func(o *Table)) error) {
-	s.resetSelect = fc
+func (s *mySelect) ResetSelect(fx func(ctx context.Context, selectAll func(ctx context.Context, table *Table) error, options ...func(o *Table)) error) {
+	s.resetSelect = fx
 }
 
 func (s *mySelect) selectAll(ctx context.Context, selectAll func(ctx context.Context, table *Table) error, options ...func(o *Table)) error {
@@ -553,9 +553,9 @@ func (s *mySelect) selectAll(ctx context.Context, selectAll func(ctx context.Con
 	}
 	way := ContextWay(ctx, s.way)
 	table := way.Table(s.table)
-	for _, fc := range options {
-		if fc != nil {
-			fc(table)
+	for _, fx := range options {
+		if fx != nil {
+			fx(table)
 		}
 	}
 	if s.filter != nil {
@@ -600,9 +600,9 @@ func (s *mySelect) SelectOneById(ctx context.Context, id any, receiver any, opti
 
 func (s *mySelect) SelectSQL(options ...func(o *Table)) *SQL {
 	table := s.way.Table(s.table)
-	for _, fc := range options {
-		if fc != nil {
-			fc(table)
+	for _, fx := range options {
+		if fx != nil {
+			fx(table)
 		}
 	}
 	if s.filter != nil {
@@ -620,9 +620,9 @@ func (s *mySelect) SelectSQL(options ...func(o *Table)) *SQL {
 
 func (s *mySelect) SelectExists(ctx context.Context, options ...func(o *Table)) (bool, error) {
 	script := s.SelectSQL(func(o *Table) {
-		for _, fc := range options {
-			if fc != nil {
-				fc(o)
+		for _, fx := range options {
+			if fx != nil {
+				fx(o)
 			}
 		}
 		if len(s.columns) > 0 {
@@ -660,28 +660,28 @@ func (s *mySelect) SelectCountScan(ctx context.Context, receiver any, options ..
 // MyHidden Logical deletion of data.
 type MyHidden interface {
 	// AfterHidden Set post-hidden data hook.
-	AfterHidden(fc func(ctx context.Context) error)
+	AfterHidden(fx func(ctx context.Context) error)
 
 	// AfterHiddenValue Get post-hidden data hook.
 	AfterHiddenValue() func(ctx context.Context) error
 
 	// BeforeHidden Set pre-hidden data hook.
-	BeforeHidden(fc func(ctx context.Context) (context.Context, error))
+	BeforeHidden(fx func(ctx context.Context) (context.Context, error))
 
 	// BeforeHiddenValue Get pre-hidden data hook.
 	BeforeHiddenValue() func(ctx context.Context) (context.Context, error)
 
 	// HiddenFilter Custom hidden logic Filter.
-	HiddenFilter(fc func(f Filter))
+	HiddenFilter(fx func(f Filter))
 
 	// HiddenFilterValue Custom hidden logic Filter value.
 	HiddenFilterValue() func(f Filter)
 
 	// HiddenUpdate Set pseudo-delete logic method.
-	HiddenUpdate(fc func(u SQLUpdateSet))
+	HiddenUpdate(fx func(u SQLUpdateSet))
 
 	// ResetHidden Reset the default Hidden method.
-	ResetHidden(fc func(ctx context.Context, where Filter) (affectedRows int64, err error))
+	ResetHidden(fx func(ctx context.Context, where Filter) (affectedRows int64, err error))
 
 	// Hidden Logical deletion of data.
 	Hidden(ctx context.Context, where Filter) (affectedRows int64, err error)
@@ -713,36 +713,36 @@ func (s *Way) MyHidden(table string, update func(u SQLUpdateSet)) MyHidden {
 	return newMyHidden(s, table, update)
 }
 
-func (s *myHidden) BeforeHidden(fc func(ctx context.Context) (context.Context, error)) {
-	s.before = fc
+func (s *myHidden) BeforeHidden(fx func(ctx context.Context) (context.Context, error)) {
+	s.before = fx
 }
 
 func (s *myHidden) BeforeHiddenValue() func(ctx context.Context) (context.Context, error) {
 	return s.before
 }
 
-func (s *myHidden) AfterHidden(fc func(ctx context.Context) error) {
-	s.after = fc
+func (s *myHidden) AfterHidden(fx func(ctx context.Context) error) {
+	s.after = fx
 }
 
 func (s *myHidden) AfterHiddenValue() func(ctx context.Context) error {
 	return s.after
 }
 
-func (s *myHidden) HiddenFilter(fc func(f Filter)) {
-	s.filter = fc
+func (s *myHidden) HiddenFilter(fx func(f Filter)) {
+	s.filter = fx
 }
 
 func (s *myHidden) HiddenFilterValue() func(f Filter) {
 	return s.filter
 }
 
-func (s *myHidden) HiddenUpdate(fc func(u SQLUpdateSet)) {
-	s.update = fc
+func (s *myHidden) HiddenUpdate(fx func(u SQLUpdateSet)) {
+	s.update = fx
 }
 
-func (s *myHidden) ResetHidden(fc func(ctx context.Context, where Filter) (affectedRows int64, err error)) {
-	s.resetHidden = fc
+func (s *myHidden) ResetHidden(fx func(ctx context.Context, where Filter) (affectedRows int64, err error)) {
+	s.resetHidden = fx
 }
 
 func (s *myHidden) Hidden(ctx context.Context, where Filter) (affectedRows int64, err error) {

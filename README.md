@@ -19,7 +19,7 @@ Log the executed SQL statements and transactions(Use it as an ORM).<br>
 
 ## INSTALL
 ```shell
-go get github.com/cd365/hey/v6@latest
+go get github.com/cd365/hey/v7@latest
 ```
 
 ## EXAMPLE

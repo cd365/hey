@@ -6,10 +6,9 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 // inArgs Compatibility parameter.
@@ -113,6 +112,10 @@ func filterUsingValue(value any) any {
 type Filter interface {
 	Maker
 
+	V
+
+	W
+
 	// ToEmpty Clear the existing conditional filtering of the current object.
 	ToEmpty() Filter
 
@@ -143,8 +146,8 @@ type Filter interface {
 	// Use Implement import a set of conditional filter objects into the current object.
 	Use(filters ...Filter) Filter
 
-	// New Create a new conditional filter object based on a set of conditional filter objects.
-	New(filters ...Filter) Filter
+	// New Create a new conditional filter object.
+	New() Filter
 
 	// Equal Implement conditional filtering: column = value .
 	Equal(column any, value any) Filter
@@ -204,16 +207,10 @@ type Filter interface {
 	Keyword(keyword string, columns ...string) Filter
 
 	// AllQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
-	AllQuantifier(fc func(q Quantifier)) Filter
+	AllQuantifier(fx func(q Quantifier)) Filter
 
 	// AnyQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
-	AnyQuantifier(fc func(q Quantifier)) Filter
-
-	// GetReplacer For get Replacer.
-	GetReplacer() Replacer
-
-	// SetReplacer For set Replacer.
-	SetReplacer(replacer Replacer) Filter
+	AnyQuantifier(fx func(q Quantifier)) Filter
 
 	// CompareEqual Implement conditional filtering: script1 = script2 .
 	CompareEqual(column1 any, column2 any) Filter
@@ -234,23 +231,29 @@ type Filter interface {
 	CompareLessThanEqual(column1 any, column2 any) Filter
 
 	// ExtractFilter Call Filter using ExtractFilter.
-	ExtractFilter(fc func(f ExtractFilter)) Filter
+	ExtractFilter(fx func(f ExtractFilter)) Filter
 
 	// TimeFilter Call Filter using TimeFilter.
-	TimeFilter(fc func(f TimeFilter)) Filter
+	TimeFilter(fx func(f TimeFilter)) Filter
 
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
 	// 2. If the business really needs to use it, you can use the OrGroup method: OrGroup(func(g Filter) { g.Equal("column", 1) }) .
 }
 
+func newSQLFilter(way *Way) Filter {
+	result := F()
+	result.W(way)
+	return result
+}
+
 // filter Implementing interface Filter.
 type filter struct {
-	prepare  *strings.Builder
-	replacer Replacer
-	args     []any
-	num      int
-	not      bool
+	prepare *strings.Builder
+	way     *Way
+	args    []any
+	num     int
+	not     bool
 }
 
 // newFilter New a Filter.
@@ -265,19 +268,12 @@ func F() Filter {
 	return newFilter()
 }
 
-// poolFilter filter pool.
-var poolFilter = &sync.Pool{
-	New: func() any {
-		return newFilter()
-	},
+func (s *filter) V() *Way {
+	return s.way
 }
 
-func poolGetFilter() Filter {
-	return poolFilter.Get().(*filter)
-}
-
-func poolPutFilter(f Filter) {
-	poolFilter.Put(f.ToEmpty())
+func (s *filter) W(way *Way) {
+	s.way = way
 }
 
 func (s *filter) ToSQL() *SQL {
@@ -320,11 +316,11 @@ func (s *filter) ToEmpty() Filter {
 
 func (s *filter) Clone() Filter {
 	clone := &filter{
-		prepare:  &strings.Builder{},
-		replacer: s.replacer,
-		args:     make([]any, len(s.args)),
-		num:      s.num,
-		not:      s.not,
+		prepare: &strings.Builder{},
+		way:     s.way,
+		args:    make([]any, len(s.args)),
+		num:     s.num,
+		not:     s.not,
 	}
 	clone.prepare.WriteString(s.prepare.String())
 	copy(clone.args, s.args)
@@ -380,8 +376,7 @@ func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
 		return s
 	}
 
-	tmp := poolGetFilter().SetReplacer(s.replacer)
-	defer poolPutFilter(tmp)
+	tmp := s.New()
 
 	group(tmp)
 
@@ -425,8 +420,7 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 }
 
 func (s *filter) Use(filters ...Filter) Filter {
-	group := poolGetFilter().SetReplacer(s.replacer)
-	defer poolPutFilter(group)
+	group := s.New()
 	for _, tmp := range filters {
 		if tmp == nil || tmp.IsEmpty() {
 			continue
@@ -436,15 +430,12 @@ func (s *filter) Use(filters ...Filter) Filter {
 	return s.And(group.ToSQL())
 }
 
-func (s *filter) New(filters ...Filter) Filter {
-	return newFilter().SetReplacer(s.GetReplacer()).Use(filters...)
+func (s *filter) New() Filter {
+	return s.way.cfg.NewSQLFilter(s.way)
 }
 
 func (s *filter) get(key string) string {
-	if s.replacer == nil {
-		return key
-	}
-	return s.replacer.Get(key)
+	return s.way.Replace(key)
 }
 
 func (s *filter) compare(logic string, column any, compare string, value any) Filter {
@@ -880,30 +871,27 @@ func (s *filter) Keyword(value string, columns ...string) Filter {
 	return s
 }
 
-func (s *filter) AllQuantifier(fc func(q Quantifier)) Filter {
-	tmp := &quantifier{
-		filter:     s.New(),
-		quantifier: cst.ALL,
+func (s *filter) newQuantifier(group Filter) Quantifier {
+	return s.way.cfg.NewQuantifier(group)
+}
+
+func (s *filter) AllQuantifier(fx func(q Quantifier)) Filter {
+	if fx != nil {
+		group := s.New()
+		tmp := s.newQuantifier(group).SetQuantifier(cst.ALL)
+		fx(tmp)
+		return s.Use(group)
 	}
-	fc(tmp)
-	return s.Use(tmp.filter)
+	return s
 }
 
-func (s *filter) AnyQuantifier(fc func(q Quantifier)) Filter {
-	tmp := &quantifier{
-		filter:     s.New(),
-		quantifier: cst.ANY,
+func (s *filter) AnyQuantifier(fx func(q Quantifier)) Filter {
+	if fx != nil {
+		group := s.New()
+		tmp := s.newQuantifier(group).SetQuantifier(cst.ANY)
+		fx(tmp)
+		return s.Use(group)
 	}
-	fc(tmp)
-	return s.Use(tmp.filter)
-}
-
-func (s *filter) GetReplacer() Replacer {
-	return s.replacer
-}
-
-func (s *filter) SetReplacer(replacer Replacer) Filter {
-	s.replacer = replacer
 	return s
 }
 
@@ -980,16 +968,17 @@ func (s *filter) CompareLessThanEqual(column1 any, column2 any) Filter {
 	return s.compares(column1, cst.LessThanEqual, column2)
 }
 
-func (s *filter) ExtractFilter(fc func(f ExtractFilter)) Filter {
-	tmp := poolGetExtractFilter(s)
-	defer poolPutExtractFilter(tmp)
-	fc(tmp)
+func (s *filter) ExtractFilter(fx func(f ExtractFilter)) Filter {
+	if fx != nil {
+		fx(s.way.cfg.NewExtractFilter(s))
+	}
 	return s
 }
 
-func (s *filter) TimeFilter(fc func(f TimeFilter)) Filter {
-	tmp := newTimeFilter(s, time.Now().Unix())
-	fc(tmp)
+func (s *filter) TimeFilter(fx func(f TimeFilter)) Filter {
+	if fx != nil {
+		fx(s.way.cfg.NewTimeFilter(s).Time(time.Now()))
+	}
 	return s
 }
 
@@ -1019,6 +1008,12 @@ type quantifier struct {
 	quantifier string // The value is usually one of ALL, ANY, SOME.
 }
 
+func newQuantifier(filter Filter) Quantifier {
+	return &quantifier{
+		filter: filter,
+	}
+}
+
 // GetQuantifier Get quantifier value.
 func (s *quantifier) GetQuantifier() string {
 	return s.quantifier
@@ -1036,9 +1031,7 @@ func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier 
 		return s
 	}
 	if script, ok := column.(string); ok {
-		if tmp := s.filter.GetReplacer(); tmp != nil {
-			column = tmp.Get(script)
-		}
+		column = s.filter.V().Replace(script)
 	}
 	prefix, suffix := AnyToSQL(column), subquery.ToSQL()
 	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
@@ -1139,23 +1132,11 @@ type extractFilter struct {
 	delimiter string
 }
 
-var poolExtractFilter = &sync.Pool{
-	New: func() any {
-		return &extractFilter{}
-	},
-}
-
-func poolGetExtractFilter(filter Filter) *extractFilter {
-	result := poolExtractFilter.Get().(*extractFilter)
-	result.filter = filter
-	result.delimiter = cst.Comma
-	return result
-}
-
-func poolPutExtractFilter(b *extractFilter) {
-	b.filter = nil
-	b.delimiter = cst.Empty
-	poolExtractFilter.Put(b)
+func newExtractFilter(filter Filter) ExtractFilter {
+	return &extractFilter{
+		filter:    filter,
+		delimiter: cst.Comma,
+	}
 }
 
 func (s *extractFilter) Delimiter(delimiter string) ExtractFilter {
@@ -1397,7 +1378,7 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 		s.filter.In(column, values...)
 		return s
 	}
-	switch fc := keepOnly.(type) {
+	switch fx := keepOnly.(type) {
 	case func(i []int) []int:
 		values := make([]int, length)
 		for k, v := range result {
@@ -1411,10 +1392,10 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 			}
 			values[k] = tmp
 		}
-		if fc == nil {
+		if fx == nil {
 			s.filter.In(column, AnyAny(values)...)
 		} else {
-			s.filter.In(column, AnyAny(fc(values))...)
+			s.filter.In(column, AnyAny(fx(values))...)
 		}
 	case func(i []int64) []int64:
 		values := make([]int64, length)
@@ -1429,10 +1410,10 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 			}
 			values[k] = tmp
 		}
-		if fc == nil {
+		if fx == nil {
 			s.filter.In(column, AnyAny(values)...)
 		} else {
-			s.filter.In(column, AnyAny(fc(values))...)
+			s.filter.In(column, AnyAny(fx(values))...)
 		}
 	case func(i []string) []string:
 		values := make([]string, length)
@@ -1447,10 +1428,10 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 			}
 			values[k] = tmp
 		}
-		if fc == nil {
+		if fx == nil {
 			s.filter.In(column, AnyAny(values)...)
 		} else {
-			s.filter.In(column, AnyAny(fc(values))...)
+			s.filter.In(column, AnyAny(fx(values))...)
 		}
 	default:
 
@@ -1546,9 +1527,9 @@ func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilt
 
 // TimeFilter Commonly used timestamp range filtering conditions.
 type TimeFilter interface {
-	Timestamp(timestamp int64) TimeFilter
-
 	TimeLocation(location *time.Location) TimeFilter
+
+	Time(value time.Time) TimeFilter
 
 	LastMinutes(column string, minutes int) TimeFilter
 
@@ -1580,41 +1561,39 @@ type TimeFilter interface {
 }
 
 type timeFilter struct {
-	filter    Filter
-	location  *time.Location
-	timestamp int64
+	filter   Filter
+	location *time.Location
+	time     time.Time
 }
 
-func newTimeFilter(filter Filter, timestamp int64) TimeFilter {
+func newTimeFilter(filter Filter) TimeFilter {
 	return &timeFilter{
-		filter:    filter,
-		timestamp: timestamp,
-		location:  time.Local,
+		filter: filter,
 	}
 }
 
 func (s *timeFilter) minuteStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0).In(s.location)
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, t.Location()).Unix()
+	t := time.Unix(timestamp, 0)
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, s.location).Unix()
 }
 
 func (s *timeFilter) hourStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0).In(s.location)
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, t.Location()).Unix()
+	t := time.Unix(timestamp, 0)
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, s.location).Unix()
 }
 
 func (s *timeFilter) dayStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0).In(s.location)
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).Unix()
+	t := time.Unix(timestamp, 0)
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.location).Unix()
 }
 
 func (s *timeFilter) monthStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0).In(s.location)
-	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location()).Unix()
+	t := time.Unix(timestamp, 0)
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, s.location).Unix()
 }
 
 func (s *timeFilter) quarterStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0).In(s.location)
+	t := time.Unix(timestamp, 0)
 	year := t.Year()
 	month := t.Month()
 	var startMonth time.Month
@@ -1628,17 +1607,12 @@ func (s *timeFilter) quarterStartAt(timestamp int64) int64 {
 	default:
 		startMonth = 10
 	}
-	return time.Date(year, startMonth, 1, 0, 0, 0, 0, t.Location()).Unix()
+	return time.Date(year, startMonth, 1, 0, 0, 0, 0, s.location).Unix()
 }
 
 func (s *timeFilter) yearStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0).In(s.location)
-	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, t.Location()).Unix()
-}
-
-func (s *timeFilter) Timestamp(timestamp int64) TimeFilter {
-	s.timestamp = timestamp
-	return s
+	t := time.Unix(timestamp, 0)
+	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, s.location).Unix()
 }
 
 func (s *timeFilter) TimeLocation(location *time.Location) TimeFilter {
@@ -1646,11 +1620,20 @@ func (s *timeFilter) TimeLocation(location *time.Location) TimeFilter {
 	return s
 }
 
+func (s *timeFilter) Time(value time.Time) TimeFilter {
+	if s.location == nil {
+		s.location = value.Location()
+	}
+	s.time = value
+	return s
+}
+
 func (s *timeFilter) LastMinutes(column string, minutes int) TimeFilter {
 	if minutes <= 0 {
 		return s
 	}
-	s.filter.Between(column, s.minuteStartAt(s.timestamp)-(int64(minutes)-1)*60, s.timestamp)
+	timestamp := s.time.Unix()
+	s.filter.Between(column, s.minuteStartAt(timestamp)-(int64(minutes)-1)*60, timestamp)
 	return s
 }
 
@@ -1658,17 +1641,20 @@ func (s *timeFilter) LastHours(column string, hours int) TimeFilter {
 	if hours <= 0 {
 		return s
 	}
-	s.filter.Between(column, s.hourStartAt(s.timestamp)-(int64(hours)-1)*3600, s.timestamp)
+	timestamp := s.time.Unix()
+	s.filter.Between(column, s.hourStartAt(timestamp)-(int64(hours)-1)*3600, timestamp)
 	return s
 }
 
 func (s *timeFilter) Today(column string) TimeFilter {
-	s.filter.Between(column, s.dayStartAt(s.timestamp), s.timestamp)
+	timestamp := s.time.Unix()
+	s.filter.Between(column, s.dayStartAt(timestamp), timestamp)
 	return s
 }
 
 func (s *timeFilter) Yesterday(column string) TimeFilter {
-	dayStartAt := s.dayStartAt(s.timestamp)
+	timestamp := s.time.Unix()
+	dayStartAt := s.dayStartAt(timestamp)
 	s.filter.Between(column, s.dayStartAt(dayStartAt-1), dayStartAt-1)
 	return s
 }
@@ -1677,17 +1663,20 @@ func (s *timeFilter) LastDays(column string, days int) TimeFilter {
 	if days <= 0 {
 		return s
 	}
-	s.filter.Between(column, s.dayStartAt(s.timestamp)-(int64(days)-1)*86400, s.timestamp)
+	timestamp := s.time.Unix()
+	s.filter.Between(column, s.dayStartAt(timestamp)-(int64(days)-1)*86400, timestamp)
 	return s
 }
 
 func (s *timeFilter) ThisMonth(column string) TimeFilter {
-	s.filter.Between(column, s.monthStartAt(s.timestamp), s.timestamp)
+	timestamp := s.time.Unix()
+	s.filter.Between(column, s.monthStartAt(timestamp), timestamp)
 	return s
 }
 
 func (s *timeFilter) LastMonth(column string) TimeFilter {
-	thisMonthStartAt := s.monthStartAt(s.timestamp)
+	timestamp := s.time.Unix()
+	thisMonthStartAt := s.monthStartAt(timestamp)
 	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.location).AddDate(0, -1, 0).Unix()
 	s.filter.Between(column, lastMonthStartAt, thisMonthStartAt-1)
 	return s
@@ -1697,20 +1686,23 @@ func (s *timeFilter) LastMonths(column string, months int) TimeFilter {
 	if months <= 0 {
 		return s
 	}
-	thisMonthStartAt := s.monthStartAt(s.timestamp)
+	timestamp := s.time.Unix()
+	thisMonthStartAt := s.monthStartAt(timestamp)
 	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.location).AddDate(0, -months+1, 0).Unix()
-	s.filter.Between(column, lastMonthStartAt, s.timestamp)
+	s.filter.Between(column, lastMonthStartAt, timestamp)
 	return s
 }
 
 func (s *timeFilter) ThisQuarter(column string) TimeFilter {
-	thisQuarterStartAt := s.quarterStartAt(s.timestamp)
-	s.filter.Between(column, thisQuarterStartAt, s.timestamp)
+	timestamp := s.time.Unix()
+	thisQuarterStartAt := s.quarterStartAt(timestamp)
+	s.filter.Between(column, thisQuarterStartAt, timestamp)
 	return s
 }
 
 func (s *timeFilter) LastQuarter(column string) TimeFilter {
-	thisQuarterStartAt := s.quarterStartAt(s.timestamp)
+	timestamp := s.time.Unix()
+	thisQuarterStartAt := s.quarterStartAt(timestamp)
 	lastQuarterStartAt := s.quarterStartAt(thisQuarterStartAt - 1)
 	s.filter.Between(column, lastQuarterStartAt, thisQuarterStartAt-1)
 	return s
@@ -1721,24 +1713,27 @@ func (s *timeFilter) LastQuarters(column string, quarters int) TimeFilter {
 		return s
 	}
 	startAt := int64(0)
+	timestamp := s.time.Unix()
 	for i := range quarters {
 		if i == 0 {
-			startAt = s.timestamp
+			startAt = timestamp
 		}
 		startAt = s.quarterStartAt(startAt)
 		startAt--
 	}
-	s.filter.Between(column, startAt+1, s.timestamp)
+	s.filter.Between(column, startAt+1, timestamp)
 	return s
 }
 
 func (s *timeFilter) ThisYear(column string) TimeFilter {
-	s.filter.Between(column, s.yearStartAt(s.timestamp), s.timestamp)
+	timestamp := s.time.Unix()
+	s.filter.Between(column, s.yearStartAt(timestamp), timestamp)
 	return s
 }
 
 func (s *timeFilter) LastYear(column string) TimeFilter {
-	endAt := s.yearStartAt(s.timestamp) - 1
+	timestamp := s.time.Unix()
+	endAt := s.yearStartAt(timestamp) - 1
 	startAt := s.yearStartAt(endAt)
 	s.filter.Between(column, startAt, endAt)
 	return s
@@ -1748,7 +1743,8 @@ func (s *timeFilter) LastYears(column string, years int) TimeFilter {
 	if years <= 0 {
 		return s
 	}
-	startAt := time.Unix(s.timestamp, 0).AddDate(-years+1, 0, 0).In(s.location).Unix()
-	s.filter.Between(column, startAt, s.timestamp)
+	timestamp := s.time.Unix()
+	startAt := time.Unix(timestamp, 0).AddDate(-years+1, 0, 0).In(s.location).Unix()
+	s.filter.Between(column, startAt, timestamp)
 	return s
 }

@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 const (

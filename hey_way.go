@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 // hexEncodeToString Convert binary byte array to hexadecimal string.
@@ -129,8 +129,8 @@ type Manual struct {
 	// Prepare to adjust the SQL statement format to meet the current database SQL statement format.
 	Prepare func(prepare string) string
 
-	// InsertOneAndReturnId Insert a record and return the id value of the inserted data.
-	InsertOneAndReturnId func(r SQLReturning)
+	// InsertOneReturningId Insert a record and return the id value of the inserted data.
+	InsertOneReturningId func(r SQLReturning)
 
 	// DatabaseType Database type value.
 	DatabaseType cst.DatabaseType
@@ -146,14 +146,14 @@ func (s *Manual) InsertOneAndScanInsertId() func(r SQLReturning) {
 			id = replace.Get(id)
 		}
 		r.Returning(id)
-		r.Execute(r.QueryRowScan())
+		r.SetExecute(r.QueryRowScan())
 	}
 }
 
 // InsertOneGetLastInsertId INSERT INTO xxx; sql.Result
 func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 	return func(r SQLReturning) {
-		r.Execute(r.LastInsertId())
+		r.SetExecute(r.LastInsertId())
 	}
 }
 
@@ -177,73 +177,279 @@ func prepare63236(prepare string) string {
 	return latest.String()
 }
 
-func Postgresql() *Manual {
-	manual := &Manual{}
+func Postgresql() Manual {
+	manual := Manual{}
 	manual.DatabaseType = cst.Postgresql
 	manual.Prepare = prepare63236
-	manual.InsertOneAndReturnId = manual.InsertOneAndScanInsertId()
+	manual.InsertOneReturningId = manual.InsertOneAndScanInsertId()
 	return manual
 }
 
-func Sqlite() *Manual {
-	manual := &Manual{}
+func Sqlite() Manual {
+	manual := Manual{}
 	manual.DatabaseType = cst.Sqlite
-	manual.InsertOneAndReturnId = manual.InsertOneGetLastInsertId()
+	manual.InsertOneReturningId = manual.InsertOneGetLastInsertId()
 	return manual
 }
 
-func Mysql() *Manual {
-	manual := &Manual{}
+func Mysql() Manual {
+	manual := Manual{}
 	manual.DatabaseType = cst.Mysql
-	manual.InsertOneAndReturnId = manual.InsertOneGetLastInsertId()
+	manual.InsertOneReturningId = manual.InsertOneGetLastInsertId()
 	return manual
 }
 
-type config struct {
-	// mapScanner Custom MapScan, Cannot be set to nil.
-	mapScanner MapScanner
+type Config struct {
+	// Manual For handling different types of databases.
+	Manual Manual
 
-	// manual For handling different types of databases.
-	manual *Manual
+	// TxOptions Start transaction options.
+	TxOptions *sql.TxOptions
 
-	// scan For scanning data into structure, Cannot be set to nil.
-	scan func(rows *sql.Rows, result any, tag string) error
+	// MapScanner Custom MapScan, Cannot be set to nil.
+	MapScanner MapScanner
 
-	// txOptions Start transaction options.
-	txOptions *sql.TxOptions
+	// RowsScan For scanning data into structure, Cannot be set to nil.
+	RowsScan func(rows *sql.Rows, result any, tag string) error
 
-	// newLimit Custom SQLLimit interface.
-	newLimit func(way *Way) SQLLimit
+	// NewSQLLabel Create SQLLabel, Cannot be set to nil.
+	NewSQLLabel func(way *Way) SQLLabel
 
-	// scanTag Scan data to tag mapping on structure.
-	scanTag string
+	// NewSQLWith Create SQLWith, Cannot be set to nil.
+	NewSQLWith func(way *Way) SQLWith
 
-	// tableMethodName Custom method name to get table name.
-	tableMethodName string
+	// NewSQLSelect Create SQLSelect, Cannot be set to nil.
+	NewSQLSelect func(way *Way) SQLSelect
 
-	// insertForbidColumn List of columns ignored when inserting data.
-	insertForbidColumn []string
+	// NewSQLTable Create SQLAlias, Cannot be set to nil.
+	NewSQLTable func(way *Way, table any) SQLAlias
 
-	// updateForbidColumn List of columns ignored when updating data.
-	updateForbidColumn []string
+	// NewSQLJoin Create SQLJoin, Cannot be set to nil.
+	NewSQLJoin func(way *Way, query SQLSelect) SQLJoin
 
-	// maxLimit Check the maximum allowed LIMIT value; a value less than or equal to 0 will be unlimited.
-	maxLimit int64
+	// NewSQLJoinOn Create SQLJoinOn, Cannot be set to nil.
+	NewSQLJoinOn func(way *Way) SQLJoinOn
 
-	// maxOffset Check the maximum allowed OFFSET value; a value less than or equal to 0 will be unlimited.
-	maxOffset int64
+	// NewSQLFilter Create Filter, Cannot be set to nil.
+	NewSQLFilter func(way *Way) Filter
 
-	// defaultPageSize The default value of limit when querying data with the page parameter for pagination.
-	defaultPageSize int64
+	// NewSQLGroupBy Create SQLGroupBy, Cannot be set to nil.
+	NewSQLGroupBy func(way *Way) SQLGroupBy
 
-	// txMaxDuration Maximum transaction execution time.
-	txMaxDuration time.Duration
+	// NewSQLWindow Create SQLWindow, Cannot be set to nil.
+	NewSQLWindow func(way *Way) SQLWindow
 
-	// deleteRequireWhere Deletion of data must be filtered using conditions.
-	deleteRequireWhere bool
+	// NewSQLOrderBy Create SQLOrderBy, Cannot be set to nil.
+	NewSQLOrderBy func(way *Way) SQLOrderBy
 
-	// updateRequireWhere Updated data must be filtered using conditions.
-	updateRequireWhere bool
+	// NewSQLLimit Create SQLLimit, Cannot be set to nil.
+	NewSQLLimit func(way *Way) SQLLimit
+
+	// NewSQLInsert Create SQLInsert, Cannot be set to nil.
+	NewSQLInsert func(way *Way) SQLInsert
+
+	// NewSQLValues Create SQLValues, Cannot be set to nil.
+	NewSQLValues func(way *Way) SQLValues
+
+	// NewSQLReturning Create SQLReturning, Cannot be set to nil.
+	NewSQLReturning func(way *Way, insert Maker) SQLReturning
+
+	// NewSQLOnConflict Create SQLOnConflict, Cannot be set to nil.
+	NewSQLOnConflict func(way *Way, insert Maker) SQLOnConflict
+
+	// NewSQLOnConflictUpdateSet Create SQLOnConflictUpdateSet, Cannot be set to nil.
+	NewSQLOnConflictUpdateSet func(way *Way) SQLOnConflictUpdateSet
+
+	// NewSQLUpdateSet Create SQLUpdateSet, Cannot be set to nil.
+	NewSQLUpdateSet func(way *Way) SQLUpdateSet
+
+	// NewSQLCase Create SQLCase, Cannot be set to nil.
+	NewSQLCase func(way *Way) SQLCase
+
+	// NewSQLWindowFuncFrame Create SQLWindowFuncFrame, Cannot be set to nil.
+	NewSQLWindowFuncFrame func(frame string) SQLWindowFuncFrame
+
+	// NewSQLWindowFuncOver Create SQLWindowFuncOver, Cannot be set to nil.
+	NewSQLWindowFuncOver func(way *Way) SQLWindowFuncOver
+
+	// NewMulti Create Multi, Cannot be set to nil.
+	NewMulti func(way *Way) Multi
+
+	// NewQuantifier Create Quantifier, Cannot be set to nil.
+	NewQuantifier func(filter Filter) Quantifier
+
+	// NewExtractFilter Create ExtractFilter, Cannot be set to nil.
+	NewExtractFilter func(filter Filter) ExtractFilter
+
+	// NewTimeFilter Create TimeFilter, Cannot be set to nil.
+	NewTimeFilter func(filter Filter) TimeFilter
+
+	// NewTableColumn Create TableColumn, Cannot be set to nil.
+	NewTableColumn func(way *Way, tableName ...string) TableColumn
+
+	// ToSQLSelect Construct a query statement, Cannot be set to nil.
+	ToSQLSelect func(s *MakeSQL) *SQL
+
+	// ToSQLInsert Construct an insert statement, Cannot be set to nil.
+	ToSQLInsert func(s *MakeSQL) *SQL
+
+	// ToSQLDelete Construct a delete statement, Cannot be set to nil.
+	ToSQLDelete func(s *MakeSQL) *SQL
+
+	// ToSQLUpdate Construct an update statement, Cannot be set to nil.
+	ToSQLUpdate func(s *MakeSQL) *SQL
+
+	// ToSQLSelectExists Construct an exists statement, Cannot be set to nil.
+	ToSQLSelectExists func(s *MakeSQL) *SQL
+
+	// ToSQLSelectCount Construct a count statement, Cannot be set to nil.
+	ToSQLSelectCount func(s *MakeSQL) *SQL
+
+	// ScanTag Scan data to tag mapping on structure.
+	ScanTag string
+
+	// LabelDelimiter Delimiter between multiple labels.
+	LabelDelimiter string
+
+	// TableMethodName Custom method name to get table name.
+	TableMethodName string
+
+	// InsertForbidColumn List of columns ignored when inserting data.
+	InsertForbidColumn []string
+
+	// UpdateForbidColumn List of columns ignored when updating data.
+	UpdateForbidColumn []string
+
+	// MaxLimit Check the maximum allowed LIMIT value; a value less than or equal to 0 will be unlimited.
+	MaxLimit int64
+
+	// MaxOffset Check the maximum allowed OFFSET value; a value less than or equal to 0 will be unlimited.
+	MaxOffset int64
+
+	// DefaultPageSize The default value of limit when querying data with the page parameter for pagination.
+	DefaultPageSize int64
+
+	// DeleteRequireWhere Deletion of data must be filtered using conditions.
+	DeleteRequireWhere bool
+
+	// UpdateRequireWhere Updated data must be filtered using conditions.
+	UpdateRequireWhere bool
+}
+
+func (s *Config) fully(way *Way) bool {
+	if way.db != nil {
+		if s.Manual.DatabaseType == cst.Empty {
+			return false
+		}
+		if s.MapScanner == nil {
+			return false
+		}
+		if s.RowsScan == nil {
+			return false
+		}
+		if s.ScanTag == cst.Empty {
+			return false
+		}
+	}
+
+	if s.NewSQLLabel == nil {
+		return false
+	}
+	if s.NewSQLWith == nil {
+		return false
+	}
+	if s.NewSQLSelect == nil {
+		return false
+	}
+	if s.NewSQLTable == nil {
+		return false
+	}
+	if s.NewSQLJoin == nil {
+		return false
+	}
+	if s.NewSQLJoinOn == nil {
+		return false
+	}
+	if s.NewSQLFilter == nil {
+		return false
+	}
+	if s.NewSQLGroupBy == nil {
+		return false
+	}
+	if s.NewSQLWindow == nil {
+		return false
+	}
+	if s.NewSQLOrderBy == nil {
+		return false
+	}
+	if s.NewSQLLimit == nil {
+		return false
+	}
+
+	if s.NewSQLInsert == nil {
+		return false
+	}
+	if s.NewSQLValues == nil {
+		return false
+	}
+	if s.NewSQLReturning == nil {
+		return false
+	}
+	if s.NewSQLOnConflict == nil {
+		return false
+	}
+	if s.NewSQLOnConflictUpdateSet == nil {
+		return false
+	}
+
+	if s.NewSQLUpdateSet == nil {
+		return false
+	}
+	if s.NewSQLCase == nil {
+		return false
+	}
+	if s.NewSQLWindowFuncFrame == nil {
+		return false
+	}
+	if s.NewSQLWindowFuncOver == nil {
+		return false
+	}
+	if s.NewMulti == nil {
+		return false
+	}
+	if s.NewQuantifier == nil {
+		return false
+	}
+	if s.NewExtractFilter == nil {
+		return false
+	}
+	if s.NewTimeFilter == nil {
+		return false
+	}
+	if s.NewTableColumn == nil {
+		return false
+	}
+
+	if s.ToSQLSelect == nil {
+		return false
+	}
+	if s.ToSQLInsert == nil {
+		return false
+	}
+	if s.ToSQLDelete == nil {
+		return false
+	}
+	if s.ToSQLUpdate == nil {
+		return false
+	}
+	if s.ToSQLSelectExists == nil {
+		return false
+	}
+	if s.ToSQLSelectCount == nil {
+		return false
+	}
+
+	return true
 }
 
 const (
@@ -251,127 +457,66 @@ const (
 	TableMethodName = "TableName"
 )
 
-func configDefault() *config {
-	return &config{
-		mapScanner:         NewMapScanner(),
-		scan:               RowsScan,
-		newLimit:           newSQLLimit,
-		scanTag:            DefaultTag,
-		tableMethodName:    TableMethodName,
-		insertForbidColumn: []string{cst.Id},
-		updateForbidColumn: []string{cst.Id},
-		maxLimit:           10000,
-		maxOffset:          100000,
-		defaultPageSize:    10,
-		txMaxDuration:      time.Second * 5,
-		deleteRequireWhere: true,
-		updateRequireWhere: true,
+// ConfigDefault Default configuration.
+// If there is no highly customized configuration, please use it and set the Manual property for the specific database.
+func ConfigDefault() *Config {
+	return &Config{
+		MapScanner: NewMapScanner(),
+		RowsScan:   RowsScan,
+
+		NewSQLLabel:               newSQLLabel,
+		NewSQLWith:                newSQLWith,
+		NewSQLSelect:              newSQLSelect,
+		NewSQLTable:               newSQLTable,
+		NewSQLJoin:                newSQLJoin,
+		NewSQLJoinOn:              newSQLJoinOn,
+		NewSQLFilter:              newSQLFilter,
+		NewSQLGroupBy:             newSQLGroupBy,
+		NewSQLWindow:              newSQLWindow,
+		NewSQLOrderBy:             newSQLOrderBy,
+		NewSQLLimit:               newSQLLimit,
+		NewSQLInsert:              newSQLInsert,
+		NewSQLValues:              newSQLValues,
+		NewSQLReturning:           newSQLReturning,
+		NewSQLOnConflict:          newSQLOnConflict,
+		NewSQLOnConflictUpdateSet: newSQLOnConflictUpdateSet,
+		NewSQLUpdateSet:           newSQLUpdateSet,
+		NewSQLCase:                NewSQLCase,
+		NewSQLWindowFuncFrame:     NewSQLWindowFuncFrame,
+		NewSQLWindowFuncOver:      NewSQLWindowFuncOver,
+		NewMulti:                  NewMulti,
+		NewQuantifier:             newQuantifier,
+		NewExtractFilter:          newExtractFilter,
+		NewTimeFilter:             newTimeFilter,
+		NewTableColumn:            NewTableColumn,
+
+		ToSQLSelect:       toSQLSelect,
+		ToSQLInsert:       toSQLInsert,
+		ToSQLDelete:       toSQLDelete,
+		ToSQLUpdate:       toSQLUpdate,
+		ToSQLSelectExists: toSQLSelectExists,
+		ToSQLSelectCount:  toSQLSelectCount,
+
+		ScanTag:            DefaultTag,
+		LabelDelimiter:     cst.Comma,
+		TableMethodName:    TableMethodName,
+		InsertForbidColumn: []string{cst.Id},
+		UpdateForbidColumn: []string{cst.Id},
+		MaxLimit:           10000,
+		MaxOffset:          100000,
+		DefaultPageSize:    10,
+		DeleteRequireWhere: true,
+		UpdateRequireWhere: true,
 	}
 }
 
 type Option func(way *Way)
 
-func WithMapScanner(mapScanner MapScanner) Option {
+func WithConfig(cfg *Config) Option {
 	return func(way *Way) {
-		if mapScanner != nil {
-			way.cfg.mapScanner = mapScanner
+		if cfg != nil && cfg.fully(way) {
+			way.cfg = cfg
 		}
-	}
-}
-
-func WithManual(manual *Manual) Option {
-	return func(way *Way) {
-		way.cfg.manual = manual
-	}
-}
-
-func WithScan(scan func(rows *sql.Rows, result any, tag string) error) Option {
-	return func(way *Way) {
-		if scan != nil {
-			way.cfg.scan = scan
-		}
-	}
-}
-
-func WithTxOptions(txOptions *sql.TxOptions) Option {
-	return func(way *Way) {
-		way.cfg.txOptions = txOptions
-	}
-}
-
-func WithLimit(limit func(way *Way) SQLLimit) Option {
-	return func(way *Way) {
-		if limit != nil {
-			way.cfg.newLimit = limit
-		}
-	}
-}
-
-func WithScanTag(scanTag string) Option {
-	return func(way *Way) {
-		way.cfg.scanTag = scanTag
-	}
-}
-
-func WithTableMethodName(tableMethodName string) Option {
-	return func(way *Way) {
-		way.cfg.tableMethodName = tableMethodName
-	}
-}
-
-func WithInsertForbidColumn(insertForbidColumn []string) Option {
-	return func(way *Way) {
-		way.cfg.insertForbidColumn = insertForbidColumn
-	}
-}
-
-func WithUpdateForbidColumn(updateForbidColumn []string) Option {
-	return func(way *Way) {
-		way.cfg.updateForbidColumn = updateForbidColumn
-	}
-}
-
-func WithMaxLimit(maxLimit int64) Option {
-	return func(way *Way) {
-		if maxLimit >= 0 {
-			way.cfg.maxLimit = maxLimit
-		}
-	}
-}
-
-func WithMaxOffset(maxOffset int64) Option {
-	return func(way *Way) {
-		if maxOffset >= 0 {
-			way.cfg.maxOffset = maxOffset // The maximum range of data that can be queried is controlled by the business.
-		}
-	}
-}
-
-func WithDefaultPageSize(pageSize int64) Option {
-	return func(way *Way) {
-		if pageSize > 0 {
-			way.cfg.defaultPageSize = pageSize
-		}
-	}
-}
-
-func WithTxMaxDuration(txMaxDuration time.Duration) Option {
-	return func(way *Way) {
-		if txMaxDuration > 0 {
-			way.cfg.txMaxDuration = txMaxDuration
-		}
-	}
-}
-
-func WithDeleteRequireWhere(deleteRequireWhere bool) Option {
-	return func(way *Way) {
-		way.cfg.deleteRequireWhere = deleteRequireWhere
-	}
-}
-
-func WithUpdateRequireWhere(updateRequireWhere bool) Option {
-	return func(way *Way) {
-		way.cfg.updateRequireWhere = updateRequireWhere
 	}
 }
 
@@ -401,7 +546,7 @@ type Reader interface {
 
 type Way struct {
 	// cfg Configuration information.
-	cfg *config
+	cfg *Config
 
 	// db Database object.
 	db *sql.DB
@@ -419,21 +564,29 @@ type Way struct {
 	isRead bool
 }
 
+// NewWay Create a *Way object.
 func NewWay(options ...Option) *Way {
 	way := &Way{}
-	way.cfg = configDefault()
 	for _, option := range options {
 		option(way)
 	}
+	if way.cfg == nil {
+		WithConfig(ConfigDefault())(way)
+	}
 	return way
+}
+
+// Config Updating the returned object's properties will not affect the configuration values that have been set.
+func (s *Way) Config() *Config {
+	return s.cfg
 }
 
 func (s *Way) Database() *sql.DB {
 	return s.db
 }
 
-func (s *Way) Manual() *Manual {
-	return s.cfg.manual
+func (s *Way) Track() Track {
+	return s.track
 }
 
 func (s *Way) Reader() Reader {
@@ -456,38 +609,33 @@ func (s *Way) IsRead() bool {
 
 // Replace Get a single identifier mapping value, if it does not exist, return the original value.
 func (s *Way) Replace(key string) string {
-	manual := s.cfg.manual
-	if manual == nil {
-		return key
+	replace := s.cfg.Manual.Replacer
+	if replace != nil {
+		return replace.Get(key)
 	}
-	if manual.Replacer == nil {
-		return key
-	}
-	return manual.Replacer.Get(key)
+	return key
 }
 
 // ReplaceAll Get multiple identifier mapping values, return the original value if none exists.
 func (s *Way) ReplaceAll(keys []string) []string {
-	manual := s.cfg.manual
-	if manual == nil {
-		return keys
+	replace := s.cfg.Manual.Replacer
+	if replace != nil {
+		return replace.GetAll(keys)
 	}
-	if manual.Replacer == nil {
-		return keys
-	}
-	return manual.Replacer.GetAll(keys)
+	return keys
 }
 
 // begin -> Open transaction.
 func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (tx *Way, err error) {
 	if s.db == nil {
-		return nil, ErrDatabaseIsNil
+		err = ErrDatabaseIsNil
+		return
 	}
 
 	tmp := *s
 	tx = &tmp
 
-	opt := tx.cfg.txOptions
+	opt := tx.cfg.TxOptions
 	length := len(opts)
 	for i := length - 1; i >= 0; i-- {
 		if opts[i] != nil {
@@ -507,7 +655,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 	}
 	if err != nil {
 		tx = nil
-		return tx, err
+		return
 	}
 	if s.track != nil {
 		start := time.Now()
@@ -517,7 +665,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		tx.transaction.track = tracked
 		s.track.Track(ctx, tracked)
 	}
-	return tx, err
+	return
 }
 
 // commit -> Commit transaction.
@@ -597,17 +745,7 @@ func (s *Way) TransactionMessage(message string) *Way {
 }
 
 // newTransaction -> Start a new transaction and execute a set of SQL statements atomically.
-func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
-	if ctx == nil {
-		timeout := time.Second * 8
-		if s.cfg != nil && s.cfg.txMaxDuration > 0 {
-			timeout = s.cfg.txMaxDuration
-		}
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-	}
-
+func (s *Way) newTransaction(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	tx := (*Way)(nil)
 	tx, err = s.begin(ctx, nil, opts...)
 	if err != nil {
@@ -630,7 +768,7 @@ func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts .
 		}
 	}()
 
-	if err = fc(tx); err != nil {
+	if err = fx(tx); err != nil {
 		return
 	}
 
@@ -640,22 +778,22 @@ func (s *Way) newTransaction(ctx context.Context, fc func(tx *Way) error, opts .
 }
 
 // Transaction -> Atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
-func (s *Way) Transaction(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) error {
+func (s *Way) Transaction(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) error {
 	if s.IsInTransaction() {
-		return fc(s)
+		return fx(s)
 	}
-	return s.newTransaction(ctx, fc, opts...)
+	return s.newTransaction(ctx, fx, opts...)
 }
 
 // TransactionNew -> Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
-func (s *Way) TransactionNew(ctx context.Context, fc func(tx *Way) error, opts ...*sql.TxOptions) error {
-	return s.newTransaction(ctx, fc, opts...)
+func (s *Way) TransactionNew(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) error {
+	return s.newTransaction(ctx, fx, opts...)
 }
 
 // TransactionRetry Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
-func (s *Way) TransactionRetry(ctx context.Context, retries int, fc func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
+func (s *Way) TransactionRetry(ctx context.Context, retries int, fx func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	for range retries {
-		if err = s.newTransaction(ctx, fc, opts...); err == nil {
+		if err = s.newTransaction(ctx, fx, opts...); err == nil {
 			break
 		}
 	}
@@ -763,7 +901,7 @@ func (s *Stmt) Execute(ctx context.Context, args ...any) (int64, error) {
 // Scan -> Query prepared and get all query results, that can be called repeatedly.
 func (s *Stmt) Scan(ctx context.Context, result any, args ...any) error {
 	return s.Query(ctx, func(rows *sql.Rows) error {
-		return s.way.cfg.scan(rows, result, s.way.cfg.scanTag)
+		return s.way.cfg.RowsScan(rows, result, s.way.cfg.ScanTag)
 	}, args...)
 }
 
@@ -779,8 +917,8 @@ func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error)
 		way:     s,
 		prepare: query,
 	}
-	if manual := s.cfg.manual; manual != nil && manual.Prepare != nil {
-		query = manual.Prepare(query)
+	if prepare := s.cfg.Manual.Prepare; prepare != nil {
+		query = prepare(query)
 	}
 	if s.IsInTransaction() {
 		stmt.stmt, err = s.transaction.tx.PrepareContext(ctx, query)
@@ -844,13 +982,13 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 
 // Scan -> Query prepared and get all query results, through the mapping of column names and struct tags.
 func (s *Way) Scan(ctx context.Context, maker Maker, result any) error {
-	return s.Query(ctx, maker, func(rows *sql.Rows) error { return s.cfg.scan(rows, result, s.cfg.scanTag) })
+	return s.Query(ctx, maker, func(rows *sql.Rows) error { return s.cfg.RowsScan(rows, result, s.cfg.ScanTag) })
 }
 
 // MapScan -> Scanning the query results into []map[string]any.
 func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnAnyValue) (result []map[string]any, err error) {
 	err = s.Query(ctx, maker, func(rows *sql.Rows) error {
-		result, err = s.cfg.mapScanner.Scan(rows, adjusts...)
+		result, err = s.cfg.MapScanner.Scan(rows, adjusts...)
 		return err
 	})
 	if err != nil {
@@ -1123,11 +1261,7 @@ func (s *Way) Debug(maker Maker) *Way {
 
 // F -> Quickly initialize a filter.
 func (s *Way) F(filters ...Filter) Filter {
-	result := F().New(filters...)
-	if manual := s.cfg.manual; manual != nil {
-		result.SetReplacer(manual.Replacer)
-	}
-	return result
+	return s.cfg.NewSQLFilter(s).Use(filters...)
 }
 
 // W -> Prioritize the specified non-nil object, otherwise use the current object.

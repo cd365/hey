@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7/cst"
 )
 
 // TableNamer Generic interface for getting table name.
@@ -18,47 +18,276 @@ type TableNamer interface {
 	Table() string
 }
 
+// MakeSQL Data structures for building SQL scripts.
+type MakeSQL struct {
+	// Label Used for setting SQL statement labels.
+	Label SQLLabel
+
+	// With -> WITH
+	With SQLWith
+
+	// Query -> SELECT
+	Query SQLSelect
+
+	// Query -> FROM
+	Table SQLAlias
+
+	// Join -> JOIN
+	Join SQLJoin
+
+	// Where -> WHERE ( xxx )
+	Where Filter
+
+	// GroupBy -> GROUP BY xxx [HAVING xxx]
+	GroupBy SQLGroupBy
+
+	// Window -> WINDOW
+	Window SQLWindow
+
+	// OrderBy -> ORDER BY
+	OrderBy SQLOrderBy
+
+	// Limit -> LIMIT m [OFFSET n]
+	Limit SQLLimit
+
+	// Insert -> INSERT INTO xxx
+	Insert SQLInsert
+
+	// UpdateSet -> UPDATE xxx SET xxx [WHERE ( xxx )]
+	UpdateSet SQLUpdateSet
+
+	Way *Way
+
+	// Other additional parameters.
+
+	// ToExistsSubquery -> SELECT EXISTS ( SELECT 1 FROM xxx ) AS a
+	ToExistsSubquery []func(script *SQL)
+
+	// ToCountColumns -> SELECT COUNT(*) FROM xxx ...
+	ToCountColumns []string
+}
+
+// toSQLSelect SQL: SELECT xxx ...
+func toSQLSelect(s *MakeSQL) *SQL {
+	way := s.Way
+	if s.Query == nil {
+		s.Query = way.cfg.NewSQLSelect(way)
+	}
+	if s.Table == nil {
+		return NewEmptySQL()
+	}
+	if s.Table.IsEmpty() {
+		if s.Query.IsEmpty() {
+			return NewEmptySQL()
+		}
+		lists := make([]any, 0, 3)
+		lists = append(lists, s.Label, cst.SELECT, s.Query)
+		return JoinSQLSpace(lists...).ToSQL()
+	}
+
+	lists := make([]any, 0, 13)
+	lists = append(
+		lists,
+		s.Label, s.With, cst.SELECT,
+		s.Query, cst.FROM, s.Table,
+		s.Join,
+	)
+	if s.Where != nil && !s.Where.IsEmpty() {
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	}
+	lists = append(lists, s.GroupBy)
+	if s.Window != nil {
+		window := s.Window.ToSQL()
+		if window != nil && !window.IsEmpty() {
+			lists = append(lists, window)
+		}
+	}
+	lists = append(lists, s.OrderBy, s.Limit)
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
+// toSQLInsert SQL: INSERT INTO xxx ...
+func toSQLInsert(s *MakeSQL) *SQL {
+	insert := s.Insert
+	if insert == nil {
+		return NewEmptySQL()
+	}
+	if !insert.TableIsValid() {
+		insert.Table(s.Table)
+	}
+	script := insert.ToSQL()
+	if script.IsEmpty() {
+		return NewEmptySQL()
+	}
+	return JoinSQLSpace(s.Label, script).ToSQL()
+}
+
+// toSQLUpdate SQL: UPDATE xxx SET ...
+func toSQLUpdate(s *MakeSQL) *SQL {
+	if s.UpdateSet == nil || s.Table == nil || s.Table.IsEmpty() || s.UpdateSet.IsEmpty() {
+		return NewEmptySQL()
+	}
+	lists := make([]any, 0, 8)
+	lists = append(
+		lists,
+		s.Label, s.With, cst.UPDATE,
+		s.Table, cst.SET, s.UpdateSet,
+	)
+	way := s.Way
+	if s.Where == nil || s.Where.IsEmpty() {
+		if way.cfg.UpdateRequireWhere {
+			return NewEmptySQL()
+		}
+	} else {
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	}
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
+// toSQLDelete SQL: DELETE FROM xxx ...
+func toSQLDelete(s *MakeSQL) *SQL {
+	if s.Table == nil || s.Table.IsEmpty() {
+		return NewEmptySQL()
+	}
+	lists := make([]any, 0, 8)
+	lists = append(
+		lists,
+		s.Label, s.With,
+		cst.DELETE, cst.FROM, s.Table,
+		s.Join,
+	)
+	way := s.Way
+	if s.Where == nil || s.Where.IsEmpty() {
+		if way.cfg.DeleteRequireWhere {
+			return NewEmptySQL()
+		}
+	} else {
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	}
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
+// toSQLSelectExists SQL: SELECT EXISTS ( SELECT 1 FROM xxx ... ) AS a
+func toSQLSelectExists(s *MakeSQL) *SQL {
+	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
+	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
+	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
+
+	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
+	way := s.Way
+	query := s.Query
+	if query == nil {
+		query = way.cfg.NewSQLSelect(way)
+	}
+	if query.Len() > 0 {
+		columns, columnsArgs = query.Get()
+		query.ToEmpty()
+	}
+	query.Select("1")
+	defer func() {
+		if len(columns) == 0 {
+			query.ToEmpty()
+		} else {
+			query.Set(columns, columnsArgs)
+		}
+	}()
+	subquery := toSQLSelect(s)
+	exists := s.ToExistsSubquery
+	for i := len(exists) - 1; i >= 0; i-- {
+		if exists[i] != nil {
+			exists[i](subquery)
+			break
+		}
+	}
+	if subquery.IsEmpty() {
+		return NewEmptySQL()
+	}
+	lists := make([]any, 0, 8)
+	lists = append(
+		lists,
+		cst.SELECT, cst.EXISTS,
+		cst.LeftParenthesis, subquery, cst.RightParenthesis,
+		cst.AS, way.Replace(cst.A),
+	)
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
+// toSQLSelectCount SQL: SELECT COUNT(*) xxx FROM ...
+func toSQLSelectCount(s *MakeSQL) *SQL {
+	if s.Table == nil || s.Table.IsEmpty() {
+		return NewEmptySQL()
+	}
+	counts := s.ToCountColumns[:]
+	way := s.Way
+	query := JoinSQLSpace("COUNT(*)", cst.AS, way.Replace("counts"))
+	if len(counts) > 0 {
+		query = JoinSQLSpace(AnyAny(counts)...)
+	}
+	lists := make([]any, 0, 1<<3)
+	lists = append(
+		lists,
+		s.Label, s.With, cst.SELECT,
+		query, cst.FROM, s.Table, s.Join,
+	)
+	if s.Where != nil && !s.Where.IsEmpty() {
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	}
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
 // Table Quickly build SELECT, INSERT, UPDATE, DELETE statements and support immediate execution of them.
 type Table struct {
 	way *Way
 
-	comment *sqlComment
+	// label Used for setting SQL statement labels.
+	label SQLLabel
 
-	with *sqlWith
+	// with -> WITH
+	with SQLWith
 
-	query *sqlSelect
+	// query -> SELECT
+	query SQLSelect
 
-	table *sqlAlias
+	// table -> FROM
+	table SQLAlias
 
-	joins *sqlJoin
+	// joins -> JOIN
+	joins SQLJoin
 
-	window *sqlWindow
-
+	// where -> WHERE ( xxx )
 	where Filter
 
-	groupBy *sqlGroupBy
+	// groupBy -> GROUP BY xxx [HAVING xxx]
+	groupBy SQLGroupBy
 
-	orderBy *sqlOrderBy
+	// window -> WINDOW
+	window SQLWindow
 
+	// orderBy -> ORDER BY
+	orderBy SQLOrderBy
+
+	// limit -> LIMIT m [OFFSET n]
 	limit SQLLimit
 
-	insert *sqlInsert
+	// insert -> INSERT INTO xxx
+	insert SQLInsert
 
-	updateSet *sqlUpdateSet
+	// updateSet -> UPDATE xxx SET xxx [WHERE ( xxx )]
+	updateSet SQLUpdateSet
 }
 
 // Table Create a *Table object to execute SELECT, INSERT, UPDATE, and DELETE statements.
 func (s *Way) Table(table any) *Table {
 	return &Table{
 		way:   s,
-		table: getTable(table, s),
+		table: s.cfg.NewSQLTable(s, table),
 	}
 }
 
 // ToEmpty Do not reset table.
 func (s *Table) ToEmpty() *Table {
-	if s.comment != nil {
-		s.comment.ToEmpty()
+	if s.label != nil {
+		s.label.ToEmpty()
 	}
 	if s.with != nil {
 		s.with.ToEmpty()
@@ -110,28 +339,28 @@ func (s *Table) W(way *Way) {
 	}
 }
 
-// CommentFunc Set comment through func.
-func (s *Table) CommentFunc(fc func(c SQLComment)) *Table {
-	if s.comment == nil {
-		s.comment = newSqlComment()
+// LabelFunc Set label through func.
+func (s *Table) LabelFunc(fx func(c SQLLabel)) *Table {
+	if s.label == nil {
+		s.label = s.way.cfg.NewSQLLabel(s.way)
 	}
-	fc(s.comment)
+	fx(s.label)
 	return s
 }
 
-// Comment SQL statement comment.
-func (s *Table) Comment(comment string) *Table {
-	return s.CommentFunc(func(c SQLComment) {
-		c.Comment(comment)
+// Label SQL statement label.
+func (s *Table) Label(label string) *Table {
+	return s.LabelFunc(func(c SQLLabel) {
+		c.Label(label)
 	})
 }
 
 // WithFunc Custom common table expression (CTE).
-func (s *Table) WithFunc(fc func(w SQLWith)) *Table {
+func (s *Table) WithFunc(fx func(w SQLWith)) *Table {
 	if s.with == nil {
-		s.with = newSqlWith()
+		s.with = s.way.cfg.NewSQLWith(s.way)
 	}
-	fc(s.with)
+	fx(s.with)
 	return s
 }
 
@@ -143,11 +372,11 @@ func (s *Table) With(alias string, maker Maker, columns ...string) *Table {
 }
 
 // SelectFunc Set SELECT through func.
-func (s *Table) SelectFunc(fc func(q SQLSelect)) *Table {
+func (s *Table) SelectFunc(fx func(q SQLSelect)) *Table {
 	if s.query == nil {
-		s.query = newSqlSelect(s.way)
+		s.query = s.way.cfg.NewSQLSelect(s.way)
 	}
-	fc(s.query)
+	fx(s.query)
 	return s
 }
 
@@ -166,15 +395,15 @@ func (s *Table) Select(columns ...any) *Table {
 }
 
 // TableFunc Set query table through func.
-func (s *Table) TableFunc(fc func(t SQLAlias)) *Table {
-	fc(s.table)
+func (s *Table) TableFunc(fx func(t SQLAlias)) *Table {
+	fx(s.table)
 	return s
 }
 
 // Table Set the table name, or possibly a subquery with an alias.
 func (s *Table) Table(table any) *Table {
 	return s.TableFunc(func(t SQLAlias) {
-		t.SetSQL(getTable(table, s.way).GetSQL())
+		t.SetSQL(s.way.cfg.NewSQLTable(s.way, table).GetSQL())
 	})
 }
 
@@ -186,46 +415,45 @@ func (s *Table) Alias(alias string) *Table {
 }
 
 // JoinFunc Custom join query.
-func (s *Table) JoinFunc(fc func(j SQLJoin)) *Table {
+func (s *Table) JoinFunc(fx func(j SQLJoin)) *Table {
 	if s.query == nil {
-		s.query = newSqlSelect(s.way)
+		s.query = s.way.cfg.NewSQLSelect(s.way)
 	}
 	if s.joins == nil {
-		s.joins = newSqlJoin(s.way)
-		s.joins.query = s.query
-		s.joins.table = s.table
+		s.joins = s.way.cfg.NewSQLJoin(s.way, s.query)
+		s.joins.SetMaster(s.table)
 	}
-	fc(s.joins)
+	fx(s.joins)
 	return s
 }
 
 // InnerJoin INNER JOIN.
-func (s *Table) InnerJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
+func (s *Table) InnerJoin(fx func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JoinFunc(func(j SQLJoin) {
-		j.InnerJoin(fc(j))
+		j.InnerJoin(fx(j))
 	})
 }
 
 // LeftJoin LEFT JOIN.
-func (s *Table) LeftJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
+func (s *Table) LeftJoin(fx func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JoinFunc(func(j SQLJoin) {
-		j.LeftJoin(fc(j))
+		j.LeftJoin(fx(j))
 	})
 }
 
 // RightJoin RIGHT JOIN.
-func (s *Table) RightJoin(fc func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
+func (s *Table) RightJoin(fx func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
 	return s.JoinFunc(func(j SQLJoin) {
-		j.RightJoin(fc(j))
+		j.RightJoin(fx(j))
 	})
 }
 
 // WhereFunc Set WHERE through func.
-func (s *Table) WhereFunc(fc func(f Filter)) *Table {
+func (s *Table) WhereFunc(fx func(f Filter)) *Table {
 	if s.where == nil {
 		s.where = s.way.F()
 	}
-	fc(s.where)
+	fx(s.where)
 	return s
 }
 
@@ -237,11 +465,11 @@ func (s *Table) Where(filters ...Filter) *Table {
 }
 
 // GroupFunc Set GROUP BY through func.
-func (s *Table) GroupFunc(fc func(g SQLGroupBy)) *Table {
+func (s *Table) GroupFunc(fx func(g SQLGroupBy)) *Table {
 	if s.groupBy == nil {
-		s.groupBy = newSqlGroupBy(s.way)
+		s.groupBy = s.way.cfg.NewSQLGroupBy(s.way)
 	}
-	fc(s.groupBy)
+	fx(s.groupBy)
 	return s
 }
 
@@ -253,9 +481,9 @@ func (s *Table) Group(groups ...any) *Table {
 }
 
 // HavingFunc Set HAVING through func.
-func (s *Table) HavingFunc(fc func(h Filter)) *Table {
+func (s *Table) HavingFunc(fx func(h Filter)) *Table {
 	return s.GroupFunc(func(g SQLGroupBy) {
-		g.Having(fc)
+		g.Having(fx)
 	})
 }
 
@@ -270,14 +498,14 @@ func (s *Table) Having(filters ...Filter) *Table {
 // WINDOW alias1 AS ( PARTITION BY column1, column2 ORDER BY column3 DESC, column4 DESC ), alias2 AS ( PARTITION BY column5 ) ...
 
 // WindowFunc Custom window statements.
-func (s *Table) WindowFunc(fc func(w SQLWindow)) *Table {
-	if fc == nil {
+func (s *Table) WindowFunc(fx func(w SQLWindow)) *Table {
+	if fx == nil {
 		return s
 	}
 	if s.window == nil {
-		s.window = newSqlWindow(s.way)
+		s.window = s.way.cfg.NewSQLWindow(s.way)
 	}
-	fc(s.window)
+	fx(s.window)
 	return s
 }
 
@@ -292,11 +520,11 @@ func (s *Table) Window(alias string, maker func(o SQLWindowFuncOver)) *Table {
 }
 
 // OrderFunc Set ORDER BY through func.
-func (s *Table) OrderFunc(fc func(o SQLOrderBy)) *Table {
+func (s *Table) OrderFunc(fx func(o SQLOrderBy)) *Table {
 	if s.orderBy == nil {
-		s.orderBy = newSqlOrderBy(s.way)
+		s.orderBy = s.way.cfg.NewSQLOrderBy(s.way)
 	}
-	fc(s.orderBy)
+	fx(s.orderBy)
 	return s
 }
 
@@ -322,11 +550,11 @@ func (s *Table) Desc(columns ...string) *Table {
 }
 
 // LimitFunc Set LIMIT x [OFFSET x] through func.
-func (s *Table) LimitFunc(fc func(o SQLLimit)) *Table {
+func (s *Table) LimitFunc(fx func(o SQLLimit)) *Table {
 	if s.limit == nil {
-		s.limit = s.way.cfg.newLimit(s.way)
+		s.limit = s.way.cfg.NewSQLLimit(s.way)
 	}
-	fc(s.limit)
+	fx(s.limit)
 	return s
 }
 
@@ -362,115 +590,70 @@ func (s *Table) Page(page int64, pageSize ...int64) *Table {
 }
 
 // InsertFunc Set inserting data through func.
-func (s *Table) InsertFunc(fc func(i SQLInsert)) *Table {
+func (s *Table) InsertFunc(fx func(i SQLInsert)) *Table {
 	if s.insert == nil {
-		s.insert = newSqlInsert(s.way)
+		s.insert = s.way.cfg.NewSQLInsert(s.way)
 	}
-	fc(s.insert)
+	fx(s.insert)
 	return s
 }
 
 // UpdateFunc Set updating data through func.
-func (s *Table) UpdateFunc(fc func(f Filter, u SQLUpdateSet)) *Table {
+func (s *Table) UpdateFunc(fx func(f Filter, u SQLUpdateSet)) *Table {
 	if s.where == nil {
 		s.where = s.way.F()
 	}
 	if s.updateSet == nil {
-		s.updateSet = newSqlUpdateSet(s.way)
+		s.updateSet = s.way.cfg.NewSQLUpdateSet(s.way)
 	}
-	fc(s.where, s.updateSet)
+	fx(s.where, s.updateSet)
 	return s
+}
+
+func (s *Table) newMakeSQL() *MakeSQL {
+	return &MakeSQL{
+		Label:     s.label,
+		With:      s.with,
+		Query:     s.query,
+		Table:     s.table,
+		Join:      s.joins,
+		Where:     s.where,
+		GroupBy:   s.groupBy,
+		Window:    s.window,
+		OrderBy:   s.orderBy,
+		Limit:     s.limit,
+		Insert:    s.insert,
+		UpdateSet: s.updateSet,
+		Way:       s.way,
+	}
+}
+
+func (s *Table) toSelect() *SQL {
+	script := s.newMakeSQL()
+	if script.Query == nil {
+		script.Query = s.way.cfg.NewSQLSelect(s.way)
+	}
+	return s.way.cfg.ToSQLSelect(script)
 }
 
 // ToSelect Build SELECT statement.
 func (s *Table) ToSelect() *SQL {
-	if s.query == nil {
-		s.query = newSqlSelect(s.way)
-	}
-	if s.table.IsEmpty() {
-		if s.query.IsEmpty() {
-			return NewEmptySQL()
-		}
-		lists := make([]any, 0, 3)
-		lists = append(lists, s.comment, cst.SELECT, s.query)
-		return JoinSQLSpace(lists...).ToSQL()
-	}
-
-	lists := make([]any, 0, 13)
-	lists = append(
-		lists,
-		s.comment, s.with, cst.SELECT,
-		s.query, cst.FROM, s.table,
-		s.joins,
-	)
-	if s.where != nil && !s.where.IsEmpty() {
-		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
-	}
-	lists = append(lists, s.groupBy)
-	if s.window != nil {
-		script := s.window.ToSQL()
-		if script != nil && !script.IsEmpty() {
-			lists = append(lists, script)
-		}
-	}
-	lists = append(lists, s.orderBy, s.limit)
-	return JoinSQLSpace(lists...).ToSQL()
+	return s.toSelect()
 }
 
 // ToInsert Build INSERT statement.
 func (s *Table) ToInsert() *SQL {
-	insert := s.insert
-	if insert.table == nil || insert.table.IsEmpty() {
-		insert.table = s.table.ToSQL()
-	}
-	script := insert.ToSQL()
-	if script.IsEmpty() {
-		return NewEmptySQL()
-	}
-	return JoinSQLSpace(s.comment, script).ToSQL()
+	return s.way.cfg.ToSQLInsert(s.newMakeSQL())
 }
 
 // ToUpdate Build UPDATE statement.
 func (s *Table) ToUpdate() *SQL {
-	if s.updateSet == nil || s.table.IsEmpty() || s.updateSet.IsEmpty() {
-		return NewEmptySQL()
-	}
-	lists := make([]any, 0, 8)
-	lists = append(
-		lists,
-		s.comment, s.with, cst.UPDATE,
-		s.table, cst.SET, s.updateSet,
-	)
-	if s.where == nil || s.where.IsEmpty() {
-		if s.way.cfg.updateRequireWhere {
-			return NewEmptySQL()
-		}
-	} else {
-		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
-	}
-	return JoinSQLSpace(lists...).ToSQL()
+	return s.way.cfg.ToSQLUpdate(s.newMakeSQL())
 }
 
 // ToDelete Build DELETE statement.
 func (s *Table) ToDelete() *SQL {
-	if s.table.IsEmpty() {
-		return NewEmptySQL()
-	}
-	lists := make([]any, 0, 8)
-	lists = append(
-		lists,
-		s.comment, s.with,
-		cst.DELETE, cst.FROM, s.table,
-		s.joins,
-	)
-	if s.where == nil || s.where.IsEmpty() {
-		if s.way.cfg.deleteRequireWhere {
-			return NewEmptySQL()
-		}
-	} else {
-		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
-	}
-	return JoinSQLSpace(lists...).ToSQL()
+	return s.way.cfg.ToSQLDelete(s.newMakeSQL())
 }
 
 // ToSQL Implementing the Maker interface using query statement.
@@ -480,24 +663,9 @@ func (s *Table) ToSQL() *SQL {
 
 // ToCount Build COUNT-SELECT statement.
 func (s *Table) ToCount(counts ...string) *SQL {
-	if s.table.IsEmpty() {
-		return NewEmptySQL()
-	}
-	if len(counts) == 0 {
-		counts = []string{
-			JoinString("COUNT(*)", cst.Space, cst.AS, cst.Space, "counts"),
-		}
-	}
-	lists := make([]any, 0, 1<<3)
-	lists = append(
-		lists,
-		s.comment, s.with, cst.SELECT, newSqlSelect(s.way).AddAll(counts...),
-		cst.FROM, s.table, s.joins,
-	)
-	if s.where != nil && !s.where.IsEmpty() {
-		lists = append(lists, cst.WHERE, parcelSingleFilter(s.where))
-	}
-	return JoinSQLSpace(lists...).ToSQL()
+	script := s.newMakeSQL()
+	script.ToCountColumns = counts[:]
+	return s.way.cfg.ToSQLSelectCount(script)
 }
 
 // ToExists Build SELECT EXISTS statement, allow replacing or updating the subquery script of EXISTS.
@@ -505,42 +673,9 @@ func (s *Table) ToExists(exists ...func(script *SQL)) *SQL {
 	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
 	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
 	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
-
-	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
-	s.SelectFunc(func(q SQLSelect) {
-		if q.Len() > 0 {
-			columns, columnsArgs = q.Get()
-			q.ToEmpty()
-		}
-		q.Select("1")
-	})
-	defer func() {
-		s.SelectFunc(func(q SQLSelect) {
-			if len(columns) == 0 {
-				q.ToEmpty()
-			} else {
-				q.Set(columns, columnsArgs)
-			}
-		})
-	}()
-	query := s.ToSelect()
-	for i := len(exists) - 1; i >= 0; i-- {
-		if exists[i] != nil {
-			exists[i](query)
-			break
-		}
-	}
-	if query.IsEmpty() {
-		return NewEmptySQL()
-	}
-	lists := make([]any, 0, 8)
-	lists = append(
-		lists,
-		cst.SELECT, cst.EXISTS,
-		cst.LeftParenthesis, query, cst.RightParenthesis,
-		cst.AS, s.way.Replace(cst.A),
-	)
-	return JoinSQLSpace(lists...).ToSQL()
+	script := s.newMakeSQL()
+	script.ToExistsSubquery = exists[:]
+	return s.way.cfg.ToSQLSelectExists(script)
 }
 
 // Query Execute a SELECT statement.
@@ -605,12 +740,14 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 		return 0, ErrEmptySqlStatement
 	}
 	if insert := s.insert; insert != nil {
-		if returning := insert.returning; returning != nil && returning.execute != nil {
-			stmt, err := s.way.Prepare(ctx, script.Prepare)
-			if err != nil {
-				return 0, err
+		if returning := insert.GetReturning(); returning != nil {
+			if execute := returning.GetExecute(); execute != nil {
+				stmt, err := s.way.Prepare(ctx, script.Prepare)
+				if err != nil {
+					return 0, err
+				}
+				return execute(ctx, stmt, script.Args...)
 			}
-			return returning.execute(ctx, stmt, script.Args...)
 		}
 	}
 	return s.way.Execute(ctx, script)
@@ -618,7 +755,7 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 
 // Update Execute an UPDATE statement.
 func (s *Table) Update(ctx context.Context) (int64, error) {
-	if s.way.cfg.updateRequireWhere && (s.where == nil || s.where.IsEmpty()) {
+	if s.way.cfg.UpdateRequireWhere && (s.where == nil || s.where.IsEmpty()) {
 		return 0, ErrNoWhereCondition
 	}
 	return s.way.Execute(ctx, s.ToUpdate())
@@ -626,7 +763,7 @@ func (s *Table) Update(ctx context.Context) (int64, error) {
 
 // Delete Execute a DELETE statement.
 func (s *Table) Delete(ctx context.Context) (int64, error) {
-	if s.way.cfg.deleteRequireWhere && (s.where == nil || s.where.IsEmpty()) {
+	if s.way.cfg.DeleteRequireWhere && (s.where == nil || s.where.IsEmpty()) {
 		return 0, ErrNoWhereCondition
 	}
 	return s.way.Execute(ctx, s.ToDelete())
@@ -636,13 +773,6 @@ func (s *Table) Delete(ctx context.Context) (int64, error) {
 func (s *Table) Create(ctx context.Context, create any) (int64, error) {
 	return s.InsertFunc(func(i SQLInsert) {
 		i.Create(create)
-	}).Insert(ctx)
-}
-
-// CreateOne Quickly insert a piece of data into the table and return the inserted data's id value.
-func (s *Table) CreateOne(ctx context.Context, create any) (id int64, err error) {
-	return s.InsertFunc(func(i SQLInsert) {
-		i.CreateOne(create)
 	}).Insert(ctx)
 }
 

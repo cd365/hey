@@ -29,4 +29,7 @@ const (
 
 	// ErrInvalidMaker Error invalid maker.
 	ErrInvalidMaker = Err("hey: invalid maker")
+
+	// ErrUnexpectedParameterValue Error unexpected parameter value.
+	ErrUnexpectedParameterValue = Err("hey: unexpected parameter value")
 )

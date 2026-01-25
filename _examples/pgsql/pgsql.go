@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cd365/hey/v6/status"
+	"github.com/cd365/hey/v7/status"
 
 	"examples/common"
 
-	"github.com/cd365/hey/v6"
-	"github.com/cd365/hey/v6/cst"
+	"github.com/cd365/hey/v7"
+	"github.com/cd365/hey/v7/cst"
 	_ "github.com/lib/pq"
 )
 
@@ -45,25 +45,24 @@ func initialize() error {
 	}
 	options := make([]hey.Option, 0, 8)
 	{
-		manual := hey.Postgresql()
-		manual.Replacer = hey.NewReplacer()
-		options = append(options, hey.WithManual(manual))
-		options = append(options, hey.WithInsertForbidColumn([]string{"id", "deleted_at"}))
-		options = append(options, hey.WithUpdateForbidColumn([]string{"id", "created_at"}))
-		// options = append(options, hey.WithLimit(hey.NewOffsetRowsFetchNextRowsOnly))
+		config := hey.ConfigDefault()
+		config.Manual = hey.Postgresql()
+		config.Manual.Replacer = hey.NewReplacer()
+		config.InsertForbidColumn = []string{"id", "deleted_at"}
+		config.UpdateForbidColumn = []string{"id", "created_at"}
+		// config.CreateSQLLimit = hey.NewOffsetRowsFetchNextRowsOnly
 		maxLimit := int64(5000)
 		maxOffset := int64(500000) - maxLimit
-		options = append(options, hey.WithMaxLimit(maxLimit))
-		options = append(options, hey.WithMaxOffset(maxOffset))
-		options = append(options, hey.WithDefaultPageSize(20))
-		// Effective when the context parameter is nil.
-		options = append(options, hey.WithTxMaxDuration(time.Second*5))
-		// options = append(options, hey.WithTxOptions(&sql.TxOptions{
+		config.MaxLimit = maxLimit
+		config.MaxOffset = maxOffset
+		config.DefaultPageSize = 20
+		// config.TxOptions = &sql.TxOptions{
 		// 	Isolation: sql.LevelReadCommitted,
 		// 	ReadOnly:  false,
-		// }))
-		options = append(options, hey.WithTrack(&common.MyTrack{}))
+		// }
+		options = append(options, hey.WithConfig(config))
 		options = append(options, hey.WithDatabase(db))
+		options = append(options, hey.WithTrack(&common.MyTrack{}))
 	}
 	way = hey.NewWay(options...)
 	return nil
@@ -221,7 +220,7 @@ func Insert() {
 			i.Default(department.UpdatedAt, timestamp)
 		})
 		way.Debug(table.ToInsert())
-		table.Comment("Example comment")
+		table.Label("Example 1")
 		way.Debug(table.ToInsert())
 
 		// Not setting any columns will result in an incorrectly formatted SQL statement.
@@ -371,7 +370,7 @@ func Insert() {
 			})
 			i.Returning(func(r hey.SQLReturning) {
 				r.Returning(department.Id)
-				r.Execute(r.QueryRowScan())
+				r.SetExecute(r.QueryRowScan())
 			})
 		}).Insert(ctx)
 		if err != nil {
@@ -395,7 +394,7 @@ func Insert() {
 				UpdatedAt: timestamp,
 			})
 			i.Returning(func(r hey.SQLReturning) {
-				r.Execute(r.LastInsertId())
+				r.SetExecute(r.LastInsertId())
 			})
 		}).Insert(ctx)
 		if err != nil {
@@ -421,7 +420,7 @@ func Insert() {
 			})
 			i.Returning(func(r hey.SQLReturning) {
 				r.Returning(department.Id, department.Name)
-				r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
+				r.SetExecute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
 					err = stmt.QueryRow(ctx, func(row *sql.Row) error {
 						return row.Scan(&id, &scanName)
 					}, args...)
@@ -441,7 +440,7 @@ func Insert() {
 		ctx := context.Background()
 		rows, err := way.Table(DEPARTMENT).InsertFunc(func(i hey.SQLInsert) {
 			i.Column(department.Name, department.SerialNum)
-			i.Subquery(way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
+			i.SetSubquery(way.Table(DEPARTMENT).WhereFunc(func(f hey.Filter) {
 				f.LessThan(department.Id, 0)
 			}).Select(department.Name, department.SerialNum).Desc(department.Id).Limit(1000))
 		}).Insert(ctx)
@@ -473,7 +472,7 @@ func Update() {
 		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 			f.Equal(department.Id, 1)
 			u.Set(department.SerialNum, 999)
-		}).Comment("Example").ToUpdate()
+		}).Label("Example").ToUpdate()
 		way.Debug(script)
 	}
 
@@ -640,7 +639,7 @@ func Select() {
 	// comment
 	{
 		tmp.ToEmpty()
-		tmp.Comment("test comment").Asc(employee.Id).Page(2, 10)
+		tmp.Label("test label").Asc(employee.Id).Page(2, 10)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -677,7 +676,7 @@ func Select() {
 	{
 		a := "a"
 		c := DEPARTMENT
-		tmpWith := way.Table(a).Comment("test1").WithFunc(func(w hey.SQLWith) {
+		tmpWith := way.Table(a).Label("test1").WithFunc(func(w hey.SQLWith) {
 			w.Set(
 				a,
 				way.Table(c).Select(employee.Id, employee.SerialNum).WhereFunc(func(f hey.Filter) {
@@ -1111,8 +1110,8 @@ func Filter() {
 		f.ToEmpty()
 		now := time.Now()
 		f.TimeFilter(func(g hey.TimeFilter) {
-			g.Timestamp(now.Unix())
 			g.TimeLocation(now.Location())
+			g.Time(now)
 			g.LastMinutes(employee.CreatedAt, 7)
 			g.LastMinutes(employee.CreatedAt, 0)
 			g.LastHours(employee.CreatedAt, 7)
@@ -1141,7 +1140,7 @@ func Filter() {
 
 func MyMulti() {
 	ctx := context.Background()
-	m := way.MyMulti()
+	m := way.Multi()
 	m.W(way)
 	script := m.V().
 		Table(EMPLOYEE).
@@ -1354,7 +1353,7 @@ func MySchema() {
 				i.Create(insert)
 				i.Returning(func(r hey.SQLReturning) {
 					r.Returning(employee.Id)
-					r.Execute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
+					r.SetExecute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
 						err = stmt.QueryRow(ctx, func(row *sql.Row) error {
 							return row.Scan(&id)
 						}, args...)

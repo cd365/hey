@@ -14,12 +14,12 @@ type Run interface {
 	Run(ctx context.Context) error
 }
 
-// MyMulti This stacks multiple SQL statements sequentially and executes them one by one at the end. You can add custom logic anywhere.
+// Multi This stacks multiple SQL statements sequentially and executes them one by one at the end. You can add custom logic anywhere.
 // For each SQL statement to be executed, you only need to focus on the following three points:
 // 1. The SQL statement to be executed and its corresponding parameter list.
 // 2. Receive or process SQL execution results.
 // 3. Should custom logic be executed after the SQL statement executes successfully?
-type MyMulti interface {
+type Multi interface {
 	Run
 
 	ToEmpty
@@ -35,16 +35,16 @@ type MyMulti interface {
 	IsEmpty() bool
 
 	// Add custom logic.
-	Add(values ...func(ctx context.Context) error) MyMulti
+	Add(values ...func(ctx context.Context) error) Multi
 
 	// AddExists Add a query exists statement.
-	AddExists(maker Maker, exists *bool) MyMulti
+	AddExists(maker Maker, exists *bool) Multi
 
 	// AddQuery Add a query statement; `result` is the container for processing or storing the returned results.
-	AddQuery(maker Maker, result any) MyMulti
+	AddQuery(maker Maker, result any) Multi
 
 	// AddQueryRow Add a non-query statement; `dest` is the container for processing or storing the returned results.
-	AddQueryRow(maker Maker, dest ...any) MyMulti
+	AddQueryRow(maker Maker, dest ...any) Multi
 
 	// RowsAffected Get the number of affected rows.
 	RowsAffected(rows *int64) func(value sql.Result) error
@@ -54,45 +54,50 @@ type MyMulti interface {
 
 	// AddExec Add a non-query statement; `result` is the container for processing or storing the returned results.
 	// If the value of `result` is empty, the number of affected rows will be discarded.
-	AddExec(maker Maker, result ...any) MyMulti
+	AddExec(maker Maker, result ...any) Multi
 }
 
-func (s *Way) MyMulti() MyMulti {
-	return &myMulti{
-		way: s,
+// NewMulti Create a Multi object.
+func NewMulti(way *Way) Multi {
+	return &multi{
+		way: way,
 	}
 }
 
-// myMulti Implement the MyMulti interface.
-type myMulti struct {
+func (s *Way) Multi() Multi {
+	return s.cfg.NewMulti(s)
+}
+
+// multi Implement the Multi interface.
+type multi struct {
 	way *Way
 
 	values [][]func(ctx context.Context) error
 }
 
-func (s *myMulti) ToEmpty() {
+func (s *multi) ToEmpty() {
 	s.values = make([][]func(ctx context.Context) error, 0, 1<<1)
 }
 
-func (s *myMulti) Len() int {
+func (s *multi) Len() int {
 	return len(s.values)
 }
 
-func (s *myMulti) IsEmpty() bool {
+func (s *multi) IsEmpty() bool {
 	return s.Len() == 0
 }
 
-func (s *myMulti) V() *Way {
+func (s *multi) V() *Way {
 	return s.way
 }
 
-func (s *myMulti) W(way *Way) {
+func (s *multi) W(way *Way) {
 	if way != nil {
 		s.way = way
 	}
 }
 
-func (s *myMulti) Add(values ...func(ctx context.Context) error) MyMulti {
+func (s *multi) Add(values ...func(ctx context.Context) error) Multi {
 	length := len(values)
 	if length == 0 {
 		return s
@@ -112,7 +117,7 @@ func (s *myMulti) Add(values ...func(ctx context.Context) error) MyMulti {
 
 // getScript If the statement to be executed is empty, it will be discarded;
 // Using the Add method is not subject to this limitation.
-func (s *myMulti) getScript(maker Maker) *SQL {
+func (s *multi) getScript(maker Maker) *SQL {
 	if maker == nil {
 		return nil
 	}
@@ -123,7 +128,7 @@ func (s *myMulti) getScript(maker Maker) *SQL {
 	return script
 }
 
-func (s *myMulti) AddExists(maker Maker, exists *bool) MyMulti {
+func (s *multi) AddExists(maker Maker, exists *bool) Multi {
 	script := s.getScript(maker)
 	if script == nil {
 		return s
@@ -138,21 +143,21 @@ func (s *myMulti) AddExists(maker Maker, exists *bool) MyMulti {
 	})
 }
 
-func (s *myMulti) AddQuery(maker Maker, result any) MyMulti {
+func (s *multi) AddQuery(maker Maker, result any) Multi {
 	script := s.getScript(maker)
 	if script == nil {
 		return s
 	}
 	return s.Add(func(ctx context.Context) error {
-		fc, ok := result.(func(rows *sql.Rows) error)
-		if ok && fc != nil {
-			return s.way.Query(ctx, script, fc)
+		fx, ok := result.(func(rows *sql.Rows) error)
+		if ok && fx != nil {
+			return s.way.Query(ctx, script, fx)
 		}
 		return s.way.Scan(ctx, script, result)
 	})
 }
 
-func (s *myMulti) AddQueryRow(maker Maker, dest ...any) MyMulti {
+func (s *multi) AddQueryRow(maker Maker, dest ...any) Multi {
 	script := s.getScript(maker)
 	if script == nil {
 		return s
@@ -170,7 +175,7 @@ func (s *myMulti) AddQueryRow(maker Maker, dest ...any) MyMulti {
 	})
 }
 
-func (s *myMulti) storeRowsAffected(result any, rows int64) {
+func (s *multi) storeRowsAffected(result any, rows int64) {
 	if result == nil {
 		return
 	}
@@ -202,7 +207,7 @@ func (s *myMulti) storeRowsAffected(result any, rows int64) {
 	}
 }
 
-func (s *myMulti) RowsAffected(rows *int64) func(value sql.Result) error {
+func (s *multi) RowsAffected(rows *int64) func(value sql.Result) error {
 	return func(value sql.Result) error {
 		tmp, err := value.RowsAffected()
 		if err != nil {
@@ -215,7 +220,7 @@ func (s *myMulti) RowsAffected(rows *int64) func(value sql.Result) error {
 	}
 }
 
-func (s *myMulti) LastInsertId(id *int64) func(value sql.Result) error {
+func (s *multi) LastInsertId(id *int64) func(value sql.Result) error {
 	return func(value sql.Result) error {
 		tmp, err := value.LastInsertId()
 		if err != nil {
@@ -228,7 +233,7 @@ func (s *myMulti) LastInsertId(id *int64) func(value sql.Result) error {
 	}
 }
 
-func (s *myMulti) AddExec(maker Maker, result ...any) MyMulti {
+func (s *multi) AddExec(maker Maker, result ...any) Multi {
 	script := s.getScript(maker)
 	if script == nil {
 		return s
@@ -251,9 +256,9 @@ func (s *myMulti) AddExec(maker Maker, result ...any) MyMulti {
 			return nil
 		}
 		if custom != nil {
-			fc, ok := custom.(func(tmp sql.Result) error)
-			if ok && fc != nil {
-				handle = fc
+			fx, ok := custom.(func(tmp sql.Result) error)
+			if ok && fx != nil {
+				handle = fx
 			}
 		}
 		tmp, err := s.way.Exec(ctx, script)
@@ -264,7 +269,7 @@ func (s *myMulti) AddExec(maker Maker, result ...any) MyMulti {
 	})
 }
 
-func (s *myMulti) Run(ctx context.Context) (err error) {
+func (s *multi) Run(ctx context.Context) (err error) {
 	for _, custom := range s.values {
 		for _, value := range custom {
 			if value == nil {
