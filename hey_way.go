@@ -311,6 +311,9 @@ type Config struct {
 	// LabelDelimiter Delimiter between multiple labels.
 	LabelDelimiter string
 
+	// SuffixLabel SQL Statement suffix label.
+	SuffixLabel string
+
 	// TableMethodName Custom method name to get table name.
 	TableMethodName string
 
