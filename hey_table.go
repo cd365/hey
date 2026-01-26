@@ -996,7 +996,7 @@ func NewComplex(table *Table) Complex {
 	}
 }
 
-// UpsertFunc Set UPDATE and INSERT through func, Ultimately execute UPDATE or INSERT.
+// UpsertFunc Set UPDATE and INSERT through func, ultimately execute UPDATE or INSERT.
 func (s *Table) UpsertFunc(upsert any, where func(f Filter)) *Table {
 	s.UpdateFunc(func(f Filter, u SQLUpdateSet) {
 		if where != nil {
