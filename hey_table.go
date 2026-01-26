@@ -934,7 +934,7 @@ type myComplex struct {
 	table *Table
 }
 
-func (s *myComplex) atomic(ctx context.Context, group func(tx *Way) error) error {
+func (s myComplex) atomic(ctx context.Context, group func(tx *Way) error) error {
 	way := s.table.way
 	if way.IsInTransaction() {
 		return group(way)
@@ -947,7 +947,7 @@ func (s *myComplex) atomic(ctx context.Context, group func(tx *Way) error) error
 }
 
 // Upsert If the data exists, update the data; otherwise, insert the data.
-func (s *myComplex) Upsert(ctx context.Context) (updateAffectedRows int64, insertResult int64, err error) {
+func (s myComplex) Upsert(ctx context.Context) (updateAffectedRows int64, insertResult int64, err error) {
 	err = s.atomic(ctx, func(tx *Way) error {
 		exist, table := false, s.table
 		exist, err = table.Exists(ctx)
@@ -971,12 +971,14 @@ func (s *myComplex) Upsert(ctx context.Context) (updateAffectedRows int64, inser
 }
 
 // DeleteCreate Delete data first, then insert data.
-func (s *myComplex) DeleteCreate(ctx context.Context) (deleteAffectedRows int64, insertResult int64, err error) {
+func (s myComplex) DeleteCreate(ctx context.Context) (deleteAffectedRows int64, insertResult int64, err error) {
 	err = s.atomic(ctx, func(tx *Way) error {
 		table := s.table
-		deleteAffectedRows, err = table.Delete(ctx)
-		if err != nil {
-			return err
+		if where := table.where; where != nil && !where.IsEmpty() {
+			deleteAffectedRows, err = table.Delete(ctx)
+			if err != nil {
+				return err
+			}
 		}
 		insertResult, err = table.Insert(ctx)
 		if err != nil {
@@ -989,7 +991,43 @@ func (s *myComplex) DeleteCreate(ctx context.Context) (deleteAffectedRows int64,
 
 // NewComplex Create a Complex object.
 func NewComplex(table *Table) Complex {
-	return &myComplex{
+	return myComplex{
 		table: table,
 	}
+}
+
+// UpsertFunc Set UPDATE and INSERT through func, Ultimately execute UPDATE or INSERT.
+func (s *Table) UpsertFunc(upsert any, where func(f Filter)) *Table {
+	s.UpdateFunc(func(f Filter, u SQLUpdateSet) {
+		if where != nil {
+			where(f)
+		}
+		u.Update(upsert)
+	})
+	s.InsertFunc(func(i SQLInsert) {
+		i.Create(upsert)
+	})
+	return s
+}
+
+// Upsert Data for the same table.
+// Filter data based on the WHERE condition. If a record exists, update all data selected by the filter condition;
+// otherwise, perform an insert operation.
+func (s *Table) Upsert(ctx context.Context, upsert any, where func(f Filter)) (updateResult int64, insertResult int64, err error) {
+	return NewComplex(s.UpsertFunc(upsert, where)).Upsert(ctx)
+}
+
+// DeleteCreate Data for the same table.
+// First delete all data that matches the specified WHERE condition, then insert the new data;
+// if no WHERE condition is set, no data will be deleted.
+func (s *Table) DeleteCreate(ctx context.Context, create any, where func(f Filter)) (deleteResult int64, insertResult int64, err error) {
+	s.WhereFunc(func(f Filter) {
+		if where != nil {
+			where(f)
+		}
+	})
+	s.InsertFunc(func(i SQLInsert) {
+		i.Create(create)
+	})
+	return NewComplex(s).DeleteCreate(ctx)
 }
