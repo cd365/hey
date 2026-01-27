@@ -844,7 +844,7 @@ func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, pre
 	// the consumer has stopped consuming, but the producer is still sending data to the queue.
 	abort := &atomic.Bool{} // Consumer stopped state.
 
-	queue := make(chan *largerCreate, 1<<5)
+	queue := make(chan largerCreate, 1<<5)
 
 	// producer role
 	go func() {
@@ -872,7 +872,7 @@ func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, pre
 					suffix(i)
 				}
 			}).ToInsert()
-			value := &largerCreate{
+			value := largerCreate{
 				script:   script,
 				quantity: quantity,
 			}
