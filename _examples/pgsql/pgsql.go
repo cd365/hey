@@ -349,9 +349,40 @@ func Insert() {
 			i.Forbid(department.Id, department.DeletedAt)
 		}, nil)
 		if err != nil {
-			log.Println(err.Error())
+			log.Println(rows, err.Error())
 		} else {
 			log.Println(rows)
+		}
+
+		// Using map[string]any type.
+		{
+			batch := make([]map[string]any, 0, length)
+			// OR
+			// batch := make([]any, 0, length)
+			for i := range 10000 {
+				name := fmt.Sprintf("Sales Department %d %d", i+1, time.Now().Nanosecond())
+				if i == 111 { // Generate overly long string data during batch insertion to cause SQL execution errors.
+					b := strings.Builder{}
+					for num := range 500 {
+						b.WriteString(fmt.Sprintf("%d", num))
+					}
+					name = fmt.Sprintf("%s%s", name, b.String())
+				}
+				batch = append(batch, map[string]any{
+					department.Name:      &name,
+					department.SerialNum: 1,
+					department.CreatedAt: timestamp,
+					department.UpdatedAt: timestamp,
+				})
+			}
+			rows, err = way.Table(DEPARTMENT).LargerCreate(ctx, 30, batch, func(i hey.SQLInsert) {
+				i.Forbid(department.Id, department.DeletedAt)
+			}, nil)
+			if err != nil {
+				log.Println(rows, err.Error())
+			} else {
+				log.Println(rows)
+			}
 		}
 	}
 
