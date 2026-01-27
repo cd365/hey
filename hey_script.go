@@ -1398,6 +1398,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 	if tag == cst.Empty {
 		return columns, values, CategoryInsertUnknown
 	}
+
 	s.tag = tag
 
 	reflectValue := reflect.ValueOf(object)
@@ -1420,6 +1421,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		var indexValueType reflect.Type
 		for i := range sliceLength {
 			indexValue := reflectValue.Index(i)
+
 			if indexValueType == nil {
 				indexValueType = indexValue.Type()
 			} else {
@@ -1427,9 +1429,11 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 					panic("hey: slice element types are inconsistent")
 				}
 			}
+
 			for indexValue.Kind() == reflect.Pointer {
 				indexValue = indexValue.Elem()
 			}
+
 			indexValueKind := indexValue.Kind()
 			if indexValueKind == reflect.Struct {
 				if i == 0 {
@@ -1437,24 +1441,51 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 				} else {
 					values[i] = s.structValue(indexValue, allowed)
 				}
+				continue
+			}
+
+			if indexValueKind != reflect.Interface {
+				panic(fmt.Sprintf("hey: unsupported data type %T", indexValue.Interface()))
+			}
+
+			value := indexValue.Interface()
+
+			// First try the map[string]any type assertion.
+			mapValue, ok := value.(map[string]any)
+			if ok {
+				mapColumns, mapValues, _ := s.Insert(mapValue, tag, except, allow)
+				lenColumns := len(mapColumns)
+				if lenColumns == 0 {
+					continue
+				}
+				lenValues := len(mapValues)
+				if lenValues == 0 {
+					continue
+				}
+				if lenColumns != len(mapValues[0]) {
+					continue
+				}
+				if columns == nil {
+					columns = mapColumns
+				}
+				values[i] = mapValues[0]
+				continue
+			}
+
+			// Second try parsing the struct type.
+			indexValue = reflect.ValueOf(value)
+			indexValueKind = indexValue.Kind()
+			for ; indexValueKind == reflect.Pointer; indexValueKind = indexValue.Kind() {
+				indexValue = indexValue.Elem()
+			}
+			if indexValueKind != reflect.Struct {
+				panic(fmt.Sprintf("hey: unsupported data type %T", value))
+			}
+
+			if i == 0 {
+				columns, values[i] = s.structColumnValue(indexValue, allowed)
 			} else {
-				if indexValueKind != reflect.Interface {
-					panic(fmt.Sprintf("hey: unsupported data type %T", indexValue.Interface()))
-				}
-				value := indexValue.Interface()
-				indexValue = reflect.ValueOf(value)
-				indexValueKind = indexValue.Kind()
-				for ; indexValueKind == reflect.Pointer; indexValueKind = indexValue.Kind() {
-					indexValue = indexValue.Elem()
-				}
-				if indexValueKind != reflect.Struct {
-					panic(fmt.Sprintf("hey: unsupported data type %T", value))
-				}
-				if i == 0 {
-					columns, values[i] = s.structColumnValue(indexValue, allowed)
-				} else {
-					values[i] = s.structValue(indexValue, allowed)
-				}
+				values[i] = s.structValue(indexValue, allowed)
 			}
 		}
 		return
