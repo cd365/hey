@@ -40,7 +40,7 @@ type Multi interface {
 	// AddQuery Add a query statement;
 	AddQuery(maker Maker, query func(rows *sql.Rows) error) Multi
 
-	// AddQueryRow Add a non-query statement; `dest` is the container for processing or storing the returned results.
+	// AddQueryRow Execute SQL statement using QueryRow; `dest` is the container for processing or storing the returned results.
 	AddQueryRow(maker Maker, dest ...any) Multi
 
 	// AddQueryScan Add a query statement; `result` is the container for processing or storing the returned results.
