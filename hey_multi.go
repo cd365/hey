@@ -37,14 +37,17 @@ type Multi interface {
 	// Add custom logic.
 	Add(values ...func(ctx context.Context) error) Multi
 
-	// AddExists Add a query exists statement.
-	AddExists(maker Maker, exists *bool) Multi
-
-	// AddQuery Add a query statement; `result` is the container for processing or storing the returned results.
-	AddQuery(maker Maker, result any) Multi
+	// AddQuery Add a query statement;
+	AddQuery(maker Maker, query func(rows *sql.Rows) error) Multi
 
 	// AddQueryRow Add a non-query statement; `dest` is the container for processing or storing the returned results.
 	AddQueryRow(maker Maker, dest ...any) Multi
+
+	// AddQueryScan Add a query statement; `result` is the container for processing or storing the returned results.
+	AddQueryScan(maker Maker, result any) Multi
+
+	// AddExists Add a query exists statement.
+	AddExists(maker Maker, exists *bool) Multi
 
 	// RowsAffected Get the number of affected rows.
 	RowsAffected(rows *int64) func(value sql.Result) error
@@ -128,32 +131,13 @@ func (s *multi) getScript(maker Maker) *SQL {
 	return script
 }
 
-func (s *multi) AddExists(maker Maker, exists *bool) Multi {
+func (s *multi) AddQuery(maker Maker, query func(rows *sql.Rows) error) Multi {
 	script := s.getScript(maker)
 	if script == nil {
 		return s
 	}
 	return s.Add(func(ctx context.Context) error {
-		tmp, err := s.way.Exists(ctx, script)
-		if err != nil {
-			return err
-		}
-		*exists = tmp
-		return nil
-	})
-}
-
-func (s *multi) AddQuery(maker Maker, result any) Multi {
-	script := s.getScript(maker)
-	if script == nil {
-		return s
-	}
-	return s.Add(func(ctx context.Context) error {
-		fx, ok := result.(func(rows *sql.Rows) error)
-		if ok && fx != nil {
-			return s.way.Query(ctx, script, fx)
-		}
-		return s.way.Scan(ctx, script, result)
+		return s.way.Query(ctx, script, query)
 	})
 }
 
@@ -172,6 +156,35 @@ func (s *multi) AddQueryRow(maker Maker, dest ...any) Multi {
 			}
 		}
 		return s.way.QueryRow(ctx, script, query)
+	})
+}
+
+func (s *multi) AddQueryScan(maker Maker, result any) Multi {
+	script := s.getScript(maker)
+	if script == nil {
+		return s
+	}
+	return s.Add(func(ctx context.Context) error {
+		fx, ok := result.(func(rows *sql.Rows) error)
+		if ok && fx != nil {
+			return s.way.Query(ctx, script, fx)
+		}
+		return s.way.Scan(ctx, script, result)
+	})
+}
+
+func (s *multi) AddExists(maker Maker, exists *bool) Multi {
+	script := s.getScript(maker)
+	if script == nil {
+		return s
+	}
+	return s.Add(func(ctx context.Context) error {
+		tmp, err := s.way.Exists(ctx, script)
+		if err != nil {
+			return err
+		}
+		*exists = tmp
+		return nil
 	})
 }
 

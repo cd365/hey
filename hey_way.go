@@ -934,13 +934,16 @@ func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error)
 	return stmt, nil
 }
 
+// RowsScan Scan one or more rows of SQL results containing one or more columns.
+func (s *Way) RowsScan(result any) func(rows *sql.Rows) error {
+	return func(rows *sql.Rows) error {
+		return s.cfg.RowsScan(rows, result, s.cfg.ScanTag)
+	}
+}
+
 // Query -> Execute the query sql statement.
 func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) (err error) {
 	script := maker.ToSQL()
-	if script.IsEmpty() {
-		err = ErrEmptySqlStatement
-		return
-	}
 	var stmt *Stmt
 	stmt, err = s.Prepare(ctx, script.Prepare)
 	if err != nil {
@@ -965,10 +968,6 @@ func (s *Way) RowScan(dest ...any) func(row *sql.Row) error {
 // QueryRow -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
 func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) (err error) {
 	script := maker.ToSQL()
-	if script.IsEmpty() {
-		err = ErrEmptySqlStatement
-		return
-	}
 	var stmt *Stmt
 	stmt, err = s.Prepare(ctx, script.Prepare)
 	if err != nil {
@@ -985,7 +984,7 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 
 // Scan -> Query prepared and get all query results, through the mapping of column names and struct tags.
 func (s *Way) Scan(ctx context.Context, maker Maker, result any) error {
-	return s.Query(ctx, maker, func(rows *sql.Rows) error { return s.cfg.RowsScan(rows, result, s.cfg.ScanTag) })
+	return s.Query(ctx, maker, s.RowsScan(result))
 }
 
 // MapScan -> Scanning the query results into []map[string]any.
@@ -1054,10 +1053,6 @@ func (s *Way) Exists(ctx context.Context, maker Maker) (bool, error) {
 // Exec -> Execute the execute sql statement.
 func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err error) {
 	script := maker.ToSQL()
-	if script.IsEmpty() {
-		err = ErrEmptySqlStatement
-		return
-	}
 	var stmt *Stmt
 	stmt, err = s.Prepare(ctx, script.Prepare)
 	if err != nil {
@@ -1074,34 +1069,13 @@ func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err err
 
 // Execute -> Execute the execute sql statement.
 func (s *Way) Execute(ctx context.Context, maker Maker) (affectedRows int64, err error) {
-	script := maker.ToSQL()
-	if script.IsEmpty() {
-		err = ErrEmptySqlStatement
-		return
-	}
-	var stmt *Stmt
-	stmt, err = s.Prepare(ctx, script.Prepare)
+	result := (sql.Result)(nil)
+	result, err = s.Exec(ctx, maker)
 	if err != nil {
 		return
 	}
-	defer func() {
-		if e := stmt.Close(); e != nil && err == nil {
-			err = e
-		}
-	}()
-	affectedRows, err = stmt.Execute(ctx, script.Args...)
+	affectedRows, err = result.RowsAffected()
 	return
-}
-
-// MultiScan Execute multiple DQL statements.
-func (s *Way) MultiScan(ctx context.Context, makers []Maker, results []any) (err error) {
-	for index, maker := range makers {
-		err = s.Scan(ctx, maker, results[index])
-		if err != nil {
-			break
-		}
-	}
-	return err
 }
 
 // MultiExecute Execute multiple DML statements.
@@ -1110,19 +1084,19 @@ func (s *Way) MultiExecute(ctx context.Context, makers []Maker) (affectedRows in
 	for _, maker := range makers {
 		rows, err = s.Execute(ctx, maker)
 		if err != nil {
-			return affectedRows, err
+			return
 		}
 		affectedRows += rows
 	}
-	return affectedRows, nil
+	return
 }
 
-// MultiStmtScan Executing a DQL statement multiple times using the same prepared statement.
-func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, results []any) (err error) {
-	if prepare == cst.Empty {
-		err = ErrEmptySqlStatement
-		return
-	}
+// MultiStmtQuery Executing a DQL statement multiple times using the same prepared statement.
+// The exit conditions are as follows:
+// 1. Context was canceled or timed out.
+// 2. Abnormal execution process (unexpected error occurred).
+// 3. Close the argsQueue channel.
+func (s *Way) MultiStmtQuery(ctx context.Context, prepare string, argsQueue <-chan []any, query func(rows *sql.Rows) error) (err error) {
 	var stmt *Stmt
 	defer func() {
 		if stmt != nil {
@@ -1131,27 +1105,35 @@ func (s *Way) MultiStmtScan(ctx context.Context, prepare string, lists [][]any, 
 			}
 		}
 	}()
-	for index, value := range lists {
-		if stmt == nil {
-			stmt, err = s.Prepare(ctx, prepare)
+	for {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+			return
+		case args, ok := <-argsQueue:
+			if !ok {
+				return
+			}
+			if stmt == nil {
+				stmt, err = s.Prepare(ctx, prepare)
+				if err != nil {
+					return
+				}
+			}
+			err = stmt.Query(ctx, query, args...)
 			if err != nil {
 				return
 			}
 		}
-		err = stmt.Scan(ctx, results[index], value...)
-		if err != nil {
-			return
-		}
 	}
-	return
 }
 
 // MultiStmtExecute Executing a DML statement multiple times using the same prepared statement.
-func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]any) (affectedRows int64, err error) {
-	if prepare == cst.Empty {
-		err = ErrEmptySqlStatement
-		return
-	}
+// The exit conditions are as follows:
+// 1. Context was canceled or timed out.
+// 2. Abnormal execution process (unexpected error occurred).
+// 3. Close the argsQueue channel.
+func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, argsQueue <-chan []any) (affectedRows int64, err error) {
 	var stmt *Stmt
 	defer func() {
 		if stmt != nil {
@@ -1161,95 +1143,28 @@ func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, lists [][]an
 		}
 	}()
 	rows := int64(0)
-	for _, args := range lists {
-		if stmt == nil {
-			stmt, err = s.Prepare(ctx, prepare)
+	for {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+			return
+		case args, ok := <-argsQueue:
+			if !ok {
+				return
+			}
+			if stmt == nil {
+				stmt, err = s.Prepare(ctx, prepare)
+				if err != nil {
+					return
+				}
+			}
+			rows, err = stmt.Execute(ctx, args...)
 			if err != nil {
 				return
 			}
-		}
-		rows, err = stmt.Execute(ctx, args...)
-		if err != nil {
-			return
-		}
-		affectedRows += rows
-	}
-	return
-}
-
-// GroupMultiStmtScan Call using the same prepared statement. Multi-statement query.
-func (s *Way) GroupMultiStmtScan(ctx context.Context, queries []Maker, results []any) (err error) {
-	length := len(queries)
-	if length == 0 {
-		return
-	}
-	prepare := make([]string, 0, 1<<1)
-	args := make(map[string][][]any, 1<<1)
-	scan := make(map[string][]any, 1<<1)
-	for index, value := range queries {
-		if value == nil {
-			continue
-		}
-		script := value.ToSQL()
-		if script == nil {
-			continue
-		}
-		if script.IsEmpty() {
-			err = ErrEmptySqlStatement
-			return
-		}
-		if _, ok := args[script.Prepare]; !ok {
-			args[script.Prepare] = make([][]any, 0, 1)
-			scan[script.Prepare] = make([]any, 0, 1)
-			prepare = append(prepare, script.Prepare)
-		}
-		args[script.Prepare] = append(args[script.Prepare], script.Args)
-		scan[script.Prepare] = append(scan[script.Prepare], results[index])
-	}
-	for _, value := range prepare {
-		err = s.MultiStmtScan(ctx, value, args[value], scan[value])
-		if err != nil {
-			return
+			affectedRows += rows
 		}
 	}
-	return
-}
-
-// GroupMultiStmtExecute Call using the same prepared statement. Multi-statement insert and update.
-func (s *Way) GroupMultiStmtExecute(ctx context.Context, executes []Maker) (affectedRows int64, err error) {
-	length := len(executes)
-	if length == 0 {
-		return
-	}
-	prepare := make([]string, 0, 1<<1)
-	args := make(map[string][][]any, 1<<1)
-	for _, value := range executes {
-		if value == nil {
-			continue
-		}
-		script := value.ToSQL()
-		if script == nil {
-			continue
-		}
-		if script.IsEmpty() {
-			err = ErrEmptySqlStatement
-			return
-		}
-		if _, ok := args[script.Prepare]; !ok {
-			args[script.Prepare] = make([][]any, 0, 1)
-			prepare = append(prepare, script.Prepare)
-		}
-		args[script.Prepare] = append(args[script.Prepare], script.Args)
-	}
-	rows := int64(0)
-	for _, value := range prepare {
-		rows, err = s.MultiStmtExecute(ctx, value, args[value])
-		if err != nil {
-			return
-		}
-		affectedRows += rows
-	}
-	return
 }
 
 // Debug Debugging output SQL script.

@@ -9,6 +9,8 @@ import (
 	"log"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cd365/hey/v7/status"
@@ -796,6 +798,95 @@ func Select() {
 		log.Printf("%#v\n", ids)
 	}
 
+	// Execute multiple SQL statements using the same *sql.Stmt. QUERY-SQL
+	{
+		ctx := context.Background()
+		script = tmp.SelectFunc(func(q hey.SQLSelect) {
+			q.ToEmpty()
+		}).WhereFunc(func(f hey.Filter) {
+			f.Equal(employee.Id, 0)
+		}).Limit(1).ToSQL()
+
+		lists := make([][]*Employee, 0, 8)
+		queue := make(chan []any, 8)
+
+		go func() {
+			defer close(queue)
+			for i := 1; i <= 20; i++ {
+				queue <- []any{i}
+			}
+		}()
+
+		err := way.MultiStmtQuery(ctx, script.Prepare, queue, func(rows *sql.Rows) error {
+			result := make([]*Employee, 0)
+			err := way.RowsScan(&result)(rows)
+			if err != nil {
+				return err
+			}
+			lists = append(lists, result)
+			return nil
+		})
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		log.Println(len(lists), lists)
+	}
+
+	// Execute multiple SQL statements using the same *sql.Stmt. INSERT/UPDATE/DELETE/...
+	{
+		ctx := context.Background()
+		script = tmp.UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			u.Set(employee.Age, 0)
+			f.ToEmpty()
+			f.Equal(employee.Id, 0)
+		}).ToUpdate()
+
+		prepare := script.Prepare
+
+		cancelCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		abort := &atomic.Bool{}
+		group := &sync.WaitGroup{}
+		queue := make(chan []any, 8)
+
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			defer close(queue)
+			for i := 1; i <= 20; i++ {
+				if abort.Load() {
+					return
+				}
+				select {
+				case <-cancelCtx.Done():
+					return
+				case queue <- []any{i * 2, i}:
+				}
+			}
+		}()
+
+		totalAffectedRows := &atomic.Int64{}
+
+		for range 1 << 3 {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				defer abort.CompareAndSwap(false, true)
+				affectedRows, err := way.MultiStmtExecute(ctx, prepare, queue)
+				if err != nil {
+					log.Println(err.Error())
+					return
+				}
+				totalAffectedRows.Add(affectedRows)
+			}()
+		}
+
+		group.Wait()
+
+		log.Println(totalAffectedRows.Load())
+	}
+
 	// More ways to call ...
 }
 
@@ -1186,7 +1277,7 @@ func MyMulti() {
 	m.Add()    // for test
 	m.Add(nil) // for test
 
-	m.AddQuery(script, first)
+	m.AddQueryScan(script, first)
 
 	first1 := &Employee{}
 	m.AddQuery(script.ToSelect(), func(rows *sql.Rows) error {
@@ -1713,15 +1804,16 @@ func WayMulti() {
 		if script == nil || script.IsEmpty() {
 			return
 		}
-		makers := make([]hey.Maker, 0, len(employees))
-		for _, e := range employees {
-			makers = append(makers, hey.NewSQL(script.Prepare, e.Id))
+		multi := hey.NewMulti(way)
+		for i, e := range employees {
+			multi.AddQueryScan(hey.NewSQL(script.Prepare, e.Id), lists[i])
 		}
-		err := way.MultiScan(ctx, makers, lists)
+		err := multi.Run(ctx)
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
 				log.Fatal(err.Error())
 			}
+			log.Println(err.Error())
 		}
 	}
 
