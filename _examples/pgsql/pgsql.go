@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -30,7 +31,32 @@ func initialize() error {
 		err error
 	)
 	{
-		db, err = sql.Open("postgres", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
+		username := "postgres"
+		password := "postgres"
+		host := "localhost"
+		port := "5432"
+		database := "postgres"
+		{
+			// Get the value of an environment variable.
+			if value := os.Getenv("HEY_PGSQL_USERNAME"); value != cst.Empty {
+				username = value
+			}
+			if value := os.Getenv("HEY_PGSQL_PASSWORD"); value != cst.Empty {
+				password = value
+			}
+			if value := os.Getenv("HEY_PGSQL_HOST"); value != cst.Empty {
+				host = value
+			}
+			if value := os.Getenv("HEY_PGSQL_PORT"); value != cst.Empty {
+				port = value
+			}
+			if value := os.Getenv("HEY_PGSQL_DATABASE_NAME"); value != cst.Empty {
+				database = value
+			}
+		}
+		driver := "postgres"
+		dataSourceName := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", username, password, host, port, database)
+		db, err = sql.Open(driver, dataSourceName)
 		if err != nil {
 			return err
 		}
@@ -52,7 +78,7 @@ func initialize() error {
 		config.Manual.Replacer = hey.NewReplacer()
 		config.InsertForbidColumn = []string{"id", "deleted_at"}
 		config.UpdateForbidColumn = []string{"id", "created_at"}
-		// config.CreateSQLLimit = hey.NewOffsetRowsFetchNextRowsOnly
+		// config.NewSQLLimit = hey.NewOffsetRowsFetchNextRowsOnly
 		maxLimit := int64(5000)
 		maxOffset := int64(500000) - maxLimit
 		config.MaxLimit = maxLimit

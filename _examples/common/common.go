@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	heyV6 = "github.com/cd365/hey/v7"
+	heyPackage = "github.com/cd365/hey/v7"
 )
 
 type FileLineMethod struct {
@@ -40,7 +40,7 @@ func MyCaller() string {
 	}
 	latest := 0
 	for index, value := range callers {
-		if strings.Contains(value.method, heyV6) {
+		if strings.Contains(value.method, heyPackage) {
 			latest = index
 		}
 	}

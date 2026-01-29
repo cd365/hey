@@ -62,6 +62,9 @@ type Multi interface {
 
 // NewMulti Create a Multi object.
 func NewMulti(way *Way) Multi {
+	if way == nil {
+		panic(pin)
+	}
 	return &multi{
 		way: way,
 	}

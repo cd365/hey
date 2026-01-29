@@ -5,6 +5,7 @@ package hey
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -578,11 +579,13 @@ func Alias(script any, aliases ...string) SQLAlias {
 }
 
 func (s *Way) Alias(script any, aliases ...string) SQLAlias {
-	return newSqlAlias(script, aliases...).v(s)
+	return newSqlAlias(script, aliases...).w(s)
 }
 
-func (s *sqlAlias) v(way *Way) *sqlAlias {
-	s.way = way
+func (s *sqlAlias) w(way *Way) *sqlAlias {
+	if way != nil {
+		s.way = way
+	}
 	return s
 }
 
@@ -664,8 +667,11 @@ func (s *sqlAlias) ToSQL() *SQL {
 
 // optimizeTableSQL Optimize table SQL.
 func optimizeTableSQL(way *Way, table *SQL) *SQL {
+	if way == nil {
+		panic(pin)
+	}
 	result := NewEmptySQL()
-	if way == nil || table == nil || table.IsEmpty() {
+	if table == nil || table.IsEmpty() {
 		return result
 	}
 	latest := table.Clone()
@@ -693,7 +699,10 @@ func optimizeTableSQL(way *Way, table *SQL) *SQL {
 
 // newSQLTable Extract table names from any type.
 func newSQLTable(way *Way, table any) SQLAlias {
-	result := newSqlAlias(cst.Empty).v(way)
+	if way == nil {
+		panic(pin)
+	}
+	result := newSqlAlias(cst.Empty).w(way)
 	if table == nil {
 		result.SetSQL(AnyToSQL(table))
 		return result
@@ -1426,7 +1435,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 				indexValueType = indexValue.Type()
 			} else {
 				if indexValueType != indexValue.Type() {
-					panic("hey: slice element types are inconsistent")
+					panic(errors.New("hey: slice element types are inconsistent"))
 				}
 			}
 
@@ -1445,7 +1454,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 			}
 
 			if indexValueKind != reflect.Interface {
-				panic(fmt.Sprintf("hey: unsupported data type %T", indexValue.Interface()))
+				panic(fmt.Errorf("hey: unsupported data type %T", indexValue.Interface()))
 			}
 
 			value := indexValue.Interface()
@@ -1479,7 +1488,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 				indexValue = indexValue.Elem()
 			}
 			if indexValueKind != reflect.Struct {
-				panic(fmt.Sprintf("hey: unsupported data type %T", value))
+				panic(fmt.Errorf("hey: unsupported data type %T", value))
 			}
 
 			if i == 0 {
@@ -2023,6 +2032,9 @@ type tableColumn struct {
 }
 
 func NewTableColumn(way *Way, tableName ...string) TableColumn {
+	if way == nil {
+		panic(pin)
+	}
 	tmp := &tableColumn{
 		way: way,
 	}
@@ -2040,7 +2052,7 @@ func (s *tableColumn) Table() string {
 // "[prefix.]column_name + alias_name" -> "column_name AS column_alias_name"
 func (s *tableColumn) columnAlias(column string, alias ...string) string {
 	if aliasName := LastNotEmptyString(alias); aliasName != cst.Empty {
-		return newSqlAlias(column).v(s.way).SetAlias(aliasName).ToSQL().Prepare
+		return newSqlAlias(column).w(s.way).SetAlias(aliasName).ToSQL().Prepare
 	}
 	return column
 }
@@ -2252,6 +2264,9 @@ type sqlWindowFuncOver struct {
 }
 
 func NewSQLWindowFuncOver(way *Way) SQLWindowFuncOver {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlWindowFuncOver{
 		way: way,
 	}
@@ -2563,5 +2578,5 @@ func (s *WindowFunc) ToSQL() *SQL {
 	}
 
 	result.Prepare = b.String()
-	return newSqlAlias(result).v(s.way).SetAlias(s.alias).ToSQL()
+	return newSqlAlias(result).w(s.way).SetAlias(s.alias).ToSQL()
 }

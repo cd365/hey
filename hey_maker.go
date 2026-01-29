@@ -40,6 +40,9 @@ type sqlLabel struct {
 }
 
 func newSQLLabel(way *Way) SQLLabel {
+	if way == nil {
+		panic(pin)
+	}
 	delimiter := way.cfg.LabelDelimiter
 	if delimiter == cst.Empty {
 		delimiter = cst.Comma
@@ -120,6 +123,9 @@ type sqlWith struct {
 }
 
 func newSQLWith(way *Way) SQLWith {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlWith{
 		column:  make(map[string][]string, 1<<1),
 		prepare: make(map[string]Maker, 1<<1),
@@ -275,6 +281,9 @@ type sqlSelect struct {
 }
 
 func newSQLSelect(way *Way) SQLSelect {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlSelect{
 		columnsMap:  make(map[string]int, 1<<5),
 		columnsArgs: make(map[int][]any, 1<<5),
@@ -487,6 +496,9 @@ type sqlJoinOn struct {
 }
 
 func newSQLJoinOn(way *Way) SQLJoinOn {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlJoinOn{
 		way: way,
 		on:  way.F(),
@@ -604,6 +616,9 @@ type sqlJoin struct {
 }
 
 func newSQLJoin(way *Way, query SQLSelect) SQLJoin {
+	if way == nil {
+		panic(pin)
+	}
 	tmp := &sqlJoin{
 		way:   way,
 		joins: make([]*sqlJoinSchema, 0, 1<<1),
@@ -778,6 +793,9 @@ type sqlWindow struct {
 }
 
 func newSQLWindow(way *Way) SQLWindow {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlWindow{
 		way:     way,
 		prepare: make(map[string]Maker, 1<<1),
@@ -903,6 +921,9 @@ type sqlGroupBy struct {
 }
 
 func newSQLGroupBy(way *Way) SQLGroupBy {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlGroupBy{
 		having:           way.F(),
 		groupColumnsMap:  make(map[string]int, 1<<1),
@@ -1034,6 +1055,9 @@ type sqlOrderBy struct {
 }
 
 func newSQLOrderBy(way *Way) SQLOrderBy {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlOrderBy{
 		orderMap: make(map[string]int, 1<<1),
 		way:      way,
@@ -1211,6 +1235,9 @@ type sqlLimit struct {
 }
 
 func newSQLLimit(way *Way) SQLLimit {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlLimit{
 		way: way,
 	}
@@ -1375,6 +1402,9 @@ type sqlValues struct {
 }
 
 func newSQLValues(way *Way) SQLValues {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlValues{
 		values: make([][]any, 1),
 	}
@@ -1492,6 +1522,9 @@ type sqlReturning struct {
 }
 
 func newSQLReturning(way *Way, insert Maker) SQLReturning {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlReturning{
 		way:    way,
 		insert: insert,
@@ -1673,6 +1706,9 @@ func (s *sqlUpdateSet) toEmpty() {
 }
 
 func newSQLUpdateSet(way *Way) SQLUpdateSet {
+	if way == nil {
+		panic(pin)
+	}
 	result := &sqlUpdateSet{
 		way: way,
 	}
@@ -1987,6 +2023,9 @@ type sqlOnConflictUpdateSet struct {
 }
 
 func newSQLOnConflictUpdateSet(way *Way) SQLOnConflictUpdateSet {
+	if way == nil {
+		panic(pin)
+	}
 	tmp := &sqlOnConflictUpdateSet{
 		way: way,
 	}
@@ -2042,6 +2081,9 @@ type sqlOnConflict struct {
 }
 
 func newSQLOnConflict(way *Way, insert Maker) SQLOnConflict {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlOnConflict{
 		way:    way,
 		insert: insert,
@@ -2222,6 +2264,9 @@ func (s *sqlInsert) toEmpty() {
 }
 
 func newSQLInsert(way *Way) SQLInsert {
+	if way == nil {
+		panic(pin)
+	}
 	result := &sqlInsert{
 		way: way,
 	}
@@ -2622,6 +2667,9 @@ type sqlCase struct {
 }
 
 func NewSQLCase(way *Way) SQLCase {
+	if way == nil {
+		panic(pin)
+	}
 	return &sqlCase{
 		way: way,
 	}
@@ -2636,10 +2684,12 @@ func (s *sqlCase) ToSQL() *SQL {
 	if len(s.whenThen) == 0 {
 		return script
 	}
+
 	whenThen := JoinSQLSpace(AnyAny(s.whenThen)...).ToSQL()
 	if whenThen.IsEmpty() {
 		return script
 	}
+
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
 	b.WriteString(cst.CASE)
@@ -2661,7 +2711,7 @@ func (s *sqlCase) ToSQL() *SQL {
 	b.WriteString(cst.Space)
 	b.WriteString(cst.END)
 	script.Prepare = b.String()
-	return newSqlAlias(script).v(s.way).SetAlias(s.alias).ToSQL()
+	return newSqlAlias(script).w(s.way).SetAlias(s.alias).ToSQL()
 }
 
 func (s *sqlCase) Alias(alias string) SQLCase {
@@ -2670,8 +2720,8 @@ func (s *sqlCase) Alias(alias string) SQLCase {
 }
 
 func handleCaseEmptyString(script *SQL) *SQL {
-	if prepare := SQLString(cst.Empty); script.Prepare == cst.Empty {
-		script.Prepare, script.Args = prepare, nil
+	if script.Prepare == cst.Empty {
+		script.Prepare, script.Args = SQLString(cst.Empty), nil
 	}
 	return script
 }
@@ -2682,7 +2732,8 @@ func (s *sqlCase) Case(value any) SQLCase {
 }
 
 func (s *sqlCase) WhenThen(when, then any) SQLCase {
-	s.whenThen = append(s.whenThen,
+	s.whenThen = append(
+		s.whenThen,
 		JoinSQLSpace(
 			cst.WHEN,
 			handleCaseEmptyString(nullAnyToSQL(when)),

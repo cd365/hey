@@ -242,7 +242,10 @@ type Filter interface {
 }
 
 func newSQLFilter(way *Way) Filter {
-	result := F()
+	if way == nil {
+		panic(pin)
+	}
+	result := newFilter()
 	result.W(way)
 	return result
 }
@@ -250,10 +253,14 @@ func newSQLFilter(way *Way) Filter {
 // filter Implementing interface Filter.
 type filter struct {
 	prepare *strings.Builder
-	way     *Way
-	args    []any
-	num     int
-	not     bool
+
+	way *Way
+
+	args []any
+
+	num int
+
+	not bool
 }
 
 // newFilter New a Filter.
@@ -263,17 +270,14 @@ func newFilter() *filter {
 	}
 }
 
-// F New a Filter.
-func F() Filter {
-	return newFilter()
-}
-
 func (s *filter) V() *Way {
 	return s.way
 }
 
 func (s *filter) W(way *Way) {
-	s.way = way
+	if way != nil {
+		s.way = way
+	}
 }
 
 func (s *filter) ToSQL() *SQL {
@@ -1009,6 +1013,9 @@ type quantifier struct {
 }
 
 func newQuantifier(filter Filter) Quantifier {
+	if filter == nil {
+		panic(pin)
+	}
 	return &quantifier{
 		filter: filter,
 	}
@@ -1133,6 +1140,9 @@ type extractFilter struct {
 }
 
 func newExtractFilter(filter Filter) ExtractFilter {
+	if filter == nil {
+		panic(pin)
+	}
 	return &extractFilter{
 		filter:    filter,
 		delimiter: cst.Comma,
@@ -1567,6 +1577,9 @@ type timeFilter struct {
 }
 
 func newTimeFilter(filter Filter) TimeFilter {
+	if filter == nil {
+		panic(pin)
+	}
 	return &timeFilter{
 		filter: filter,
 	}

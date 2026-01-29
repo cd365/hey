@@ -61,7 +61,7 @@ type Cache struct {
 // NewCache Create a new *Cache object.
 func NewCache(cacher Cacher) *Cache {
 	if cacher == nil {
-		panic("hey: cacher is nil")
+		panic(errors.New("hey: cacher is nil"))
 	}
 	return &Cache{
 		cacher: cacher,
@@ -270,7 +270,7 @@ type cacheMaker struct {
 // NewCacheMaker Create a new CacheMaker object.
 func NewCacheMaker(cache *Cache, maker Maker) CacheMaker {
 	if cache == nil {
-		panic("hey: cache is nil")
+		panic(errors.New("hey: cache is nil"))
 	}
 	result := &cacheMaker{
 		cache: cache,
@@ -602,7 +602,7 @@ type CacheQuery interface {
 
 func NewCacheQuery(cache *Cache, multiMutex MultiMutex, way *Way) CacheQuery {
 	if cache == nil || multiMutex == nil || way == nil {
-		panic("hey: illegal parameter value")
+		panic(errors.New("hey: illegal parameter value"))
 	}
 	return &cacheQuery{
 		cache:      cache,

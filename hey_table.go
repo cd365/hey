@@ -84,7 +84,7 @@ func toSuffixLabel(way *Way) Maker {
 }
 
 // toSQLSelect SQL: SELECT xxx ...
-func toSQLSelect(s *MakeSQL) *SQL {
+func toSQLSelect(s MakeSQL) *SQL {
 	way := s.Way
 	if s.Query == nil {
 		s.Query = way.cfg.NewSQLSelect(way)
@@ -123,7 +123,7 @@ func toSQLSelect(s *MakeSQL) *SQL {
 }
 
 // toSQLInsert SQL: INSERT INTO xxx ...
-func toSQLInsert(s *MakeSQL) *SQL {
+func toSQLInsert(s MakeSQL) *SQL {
 	insert := s.Insert
 	if insert == nil {
 		return NewEmptySQL()
@@ -139,7 +139,7 @@ func toSQLInsert(s *MakeSQL) *SQL {
 }
 
 // toSQLUpdate SQL: UPDATE xxx SET ...
-func toSQLUpdate(s *MakeSQL) *SQL {
+func toSQLUpdate(s MakeSQL) *SQL {
 	if s.UpdateSet == nil || s.Table == nil || s.Table.IsEmpty() || s.UpdateSet.IsEmpty() {
 		return NewEmptySQL()
 	}
@@ -162,7 +162,7 @@ func toSQLUpdate(s *MakeSQL) *SQL {
 }
 
 // toSQLDelete SQL: DELETE FROM xxx ...
-func toSQLDelete(s *MakeSQL) *SQL {
+func toSQLDelete(s MakeSQL) *SQL {
 	if s.Table == nil || s.Table.IsEmpty() {
 		return NewEmptySQL()
 	}
@@ -186,7 +186,7 @@ func toSQLDelete(s *MakeSQL) *SQL {
 }
 
 // toSQLSelectExists SQL: SELECT EXISTS ( SELECT 1 FROM xxx ... ) AS a
-func toSQLSelectExists(s *MakeSQL) *SQL {
+func toSQLSelectExists(s MakeSQL) *SQL {
 	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
 	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
 	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
@@ -231,7 +231,7 @@ func toSQLSelectExists(s *MakeSQL) *SQL {
 }
 
 // toSQLSelectCount SQL: SELECT COUNT(*) xxx FROM ...
-func toSQLSelectCount(s *MakeSQL) *SQL {
+func toSQLSelectCount(s MakeSQL) *SQL {
 	if s.Table == nil || s.Table.IsEmpty() {
 		return NewEmptySQL()
 	}
@@ -629,8 +629,8 @@ func (s *Table) UpdateFunc(fx func(f Filter, u SQLUpdateSet)) *Table {
 	return s
 }
 
-func (s *Table) newMakeSQL() *MakeSQL {
-	return &MakeSQL{
+func (s *Table) newMakeSQL() MakeSQL {
+	return MakeSQL{
 		Label:     s.label,
 		With:      s.with,
 		Query:     s.query,

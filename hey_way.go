@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -206,104 +207,104 @@ type Config struct {
 	// TxOptions Start transaction options.
 	TxOptions *sql.TxOptions
 
-	// MapScanner Custom MapScan, Cannot be set to nil.
+	// MapScanner Custom MapScan, cannot be set to nil.
 	MapScanner MapScanner
 
-	// RowsScan For scanning data into structure, Cannot be set to nil.
+	// RowsScan For scanning data into structure, cannot be set to nil.
 	RowsScan func(rows *sql.Rows, result any, tag string) error
 
-	// NewSQLLabel Create SQLLabel, Cannot be set to nil.
+	// NewSQLLabel Create SQLLabel, cannot be set to nil.
 	NewSQLLabel func(way *Way) SQLLabel
 
-	// NewSQLWith Create SQLWith, Cannot be set to nil.
+	// NewSQLWith Create SQLWith, cannot be set to nil.
 	NewSQLWith func(way *Way) SQLWith
 
-	// NewSQLSelect Create SQLSelect, Cannot be set to nil.
+	// NewSQLSelect Create SQLSelect, cannot be set to nil.
 	NewSQLSelect func(way *Way) SQLSelect
 
-	// NewSQLTable Create SQLAlias, Cannot be set to nil.
+	// NewSQLTable Create SQLAlias, cannot be set to nil.
 	NewSQLTable func(way *Way, table any) SQLAlias
 
-	// NewSQLJoin Create SQLJoin, Cannot be set to nil.
+	// NewSQLJoin Create SQLJoin, cannot be set to nil.
 	NewSQLJoin func(way *Way, query SQLSelect) SQLJoin
 
-	// NewSQLJoinOn Create SQLJoinOn, Cannot be set to nil.
+	// NewSQLJoinOn Create SQLJoinOn, cannot be set to nil.
 	NewSQLJoinOn func(way *Way) SQLJoinOn
 
-	// NewSQLFilter Create Filter, Cannot be set to nil.
+	// NewSQLFilter Create Filter, cannot be set to nil.
 	NewSQLFilter func(way *Way) Filter
 
-	// NewSQLGroupBy Create SQLGroupBy, Cannot be set to nil.
+	// NewSQLGroupBy Create SQLGroupBy, cannot be set to nil.
 	NewSQLGroupBy func(way *Way) SQLGroupBy
 
-	// NewSQLWindow Create SQLWindow, Cannot be set to nil.
+	// NewSQLWindow Create SQLWindow, cannot be set to nil.
 	NewSQLWindow func(way *Way) SQLWindow
 
-	// NewSQLOrderBy Create SQLOrderBy, Cannot be set to nil.
+	// NewSQLOrderBy Create SQLOrderBy, cannot be set to nil.
 	NewSQLOrderBy func(way *Way) SQLOrderBy
 
-	// NewSQLLimit Create SQLLimit, Cannot be set to nil.
+	// NewSQLLimit Create SQLLimit, cannot be set to nil.
 	NewSQLLimit func(way *Way) SQLLimit
 
-	// NewSQLInsert Create SQLInsert, Cannot be set to nil.
+	// NewSQLInsert Create SQLInsert, cannot be set to nil.
 	NewSQLInsert func(way *Way) SQLInsert
 
-	// NewSQLValues Create SQLValues, Cannot be set to nil.
+	// NewSQLValues Create SQLValues, cannot be set to nil.
 	NewSQLValues func(way *Way) SQLValues
 
-	// NewSQLReturning Create SQLReturning, Cannot be set to nil.
+	// NewSQLReturning Create SQLReturning, cannot be set to nil.
 	NewSQLReturning func(way *Way, insert Maker) SQLReturning
 
-	// NewSQLOnConflict Create SQLOnConflict, Cannot be set to nil.
+	// NewSQLOnConflict Create SQLOnConflict, cannot be set to nil.
 	NewSQLOnConflict func(way *Way, insert Maker) SQLOnConflict
 
-	// NewSQLOnConflictUpdateSet Create SQLOnConflictUpdateSet, Cannot be set to nil.
+	// NewSQLOnConflictUpdateSet Create SQLOnConflictUpdateSet, cannot be set to nil.
 	NewSQLOnConflictUpdateSet func(way *Way) SQLOnConflictUpdateSet
 
-	// NewSQLUpdateSet Create SQLUpdateSet, Cannot be set to nil.
+	// NewSQLUpdateSet Create SQLUpdateSet, cannot be set to nil.
 	NewSQLUpdateSet func(way *Way) SQLUpdateSet
 
-	// NewSQLCase Create SQLCase, Cannot be set to nil.
+	// NewSQLCase Create SQLCase, cannot be set to nil.
 	NewSQLCase func(way *Way) SQLCase
 
-	// NewSQLWindowFuncFrame Create SQLWindowFuncFrame, Cannot be set to nil.
+	// NewSQLWindowFuncFrame Create SQLWindowFuncFrame, cannot be set to nil.
 	NewSQLWindowFuncFrame func(frame string) SQLWindowFuncFrame
 
-	// NewSQLWindowFuncOver Create SQLWindowFuncOver, Cannot be set to nil.
+	// NewSQLWindowFuncOver Create SQLWindowFuncOver, cannot be set to nil.
 	NewSQLWindowFuncOver func(way *Way) SQLWindowFuncOver
 
-	// NewMulti Create Multi, Cannot be set to nil.
+	// NewMulti Create Multi, cannot be set to nil.
 	NewMulti func(way *Way) Multi
 
-	// NewQuantifier Create Quantifier, Cannot be set to nil.
+	// NewQuantifier Create Quantifier, cannot be set to nil.
 	NewQuantifier func(filter Filter) Quantifier
 
-	// NewExtractFilter Create ExtractFilter, Cannot be set to nil.
+	// NewExtractFilter Create ExtractFilter, cannot be set to nil.
 	NewExtractFilter func(filter Filter) ExtractFilter
 
-	// NewTimeFilter Create TimeFilter, Cannot be set to nil.
+	// NewTimeFilter Create TimeFilter, cannot be set to nil.
 	NewTimeFilter func(filter Filter) TimeFilter
 
-	// NewTableColumn Create TableColumn, Cannot be set to nil.
+	// NewTableColumn Create TableColumn, cannot be set to nil.
 	NewTableColumn func(way *Way, tableName ...string) TableColumn
 
-	// ToSQLSelect Construct a query statement, Cannot be set to nil.
-	ToSQLSelect func(s *MakeSQL) *SQL
+	// ToSQLSelect Construct a query statement, cannot be set to nil.
+	ToSQLSelect func(s MakeSQL) *SQL
 
-	// ToSQLInsert Construct an insert statement, Cannot be set to nil.
-	ToSQLInsert func(s *MakeSQL) *SQL
+	// ToSQLInsert Construct an insert statement, cannot be set to nil.
+	ToSQLInsert func(s MakeSQL) *SQL
 
-	// ToSQLDelete Construct a delete statement, Cannot be set to nil.
-	ToSQLDelete func(s *MakeSQL) *SQL
+	// ToSQLDelete Construct a delete statement, cannot be set to nil.
+	ToSQLDelete func(s MakeSQL) *SQL
 
-	// ToSQLUpdate Construct an update statement, Cannot be set to nil.
-	ToSQLUpdate func(s *MakeSQL) *SQL
+	// ToSQLUpdate Construct an update statement, cannot be set to nil.
+	ToSQLUpdate func(s MakeSQL) *SQL
 
-	// ToSQLSelectExists Construct an exists statement, Cannot be set to nil.
-	ToSQLSelectExists func(s *MakeSQL) *SQL
+	// ToSQLSelectExists Construct an exists statement, cannot be set to nil.
+	ToSQLSelectExists func(s MakeSQL) *SQL
 
-	// ToSQLSelectCount Construct a count statement, Cannot be set to nil.
-	ToSQLSelectCount func(s *MakeSQL) *SQL
+	// ToSQLSelectCount Construct a count statement, cannot be set to nil.
+	ToSQLSelectCount func(s MakeSQL) *SQL
 
 	// ScanTag Scan data to tag mapping on structure.
 	ScanTag string
@@ -548,7 +549,7 @@ type Reader interface {
 }
 
 type Way struct {
-	// cfg Configuration information.
+	// cfg Configuration information, cannot be set to nil.
 	cfg *Config
 
 	// db Database object.
@@ -1205,11 +1206,11 @@ type reader struct {
 // NewReader It is recommended that objects used for writing should not appear in reads.
 func NewReader(choose func(n int) int, reads []*Way) Reader {
 	if choose == nil {
-		panic("hey: empty value of `choose`")
+		panic(errors.New("hey: nil value of `choose`"))
 	}
 	length := len(reads)
 	if length == 0 {
-		panic("hey: empty value of `reads`")
+		panic(errors.New("hey: empty value of `reads`"))
 	}
 	return &reader{
 		reads:  reads,

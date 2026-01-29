@@ -39,4 +39,8 @@ test:
 
 .PHONY: test-coverage
 test-coverage:
-	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v7,examples/pgsql;go tool cover -html=.coverage.out -o .coverage.html
+	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v7;go tool cover -html=.coverage.out -o .coverage.html;cd -
+
+.PHONY: test-coverage-all
+test-coverage-all:
+	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v7,examples/pgsql;go tool cover -html=.coverage.out -o .coverage.html;cd -
