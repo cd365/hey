@@ -841,6 +841,8 @@ func Select() {
 			f.Equal(employee.Id, 0)
 		}).ToUpdate()
 
+		var result error
+
 		prepare := script.Prepare
 
 		cancelCtx, cancel := context.WithCancel(ctx)
@@ -848,12 +850,28 @@ func Select() {
 
 		abort := &atomic.Bool{}
 		group := &sync.WaitGroup{}
+		mutex := &sync.Mutex{}
 		queue := make(chan []any, 8)
+
+		store := func(err error) {
+			if err == nil {
+				return
+			}
+			mutex.Lock()
+			defer mutex.Unlock()
+			if result == nil {
+				result = err
+			}
+		}
 
 		group.Add(1)
 		go func() {
 			defer group.Done()
 			defer close(queue)
+			var err error
+			defer func() {
+				store(err)
+			}()
 			for i := 1; i <= 20; i++ {
 				if abort.Load() {
 					return
@@ -875,7 +893,7 @@ func Select() {
 				defer abort.CompareAndSwap(false, true)
 				affectedRows, err := way.MultiStmtExecute(ctx, prepare, queue)
 				if err != nil {
-					log.Println(err.Error())
+					store(err)
 					return
 				}
 				totalAffectedRows.Add(affectedRows)
@@ -883,6 +901,10 @@ func Select() {
 		}
 
 		group.Wait()
+
+		if result != nil {
+			log.Println(result.Error())
+		}
 
 		log.Println(totalAffectedRows.Load())
 	}
