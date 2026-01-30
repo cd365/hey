@@ -458,7 +458,7 @@ func (s *Config) fully(way *Way) bool {
 
 const (
 	DefaultTag      = "db"
-	TableMethodName = "TableName"
+	TableMethodName = "Table"
 )
 
 // ConfigDefault Default configuration.
