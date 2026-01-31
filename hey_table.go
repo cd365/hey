@@ -175,20 +175,19 @@ func toSQLSelectExists(s MakeSQL) *SQL {
 
 	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
 	way := s.Way
-	query := s.Query
-	if query == nil {
-		query = way.cfg.NewSQLSelect(way)
+	if s.Query == nil {
+		s.Query = way.cfg.NewSQLSelect(way)
 	}
-	if query.Len() > 0 {
-		columns, columnsArgs = query.Get()
-		query.ToEmpty()
+	if s.Query.Len() > 0 {
+		columns, columnsArgs = s.Query.Get()
+		s.Query.ToEmpty()
 	}
-	query.Select("1")
+	s.Query.Select("1")
 	defer func() {
 		if len(columns) == 0 {
-			query.ToEmpty()
+			s.Query.ToEmpty()
 		} else {
-			query.Set(columns, columnsArgs)
+			s.Query.Set(columns, columnsArgs)
 		}
 	}()
 	subquery := toSQLSelect(s)

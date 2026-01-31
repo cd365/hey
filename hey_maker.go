@@ -1548,8 +1548,11 @@ func (s *sqlReturning) Prepare(prepare func(tmp *SQL)) SQLReturning {
 // Returning Set the RETURNING statement to return one or more columns.
 func (s *sqlReturning) Returning(columns ...string) SQLReturning {
 	columns = ArrayDiscard(columns, func(k int, v string) bool { return strings.TrimSpace(v) == cst.Empty })
-	if len(columns) == 0 {
+	length := len(columns)
+	if length == 0 {
 		columns = []string{cst.Asterisk}
+	} else {
+		columns = s.way.ReplaceAll(columns)
 	}
 	return s.Prepare(func(tmp *SQL) {
 		tmp.Prepare = JoinSQLSpace(tmp.Prepare, cst.RETURNING, JoinSQLCommaSpace(AnyAny(columns)...)).Prepare
