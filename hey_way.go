@@ -309,11 +309,8 @@ type Config struct {
 	// ScanTag Scan data to tag mapping on structure.
 	ScanTag string
 
-	// LabelDelimiter Delimiter between multiple labels.
-	LabelDelimiter string
-
-	// SuffixLabel SQL Statement suffix label.
-	SuffixLabel string
+	// LabelsSeparator Separator string between multiple labels.
+	LabelsSeparator string
 
 	// TableMethodName Custom method name to get table name.
 	TableMethodName string
@@ -502,7 +499,7 @@ func ConfigDefault() *Config {
 		ToSQLSelectCount:  toSQLSelectCount,
 
 		ScanTag:            DefaultTag,
-		LabelDelimiter:     cst.Comma,
+		LabelsSeparator:    cst.Comma,
 		TableMethodName:    TableMethodName,
 		InsertForbidColumn: []string{cst.Id},
 		UpdateForbidColumn: []string{cst.Id},

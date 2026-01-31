@@ -26,57 +26,59 @@ type SQLLabel interface {
 
 	ToEmpty
 
-	// Label Add label.
-	Label(label string) SQLLabel
+	// Labels Add custom labels.
+	Labels(labels ...string) SQLLabel
 }
 
 type sqlLabel struct {
-	labelMap map[string]*struct{}
+	labelsMap map[string]*struct{}
 
-	// delimiter Set the delimiter between multiple labels.
-	delimiter string
+	// separator Set separator string between multiple labels.
+	separator string
 
-	label []string
+	labels []string
 }
 
 func newSQLLabel(way *Way) SQLLabel {
 	if way == nil {
 		panic(pin)
 	}
-	delimiter := way.cfg.LabelDelimiter
-	if delimiter == cst.Empty {
-		delimiter = cst.Comma
+	separator := way.cfg.LabelsSeparator
+	if separator == cst.Empty {
+		separator = cst.Comma
 	}
 	return &sqlLabel{
-		labelMap:  make(map[string]*struct{}, 1),
-		label:     make([]string, 0, 1),
-		delimiter: delimiter,
+		labelsMap: make(map[string]*struct{}, 1),
+		labels:    make([]string, 0, 1),
+		separator: separator,
 	}
 }
 
 func (s *sqlLabel) ToEmpty() {
-	s.labelMap = make(map[string]*struct{}, 1)
-	s.label = make([]string, 0, 1)
+	s.labelsMap = make(map[string]*struct{}, 1)
+	s.labels = make([]string, 0, 1)
 }
 
-func (s *sqlLabel) Label(label string) SQLLabel {
-	label = strings.TrimSpace(label)
-	if label == cst.Empty {
-		return s
+func (s *sqlLabel) Labels(labels ...string) SQLLabel {
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == cst.Empty {
+			continue
+		}
+		if _, ok := s.labelsMap[label]; ok {
+			continue
+		}
+		s.labels = append(s.labels, label)
+		s.labelsMap[label] = nil
 	}
-	if _, ok := s.labelMap[label]; ok {
-		return s
-	}
-	s.label = append(s.label, label)
-	s.labelMap[label] = nil
 	return s
 }
 
 func (s *sqlLabel) ToSQL() *SQL {
-	if len(s.label) == 0 {
+	if len(s.labels) == 0 {
 		return NewEmptySQL()
 	}
-	return NewSQL(JoinString("/*", strings.Join(s.label, s.delimiter), "*/"))
+	return NewSQL(BlockComment(strings.Join(s.labels, s.separator)))
 }
 
 /*

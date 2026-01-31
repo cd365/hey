@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
-	"strings"
 	"sync/atomic"
 
 	"github.com/cd365/hey/v7/cst"
@@ -68,21 +67,6 @@ type MakeSQL struct {
 	ToCountColumns []string
 }
 
-// toSuffixLabel SQL Statement suffix label.
-// Like: SELECT xxx FROM xxx /*suffix-label-value*/
-func toSuffixLabel(way *Way) Maker {
-	suffixLabel := strings.TrimSpace(way.cfg.SuffixLabel)
-	if suffixLabel == cst.Empty {
-		return NewEmptySQL()
-	}
-	prefix := strings.HasPrefix(suffixLabel, "/*")
-	suffix := strings.HasPrefix(suffixLabel, "*/")
-	if prefix && suffix {
-		return NewSQL(suffixLabel)
-	}
-	return way.cfg.NewSQLLabel(way).Label(suffixLabel).ToSQL()
-}
-
 // toSQLSelect SQL: SELECT xxx ...
 func toSQLSelect(s MakeSQL) *SQL {
 	way := s.Way
@@ -118,7 +102,7 @@ func toSQLSelect(s MakeSQL) *SQL {
 			lists = append(lists, window)
 		}
 	}
-	lists = append(lists, s.OrderBy, s.Limit, toSuffixLabel(way))
+	lists = append(lists, s.OrderBy, s.Limit)
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
@@ -135,7 +119,7 @@ func toSQLInsert(s MakeSQL) *SQL {
 	if script.IsEmpty() {
 		return NewEmptySQL()
 	}
-	return JoinSQLSpace(s.Label, script, toSuffixLabel(s.Way)).ToSQL()
+	return JoinSQLSpace(s.Label, script).ToSQL()
 }
 
 // toSQLUpdate SQL: UPDATE xxx SET ...
@@ -143,7 +127,7 @@ func toSQLUpdate(s MakeSQL) *SQL {
 	if s.UpdateSet == nil || s.Table == nil || s.Table.IsEmpty() || s.UpdateSet.IsEmpty() {
 		return NewEmptySQL()
 	}
-	lists := make([]any, 0, 9)
+	lists := make([]any, 0, 8)
 	lists = append(
 		lists,
 		s.Label, s.With, cst.UPDATE,
@@ -157,7 +141,6 @@ func toSQLUpdate(s MakeSQL) *SQL {
 	} else {
 		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
 	}
-	lists = append(lists, toSuffixLabel(way))
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
@@ -166,7 +149,7 @@ func toSQLDelete(s MakeSQL) *SQL {
 	if s.Table == nil || s.Table.IsEmpty() {
 		return NewEmptySQL()
 	}
-	lists := make([]any, 0, 9)
+	lists := make([]any, 0, 8)
 	lists = append(
 		lists,
 		s.Label, s.With,
@@ -181,7 +164,6 @@ func toSQLDelete(s MakeSQL) *SQL {
 	} else {
 		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
 	}
-	lists = append(lists, toSuffixLabel(way))
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
@@ -225,7 +207,7 @@ func toSQLSelectExists(s MakeSQL) *SQL {
 		lists,
 		cst.SELECT, cst.EXISTS,
 		cst.LeftParenthesis, subquery, cst.RightParenthesis,
-		cst.AS, way.Replace(cst.A), toSuffixLabel(way),
+		cst.AS, way.Replace(cst.A),
 	)
 	return JoinSQLSpace(lists...).ToSQL()
 }
@@ -241,7 +223,7 @@ func toSQLSelectCount(s MakeSQL) *SQL {
 	if len(counts) > 0 {
 		query = JoinSQLSpace(AnyAny(counts)...)
 	}
-	lists := make([]any, 0, 10)
+	lists := make([]any, 0, 9)
 	lists = append(
 		lists,
 		s.Label, s.With, cst.SELECT,
@@ -250,7 +232,6 @@ func toSQLSelectCount(s MakeSQL) *SQL {
 	if s.Where != nil && !s.Where.IsEmpty() {
 		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
 	}
-	lists = append(lists, toSuffixLabel(way))
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
@@ -367,10 +348,10 @@ func (s *Table) LabelFunc(fx func(c SQLLabel)) *Table {
 	return s
 }
 
-// Label SQL statement label.
-func (s *Table) Label(label string) *Table {
+// Labels SQL statement labels.
+func (s *Table) Labels(labels ...string) *Table {
 	return s.LabelFunc(func(c SQLLabel) {
-		c.Label(label)
+		c.Labels(labels...)
 	})
 }
 

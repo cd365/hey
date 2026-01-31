@@ -246,7 +246,7 @@ func Insert() {
 			i.Default(department.UpdatedAt, timestamp)
 		})
 		way.Debug(table.ToInsert())
-		table.Label("Example 1")
+		table.Labels("Example 1")
 		way.Debug(table.ToInsert())
 
 		// Not setting any columns will result in an incorrectly formatted SQL statement.
@@ -529,7 +529,7 @@ func Update() {
 		script := way.Table(DEPARTMENT).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 			f.Equal(department.Id, 1)
 			u.Set(department.SerialNum, 999)
-		}).Label("Example").ToUpdate()
+		}).Labels("Example").ToUpdate()
 		way.Debug(script)
 	}
 
@@ -696,7 +696,7 @@ func Select() {
 	// comment
 	{
 		tmp.ToEmpty()
-		tmp.Label("test label").Asc(employee.Id).Page(2, 10)
+		tmp.Labels("test label").Asc(employee.Id).Page(2, 10)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -733,7 +733,7 @@ func Select() {
 	{
 		a := "a"
 		c := DEPARTMENT
-		tmpWith := way.Table(a).Label("test1").WithFunc(func(w hey.SQLWith) {
+		tmpWith := way.Table(a).Labels("test1").WithFunc(func(w hey.SQLWith) {
 			w.Set(
 				a,
 				way.Table(c).Select(employee.Id, employee.SerialNum).WhereFunc(func(f hey.Filter) {

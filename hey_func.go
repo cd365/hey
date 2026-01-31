@@ -165,6 +165,15 @@ func LastNotEmptyString(sss []string) string {
 	return cst.Empty
 }
 
+// BlockComment SQL statement block comment.
+func BlockComment(comment string) string {
+	comment = strings.TrimSpace(comment)
+	if comment == cst.Empty {
+		return ""
+	}
+	return JoinString("/*", comment, "*/")
+}
+
 // InValues Build column IN ( values[0].attributeN, values[1].attributeN, values[2].attributeN ... )
 func InValues[T any](values []T, fx func(tmp T) any) []any {
 	if fx == nil {
