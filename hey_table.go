@@ -682,6 +682,12 @@ func (s *Table) Query(ctx context.Context, query func(rows *sql.Rows) error) err
 	return s.way.Query(ctx, s.ToSelect(), query)
 }
 
+// QueryExists Check if the data exists, allow replacing or updating the subquery script of EXISTS.
+func (s *Table) QueryExists(ctx context.Context, exists ...func(script *SQL)) (bool, error) {
+	script := s.ToExists(exists...)
+	return s.way.QueryExists(ctx, script)
+}
+
 // Count Total number of statistics.
 func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 	count := int64(0)
@@ -698,12 +704,6 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 		return 0, err
 	}
 	return count, nil
-}
-
-// Exists Check if the data exists, allow replacing or updating the subquery script of EXISTS.
-func (s *Table) Exists(ctx context.Context, exists ...func(script *SQL)) (bool, error) {
-	script := s.ToExists(exists...)
-	return s.way.Exists(ctx, script)
 }
 
 // Scan Scanning data into result by reflect.
@@ -935,7 +935,7 @@ func (s myComplex) atomic(ctx context.Context, group func(tx *Way) error) error 
 func (s myComplex) Upsert(ctx context.Context) (updateAffectedRows int64, insertResult int64, err error) {
 	err = s.atomic(ctx, func(tx *Way) error {
 		exist, table := false, s.table
-		exist, err = table.Exists(ctx)
+		exist, err = table.QueryExists(ctx)
 		if err != nil {
 			return err
 		}
@@ -998,14 +998,14 @@ func (s *Table) UpsertFunc(upsert any, where func(f Filter)) *Table {
 // Upsert Data for the same table.
 // Filter data based on the WHERE condition. If a record exists, update all data selected by the filter condition;
 // otherwise, perform an insert operation.
-func (s *Table) Upsert(ctx context.Context, upsert any, where func(f Filter)) (updateResult int64, insertResult int64, err error) {
+func (s *Table) Upsert(ctx context.Context, upsert any, where func(f Filter)) (updateAffectedRows int64, insertResult int64, err error) {
 	return NewComplex(s.UpsertFunc(upsert, where)).Upsert(ctx)
 }
 
 // DeleteCreate Data for the same table.
 // First delete all data that matches the specified WHERE condition, then insert the new data;
 // if no WHERE condition is set, no data will be deleted.
-func (s *Table) DeleteCreate(ctx context.Context, create any, where func(f Filter)) (deleteResult int64, insertResult int64, err error) {
+func (s *Table) DeleteCreate(ctx context.Context, create any, where func(f Filter)) (deleteAffectedRows int64, insertResult int64, err error) {
 	s.WhereFunc(func(f Filter) {
 		if where != nil {
 			where(f)

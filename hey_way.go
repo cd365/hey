@@ -980,25 +980,8 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 	return
 }
 
-// Scan -> Query prepared and get all query results, through the mapping of column names and struct tags.
-func (s *Way) Scan(ctx context.Context, maker Maker, result any) error {
-	return s.Query(ctx, maker, s.RowsScan(result))
-}
-
-// MapScan -> Scanning the query results into []map[string]any.
-func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnAnyValue) (result []map[string]any, err error) {
-	err = s.Query(ctx, maker, func(rows *sql.Rows) error {
-		result, err = s.cfg.MapScanner.Scan(rows, adjusts...)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, err
-}
-
-// Exists -> Execute a query SQL statement to check if the data exists.
-func (s *Way) Exists(ctx context.Context, maker Maker) (bool, error) {
+// QueryExists -> Execute a query SQL statement to check if the data exists.
+func (s *Way) QueryExists(ctx context.Context, maker Maker) (bool, error) {
 	// SQL statement format: SELECT EXISTS ( subquery ) AS a
 	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
 	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
@@ -1046,6 +1029,23 @@ func (s *Way) Exists(ctx context.Context, maker Maker) (bool, error) {
 	default:
 		return false, fmt.Errorf("unexpected type %T %v", result, result)
 	}
+}
+
+// Scan -> Query prepared and get all query results, through the mapping of column names and struct tags.
+func (s *Way) Scan(ctx context.Context, maker Maker, result any) error {
+	return s.Query(ctx, maker, s.RowsScan(result))
+}
+
+// MapScan -> Scanning the query results into []map[string]any.
+func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnAnyValue) (result []map[string]any, err error) {
+	err = s.Query(ctx, maker, func(rows *sql.Rows) error {
+		result, err = s.cfg.MapScanner.Scan(rows, adjusts...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, err
 }
 
 // Exec -> Execute the execute sql statement.

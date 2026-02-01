@@ -786,7 +786,7 @@ func Select() {
 	{
 		tmp.ToEmpty()
 		ctx := context.Background()
-		exists, err := tmp.Table(employee.Table()).Exists(ctx)
+		exists, err := tmp.Table(employee.Table()).QueryExists(ctx)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
@@ -1378,7 +1378,7 @@ func MyMulti() {
 	})
 
 	exists := false
-	m.AddExists(m.V().Table(department.Table()).ToExists(), &exists)
+	m.AddQueryExists(m.V().Table(department.Table()).ToExists(), &exists)
 
 	execute := m.V().Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 		f.GreaterThan(department.Id, 0)
