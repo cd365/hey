@@ -655,11 +655,6 @@ func (s *Table) ToDelete() *SQL {
 	return s.way.cfg.ToSQLDelete(s.newMakeSQL())
 }
 
-// ToSQL Implementing the Maker interface using query statement.
-func (s *Table) ToSQL() *SQL {
-	return s.ToSelect()
-}
-
 // ToCount Build COUNT-SELECT statement.
 func (s *Table) ToCount(counts ...string) *SQL {
 	script := s.newMakeSQL()

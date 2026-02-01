@@ -508,9 +508,11 @@ func Insert() {
 		ctx := context.Background()
 		rows, err := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
 			i.Column(department.Name, department.SerialNum)
-			i.SetSubquery(way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
-				f.LessThan(department.Id, 0)
-			}).Select(department.Name, department.SerialNum).Desc(department.Id).Limit(1000))
+			i.SetSubquery(
+				way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
+					f.LessThan(department.Id, 0)
+				}).Select(department.Name, department.SerialNum).Desc(department.Id).Limit(1000).ToSelect(),
+			)
 		}).Insert(ctx)
 		if err != nil {
 			log.Println(err.Error())
@@ -840,7 +842,7 @@ func Select() {
 			q.ToEmpty()
 		}).WhereFunc(func(f hey.Filter) {
 			f.Equal(employee.Id, 0)
-		}).Limit(1).ToSQL()
+		}).Limit(1).ToSelect()
 
 		lists := make([][]*model.Employee, 0, 8)
 		queue := make(chan []any, 8)
@@ -1144,7 +1146,7 @@ func Filter() {
 
 		f.ToEmpty().Equal(
 			employee.Id,
-			way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1).ToSQL(),
+			way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1).ToSelect(),
 		)
 		way.Debug(f)
 
@@ -1155,10 +1157,10 @@ func Filter() {
 		way.Debug(f)
 	}
 	{
-		f.ToEmpty().Exists(way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1))
+		f.ToEmpty().Exists(way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1).ToSelect())
 		way.Debug(f)
 
-		f.ToEmpty().NotExists(way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1))
+		f.ToEmpty().NotExists(way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1).ToSelect())
 		way.Debug(f)
 
 		f.ToEmpty().Like(employee.Name, "%Jick%")
@@ -1197,7 +1199,7 @@ func Filter() {
 		f.ToEmpty().InGroup([]string{employee.Gender, employee.Age}, way.Table(employee.Table()).Select(employee.Gender, employee.Age).Desc(employee.Id).Limit(10))
 		way.Debug(f)
 
-		f.ToEmpty().InGroup([]string{employee.Gender, employee.Age}, way.Table(employee.Table()).Select(employee.Gender, employee.Age).Desc(employee.Id).Limit(10).ToSQL())
+		f.ToEmpty().InGroup([]string{employee.Gender, employee.Age}, way.Table(employee.Table()).Select(employee.Gender, employee.Age).Desc(employee.Id).Limit(10).ToSelect())
 		way.Debug(f)
 
 		f.ToEmpty().Keyword("%test%", employee.Name, employee.Email)
@@ -1214,10 +1216,10 @@ func Filter() {
 	}
 
 	{
-		queryId := way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(10)
+		queryId := way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(10).ToSelect()
 		queryAge := way.Table(employee.Table()).Select(employee.Age).Group(employee.Age).HavingFunc(func(h hey.Filter) {
 			h.Between(employee.Age, 18, 25)
-		})
+		}).ToSelect()
 		f.ToEmpty().AllQuantifier(func(q hey.Quantifier) {
 			q.SetQuantifier(q.GetQuantifier())
 			q.Equal(employee.Age, queryAge)
@@ -1334,7 +1336,7 @@ func MyMulti() {
 	m.Add()    // for test
 	m.Add(nil) // for test
 
-	m.AddQueryScan(script, first)
+	m.AddQueryScan(script.ToSelect(), first)
 
 	first1 := &model.Employee{}
 	m.AddQuery(script.ToSelect(), func(rows *sql.Rows) error {
@@ -1393,7 +1395,7 @@ func MyMulti() {
 	m.AddExec(execute, m.RowsAffected(&rows))
 
 	departmentRow := &model.Department{}
-	queryRow := m.V().Table(department.Table()).Select(department.Id, department.Name).Limit(1)
+	queryRow := m.V().Table(department.Table()).Select(department.Id, department.Name).Limit(1).ToSelect()
 	m.AddQueryRow(queryRow, &departmentRow.Id, &departmentRow.Name)
 	departmentRow1 := &model.Department{}
 	m.AddQueryRow(queryRow, way.RowScan(&departmentRow1.Id, &departmentRow1.Name))
@@ -1827,7 +1829,7 @@ func cacheQuery() (data *model.Employee, err error) {
 		Limit(1).
 		Offset(0)
 
-	cacheMaker := cache.Maker(query)
+	cacheMaker := cache.Maker(query.ToSelect())
 
 	cacheKey := ""
 	cacheKey, err = cacheMaker.GetCacheKey()
