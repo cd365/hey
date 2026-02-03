@@ -178,7 +178,7 @@ func prepare63236(prepare string) string {
 	return latest.String()
 }
 
-func Postgresql() Manual {
+func manualPostgresql() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Postgresql
 	manual.Prepare = prepare63236
@@ -186,14 +186,14 @@ func Postgresql() Manual {
 	return manual
 }
 
-func Sqlite() Manual {
+func manualSqlite() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Sqlite
 	manual.InsertOneReturningId = manual.InsertOneGetLastInsertId()
 	return manual
 }
 
-func Mysql() Manual {
+func manualMysql() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Mysql
 	manual.InsertOneReturningId = manual.InsertOneGetLastInsertId()
@@ -509,6 +509,24 @@ func ConfigDefault() *Config {
 		DeleteRequireWhere: true,
 		UpdateRequireWhere: true,
 	}
+}
+
+func ConfigDefaultPostgresql() *Config {
+	cfg := ConfigDefault()
+	cfg.Manual = manualPostgresql()
+	return cfg
+}
+
+func ConfigDefaultMysql() *Config {
+	cfg := ConfigDefault()
+	cfg.Manual = manualMysql()
+	return cfg
+}
+
+func ConfigDefaultSqlite() *Config {
+	cfg := ConfigDefault()
+	cfg.Manual = manualSqlite()
+	return cfg
 }
 
 type Option func(way *Way)

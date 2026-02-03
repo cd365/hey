@@ -77,8 +77,7 @@ func initialize() error {
 	}
 	options := make([]hey.Option, 0, 8)
 	{
-		config := hey.ConfigDefault()
-		config.Manual = hey.Postgresql()
+		config := hey.ConfigDefaultPostgresql()
 		replaces := hey.NewReplacer()
 		for k, v := range replace.MapTable {
 			replaces.Set(k, v)
