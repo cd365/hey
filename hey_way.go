@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/cd365/hey/v7/cst"
@@ -101,6 +102,16 @@ type transaction struct {
 
 	// script List of SQL statements that have been executed within a transaction.
 	script []*MyTrack
+
+	// mutex Mutex lock.
+	mutex sync.Mutex
+}
+
+func (s *transaction) addScript(script *MyTrack) *transaction {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.script = append(s.script, script)
+	return s
 }
 
 // write Recording transaction logs.

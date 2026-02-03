@@ -63,7 +63,7 @@ func (s *MyTrack) write(track Track, way *Way) {
 	}
 	s.Script = SQLToString(NewSQL(s.Prepare, s.Args...))
 	if way.IsInTransaction() {
-		way.transaction.script = append(way.transaction.script, s)
+		way.transaction.addScript(s)
 	} else {
 		track.Track(s.Context, s)
 	}

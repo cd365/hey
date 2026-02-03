@@ -203,7 +203,7 @@ func (s *Cache) Maker(maker Maker) CacheMaker {
 
 // CacheMaker Cache SQL statement related data, including but not limited to cache query data.
 type CacheMaker interface {
-	// UseCacheKey Custom build cache key.
+	// UseCacheKey Custom build cache key, concurrent calls are not supported.
 	UseCacheKey(cacheKey func(maker Maker) (string, error)) CacheMaker
 
 	// GetCacheKey Use prepare and args to calculate the hash value as the cache key.

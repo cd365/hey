@@ -1666,6 +1666,7 @@ type SQLUpdateSet interface {
 	Remove(columns ...string) SQLUpdateSet
 
 	// Assign Assigning values through other column, null, empty string, subquery ...
+	// Please use this method with caution, consider the security of the src value.
 	Assign(dst string, src string) SQLUpdateSet
 
 	// GetUpdate Get a list of existing updates.

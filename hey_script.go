@@ -1850,7 +1850,7 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (columns
 	return columns, values
 }
 
-// ExecuteScript Execute SQL script.
+// ExecuteScript Execute SQL script; Data is invaluable, please use this method with caution.
 func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any) error {
 	if execute = strings.TrimSpace(execute); execute == cst.Empty {
 		return ErrEmptySqlStatement
