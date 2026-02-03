@@ -719,17 +719,43 @@ func newSQLTable(way *Way, table any) SQLAlias {
 	case TableNamer:
 		result.SetSQL(optimizeTableSQL(way, NewSQL(example.Table())))
 	default:
-		if methodName := way.cfg.TableMethodName; methodName != cst.Empty {
-			if value := reflect.ValueOf(table); !value.IsNil() {
-				if method := value.MethodByName(methodName); method.IsValid() {
-					if values := method.Call(nil); len(values) == 1 {
-						return newSQLTable(way, values[0].Interface())
-					}
+		methodName := way.cfg.TableMethodName
+		if methodName == cst.Empty {
+			return result
+		}
+		refType, refValue := reflect.TypeOf(table), reflect.ValueOf(table)
+		for kind := refType.Kind(); kind == reflect.Pointer; {
+			nextType := refType.Elem()
+			nextKind := nextType.Kind()
+			if nextKind == reflect.Struct {
+				break // Preserve the value of the struct pointer object.
+			}
+			if refValue.IsNil() {
+				return result // nil pointer
+			}
+			refType = nextType
+			refValue = refValue.Elem()
+			kind = nextKind
+		}
+		switch refValue.Kind() {
+		case reflect.Interface:
+			result.SetSQL(optimizeTableSQL(way, AnyToSQL(refValue.Interface())))
+			return result
+		case reflect.String:
+			result.SetSQL(optimizeTableSQL(way, AnyToSQL(refValue.String())))
+			return result
+		case reflect.Pointer, reflect.Struct: // struct OR struct pointer
+			method := refValue.MethodByName(methodName)
+			if method.IsValid() {
+				returns := method.Call(nil)
+				if len(returns) == 1 {
+					return newSQLTable(way, returns[0].Interface())
 				}
 			}
+		default:
+			// Consider multi-level pointers.
+			result.SetSQL(AnyToSQL(table))
 		}
-		// Consider multi-level pointers.
-		result.SetSQL(AnyToSQL(table))
 	}
 	return result
 }
