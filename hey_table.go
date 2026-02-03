@@ -5,9 +5,6 @@ package hey
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"reflect"
-	"sync/atomic"
 
 	"github.com/cd365/hey/v7/cst"
 )
@@ -775,129 +772,6 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 	return s.UpdateFunc(func(f Filter, u SQLUpdateSet) {
 		u.Update(modify)
 	}).Update(ctx)
-}
-
-type largerCreate struct {
-	script *SQL
-
-	quantity int
-}
-
-// LargerCreate Split a large slice of data into multiple smaller slices and insert them in batches.
-func (s *Table) LargerCreate(ctx context.Context, batchSize int, create any, prefix func(i SQLInsert), suffix func(i SQLInsert)) (affectedRows int64, err error) {
-	if batchSize <= 0 || batchSize > 10000 {
-		batchSize = 1000
-	}
-
-	reflectValue := reflect.ValueOf(create)
-	if reflectValue.Kind() != reflect.Slice {
-		panic(fmt.Errorf("hey: unsupported data type %T", create))
-	}
-
-	length := reflectValue.Len()
-	if length == 0 {
-		return
-	}
-
-	quantity := batchSize
-
-	ready := make([]any, length)
-	for i := range length {
-		ready[i] = reflectValue.Index(i).Interface()
-	}
-
-	var (
-		adds []any
-		stmt *Stmt
-		rows int64
-	)
-
-	cancelCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Prevent situations where the context has not been canceled or timed out,
-	// the consumer has stopped consuming, but the producer is still sending data to the queue.
-	abort := &atomic.Bool{} // Consumer stopped state.
-
-	queue := make(chan largerCreate, 1<<5)
-
-	// producer role
-	go func() {
-		defer close(queue)
-		for {
-			if abort.Load() {
-				break
-			}
-			length = len(ready)
-			if length == 0 {
-				break
-			}
-			if length < quantity {
-				quantity = length
-			}
-			adds = ready[:quantity]
-			ready = ready[quantity:]
-			script := s.InsertFunc(func(i SQLInsert) {
-				i.ToEmpty()
-				if prefix != nil {
-					prefix(i)
-				}
-				i.Create(adds)
-				if suffix != nil {
-					suffix(i)
-				}
-			}).ToInsert()
-			value := largerCreate{
-				script:   script,
-				quantity: quantity,
-			}
-			select {
-			case <-cancelCtx.Done():
-				return
-			case queue <- value:
-			}
-		}
-	}()
-
-	// consumer role
-	defer func() {
-		abort.Store(true)
-		if stmt != nil {
-			_ = stmt.Close()
-		}
-	}()
-
-	for {
-		select {
-		case <-cancelCtx.Done():
-			// Control the lifecycle of a coroutine through context.
-			err = cancelCtx.Err()
-			return
-		case v, ok := <-queue:
-			if !ok {
-				// All data has been consumed, and the channel has been closed.
-				return
-			}
-			// Continuously consume data; any execution exception will result in task termination.
-			// When an error occurs during execution, the number of rows already inserted should also be returned.
-			if stmt == nil || v.quantity < batchSize {
-				if stmt != nil {
-					if err = stmt.Close(); err != nil {
-						return
-					}
-				}
-				stmt, err = s.way.Prepare(cancelCtx, v.script.Prepare)
-			}
-			if err != nil {
-				return
-			}
-			rows, err = stmt.Execute(cancelCtx, v.script.Args...)
-			if err != nil {
-				return
-			}
-			affectedRows += rows
-		}
-	}
 }
 
 // Complex Execute a set of SQL statements within a transaction.
