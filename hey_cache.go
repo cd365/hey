@@ -29,7 +29,7 @@ const (
 	ErrEmptyCacheKey = Err("hey: empty cache key")
 )
 
-// Cacher Cache interface.
+// Cacher The caching interface needs to be implemented to facilitate quick use of the cache.
 type Cacher interface {
 	// Key Customize cache key processing before reading and writing cache.
 	Key(key string) string
@@ -43,7 +43,7 @@ type Cacher interface {
 	// Del Deleting data from the cache.
 	Del(ctx context.Context, key string) error
 
-	// Has Is there data in the cache?
+	// Has Does the report cache contain data corresponding to a certain key?
 	Has(ctx context.Context, key string) (bool, error)
 
 	// Marshal Serialize cache data.
@@ -58,7 +58,7 @@ type Cache struct {
 	cacher Cacher
 }
 
-// NewCache Create a new *Cache object.
+// NewCache Create a new *Cache object, to facilitate quick operation of cached data.
 func NewCache(cacher Cacher) *Cache {
 	if cacher == nil {
 		panic(errors.New("hey: cacher is nil"))
@@ -73,7 +73,7 @@ func (s *Cache) GetCacher() Cacher {
 	return s.cacher
 }
 
-// SetCacher Write Cacher.
+// SetCacher Write Cacher, the current method is typically called during the initialization phase.
 func (s *Cache) SetCacher(cacher Cacher) *Cache {
 	if cacher != nil {
 		s.cacher = cacher
@@ -99,7 +99,7 @@ func (s *Cache) Del(ctx context.Context, key string) error {
 	return s.cacher.Del(ctx, cacheKey)
 }
 
-// Has Is there data in the cache?
+// Has Does the report cache contain data corresponding to a certain key?
 func (s *Cache) Has(ctx context.Context, key string) (bool, error) {
 	cacheKey := s.cacher.Key(key)
 	return s.cacher.Has(ctx, cacheKey)
@@ -203,7 +203,7 @@ func (s *Cache) Maker(maker Maker) CacheMaker {
 
 // CacheMaker Cache SQL statement related data, including but not limited to cache query data.
 type CacheMaker interface {
-	// UseCacheKey Custom build cache key, concurrent calls are not supported.
+	// UseCacheKey Custom build cache key, the current method is typically called during the initialization phase.
 	UseCacheKey(cacheKey func(maker Maker) (string, error)) CacheMaker
 
 	// GetCacheKey Use prepare and args to calculate the hash value as the cache key.
@@ -218,10 +218,10 @@ type CacheMaker interface {
 	// Del Delete data in the cache based on cache key.
 	Del(ctx context.Context) error
 
-	// Has Is there data in the cache?
+	// Has Does the report cache contain data corresponding to a certain key?
 	Has(ctx context.Context) (bool, error)
 
-	// GetUnmarshal Query data and unmarshal data.
+	// GetUnmarshal Get data and unmarshal data.
 	GetUnmarshal(ctx context.Context, value any) error
 
 	// MarshalSet Marshal data and set data.
@@ -254,10 +254,10 @@ type CacheMaker interface {
 
 // cacheMaker Implementing the CacheMaker interface.
 type cacheMaker struct {
-	// cache Instance of Cache.
+	// cache Instance of *Cache.
 	cache *Cache
 
-	// maker Cache Maker Object.
+	// maker Cache Maker object.
 	maker Maker
 
 	// cacheKey Allows custom unique cache keys to be constructed based on query objects.
@@ -366,7 +366,7 @@ func (s *cacheMaker) Del(ctx context.Context) error {
 	return s.cache.Del(ctx, key)
 }
 
-// Has Is there data in the cache?
+// Has Does the report cache contain data corresponding to a certain key?
 func (s *cacheMaker) Has(ctx context.Context) (bool, error) {
 	key, err := s.GetCacheKey()
 	if err != nil {

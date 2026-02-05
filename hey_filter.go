@@ -116,7 +116,7 @@ type Filter interface {
 
 	W
 
-	// ToEmpty Clear the existing conditional filtering of the current object.
+	// ToEmpty Clear existing filter criteria.
 	ToEmpty() Filter
 
 	// Clone Copy the current object.
@@ -125,16 +125,18 @@ type Filter interface {
 	// Num Number of conditions used.
 	Num() int
 
-	// IsEmpty Is the current object an empty object?
+	// IsEmpty Are the filter criteria empty?
 	IsEmpty() bool
 
 	// Not Negate the result of the current conditional filter object. Multiple negations are allowed.
 	Not() Filter
 
 	// And Use logical operator `AND` to combine custom conditions.
+	// Please verify the validity of the parameter values and be wary of SQL injection attacks.
 	And(maker Maker) Filter
 
 	// Or Use logical operator `OR` to combine custom conditions.
+	// Please verify the validity of the parameter values and be wary of SQL injection attacks.
 	Or(maker Maker) Filter
 
 	// Group Add a new condition group, which is connected by the `AND` logical operator by default.
@@ -224,7 +226,7 @@ type Filter interface {
 	// CompareGreaterThanEqual Implement conditional filtering: script1 >= script2 .
 	CompareGreaterThanEqual(column1 any, column2 any) Filter
 
-	// CompareLessThan Implement conditional filtering: script1 < script2.
+	// CompareLessThan Implement conditional filtering: script1 < script2 .
 	CompareLessThan(column1 any, column2 any) Filter
 
 	// CompareLessThanEqual Implement conditional filtering: script1 <= script2 .
@@ -981,7 +983,7 @@ func (s *filter) ExtractFilter(fx func(f ExtractFilter)) Filter {
 
 func (s *filter) TimeFilter(fx func(f TimeFilter)) Filter {
 	if fx != nil {
-		fx(s.way.cfg.NewTimeFilter(s).Time(time.Now()))
+		fx(s.way.cfg.NewTimeFilter(s).SetTime(time.Now()))
 	}
 	return s
 }
@@ -989,20 +991,28 @@ func (s *filter) TimeFilter(fx func(f TimeFilter)) Filter {
 // Quantifier Implement the filter condition: column {=||<>||>||>=||<||<=} [QUANTIFIER ]( subquery ) .
 // QUANTIFIER is usually one of ALL, ANY, SOME ... or EmptyString.
 type Quantifier interface {
+	// GetQuantifier Get quantifier value.
 	GetQuantifier() string
 
+	// SetQuantifier Set quantifier value.
 	SetQuantifier(quantifierString string) Quantifier
 
+	// Equal Implement the filter condition: column = QUANTIFIER ( subquery ) .
 	Equal(column any, subquery Maker) Quantifier
 
+	// NotEqual Implement the filter condition: column <> QUANTIFIER ( subquery ) .
 	NotEqual(column any, subquery Maker) Quantifier
 
+	// LessThan Implement the filter condition: column < QUANTIFIER ( subquery ) .
 	LessThan(column any, subquery Maker) Quantifier
 
+	// LessThanEqual Implement the filter condition: column <= QUANTIFIER ( subquery ) .
 	LessThanEqual(column any, subquery Maker) Quantifier
 
+	// GreaterThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
 	GreaterThan(column any, subquery Maker) Quantifier
 
+	// GreaterThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
 	GreaterThanEqual(column any, subquery Maker) Quantifier
 }
 
@@ -1021,12 +1031,10 @@ func newQuantifier(filter Filter) Quantifier {
 	}
 }
 
-// GetQuantifier Get quantifier value.
 func (s *quantifier) GetQuantifier() string {
 	return s.quantifier
 }
 
-// SetQuantifier Set quantifier value.
 func (s *quantifier) SetQuantifier(quantifierString string) Quantifier {
 	s.quantifier = quantifierString
 	return s
@@ -1048,32 +1056,26 @@ func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier 
 	return s
 }
 
-// Equal Implement the filter condition: column = QUANTIFIER ( subquery ) .
 func (s *quantifier) Equal(column any, subquery Maker) Quantifier {
 	return s.build(column, cst.Equal, subquery)
 }
 
-// NotEqual Implement the filter condition: column <> QUANTIFIER ( subquery ) .
 func (s *quantifier) NotEqual(column any, subquery Maker) Quantifier {
 	return s.build(column, cst.NotEqual, subquery)
 }
 
-// LessThan Implement the filter condition: column < QUANTIFIER ( subquery ) .
 func (s *quantifier) LessThan(column any, subquery Maker) Quantifier {
 	return s.build(column, cst.LessThan, subquery)
 }
 
-// LessThanEqual Implement the filter condition: column <= QUANTIFIER ( subquery ) .
 func (s *quantifier) LessThanEqual(column any, subquery Maker) Quantifier {
 	return s.build(column, cst.LessThanEqual, subquery)
 }
 
-// GreaterThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
 func (s *quantifier) GreaterThan(column any, subquery Maker) Quantifier {
 	return s.build(column, cst.GreaterThan, subquery)
 }
 
-// GreaterThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
 func (s *quantifier) GreaterThanEqual(column any, subquery Maker) Quantifier {
 	return s.build(column, cst.GreaterThanEqual, subquery)
 }
@@ -1537,9 +1539,7 @@ func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilt
 
 // TimeFilter Commonly used timestamp range filtering conditions.
 type TimeFilter interface {
-	TimeLocation(location *time.Location) TimeFilter
-
-	Time(value time.Time) TimeFilter
+	SetTime(value time.Time) TimeFilter
 
 	LastMinutes(column string, minutes int) TimeFilter
 
@@ -1571,9 +1571,9 @@ type TimeFilter interface {
 }
 
 type timeFilter struct {
-	filter   Filter
-	location *time.Location
-	time     time.Time
+	filter Filter
+
+	time time.Time
 }
 
 func newTimeFilter(filter Filter) TimeFilter {
@@ -1587,22 +1587,22 @@ func newTimeFilter(filter Filter) TimeFilter {
 
 func (s *timeFilter) minuteStartAt(timestamp int64) int64 {
 	t := time.Unix(timestamp, 0)
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, s.location).Unix()
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, s.time.Location()).Unix()
 }
 
 func (s *timeFilter) hourStartAt(timestamp int64) int64 {
 	t := time.Unix(timestamp, 0)
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, s.location).Unix()
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, s.time.Location()).Unix()
 }
 
 func (s *timeFilter) dayStartAt(timestamp int64) int64 {
 	t := time.Unix(timestamp, 0)
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.location).Unix()
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.time.Location()).Unix()
 }
 
 func (s *timeFilter) monthStartAt(timestamp int64) int64 {
 	t := time.Unix(timestamp, 0)
-	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, s.location).Unix()
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, s.time.Location()).Unix()
 }
 
 func (s *timeFilter) quarterStartAt(timestamp int64) int64 {
@@ -1620,23 +1620,15 @@ func (s *timeFilter) quarterStartAt(timestamp int64) int64 {
 	default:
 		startMonth = 10
 	}
-	return time.Date(year, startMonth, 1, 0, 0, 0, 0, s.location).Unix()
+	return time.Date(year, startMonth, 1, 0, 0, 0, 0, s.time.Location()).Unix()
 }
 
 func (s *timeFilter) yearStartAt(timestamp int64) int64 {
 	t := time.Unix(timestamp, 0)
-	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, s.location).Unix()
+	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, s.time.Location()).Unix()
 }
 
-func (s *timeFilter) TimeLocation(location *time.Location) TimeFilter {
-	s.location = location
-	return s
-}
-
-func (s *timeFilter) Time(value time.Time) TimeFilter {
-	if s.location == nil {
-		s.location = value.Location()
-	}
+func (s *timeFilter) SetTime(value time.Time) TimeFilter {
 	s.time = value
 	return s
 }
@@ -1690,7 +1682,7 @@ func (s *timeFilter) ThisMonth(column string) TimeFilter {
 func (s *timeFilter) LastMonth(column string) TimeFilter {
 	timestamp := s.time.Unix()
 	thisMonthStartAt := s.monthStartAt(timestamp)
-	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.location).AddDate(0, -1, 0).Unix()
+	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.time.Location()).AddDate(0, -1, 0).Unix()
 	s.filter.Between(column, lastMonthStartAt, thisMonthStartAt-1)
 	return s
 }
@@ -1701,7 +1693,7 @@ func (s *timeFilter) LastMonths(column string, months int) TimeFilter {
 	}
 	timestamp := s.time.Unix()
 	thisMonthStartAt := s.monthStartAt(timestamp)
-	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.location).AddDate(0, -months+1, 0).Unix()
+	lastMonthStartAt := time.Unix(thisMonthStartAt, 0).In(s.time.Location()).AddDate(0, -months+1, 0).Unix()
 	s.filter.Between(column, lastMonthStartAt, timestamp)
 	return s
 }
@@ -1757,7 +1749,7 @@ func (s *timeFilter) LastYears(column string, years int) TimeFilter {
 		return s
 	}
 	timestamp := s.time.Unix()
-	startAt := time.Unix(timestamp, 0).AddDate(-years+1, 0, 0).In(s.location).Unix()
+	startAt := time.Unix(timestamp, 0).AddDate(-years+1, 0, 0).In(s.time.Location()).Unix()
 	s.filter.Between(column, startAt, timestamp)
 	return s
 }

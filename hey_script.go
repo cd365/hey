@@ -49,6 +49,7 @@ func NewSQL(prepare string, args ...any) *SQL {
 	}
 }
 
+// NewEmptySQL Create an empty *SQL.
 func NewEmptySQL() *SQL {
 	return NewSQL(cst.Empty)
 }
@@ -194,6 +195,7 @@ func JoinSQLSemicolon(values ...any) *SQL {
 	return JoinSQL(values, cst.Semicolon)
 }
 
+// FuncSQL Creating SQL function expressions.
 func FuncSQL(funcName string, funcArgs ...any) *SQL {
 	funcName = strings.TrimSpace(funcName)
 	if funcName == cst.Empty {
@@ -201,11 +203,11 @@ func FuncSQL(funcName string, funcArgs ...any) *SQL {
 	}
 	values := make([]any, 0, len(funcArgs))
 	for _, arg := range funcArgs {
-		tmp := AnyToSQL(arg)
-		if tmp.IsEmpty() {
+		val := AnyToSQL(arg)
+		if val.IsEmpty() {
 			continue
 		}
-		values = append(values, tmp)
+		values = append(values, val)
 	}
 	return JoinSQLEmpty(
 		AnyToSQL(funcName),
@@ -371,7 +373,7 @@ func ParcelCancelSQL(script *SQL) *SQL {
 	return result
 }
 
-// parcelSingleFilter Parcel single Filter.
+// parcelSingleFilter Parcel single condition Filter.
 func parcelSingleFilter(tmp Filter) *SQL {
 	if tmp == nil || tmp.IsEmpty() {
 		return NewEmptySQL()
@@ -384,44 +386,6 @@ func parcelSingleFilter(tmp Filter) *SQL {
 		script.Prepare = ParcelPrepare(script.Prepare)
 	}
 	return script
-}
-
-// RowsTable Concatenate one or more objects into a SQL table statement.
-// ["id", "name"] + [{"id":1,"name":"name1"}, {"id":2,"name":"name2"}, {"id":3,"name":"name3"} ... ]
-// ==>
-// [( SELECT 1 AS id, NULL AS name ) + ( SELECT 2, 'name2' ) + ( SELECT NULL, 'name3' ) ... ]
-func RowsTable(columns []string, rows func() [][]any, table func(values ...*SQL) *SQL) *SQL {
-	if rows == nil || table == nil {
-		return NewEmptySQL()
-	}
-	length := len(columns)
-	if length == 0 {
-		return NewEmptySQL()
-	}
-	var script *SQL
-	result := make([]*SQL, 0)
-	for serial, values := range rows() {
-		if len(values) != length {
-			return NewEmptySQL()
-		}
-		fields := make([]any, length)
-		for index, value := range values {
-			if value == nil {
-				script = NewSQL(cst.NULL)
-			} else {
-				script = AnyToSQL(value)
-				if script.IsEmpty() {
-					script.Prepare = SQLString(script.Prepare)
-				}
-			}
-			if serial == 0 {
-				script.Prepare = JoinString(script.Prepare, cst.Space, cst.AS, cst.Space, columns[index])
-			}
-			fields[index] = script
-		}
-		result = append(result, JoinSQLSpace(cst.SELECT, JoinSQLCommaSpace(fields...)))
-	}
-	return table(result...)
 }
 
 // keysJoin Connect multiple SQL substatements using one or more keywords.
@@ -478,6 +442,45 @@ func ExceptSQL(scripts ...*SQL) *SQL {
 // ExceptAllSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) EXCEPT ALL ( QUERY_B ) EXCEPT ALL ( QUERY_C )...
 func ExceptAllSQL(scripts ...*SQL) *SQL {
 	return keysJoin(scripts, cst.EXCEPT, cst.ALL)
+}
+
+// SliceDataToTableSQL Concatenate one or more objects into a table SQL statement.
+// ["id", "name"]
+// [ {"id":1, "name":"name1"}, {"id":2, "name":"name2"}, {"id":3, "name":"name3"} ... ]
+// ==>
+// ( SELECT 1 AS id, NULL AS name ) UNION ALL ( SELECT 2, 'name2' ) UNION ALL ( SELECT NULL, 'name3' ) ...
+func SliceDataToTableSQL(columns []string, rows func() [][]any, concat func(values ...*SQL) *SQL) *SQL {
+	if rows == nil || concat == nil {
+		return NewEmptySQL()
+	}
+	length := len(columns)
+	if length == 0 {
+		return NewEmptySQL()
+	}
+	var script *SQL
+	result := make([]*SQL, 0)
+	for serial, values := range rows() {
+		if len(values) != length {
+			return NewEmptySQL()
+		}
+		fields := make([]any, length)
+		for index, value := range values {
+			if value == nil {
+				script = NewSQL(cst.NULL)
+			} else {
+				script = AnyToSQL(value)
+				if script.IsEmpty() {
+					script.Prepare = SQLString(script.Prepare)
+				}
+			}
+			if serial == 0 {
+				script.Prepare = JoinString(script.Prepare, cst.Space, cst.AS, cst.Space, columns[index])
+			}
+			fields[index] = script
+		}
+		result = append(result, JoinSQLSpace(cst.SELECT, JoinSQLCommaSpace(fields...)))
+	}
+	return concat(result...)
 }
 
 // Replacer SQL Identifier Replacer.
@@ -589,7 +592,7 @@ func (s *sqlAlias) w(way *Way) *sqlAlias {
 	return s
 }
 
-func (s *sqlAlias) rep(key string) string {
+func (s *sqlAlias) replace(key string) string {
 	if s.way == nil {
 		return key
 	}
@@ -637,7 +640,7 @@ func (s *sqlAlias) ToSQL() *SQL {
 	}
 	result := CloneSQL(s.script)
 	if s.way != nil {
-		result.Prepare = s.rep(s.script.Prepare)
+		result.Prepare = s.replace(s.script.Prepare)
 	}
 	alias := s.alias
 	if alias == cst.Empty {
@@ -647,7 +650,7 @@ func (s *sqlAlias) ToSQL() *SQL {
 	aliases[JoinString(cst.Space, alias)] = nil
 	asAlias := JoinString(cst.Space, cst.AS, cst.Space, alias)
 	aliases[asAlias] = nil
-	if replace := s.rep(alias); alias != replace {
+	if replace := s.replace(alias); alias != replace {
 		aliases[JoinString(cst.Space, replace)] = nil
 		asAlias = JoinString(cst.Space, cst.AS, cst.Space, replace)
 		aliases[asAlias] = nil

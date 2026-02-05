@@ -22,7 +22,7 @@ func hexEncodeToString(values []byte) string {
 	return hex.EncodeToString(values)
 }
 
-// argValueToString Convert SQL parameter value to string.
+// argValueToString Convert a single SQL parameter value into a visual string.
 func argValueToString(i any) string {
 	if i == nil {
 		return cst.NULL
@@ -107,6 +107,7 @@ type transaction struct {
 	mutex sync.Mutex
 }
 
+// addScript Add information about the executed SQL statement.
 func (s *transaction) addScript(script *MyTrack) *transaction {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -138,7 +139,7 @@ type Manual struct {
 	// Replacer SQL Identifier Replacer.
 	Replacer Replacer
 
-	// Prepare to adjust the SQL statement format to meet the current database SQL statement format.
+	// Prepare Adjust the SQL statement format to fit the current database format.
 	Prepare func(prepare string) string
 
 	// InsertOneReturningId Insert a record and return the id value of the inserted data.
@@ -169,6 +170,7 @@ func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 	}
 }
 
+// prepare63236 Replace '?' in the SQL statement with '$n'.
 func prepare63236(prepare string) string {
 	var index int64
 	latest := poolGetStringBuilder()
@@ -189,6 +191,7 @@ func prepare63236(prepare string) string {
 	return latest.String()
 }
 
+// manualPostgresql Postgresql manual.
 func manualPostgresql() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Postgresql
@@ -197,6 +200,7 @@ func manualPostgresql() Manual {
 	return manual
 }
 
+// manualSqlite Sqlite manual.
 func manualSqlite() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Sqlite
@@ -204,6 +208,7 @@ func manualSqlite() Manual {
 	return manual
 }
 
+// manualMysql Mysql manual.
 func manualMysql() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Mysql
@@ -211,6 +216,7 @@ func manualMysql() Manual {
 	return manual
 }
 
+// Config Configuration structure.
 type Config struct {
 	// Manual For handling different types of databases.
 	Manual Manual
@@ -522,18 +528,21 @@ func ConfigDefault() *Config {
 	}
 }
 
+// ConfigDefaultPostgresql Postgresql default configuration.
 func ConfigDefaultPostgresql() *Config {
 	cfg := ConfigDefault()
 	cfg.Manual = manualPostgresql()
 	return cfg
 }
 
+// ConfigDefaultMysql Mysql default configuration.
 func ConfigDefaultMysql() *Config {
 	cfg := ConfigDefault()
 	cfg.Manual = manualMysql()
 	return cfg
 }
 
+// ConfigDefaultSqlite Sqlite default configuration.
 func ConfigDefaultSqlite() *Config {
 	cfg := ConfigDefault()
 	cfg.Manual = manualSqlite()
@@ -632,12 +641,12 @@ func (s *Way) Read() *Way {
 	return result
 }
 
-// IsRead -> Is an object for read?
+// IsRead is an object for read?
 func (s *Way) IsRead() bool {
 	return s.isRead
 }
 
-// Replace Get a single identifier mapping value, if it does not exist, return the original value.
+// Replace get a single identifier mapping value, if it does not exist, return the original value.
 func (s *Way) Replace(key string) string {
 	replace := s.cfg.Manual.Replacer
 	if replace != nil {
@@ -646,7 +655,7 @@ func (s *Way) Replace(key string) string {
 	return key
 }
 
-// ReplaceAll Get multiple identifier mapping values, return the original value if none exists.
+// ReplaceAll get multiple identifier mapping values, return the original value if none exists.
 func (s *Way) ReplaceAll(keys []string) []string {
 	replace := s.cfg.Manual.Replacer
 	if replace != nil {
@@ -655,7 +664,7 @@ func (s *Way) ReplaceAll(keys []string) []string {
 	return keys
 }
 
-// begin -> Open transaction.
+// begin Open a transaction.
 func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (tx *Way, err error) {
 	if s.db == nil {
 		err = ErrDatabaseIsNil
@@ -687,18 +696,18 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		tx = nil
 		return
 	}
+	start := time.Now()
+	tracked := trackTransaction(ctx, start)
+	tracked.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
+	tracked.TxState = cst.BEGIN
+	tx.transaction.track = tracked
 	if s.track != nil {
-		start := time.Now()
-		tracked := trackTransaction(ctx, start)
-		tracked.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
-		tracked.TxState = cst.BEGIN
-		tx.transaction.track = tracked
 		s.track.Track(ctx, tracked)
 	}
 	return
 }
 
-// commit -> Commit transaction.
+// commit Commit transaction.
 func (s *Way) commit() (err error) {
 	if s.transaction == nil {
 		return ErrTransactionIsNil
@@ -718,7 +727,7 @@ func (s *Way) commit() (err error) {
 	return err
 }
 
-// rollback -> Rollback transaction.
+// rollback Rollback transaction.
 func (s *Way) rollback() (err error) {
 	if s.transaction == nil {
 		return ErrTransactionIsNil
@@ -738,32 +747,32 @@ func (s *Way) rollback() (err error) {
 	return err
 }
 
-// Begin -> Open transaction.
+// Begin Open a transaction.
 func (s *Way) Begin(ctx context.Context, opts ...*sql.TxOptions) (*Way, error) {
 	return s.begin(ctx, nil, opts...)
 }
 
-// BeginConn -> Open transaction using *sql.Conn.
+// BeginConn Open a transaction using *sql.Conn.
 func (s *Way) BeginConn(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (*Way, error) {
 	return s.begin(ctx, conn, opts...)
 }
 
-// Commit -> Transaction commit.
+// Commit Transaction commit.
 func (s *Way) Commit() error {
 	return s.commit()
 }
 
-// Rollback -> Transaction rollback.
+// Rollback Transaction rollback.
 func (s *Way) Rollback() error {
 	return s.rollback()
 }
 
-// IsInTransaction -> Is the transaction currently in progress?
+// IsInTransaction is it currently in a transaction?
 func (s *Way) IsInTransaction() bool {
 	return s.transaction != nil
 }
 
-// TransactionMessage -> Set the prompt for the current transaction, can only be set once.
+// TransactionMessage set the prompt for the current transaction, can only be set once.
 func (s *Way) TransactionMessage(message string) *Way {
 	if s.transaction == nil {
 		return s
@@ -774,7 +783,7 @@ func (s *Way) TransactionMessage(message string) *Way {
 	return s
 }
 
-// newTransaction -> Start a new transaction and execute a set of SQL statements atomically.
+// newTransaction start a new transaction and execute a set of SQL statements atomically.
 func (s *Way) newTransaction(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	tx := (*Way)(nil)
 	tx, err = s.begin(ctx, nil, opts...)
@@ -807,7 +816,7 @@ func (s *Way) newTransaction(ctx context.Context, fx func(tx *Way) error, opts .
 	return
 }
 
-// Transaction -> Atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
+// Transaction atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
 func (s *Way) Transaction(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) error {
 	if s.IsInTransaction() {
 		return fx(s)
@@ -815,12 +824,12 @@ func (s *Way) Transaction(ctx context.Context, fx func(tx *Way) error, opts ...*
 	return s.newTransaction(ctx, fx, opts...)
 }
 
-// TransactionNew -> Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
+// TransactionNew starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
 func (s *Way) TransactionNew(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) error {
 	return s.newTransaction(ctx, fx, opts...)
 }
 
-// TransactionRetry Starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
+// TransactionRetry starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
 func (s *Way) TransactionRetry(ctx context.Context, retries int, fx func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
 	for range retries {
 		if err = s.newTransaction(ctx, fx, opts...); err == nil {
@@ -830,7 +839,7 @@ func (s *Way) TransactionRetry(ctx context.Context, retries int, fx func(tx *Way
 	return err
 }
 
-// Now -> Get current time, the transaction open status will get the same time.
+// Now get current time, the transaction open status will get the same time.
 func (s *Way) Now() time.Time {
 	if s.IsInTransaction() {
 		return s.transaction.track.TimeStart
@@ -838,19 +847,19 @@ func (s *Way) Now() time.Time {
 	return time.Now()
 }
 
-// Stmt Prepare a handle.
+// Stmt is a wrapper for *sql.Stmt.
 type Stmt struct {
 	// way Original *Way object.
 	way *Way
 
-	// stmt A prepared statement for later queries or executions.
+	// stmt  Prepared statement.
 	stmt *sql.Stmt
 
-	// prepare SQL prepare statement.
+	// prepare The raw SQL statement to create *sql.Stmt.
 	prepare string
 }
 
-// Close -> Close prepare a handle.
+// Close closes the statement.
 func (s *Stmt) Close() (err error) {
 	if s.stmt != nil {
 		err = s.stmt.Close()
@@ -858,7 +867,7 @@ func (s *Stmt) Close() (err error) {
 	return err
 }
 
-// Query -> Query prepared, that can be called repeatedly.
+// Query executes a prepared query statement with the given arguments and processes the query result set through anonymous functions (query).
 func (s *Stmt) Query(ctx context.Context, query func(rows *sql.Rows) error, args ...any) (err error) {
 	var tracked *MyTrack
 	if track := s.way.track; track != nil {
@@ -886,7 +895,7 @@ func (s *Stmt) Query(ctx context.Context, query func(rows *sql.Rows) error, args
 	return
 }
 
-// QueryRow -> Query prepared, that can be called repeatedly.
+// QueryRow executes a prepared query statement with the given arguments and processes the query result set through anonymous functions (query).
 func (s *Stmt) QueryRow(ctx context.Context, query func(row *sql.Row) error, args ...any) error {
 	var tracked *MyTrack
 	if track := s.way.track; track != nil {
@@ -904,7 +913,8 @@ func (s *Stmt) QueryRow(ctx context.Context, query func(row *sql.Row) error, arg
 	return err
 }
 
-// Exec -> Execute prepared, that can be called repeatedly.
+// Exec executes a prepared statement with the given arguments and
+// returns a [sql.Result] summarizing the effect of the statement.
 func (s *Stmt) Exec(ctx context.Context, args ...any) (sql.Result, error) {
 	var tracked *MyTrack
 	if track := s.way.track; track != nil {
@@ -919,7 +929,8 @@ func (s *Stmt) Exec(ctx context.Context, args ...any) (sql.Result, error) {
 	return result, err
 }
 
-// Execute -> Execute prepared, that can be called repeatedly, return number of rows affected.
+// Execute executes a prepared statement with the given arguments and
+// returns number of rows affected.
 func (s *Stmt) Execute(ctx context.Context, args ...any) (int64, error) {
 	result, err := s.Exec(ctx, args...)
 	if err != nil {
@@ -928,14 +939,16 @@ func (s *Stmt) Execute(ctx context.Context, args ...any) (int64, error) {
 	return result.RowsAffected()
 }
 
-// Scan -> Query prepared and get all query results, that can be called repeatedly.
+// Scan executes a prepared query statement with the given arguments and
+// scan query results into the result receiving parameter.
 func (s *Stmt) Scan(ctx context.Context, result any, args ...any) error {
 	return s.Query(ctx, func(rows *sql.Rows) error {
 		return s.way.cfg.RowsScan(rows, result, s.way.cfg.ScanTag)
 	}, args...)
 }
 
-// Prepare -> Prepare SQL statement, remember to call *Stmt.Close().
+// Prepare creates a prepared statement for later queries or executions.
+// If a transaction has already started, the transaction object should be used first.
 func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error) {
 	if s.db == nil {
 		return nil, ErrDatabaseIsNil
@@ -961,14 +974,14 @@ func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error)
 	return stmt, nil
 }
 
-// RowsScan Scan one or more rows of SQL results containing one or more columns.
+// RowsScan scan the query result set into the received parameter result.
 func (s *Way) RowsScan(result any) func(rows *sql.Rows) error {
 	return func(rows *sql.Rows) error {
 		return s.cfg.RowsScan(rows, result, s.cfg.ScanTag)
 	}
 }
 
-// Query -> Execute the query sql statement.
+// Query executes a query statement.
 func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows) error) (err error) {
 	script := maker.ToSQL()
 	var stmt *Stmt
@@ -985,14 +998,14 @@ func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows)
 	return
 }
 
-// RowScan Scan a row of SQL results containing one or more columns.
+// RowScan scan a row of query results.
 func (s *Way) RowScan(dest ...any) func(row *sql.Row) error {
 	return func(row *sql.Row) error {
 		return row.Scan(dest...)
 	}
 }
 
-// QueryRow -> Execute SQL statement and return row data, usually INSERT, UPDATE, DELETE.
+// QueryRow executes a statement and return row data, typically, these are INSERT, UPDATE and DELETE.
 func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row) error) (err error) {
 	script := maker.ToSQL()
 	var stmt *Stmt
@@ -1009,7 +1022,7 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 	return
 }
 
-// QueryExists -> Execute a query SQL statement to check if the data exists.
+// QueryExists executes a query statement to check if the data exists.
 func (s *Way) QueryExists(ctx context.Context, maker Maker) (bool, error) {
 	// SQL statement format: SELECT EXISTS ( subquery ) AS a
 	// SELECT EXISTS ( SELECT 1 FROM example_table ) AS a
@@ -1060,12 +1073,12 @@ func (s *Way) QueryExists(ctx context.Context, maker Maker) (bool, error) {
 	}
 }
 
-// Scan -> Query prepared and get all query results, through the mapping of column names and struct tags.
+// Scan executes a query statement and get all query results, through the mapping of column names and struct tags.
 func (s *Way) Scan(ctx context.Context, maker Maker, result any) error {
 	return s.Query(ctx, maker, s.RowsScan(result))
 }
 
-// MapScan -> Scanning the query results into []map[string]any.
+// MapScan executes a query statement and scan the query results into []map[string]any.
 func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnAnyValue) (result []map[string]any, err error) {
 	err = s.Query(ctx, maker, func(rows *sql.Rows) error {
 		result, err = s.cfg.MapScanner.Scan(rows, adjusts...)
@@ -1077,7 +1090,8 @@ func (s *Way) MapScan(ctx context.Context, maker Maker, adjusts ...AdjustColumnA
 	return result, err
 }
 
-// Exec -> Execute the execute sql statement.
+// Exec executes a prepared statement with the given arguments and
+// returns a [sql.Result] summarizing the effect of the statement.
 func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err error) {
 	script := maker.ToSQL()
 	var stmt *Stmt
@@ -1094,7 +1108,8 @@ func (s *Way) Exec(ctx context.Context, maker Maker) (result sql.Result, err err
 	return
 }
 
-// Execute -> Execute the execute sql statement.
+// Execute executes a prepared statement with the given arguments and
+// returns number of rows affected.
 func (s *Way) Execute(ctx context.Context, maker Maker) (affectedRows int64, err error) {
 	result := (sql.Result)(nil)
 	result, err = s.Exec(ctx, maker)
@@ -1105,7 +1120,7 @@ func (s *Way) Execute(ctx context.Context, maker Maker) (affectedRows int64, err
 	return
 }
 
-// MultiExecute Execute multiple DML statements.
+// MultiExecute executes multiple statements.
 func (s *Way) MultiExecute(ctx context.Context, makers []Maker) (affectedRows int64, err error) {
 	rows := int64(0)
 	for _, maker := range makers {
@@ -1118,7 +1133,7 @@ func (s *Way) MultiExecute(ctx context.Context, makers []Maker) (affectedRows in
 	return
 }
 
-// MultiStmtQuery Executing a DQL statement multiple times using the same prepared statement.
+// MultiStmtQuery executes query statement multiple times using the same prepared statement.
 // The exit conditions are as follows:
 // 1. Context was canceled or timed out.
 // 2. Abnormal execution process (unexpected error occurred).
@@ -1155,7 +1170,7 @@ func (s *Way) MultiStmtQuery(ctx context.Context, prepare string, argsQueue <-ch
 	}
 }
 
-// MultiStmtExecute Executing a DML statement multiple times using the same prepared statement.
+// MultiStmtExecute executes statement multiple times using the same prepared statement.
 // The exit conditions are as follows:
 // 1. Context was canceled or timed out.
 // 2. Abnormal execution process (unexpected error occurred).
@@ -1194,7 +1209,7 @@ func (s *Way) MultiStmtExecute(ctx context.Context, prepare string, argsQueue <-
 	}
 }
 
-// Debug Debugging output SQL script.
+// Debug output statement.
 func (s *Way) Debug(maker Maker) *Way {
 	if s.track == nil || maker == nil {
 		return s
@@ -1204,12 +1219,12 @@ func (s *Way) Debug(maker Maker) *Way {
 	return s
 }
 
-// F -> Quickly initialize a filter.
+// F quickly initialize a Filter.
 func (s *Way) F(filters ...Filter) Filter {
 	return s.cfg.NewSQLFilter(s).Use(filters...)
 }
 
-// W -> Prioritize the specified non-nil object, otherwise use the current object.
+// W prioritize the specified non-nil object, otherwise use the current object.
 func (s *Way) W(way *Way) *Way {
 	if way != nil {
 		return way

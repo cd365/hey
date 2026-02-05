@@ -13,7 +13,7 @@ const (
 	TrackTransaction MyTrackType = "TRANSACTION"
 )
 
-// Track Tracing SQL statements.
+// Track Trace debug output, transaction status, and executed SQL statements.
 type Track interface {
 	Track(ctx context.Context, track any)
 }
@@ -47,7 +47,7 @@ type MyTrack struct {
 	// Prepare Original SQL statement.
 	Prepare string
 
-	// Script SQL Script.
+	// Script Visual SQL statement.
 	Script string
 
 	// Args The parameter list corresponding to the original SQL statement.

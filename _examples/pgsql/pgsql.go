@@ -709,21 +709,24 @@ func Select() {
 	// JOIN
 	{
 		a, b := "a", "b"
+		at := way.T(a)
+		bt := way.T(b)
+		atc := at.Column
+		btc := bt.Column
 		where := way.F()
 		get := way.Table(employee.Table()).Alias(a)
-		get.LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
-			right = j.NewTable(department.Table(), b)
-			// j.TableColumn(j.GetMaster(), cst.Asterisk)
-			j.Select(
-				j.TableColumn(j.GetMaster(), cst.Asterisk),
-				hey.Alias(hey.Coalesce(j.TableColumn(right, department.Name), hey.SQLString("")), "department_name"), // string
-				j.TableColumn(right, department.SerialNum, "department_serial_num"),                                  // pointer int
+		get.LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
+			joinTable := join.Table(department.Table(), b)
+			joinOn := join.JoinOnEqual(atc(employee.DepartmentId), btc(department.Id))
+			join.Select(
+				atc(cst.Asterisk),
+				hey.Alias(hey.Coalesce(btc(department.Name), hey.SQLString("")), "department_name"), // string
+				btc(department.SerialNum, "department_serial_num"),                                  // pointer int
 			)
-			assoc = j.OnEqual(employee.DepartmentId, department.Id)
-			aid := j.TableColumn(j.GetMaster(), employee.Id)
+			aid := atc(employee.Id)
 			where.GreaterThan(aid, 0)
 			get.Desc(aid)
-			return
+			return joinTable, joinOn
 		})
 		get.Where(where)
 		get.Limit(10).Offset(1)
@@ -1239,8 +1242,7 @@ func Filter() {
 		f.ToEmpty()
 		now := time.Now()
 		f.TimeFilter(func(g hey.TimeFilter) {
-			g.TimeLocation(now.Location())
-			g.Time(now)
+			g.SetTime(now)
 			g.LastMinutes(employee.CreatedAt, 7)
 			g.LastMinutes(employee.CreatedAt, 0)
 			g.LastHours(employee.CreatedAt, 7)
@@ -1421,30 +1423,29 @@ func TableColumn() {
 
 	a := cst.A
 	b := cst.B
-	ac := way.T(a)
-	bc := way.T(b)
-
-	query := way.Table(employee.Table()).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
-		ta := j.GetMaster()
-		// left = ta // The left table is the default master table.
-		right = j.NewTable(department.Table(), b)
-		assoc = j.OnEqual(employee.DepartmentId, department.Id)
-		j.Select(j.TableColumn(ta, employee.Id, employee.Id))
-		j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
-		j.Select(
-			bc.Column(department.Name, "department_name"),
+	at := way.T(a)
+	bt := way.T(b)
+	atc := at.Column
+	btc := bt.Column
+	query := way.Table(employee.Table()).Alias(a).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
+		joinTable := join.Table(department.Table(), b)
+		joinOn := join.JoinOnEqual(atc(employee.DepartmentId), btc(department.Id))
+		join.Select(atc(employee.Id, employee.Id))
+		join.Select(at.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+		join.Select(
+			btc(department.Name, "department_name"),
 		)
-		dca := bc.Column(department.CreatedAt)
-		j.Select(
+		dca := btc(department.CreatedAt)
+		join.Select(
 			hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 		)
-		return
+		return joinTable, joinOn
 	})
 	query.WhereFunc(func(f hey.Filter) {
-		f.GreaterThan(ac.Column(employee.Id), 0)
+		f.GreaterThan(at.Column(employee.Id), 0)
 	})
-	query.Desc(ac.Column(employee.Id))
-	query.Desc(ac.Column(employee.SerialNum))
+	query.Desc(at.Column(employee.Id))
+	query.Desc(at.Column(employee.SerialNum))
 	query.Limit(1)
 	ctx := context.Background()
 	result := &QueryTableColumn{}
@@ -1458,43 +1459,44 @@ func TableColumn() {
 func WindowFunc() {
 	a := cst.A
 	b := cst.B
-	ac := way.T(a)
-	bc := way.T(b)
+	at := way.T(a)
+	bt := way.T(b)
+	atc := at.Column
+	btc := bt.Column
 	{
-		query := way.Table(employee.Table()).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
-			ta := j.GetMaster()
-			right = j.NewTable(department.Table(), b)
-			assoc = j.OnEqual(employee.DepartmentId, department.Id)
-			j.Select(j.TableColumn(ta, employee.Id, employee.Id))
-			j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
-			j.Select(
-				way.WindowFunc("max_salary").Max(ac.Column(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ac.Column(employee.DepartmentId))
-					o.Desc(ac.Column(employee.Id))
+		query := way.Table(employee.Table()).Alias(a).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
+			joinTable := join.Table(department.Table(), b)
+			joinOn := join.JoinOnEqual(atc(employee.DepartmentId), btc(department.Id))
+			join.Select(atc(employee.Id, employee.Id))
+			join.Select(at.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+			join.Select(
+				way.WindowFunc("max_salary").Max(atc(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(atc(employee.DepartmentId))
+					o.Desc(atc(employee.Id))
 				}),
-				way.WindowFunc("avg_salary").Avg(ac.Column(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ac.Column(employee.DepartmentId))
-					o.Desc(ac.Column(employee.Id))
+				way.WindowFunc("avg_salary").Avg(atc(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(atc(employee.DepartmentId))
+					o.Desc(atc(employee.Id))
 				}),
-				way.WindowFunc("min_salary").Min(ac.Column(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ac.Column(employee.DepartmentId))
-					o.Desc(ac.Column(employee.Id))
+				way.WindowFunc("min_salary").Min(atc(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(atc(employee.DepartmentId))
+					o.Desc(atc(employee.Id))
 				}),
 			)
-			j.Select(
-				bc.Column(department.Name, "department_name"),
+			join.Select(
+				btc(department.Name, "department_name"),
 			)
-			dca := bc.Column(department.CreatedAt)
-			j.Select(
+			dca := btc(department.CreatedAt)
+			join.Select(
 				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 			)
-			return
+			return joinTable, joinOn
 		})
 		query.WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(ac.Column(employee.Id), 0)
+			f.GreaterThan(atc(employee.Id), 0)
 		})
-		query.Desc(ac.Column(employee.Id))
-		query.Desc(ac.Column(employee.SerialNum))
+		query.Desc(atc(employee.Id))
+		query.Desc(atc(employee.SerialNum))
 		query.Limit(1)
 		ctx := context.Background()
 		result, err := query.MapScan(ctx)
@@ -1518,35 +1520,34 @@ func WindowFunc() {
 
 	// With window alias
 	{
-		query := way.Table(employee.Table()).Alias(a).LeftJoin(func(j hey.SQLJoin) (left hey.SQLAlias, right hey.SQLAlias, assoc hey.SQLJoinAssoc) {
-			ta := j.GetMaster()
-			right = j.NewTable(department.Table(), b)
-			assoc = j.OnEqual(employee.DepartmentId, department.Id)
-			j.Select(j.TableColumn(ta, employee.Id, employee.Id))
-			j.Select(j.TableColumns(ta, employee.Name, employee.Email, employee.DepartmentId))
-			j.Select(
-				way.WindowFunc("max_salary").Max(ac.Column(employee.DepartmentId)).Over("w1"),
-				way.WindowFunc("avg_salary").Avg(ac.Column(employee.DepartmentId)).Over("w1"),
-				way.WindowFunc("min_salary").Min(ac.Column(employee.DepartmentId)).Over("w1"),
+		query := way.Table(employee.Table()).Alias(a).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
+			joinTable := join.Table(department.Table(), b)
+			joinOn := join.JoinOnEqual(atc(employee.DepartmentId), btc(department.Id))
+			join.Select(atc(employee.Id, employee.Id))
+			join.Select(at.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+			join.Select(
+				way.WindowFunc("max_salary").Max(atc(employee.DepartmentId)).Over("w1"),
+				way.WindowFunc("avg_salary").Avg(atc(employee.DepartmentId)).Over("w1"),
+				way.WindowFunc("min_salary").Min(atc(employee.DepartmentId)).Over("w1"),
 			)
-			j.Select(
-				bc.Column(department.Name, "department_name"),
+			join.Select(
+				btc(department.Name, "department_name"),
 			)
-			dca := bc.Column(department.CreatedAt)
-			j.Select(
+			dca := btc(department.CreatedAt)
+			join.Select(
 				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 			)
-			return
+			return joinTable, joinOn
 		})
 		query.Window("w1", func(o hey.SQLWindowFuncOver) {
-			o.Partition(ac.Column(employee.DepartmentId))
-			o.Desc(ac.Column(employee.Id))
+			o.Partition(atc(employee.DepartmentId))
+			o.Desc(atc(employee.Id))
 		})
 		query.WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(ac.Column(employee.Id), 0)
+			f.GreaterThan(atc(employee.Id), 0)
 		})
-		query.Desc(ac.Column(employee.Id))
-		query.Desc(ac.Column(employee.SerialNum))
+		query.Desc(atc(employee.Id))
+		query.Desc(atc(employee.SerialNum))
 		query.Limit(1)
 		ctx := context.Background()
 		result, err := query.MapScan(ctx)

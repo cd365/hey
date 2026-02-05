@@ -411,36 +411,36 @@ func (s *Table) Alias(alias string) *Table {
 }
 
 // JoinFunc Custom join query.
-func (s *Table) JoinFunc(fx func(j SQLJoin)) *Table {
+func (s *Table) JoinFunc(fx func(join SQLJoin)) *Table {
 	if s.query == nil {
 		s.query = s.way.cfg.NewSQLSelect(s.way)
 	}
 	if s.joins == nil {
 		s.joins = s.way.cfg.NewSQLJoin(s.way, s.query)
-		s.joins.SetMaster(s.table)
+		s.joins.SetMain(s.table)
 	}
 	fx(s.joins)
 	return s
 }
 
 // InnerJoin INNER JOIN.
-func (s *Table) InnerJoin(fx func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
-	return s.JoinFunc(func(j SQLJoin) {
-		j.InnerJoin(fx(j))
+func (s *Table) InnerJoin(fx func(join SQLJoin) (SQLAlias, SQLJoinOn)) *Table {
+	return s.JoinFunc(func(join SQLJoin) {
+		join.InnerJoin(fx(join))
 	})
 }
 
 // LeftJoin LEFT JOIN.
-func (s *Table) LeftJoin(fx func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
-	return s.JoinFunc(func(j SQLJoin) {
-		j.LeftJoin(fx(j))
+func (s *Table) LeftJoin(fx func(join SQLJoin) (SQLAlias, SQLJoinOn)) *Table {
+	return s.JoinFunc(func(join SQLJoin) {
+		join.LeftJoin(fx(join))
 	})
 }
 
 // RightJoin RIGHT JOIN.
-func (s *Table) RightJoin(fx func(j SQLJoin) (left SQLAlias, right SQLAlias, assoc SQLJoinAssoc)) *Table {
-	return s.JoinFunc(func(j SQLJoin) {
-		j.RightJoin(fx(j))
+func (s *Table) RightJoin(fx func(join SQLJoin) (SQLAlias, SQLJoinOn)) *Table {
+	return s.JoinFunc(func(join SQLJoin) {
+		join.RightJoin(fx(join))
 	})
 }
 

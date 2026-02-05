@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"maps"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,9 +15,9 @@ import (
 	"github.com/cd365/hey/v7/cst"
 )
 
-// ToEmpty Sets the property value of an object to empty value.
+// ToEmpty Set the property values of the object to the default values of the corresponding types.
 type ToEmpty interface {
-	// ToEmpty Sets the property value of an object to empty value.
+	// ToEmpty Set the property values of the object to the default values of the corresponding types.
 	ToEmpty()
 }
 
@@ -78,7 +79,7 @@ func (s *sqlLabel) ToSQL() *SQL {
 	if len(s.labels) == 0 {
 		return NewEmptySQL()
 	}
-	return NewSQL(BlockComment(strings.Join(s.labels, s.separator)))
+	return NewSQL(SQLBlockComment(strings.Join(s.labels, s.separator)))
 }
 
 /*
@@ -247,16 +248,16 @@ type SQLSelect interface {
 	// Distinct DISTINCT column1, column2, column3 ...
 	Distinct() SQLSelect
 
-	// Add Put Maker to the query list.
+	// Add a custom column to the query list.
 	Add(maker Maker) SQLSelect
 
-	// Del Delete some columns from the query list. If not specified, delete all.
+	// Del Delete some columns from the query list.
 	Del(columns ...string) SQLSelect
 
 	// Has Does the column exist in the query list?
 	Has(column string) bool
 
-	// Len Query list length.
+	// Len Number of columns to query.
 	Len() int
 
 	// Get Query list and its corresponding column parameter list.
@@ -265,7 +266,7 @@ type SQLSelect interface {
 	// Set Query list and its corresponding column parameter list.
 	Set(columns []string, args map[int][]any) SQLSelect
 
-	// Select Add one or more query lists. If no parameter is provided, all existing query lists will be deleted.
+	// Select Add one or more query lists.
 	Select(columns ...any) SQLSelect
 }
 
@@ -373,13 +374,11 @@ func (s *sqlSelect) Add(maker Maker) SQLSelect {
 }
 
 func (s *sqlSelect) Del(columns ...string) SQLSelect {
-	if columns == nil {
-		if s.IsEmpty() || !s.distinct {
-			s.ToEmpty()
-		}
+	removes := len(columns)
+	if removes == 0 {
 		return s
 	}
-	deletes := make(map[int]*struct{}, len(columns))
+	deletes := make(map[int]*struct{}, removes)
 	for _, column := range columns {
 		if column == cst.Empty {
 			continue
@@ -441,7 +440,7 @@ func (s *sqlSelect) use(columns ...SQLSelect) SQLSelect {
 
 func (s *sqlSelect) Select(columns ...any) SQLSelect {
 	if len(columns) == 0 {
-		return s.Del()
+		return s
 	}
 	for _, value := range columns {
 		switch v := value.(type) {
@@ -479,11 +478,11 @@ func (s *sqlSelect) Select(columns ...any) SQLSelect {
 type SQLJoinOn interface {
 	Maker
 
+	// JoinOn Append custom conditions to the ON statement or use custom conditions on the ON statement to associate tables.
+	JoinOn(joinOn func(f Filter)) SQLJoinOn
+
 	// Equal Use equal value JOIN ON condition.
 	Equal(table1alias string, table1column string, table2alias string, table2column string) SQLJoinOn
-
-	// On Append custom conditions to the ON statement or use custom conditions on the ON statement to associate tables.
-	On(on func(f Filter)) SQLJoinOn
 
 	// Using Use USING instead of ON.
 	Using(columns ...string) SQLJoinOn
@@ -492,7 +491,7 @@ type SQLJoinOn interface {
 type sqlJoinOn struct {
 	way *Way
 
-	on Filter
+	joinOn Filter
 
 	usings []string
 }
@@ -502,25 +501,34 @@ func newSQLJoinOn(way *Way) SQLJoinOn {
 		panic(pin)
 	}
 	return &sqlJoinOn{
-		way: way,
-		on:  way.F(),
+		way:    way,
+		joinOn: way.F(),
 	}
+}
+
+func (s *sqlJoinOn) JoinOn(joinOn func(f Filter)) SQLJoinOn {
+	if joinOn != nil {
+		joinOn(s.joinOn)
+	}
+	return s
 }
 
 func (s *sqlJoinOn) Equal(table1alias string, table1column string, table2alias string, table2column string) SQLJoinOn {
-	s.on.And(JoinSQLSpace(Prefix(s.way.Replace(table1alias), s.way.Replace(table1column)), cst.Equal, Prefix(s.way.Replace(table2alias), s.way.Replace(table2column))))
-	return s
-}
-
-func (s *sqlJoinOn) On(on func(f Filter)) SQLJoinOn {
-	if on != nil {
-		on(s.on)
-	}
-	return s
+	return s.JoinOn(func(f Filter) {
+		if table1alias == cst.Empty || table1column == cst.Empty || table2alias == cst.Empty || table2column == cst.Empty {
+			return
+		}
+		f.And(JoinSQLSpace(Prefix(s.way.Replace(table1alias), s.way.Replace(table1column)), cst.Equal, Prefix(s.way.Replace(table2alias), s.way.Replace(table2column))))
+	})
 }
 
 func (s *sqlJoinOn) Using(columns ...string) SQLJoinOn {
-	columns = DiscardDuplicate(func(tmp string) bool { return tmp == cst.Empty }, columns...)
+	columns = DiscardDuplicate(
+		func(tmp string) bool {
+			return tmp == cst.Empty
+		},
+		columns...,
+	)
 	if len(columns) > 0 {
 		s.usings = columns
 	}
@@ -528,9 +536,9 @@ func (s *sqlJoinOn) Using(columns ...string) SQLJoinOn {
 }
 
 func (s *sqlJoinOn) ToSQL() *SQL {
-	// JOIN ON
-	if s.on != nil && !s.on.IsEmpty() {
-		script := s.on.ToSQL()
+	// JOIN ON first
+	if s.joinOn != nil && !s.joinOn.IsEmpty() {
+		script := s.joinOn.ToSQL()
 		script.Prepare = JoinString(cst.ON, cst.Space, script.Prepare)
 		return script
 	}
@@ -538,6 +546,7 @@ func (s *sqlJoinOn) ToSQL() *SQL {
 	if length := len(s.usings); length > 0 {
 		using := make([]string, 0, length)
 		for _, column := range s.usings {
+			column = strings.TrimSpace(column)
 			if column != cst.Empty {
 				using = append(using, column)
 			}
@@ -550,8 +559,6 @@ func (s *sqlJoinOn) ToSQL() *SQL {
 	}
 	return NewEmptySQL()
 }
-
-type SQLJoinAssoc func(table1alias string, table2alias string) SQLJoinOn
 
 type sqlJoinSchema struct {
 	joinTable SQLAlias
@@ -567,44 +574,47 @@ type SQLJoin interface {
 
 	ToEmpty
 
-	// GetMaster Get join query the master table.
-	GetMaster() SQLAlias
+	// GetMain Get join query the main table.
+	GetMain() SQLAlias
 
-	// SetMaster Set join query the master table.
-	SetMaster(table SQLAlias) SQLJoin
+	// SetMain Set join query the main table.
+	SetMain(table SQLAlias) SQLJoin
 
-	// NewTable Create a table for join query.
-	NewTable(table any, alias string) SQLAlias
+	// Table Create a table for join query.
+	Table(table any, alias string) SQLAlias
 
-	// On Set the join query conditions.
-	On(on func(on SQLJoinOn, table1alias string, table2alias string)) SQLJoinAssoc
+	// Join Use the join type to set the table join relationship.
+	Join(joinType string, table SQLAlias, on SQLJoinOn) SQLJoin
 
-	// Using The conditions for the join query use USING.
-	Using(columns ...string) SQLJoinAssoc
+	// InnerJoin INNER JOIN.
+	InnerJoin(table SQLAlias, on SQLJoinOn) SQLJoin
 
-	// OnEqual The join query conditions uses table1.column = table2.column.
-	OnEqual(table1column string, table2column string) SQLJoinAssoc
+	// LeftJoin LEFT JOIN.
+	LeftJoin(table SQLAlias, on SQLJoinOn) SQLJoin
 
-	// Join Use the join type to set the table join relationship, if the table1 value is nil, use the main table.
-	Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
+	// RightJoin RIGHT JOIN.
+	RightJoin(table SQLAlias, on SQLJoinOn) SQLJoin
 
-	// InnerJoin Set the table join relationship, if the table1 value is nil, use the main table.
-	InnerJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
+	// JoinOn Set the join query conditions.
+	JoinOn(joinOn func(on SQLJoinOn)) SQLJoinOn
 
-	// LeftJoin Set the table join relationship, if the table1 value is nil, use the main table.
-	LeftJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
+	// JoinOnEqual Set connection conditions. For example: a.id = b.pid
+	// Column names must be prefixed with the table name.
+	// Always ensure the validity of parameter values and be wary of SQL injection vulnerabilities.
+	// Example: JoinOnEquals("a.id", "b.pid")
+	JoinOnEqual(table1column string, table2column string) SQLJoinOn
 
-	// RightJoin Set the table join relationship, if the table1 value is nil, use the main table.
-	RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin
+	// JoinUsing The conditions for the join query use USING.
+	JoinUsing(columns ...string) SQLJoinOn
 
 	// Select Set the query column list.
 	Select(columns ...any) SQLJoin
 
 	// TableColumn Create a table name prefix for the query column.
-	TableColumn(table SQLAlias, column string, aliases ...string) string
+	TableColumn(table any, column string, aliases ...string) string
 
 	// TableColumns Add table name prefix to the query column list values.
-	TableColumns(table SQLAlias, columns ...string) []string
+	TableColumns(table any, columns ...string) []string
 }
 
 type sqlJoin struct {
@@ -614,7 +624,7 @@ type sqlJoin struct {
 
 	way *Way
 
-	joins []*sqlJoinSchema
+	joins []sqlJoinSchema
 }
 
 func newSQLJoin(way *Way, query SQLSelect) SQLJoin {
@@ -623,23 +633,23 @@ func newSQLJoin(way *Way, query SQLSelect) SQLJoin {
 	}
 	tmp := &sqlJoin{
 		way:   way,
-		joins: make([]*sqlJoinSchema, 0, 1<<1),
+		joins: make([]sqlJoinSchema, 0, 1<<1),
 		query: query,
 	}
 	return tmp
 }
 
 func (s *sqlJoin) ToEmpty() {
-	s.joins = make([]*sqlJoinSchema, 0, 1<<1)
+	s.joins = make([]sqlJoinSchema, 0, 1<<1)
 	s.query.ToEmpty()
 	s.table = nil
 }
 
-func (s *sqlJoin) GetMaster() SQLAlias {
+func (s *sqlJoin) GetMain() SQLAlias {
 	return s.table
 }
 
-func (s *sqlJoin) SetMaster(table SQLAlias) SQLJoin {
+func (s *sqlJoin) SetMain(table SQLAlias) SQLJoin {
 	s.table = table
 	return s
 }
@@ -652,9 +662,6 @@ func (s *sqlJoin) ToSQL() *SQL {
 	b := poolGetStringBuilder()
 	defer poolPutStringBuilder(b)
 	for index, tmp := range s.joins {
-		if tmp == nil {
-			continue
-		}
 		if index > 0 {
 			b.WriteString(cst.Space)
 		}
@@ -675,83 +682,71 @@ func (s *sqlJoin) ToSQL() *SQL {
 	return script
 }
 
-func (s *sqlJoin) NewTable(table any, alias string) SQLAlias {
+func (s *sqlJoin) Table(table any, alias string) SQLAlias {
 	return s.way.cfg.NewSQLTable(s.way, table).SetAlias(alias)
 }
 
-func (s *sqlJoin) joinOn() SQLJoinOn {
-	return s.way.cfg.NewSQLJoinOn(s.way)
-}
-
-// On For `... JOIN ON ...`
-func (s *sqlJoin) On(on func(on SQLJoinOn, table1alias string, table2alias string)) SQLJoinAssoc {
-	return func(table1alias string, table2alias string) SQLJoinOn {
-		joinOn := s.joinOn()
-		on(joinOn, table1alias, table2alias)
-		return joinOn
-	}
-}
-
-// Using For `... JOIN USING ...`
-func (s *sqlJoin) Using(columns ...string) SQLJoinAssoc {
-	return func(alias1 string, alias2 string) SQLJoinOn {
-		return s.joinOn().Using(columns...)
-	}
-}
-
-// OnEqual For `... JOIN ON ... = ... [...]`
-func (s *sqlJoin) OnEqual(table1column string, table2column string) SQLJoinAssoc {
-	if table1column == cst.Empty || table2column == cst.Empty {
-		return nil
-	}
-	return func(alias1 string, alias2 string) SQLJoinOn {
-		return s.joinOn().Equal(alias1, table1column, alias2, table2column)
-	}
-}
-
-func (s *sqlJoin) Join(joinType string, table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	if table2 == nil || table2.ToSQL().IsEmpty() {
+func (s *sqlJoin) Join(joinType string, table SQLAlias, on SQLJoinOn) SQLJoin {
+	if table == nil || table.ToSQL().IsEmpty() {
 		return s
 	}
 	if joinType == cst.Empty {
 		joinType = JoinString(cst.INNER, cst.Space, cst.JOIN)
 	}
-	if table1 == nil || table1.ToSQL().IsEmpty() {
-		table1 = s.table
-	}
-	join := &sqlJoinSchema{
+	s.joins = append(s.joins, sqlJoinSchema{
 		joinType:  joinType,
-		joinTable: table2,
-	}
-	if on != nil {
-		alias1 := table1.GetAlias()
-		alias2 := table2.GetAlias()
-		if alias1 == cst.Empty {
-			// Use the default table name when the alias is empty; in this case,
-			// the table name should be the original table name or the CTE alias.
-			alias1 = table1.GetSQL().Prepare
-		}
-		if alias2 == cst.Empty {
-			// Use the default table name when the alias is empty; in this case,
-			// the table name should be the original table name or the CTE alias.
-			alias2 = table2.GetSQL().Prepare
-		}
-		join.condition = on(alias1, alias2)
-	}
-	s.joins = append(s.joins, join)
+		joinTable: table,
+		condition: on,
+	})
 	return s
 }
 
-func (s *sqlJoin) InnerJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	return s.Join(JoinString(cst.INNER, cst.Space, cst.JOIN), table1, table2, on)
+func (s *sqlJoin) InnerJoin(table SQLAlias, on SQLJoinOn) SQLJoin {
+	return s.Join(JoinString(cst.INNER, cst.Space, cst.JOIN), table, on)
 }
 
-func (s *sqlJoin) LeftJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	return s.Join(JoinString(cst.LEFT, cst.Space, cst.JOIN), table1, table2, on)
+func (s *sqlJoin) LeftJoin(table SQLAlias, on SQLJoinOn) SQLJoin {
+	return s.Join(JoinString(cst.LEFT, cst.Space, cst.JOIN), table, on)
 }
 
-func (s *sqlJoin) RightJoin(table1 SQLAlias, table2 SQLAlias, on SQLJoinAssoc) SQLJoin {
-	return s.Join(JoinString(cst.RIGHT, cst.Space, cst.JOIN), table1, table2, on)
+func (s *sqlJoin) RightJoin(table SQLAlias, on SQLJoinOn) SQLJoin {
+	return s.Join(JoinString(cst.RIGHT, cst.Space, cst.JOIN), table, on)
+}
+
+func (s *sqlJoin) joinOn(joinOn func(on SQLJoinOn)) SQLJoinOn {
+	result := s.way.cfg.NewSQLJoinOn(s.way)
+	if joinOn != nil {
+		joinOn(result)
+	}
+	return result
+}
+
+// JoinOn For `... JOIN ON ...`
+func (s *sqlJoin) JoinOn(joinOn func(on SQLJoinOn)) SQLJoinOn {
+	return s.joinOn(joinOn)
+}
+
+// JoinOnEqual For `... JOIN ON ... = ... [...]`
+func (s *sqlJoin) JoinOnEqual(table1column string, table2column string) SQLJoinOn {
+	table1column = strings.TrimSpace(table1column)
+	table2column = strings.TrimSpace(table2column)
+	ok1 := strings.Contains(table1column, cst.Point)
+	ok2 := strings.Contains(table2column, cst.Point)
+	if ok1 && ok2 {
+		return s.joinOn(func(on SQLJoinOn) {
+			on.JoinOn(func(f Filter) {
+				f.And(NewSQL(JoinString(table1column, cst.Space, cst.Equal, cst.Space, table2column)))
+			})
+		})
+	}
+	return s.joinOn(nil)
+}
+
+// JoinUsing For `... JOIN USING ...`
+func (s *sqlJoin) JoinUsing(columns ...string) SQLJoinOn {
+	return s.joinOn(func(on SQLJoinOn) {
+		on.Using(columns...)
+	})
 }
 
 func (s *sqlJoin) Select(columns ...any) SQLJoin {
@@ -759,18 +754,36 @@ func (s *sqlJoin) Select(columns ...any) SQLJoin {
 	return s
 }
 
-func (s *sqlJoin) tableColumns(table SQLAlias, columns []string) []string {
+func (s *sqlJoin) tableColumns(table any, columns []string) []string {
 	if table == nil {
 		return columns
 	}
-	return s.way.T(table.GetAlias()).ColumnAll(columns...)
+	value := ""
+	switch v := table.(type) {
+	case string:
+		if v == cst.Empty {
+			return columns
+		}
+		value = v
+	case SQLAlias:
+		if v == nil {
+			return columns
+		}
+		value = v.GetAlias()
+	default:
+		refValue := reflect.ValueOf(table)
+		if refValue.Type().Kind() == reflect.String {
+			return s.tableColumns(refValue.String(), columns)
+		}
+	}
+	return s.way.T(value).ColumnAll(columns...)
 }
 
-func (s *sqlJoin) TableColumn(table SQLAlias, column string, aliases ...string) string {
+func (s *sqlJoin) TableColumn(table any, column string, aliases ...string) string {
 	return s.way.Alias(s.tableColumns(table, []string{column})[0], aliases...).ToSQL().Prepare
 }
 
-func (s *sqlJoin) TableColumns(table SQLAlias, columns ...string) []string {
+func (s *sqlJoin) TableColumns(table any, columns ...string) []string {
 	return s.tableColumns(table, columns)
 }
 
@@ -887,9 +900,9 @@ func (s *sqlWindow) Del(alias string) SQLWindow {
 		return s
 	}
 	keeps := make([]string, 0, len(s.alias))
-	for _, tmp := range s.alias {
-		if tmp != alias {
-			keeps = append(keeps, tmp)
+	for _, value := range s.alias {
+		if value != alias {
+			keeps = append(keeps, value)
 		}
 	}
 	s.alias = keeps
@@ -1026,7 +1039,7 @@ type SQLOrderBy interface {
 	// Num Number of sorted columns used.
 	Num() int
 
-	// IsEmpty Is there a list of sorting columns?
+	// IsEmpty Is the sort column empty?
 	IsEmpty() bool
 
 	// Allow the list of columns that can be used for sorting.
@@ -1373,6 +1386,31 @@ type Limiter interface {
 	GetOffset() int64
 }
 
+func valuesToSQL(values [][]any) *SQL {
+	script := NewEmptySQL()
+	count := len(values)
+	if count == 0 {
+		return script
+	}
+	length := len(values[0])
+	if length == 0 {
+		return script
+	}
+	line := make([]string, length)
+	script.Args = make([]any, 0, count*length)
+	for i := range length {
+		line[i] = cst.Placeholder
+	}
+	value := ParcelPrepare(strings.Join(line, cst.CommaSpace))
+	rows := make([]string, count)
+	for i := range count {
+		script.Args = append(script.Args, values[i]...)
+		rows[i] = value
+	}
+	script.Prepare = strings.Join(rows, cst.CommaSpace)
+	return script
+}
+
 // SQLValues Build INSERT-VALUES statements.
 type SQLValues interface {
 	Maker
@@ -1392,9 +1430,6 @@ type SQLValues interface {
 
 	// SetValues The inserted data of VALUES.
 	SetValues(values ...[]any) SQLValues
-
-	// ValuesToSQL Values to *SQL.
-	ValuesToSQL(values [][]any) *SQL
 }
 
 type sqlValues struct {
@@ -1425,7 +1460,7 @@ func (s *sqlValues) ToSQL() *SQL {
 	if s.subquery != nil {
 		return s.subquery.ToSQL()
 	}
-	return s.ValuesToSQL(s.values)
+	return valuesToSQL(s.values)
 }
 
 func (s *sqlValues) GetSubquery() Maker {
@@ -1450,31 +1485,6 @@ func (s *sqlValues) GetValues() [][]any {
 func (s *sqlValues) SetValues(values ...[]any) SQLValues {
 	s.values = values
 	return s
-}
-
-func (s *sqlValues) ValuesToSQL(values [][]any) *SQL {
-	script := NewEmptySQL()
-	count := len(values)
-	if count == 0 {
-		return script
-	}
-	length := len(values[0])
-	if length == 0 {
-		return script
-	}
-	line := make([]string, length)
-	script.Args = make([]any, 0, count*length)
-	for i := range length {
-		line[i] = cst.Placeholder
-	}
-	value := ParcelPrepare(strings.Join(line, cst.CommaSpace))
-	rows := make([]string, count)
-	for i := range count {
-		script.Args = append(script.Args, values[i]...)
-		rows[i] = value
-	}
-	script.Prepare = strings.Join(rows, cst.CommaSpace)
-	return script
 }
 
 // SQLReturning Build INSERT INTO xxx RETURNING xxx
@@ -1547,7 +1557,7 @@ func (s *sqlReturning) Prepare(prepare func(tmp *SQL)) SQLReturning {
 
 // Returning Set the RETURNING statement to return one or more columns.
 func (s *sqlReturning) Returning(columns ...string) SQLReturning {
-	columns = ArrayDiscard(columns, func(k int, v string) bool { return strings.TrimSpace(v) == cst.Empty })
+	columns = SliceDiscard(columns, func(k int, v string) bool { return strings.TrimSpace(v) == cst.Empty })
 	length := len(columns)
 	if length == 0 {
 		columns = []string{cst.Asterisk}
@@ -1769,19 +1779,11 @@ func (s *sqlUpdateSet) ToSQL() *SQL {
 	return script
 }
 
-func (s *sqlUpdateSet) beautifyExpr(update string) string {
-	update = strings.TrimSpace(update)
-	for strings.Contains(update, "  ") {
-		update = strings.ReplaceAll(update, "  ", cst.Space)
-	}
-	return update
-}
-
 func (s *sqlUpdateSet) exprArgs(value *SQL) SQLUpdateSet {
 	if value == nil || value.IsEmpty() {
 		return s
 	}
-	update := s.beautifyExpr(value.Prepare)
+	update := strings.TrimSpace(value.Prepare)
 	if update == cst.Empty {
 		return s
 	}
@@ -1961,12 +1963,12 @@ func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
 			dropArgs[index] = nil
 		}
 	}
-	updateExpr := ArrayDiscard(s.updateExpr, func(k int, v string) bool {
+	updateExpr := SliceDiscard(s.updateExpr, func(k int, v string) bool {
 		_, ok := dropExpr[v]
 		return ok
 	})
 
-	updateArgs := ArrayDiscard(s.updateArgs, func(k int, v []any) bool {
+	updateArgs := SliceDiscard(s.updateArgs, func(k int, v []any) bool {
 		_, ok := dropArgs[k]
 		return ok
 	})
@@ -2355,7 +2357,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 	if !ok {
 		if len(values) > 0 {
 			makers = append(makers, NewSQL(cst.VALUES))
-			makers = append(makers, s.values.ValuesToSQL(values))
+			makers = append(makers, valuesToSQL(values))
 			ok = true
 		}
 	}
@@ -2494,8 +2496,8 @@ func (s *sqlInsert) ReturningId() SQLInsert {
 
 // Create value of creation should be one of struct{}, *struct{}, map[string]any, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
 func (s *sqlInsert) Create(create any) SQLInsert {
-	forbid := MapToArray(s.forbidSet, func(k string, v *struct{}) string { return k })
-	onlyAllow := MapToArray(s.onlyAllow, func(k string, v *struct{}) string { return k })
+	forbid := MapToSlice(s.forbidSet, func(k string, v *struct{}) string { return k })
+	onlyAllow := MapToSlice(s.onlyAllow, func(k string, v *struct{}) string { return k })
 	columns, values, category := ObjectInsert(create, s.way.cfg.ScanTag, forbid, onlyAllow)
 	if category == CategoryInsertOne {
 		defer s.ReturningId()
@@ -2507,12 +2509,12 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 		}
 	}
 	if len(removes) > 0 {
-		columns = ArrayDiscard(columns, func(k int, v string) bool {
+		columns = SliceDiscard(columns, func(k int, v string) bool {
 			_, ok := removes[k]
 			return ok
 		})
 		for index, value := range values {
-			values[index] = ArrayDiscard(value, func(k int, v any) bool {
+			values[index] = SliceDiscard(value, func(k int, v any) bool {
 				_, ok := removes[k]
 				return ok
 			})
@@ -2525,12 +2527,12 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 				indexes[index] = nil
 			}
 		}
-		columns = ArrayDiscard(columns, func(k int, v string) bool {
+		columns = SliceDiscard(columns, func(k int, v string) bool {
 			_, ok := indexes[k]
 			return !ok
 		})
 		for index, value := range values {
-			values[index] = ArrayDiscard(value, func(k int, v any) bool {
+			values[index] = SliceDiscard(value, func(k int, v any) bool {
 				_, ok := indexes[k]
 				return !ok
 			})
@@ -2575,7 +2577,7 @@ func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 	if len(assoc) == 0 {
 		return s
 	}
-	fields = ArrayDiscard(fields, func(k int, v string) bool {
+	fields = SliceDiscard(fields, func(k int, v string) bool {
 		if _, ok = assoc[k]; ok {
 			delete(params, k)
 		}
@@ -2583,7 +2585,7 @@ func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 	})
 	s.columns.Del().Set(fields, params)
 	for index, value := range values {
-		values[index] = ArrayDiscard(value, func(k int, v any) bool {
+		values[index] = SliceDiscard(value, func(k int, v any) bool {
 			_, ok = assoc[k]
 			return ok
 		})
@@ -2616,8 +2618,8 @@ func (s *sqlInsert) GetColumn(excludes ...string) []string {
 	if lengths == 0 {
 		return columns
 	}
-	discard := ArrayToMap(excludes, func(v string) (string, *struct{}) { return v, nil })
-	columns = ArrayDiscard(columns, func(k int, v string) bool {
+	discard := SliceToMap(excludes, func(v string) (string, *struct{}) { return v, nil })
+	columns = SliceDiscard(columns, func(k int, v string) bool {
 		_, ok := discard[v]
 		return ok
 	})

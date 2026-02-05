@@ -19,7 +19,7 @@ func AnyAny[T any](slice []T) []any {
 	return result
 }
 
-// DiscardDuplicate Slice deduplication.
+// DiscardDuplicate Slice member deduplication.
 func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (result []T) {
 	length := len(dynamic)
 	mp := make(map[T]*struct{}, length)
@@ -40,8 +40,8 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 	return result
 }
 
-// MergeArray Merge slices.
-func MergeArray[V any](values ...[]V) []V {
+// MergeSlice Combine multiple slices of the same type into one slice.
+func MergeSlice[V any](values ...[]V) []V {
 	length := len(values)
 	result := make([]V, 0)
 	for i := range length {
@@ -54,7 +54,7 @@ func MergeArray[V any](values ...[]V) []V {
 	return result
 }
 
-// MergeMap Merge maps.
+// MergeMap Combine multiple maps of the same type into one map.
 func MergeMap[K comparable, V any](values ...map[K]V) map[K]V {
 	length := len(values)
 	result := make(map[K]V, 8)
@@ -64,8 +64,8 @@ func MergeMap[K comparable, V any](values ...map[K]V) map[K]V {
 	return result
 }
 
-// MapToArray Create a slice from a map.
-func MapToArray[K comparable, V any, W any](values map[K]V, fx func(k K, v V) W) []W {
+// MapToSlice Create a slice using a custom function and map.
+func MapToSlice[K comparable, V any, W any](values map[K]V, fx func(k K, v V) W) []W {
 	if fx == nil {
 		return nil
 	}
@@ -90,8 +90,8 @@ func MapToMap[K comparable, V any, X comparable, Y any](values map[K]V, fx func(
 	return result
 }
 
-// ArrayToArray Create a slice from another slice.
-func ArrayToArray[V any, W any](values []V, fx func(k int, v V) W) []W {
+// SliceToSlice Create a slice from another slice.
+func SliceToSlice[V any, W any](values []V, fx func(k int, v V) W) []W {
 	if fx == nil {
 		return nil
 	}
@@ -102,8 +102,8 @@ func ArrayToArray[V any, W any](values []V, fx func(k int, v V) W) []W {
 	return result
 }
 
-// ArrayToMap Create a map from a slice.
-func ArrayToMap[V any, K comparable, W any](values []V, fx func(v V) (K, W)) map[K]W {
+// SliceToMap Create a map using a custom function and slice.
+func SliceToMap[V any, K comparable, W any](values []V, fx func(v V) (K, W)) map[K]W {
 	if fx == nil {
 		return nil
 	}
@@ -116,8 +116,8 @@ func ArrayToMap[V any, K comparable, W any](values []V, fx func(v V) (K, W)) map
 	return result
 }
 
-// ArrayDiscard Delete some elements from a slice.
-func ArrayDiscard[V any](values []V, discard func(k int, v V) bool) []V {
+// SliceDiscard Delete some elements from a slice; the deletion criteria are determined by `discard`.
+func SliceDiscard[V any](values []V, discard func(k int, v V) bool) []V {
 	if values == nil || discard == nil {
 		return values
 	}
@@ -130,7 +130,7 @@ func ArrayDiscard[V any](values []V, discard func(k int, v V) bool) []V {
 	return result
 }
 
-// MapDiscard Delete some elements from the map.
+// MapDiscard Remove some elements from the map; the deletion criteria are determined by `discard`.
 func MapDiscard[K comparable, V any](values map[K]V, discard func(k K, v V) bool) map[K]V {
 	if values == nil || discard == nil {
 		return values
@@ -165,8 +165,8 @@ func LastNotEmptyString(sss []string) string {
 	return cst.Empty
 }
 
-// BlockComment SQL statement block comment.
-func BlockComment(comment string) string {
+// SQLBlockComment SQL statement block comment.
+func SQLBlockComment(comment string) string {
 	comment = strings.TrimSpace(comment)
 	if comment == cst.Empty {
 		return ""
@@ -216,8 +216,8 @@ func InGroupValues[T any](values []T, fx func(tmp T) []any) [][]any {
 	return result[:num]
 }
 
-// ValuePascal Pascal case.
-func ValuePascal(value string) string {
+// NamingPascal Naming pascal case.
+func NamingPascal(value string) string {
 	if value == cst.Empty {
 		return cst.Empty
 	}
@@ -239,17 +239,17 @@ func ValuePascal(value string) string {
 	return string(result[:])
 }
 
-// ValueCamel Camel case.
-func ValueCamel(value string) string {
+// NamingCamel Naming camel case.
+func NamingCamel(value string) string {
 	if value == cst.Empty {
 		return cst.Empty
 	}
-	value = ValuePascal(value)
+	value = NamingPascal(value)
 	return JoinString(strings.ToLower(value[0:1]), value[1:])
 }
 
-// ValueUnderline Underline case.
-func ValueUnderline(value string) string {
+// NamingUnderline Naming underline case.
+func NamingUnderline(value string) string {
 	if value == cst.Empty {
 		return cst.Empty
 	}
