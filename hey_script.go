@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -668,6 +669,9 @@ func (s *sqlAlias) ToSQL() *SQL {
 	return result
 }
 
+// subqueryRegexp Match subquery regexp.
+var subqueryRegexp = regexp.MustCompile("^[Ss][Ee][Ll][Ee][Cc][Tt] [\\s\\S]+$")
+
 // optimizeTableSQL Optimize table SQL.
 func optimizeTableSQL(way *Way, table *SQL) *SQL {
 	if way == nil {
@@ -677,26 +681,19 @@ func optimizeTableSQL(way *Way, table *SQL) *SQL {
 	if table == nil || table.IsEmpty() {
 		return result
 	}
+
 	latest := table.Clone()
 	latest.Prepare = strings.TrimSpace(latest.Prepare)
 	if latest.IsEmpty() {
 		return result
 	}
-	single := cst.Space
-	double := JoinString(single, single)
-	for strings.Contains(latest.Prepare, double) {
-		latest.Prepare = strings.ReplaceAll(latest.Prepare, double, single)
-	}
-	count := strings.Count(latest.Prepare, cst.Space)
-	if count == 0 {
-		latest.Prepare = way.Replace(latest.Prepare)
+
+	if subqueryRegexp.MatchString(latest.Prepare) {
+		latest = ParcelSQL(latest)
 	} else {
-		if count > 2 {
-			// Using a subquery as a table.
-			// Consider subqueries with alias name.
-			latest = ParcelSQL(latest)
-		}
+		latest.Prepare = way.Replace(latest.Prepare)
 	}
+
 	return latest
 }
 
