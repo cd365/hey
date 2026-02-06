@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -669,14 +668,12 @@ func (s *sqlAlias) ToSQL() *SQL {
 	return result
 }
 
-// subqueryRegexp Match subquery regexp.
-var subqueryRegexp = regexp.MustCompile("^[Ss][Ee][Ll][Ee][Cc][Tt] [\\s\\S]+$")
-
 // optimizeTableSQL Optimize table SQL.
 func optimizeTableSQL(way *Way, table *SQL) *SQL {
 	if way == nil {
 		panic(pin)
 	}
+
 	result := NewEmptySQL()
 	if table == nil || table.IsEmpty() {
 		return result
@@ -688,12 +685,23 @@ func optimizeTableSQL(way *Way, table *SQL) *SQL {
 		return result
 	}
 
-	if subqueryRegexp.MatchString(latest.Prepare) {
-		latest = ParcelSQL(latest)
-	} else {
-		latest.Prepare = way.Replace(latest.Prepare)
+	length := len(latest.Prepare)
+	single := true
+	for i := 0; i < length; i++ {
+		if cst.Space[0] == latest.Prepare[i] {
+			single = false
+			break
+		}
 	}
 
+	if single {
+		// Table name.
+		latest.Prepare = way.Replace(latest.Prepare)
+		return latest
+	}
+
+	// Use a subquery as table.
+	latest = ParcelSQL(latest)
 	return latest
 }
 
@@ -707,17 +715,17 @@ func newSQLTable(way *Way, table any) SQLAlias {
 		result.SetSQL(AnyToSQL(table))
 		return result
 	}
-	switch example := table.(type) {
+	switch value := table.(type) {
 	case string:
-		result.SetSQL(optimizeTableSQL(way, NewSQL(example)))
+		result.SetSQL(optimizeTableSQL(way, NewSQL(value)))
 	case *SQL:
-		result.SetSQL(optimizeTableSQL(way, example))
+		result.SetSQL(optimizeTableSQL(way, value))
 	case Maker:
-		if example != nil {
-			result.SetSQL(optimizeTableSQL(way, example.ToSQL()))
+		if value != nil {
+			result.SetSQL(optimizeTableSQL(way, value.ToSQL()))
 		}
 	case TableNamer:
-		result.SetSQL(optimizeTableSQL(way, NewSQL(example.Table())))
+		result.SetSQL(optimizeTableSQL(way, NewSQL(value.Table())))
 	default:
 		methodName := way.cfg.TableMethodName
 		if methodName == cst.Empty {
