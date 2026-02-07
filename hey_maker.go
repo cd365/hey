@@ -32,6 +32,8 @@ type SQLLabel interface {
 }
 
 type sqlLabel struct {
+	way *Way
+
 	labelsMap map[string]*struct{}
 
 	// separator Set separator string between multiple labels.
@@ -42,13 +44,14 @@ type sqlLabel struct {
 
 func newSQLLabel(way *Way) SQLLabel {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	separator := way.cfg.LabelsSeparator
 	if separator == cst.Empty {
 		separator = cst.Comma
 	}
 	return &sqlLabel{
+		way:       way,
 		labelsMap: make(map[string]*struct{}, 1),
 		labels:    make([]string, 0, 1),
 		separator: separator,
@@ -65,6 +68,9 @@ func (s *sqlLabel) Labels(labels ...string) SQLLabel {
 		label = strings.TrimSpace(label)
 		if label == cst.Empty {
 			continue
+		}
+		if s.way.cfg.Manual.Prepare != nil {
+			label = strings.ReplaceAll(label, cst.Placeholder, cst.Empty)
 		}
 		if _, ok := s.labelsMap[label]; ok {
 			continue
@@ -127,7 +133,7 @@ type sqlWith struct {
 
 func newSQLWith(way *Way) SQLWith {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlWith{
 		column:  make(map[string][]string, 1<<1),
@@ -285,7 +291,7 @@ type sqlSelect struct {
 
 func newSQLSelect(way *Way) SQLSelect {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlSelect{
 		columnsMap:  make(map[string]int, 1<<5),
@@ -378,6 +384,7 @@ func (s *sqlSelect) Del(columns ...string) SQLSelect {
 	if removes == 0 {
 		return s
 	}
+
 	deletes := make(map[int]*struct{}, removes)
 	for _, column := range columns {
 		if column == cst.Empty {
@@ -391,14 +398,20 @@ func (s *sqlSelect) Del(columns ...string) SQLSelect {
 	}
 	length := len(s.columns)
 	result := make([]string, 0, length)
-	for index, column := range s.columns {
-		if _, ok := deletes[index]; ok {
-			delete(s.columnsMap, column)
-			delete(s.columnsArgs, index)
-		} else {
-			result = append(result, column)
+	resultMap := make(map[string]int, length)
+	resultArgs := make(map[int][]any, length)
+	index := 0
+	for key, column := range s.columns {
+		if _, ok := deletes[key]; ok {
+			continue
 		}
+		result = append(result, column)
+		resultMap[column] = index
+		resultArgs[index] = s.columnsArgs[key]
+		index++
 	}
+	s.columnsMap = resultMap
+	s.columnsArgs = resultArgs
 	s.columns = result
 	return s
 }
@@ -498,7 +511,7 @@ type sqlJoinOn struct {
 
 func newSQLJoinOn(way *Way) SQLJoinOn {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlJoinOn{
 		way:    way,
@@ -629,7 +642,7 @@ type sqlJoin struct {
 
 func newSQLJoin(way *Way, query SQLSelect) SQLJoin {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	tmp := &sqlJoin{
 		way:   way,
@@ -809,7 +822,7 @@ type sqlWindow struct {
 
 func newSQLWindow(way *Way) SQLWindow {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlWindow{
 		way:     way,
@@ -937,7 +950,7 @@ type sqlGroupBy struct {
 
 func newSQLGroupBy(way *Way) SQLGroupBy {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlGroupBy{
 		having:           way.F(),
@@ -1071,7 +1084,7 @@ type sqlOrderBy struct {
 
 func newSQLOrderBy(way *Way) SQLOrderBy {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlOrderBy{
 		orderMap: make(map[string]int, 1<<1),
@@ -1251,7 +1264,7 @@ type sqlLimit struct {
 
 func newSQLLimit(way *Way) SQLLimit {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlLimit{
 		way: way,
@@ -1440,7 +1453,7 @@ type sqlValues struct {
 
 func newSQLValues(way *Way) SQLValues {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlValues{
 		values: make([][]any, 1),
@@ -1535,7 +1548,7 @@ type sqlReturning struct {
 
 func newSQLReturning(way *Way, insert Maker) SQLReturning {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlReturning{
 		way:    way,
@@ -1723,7 +1736,7 @@ func (s *sqlUpdateSet) toEmpty() {
 
 func newSQLUpdateSet(way *Way) SQLUpdateSet {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	result := &sqlUpdateSet{
 		way: way,
@@ -2032,7 +2045,7 @@ type sqlOnConflictUpdateSet struct {
 
 func newSQLOnConflictUpdateSet(way *Way) SQLOnConflictUpdateSet {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	tmp := &sqlOnConflictUpdateSet{
 		way: way,
@@ -2090,7 +2103,7 @@ type sqlOnConflict struct {
 
 func newSQLOnConflict(way *Way, insert Maker) SQLOnConflict {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlOnConflict{
 		way:    way,
@@ -2273,7 +2286,7 @@ func (s *sqlInsert) toEmpty() {
 
 func newSQLInsert(way *Way) SQLInsert {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	result := &sqlInsert{
 		way: way,
@@ -2676,7 +2689,7 @@ type sqlCase struct {
 
 func NewSQLCase(way *Way) SQLCase {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlCase{
 		way: way,

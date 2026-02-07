@@ -360,7 +360,7 @@ func ParcelSQL(script *SQL) *SQL {
 func ParcelCancelPrepare(prepare string) string {
 	prepare = strings.TrimSpace(prepare)
 	prepare = strings.TrimPrefix(prepare, JoinString(cst.LeftParenthesis, cst.Space))
-	return strings.TrimSuffix(prepare, JoinString(cst.Space, cst.LeftParenthesis))
+	return strings.TrimSuffix(prepare, JoinString(cst.Space, cst.RightParenthesis))
 }
 
 // ParcelCancelSQL Cancel parcel the SQL statement. ( `subquery` ) => `subquery` OR ( ( `subquery` ) ) => ( `subquery` )
@@ -671,7 +671,7 @@ func (s *sqlAlias) ToSQL() *SQL {
 // optimizeTableSQL Optimize table SQL.
 func optimizeTableSQL(way *Way, table *SQL) *SQL {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 
 	result := NewEmptySQL()
@@ -708,7 +708,7 @@ func optimizeTableSQL(way *Way, table *SQL) *SQL {
 // newSQLTable Extract table names from any type.
 func newSQLTable(way *Way, table any) SQLAlias {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	result := newSqlAlias(cst.Empty).w(way)
 	if table == nil {
@@ -1205,13 +1205,13 @@ func basicTypeValue(value any) any {
 			}
 			switch k {
 			case reflect.String:
-				return cst.Empty
+				return nil
 			case reflect.Bool:
-				return false
+				return nil
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 				reflect.Float32, reflect.Float64:
-				return 0
+				return nil
 			default:
 				return reflect.Indirect(reflect.New(t)).Interface()
 			}
@@ -1462,6 +1462,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		sliceLength := reflectValue.Len()
 		values = make([][]any, sliceLength)
 		var indexValueType reflect.Type
+	VALUES:
 		for i := range sliceLength {
 			indexValue := reflectValue.Index(i)
 
@@ -1474,6 +1475,9 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 			}
 
 			for indexValue.Kind() == reflect.Pointer {
+				if indexValue.IsNil() {
+					continue VALUES
+				}
 				indexValue = indexValue.Elem()
 			}
 
@@ -1538,6 +1542,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 }
 
 // ObjectInsert Object should be one of map[string]any, []map[string]any, struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
+// Friendly reminder: When using a struct type as the data insertion carrier, its data will be used as long as the corresponding tag exists, even if its value is nil.
 func ObjectInsert(object any, tag string, except []string, allow []string) (columns []string, values [][]any, category CategoryInsert) {
 	i := poolGetObjectInsert()
 	defer poolPutObjectInsert(i)
@@ -1545,6 +1550,7 @@ func ObjectInsert(object any, tag string, except []string, allow []string) (colu
 }
 
 // ObjectModify Object should be one of map[string]any, anyStruct, *anyStruct get the columns and values that need to be modified.
+// Friendly reminder: When using a struct type as the data update carrier, only data with non-nil values will be updated.
 func ObjectModify(object any, tag string, except ...string) (columns []string, values []any) {
 	if object == nil {
 		return columns, values
@@ -2067,7 +2073,7 @@ type tableColumn struct {
 
 func NewTableColumn(way *Way, tableName ...string) TableColumn {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	tmp := &tableColumn{
 		way: way,
@@ -2299,7 +2305,7 @@ type sqlWindowFuncOver struct {
 
 func NewSQLWindowFuncOver(way *Way) SQLWindowFuncOver {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &sqlWindowFuncOver{
 		way: way,

@@ -3,7 +3,6 @@ package pgsql
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -107,6 +106,7 @@ func initialize() error {
 }
 
 func Main() {
+	// log.Default().SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Llongfile)
 	log.Default().SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 
 	if err := initialize(); err != nil {
@@ -135,10 +135,6 @@ func Main() {
 	WindowFunc()
 
 	WayMulti()
-
-	Cache()
-
-	CacheQuery()
 }
 
 /*
@@ -146,13 +142,13 @@ The following code demonstrates how to construct SQL statements using `way` and 
 */
 
 var (
-	department = schema.Department
-	employee   = schema.Employee
+	msd = schema.Department
+	mse = schema.Employee
 )
 
 func SelectEmpty() {
-	tmp := way.Table(employee.Table())
-	tmp.Select(employee.Select()).Desc(employee.Id).Limit(1)
+	tmp := way.Table(mse.Table())
+	tmp.Select(mse.Select()).Desc(mse.Id).Limit(1)
 	ctx := context.Background()
 	exists := &model.Employee{}
 	err := tmp.Scan(ctx, exists)
@@ -170,8 +166,8 @@ func Delete() {
 	// Example 1: Simple condition deletion.
 	{
 		ctx := context.Background()
-		script := way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
-			f.Equal(department.Id, 1)
+		script := way.Table(msd.Table()).WhereFunc(func(f hey.Filter) {
+			f.Equal(msd.Id, 1)
 		})
 		way.Debug(script.ToDelete())
 		_, err := script.Delete(ctx)
@@ -182,19 +178,19 @@ func Delete() {
 
 	// Example 2: Deleting based on multiple values from the same column.
 	{
-		script := way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
-			f.In(department.Id, 1, 2, 3)
+		script := way.Table(msd.Table()).WhereFunc(func(f hey.Filter) {
+			f.In(msd.Id, 1, 2, 3)
 		})
 		way.Debug(script.ToDelete())
 	}
 
 	// Example 3: Combination conditions of multiple columns.
 	{
-		script := way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
-			f.GreaterThanEqual(department.Id, 1).Group(func(g hey.Filter) {
-				g.IsNull(department.DeletedAt)
+		script := way.Table(msd.Table()).WhereFunc(func(f hey.Filter) {
+			f.GreaterThanEqual(msd.Id, 1).Group(func(g hey.Filter) {
+				g.IsNull(msd.DeletedAt)
 				g.OrGroup(func(g hey.Filter) {
-					g.Equal(department.DeletedAt, 0)
+					g.Equal(msd.DeletedAt, 0)
 				})
 			})
 		})
@@ -203,32 +199,35 @@ func Delete() {
 
 	// Example 4: Deletion of combined conditions with multiple columns and multiple logic.
 	{
-		script := way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
-			f.InGroup([]string{department.Id, department.SerialNum}, [][]any{
+		script := way.Table(msd.Table()).WhereFunc(func(f hey.Filter) {
+			f.InGroup([]string{msd.Id, msd.SerialNum}, [][]any{
 				{1, 1},
 				{2, 1},
 				{3, 1},
 			})
 			f.OrGroup(func(g hey.Filter) {
-				g.In(department.Id, way.Table(department.Table()).Select(department.Id).WhereFunc(func(f hey.Filter) {
-					f.GreaterThan(department.DeletedAt, 0)
-				}))
+				g.In(
+					msd.Id,
+					way.Table(msd.Table()).Select(msd.Id).WhereFunc(func(f hey.Filter) {
+						f.GreaterThan(msd.DeletedAt, 0)
+					}).ToSelect(),
+				)
 			})
 		})
-		way.Debug(script.ToDelete())
+		way.Debug(script.ToSelect())
 	}
 
 	// Delete example data
 	{
 		ctx := context.Background()
-		_, err := way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(department.Id, 0)
+		_, err := way.Table(msd.Table()).WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(msd.Id, 0)
 		}).Delete(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}
-		_, err = way.Table(employee.Table()).WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(employee.Id, 0)
+		_, err = way.Table(mse.Table()).WhereFunc(func(f hey.Filter) {
+			f.GreaterThan(mse.Id, 0)
 		}).Delete(ctx)
 		if err != nil {
 			log.Fatal(err)
@@ -239,9 +238,9 @@ func Delete() {
 func Insert() {
 	// Example 1: Simple insertion.
 	{
-		script := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.ColumnValue(department.Name, "Sales Department")
-			i.ColumnValue(department.SerialNum, 1)
+		script := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(msd.Name, "Sales Department")
+			i.ColumnValue(msd.SerialNum, 1)
 		})
 		way.Debug(script.ToInsert())
 	}
@@ -249,20 +248,20 @@ func Insert() {
 	// Example 2: Use default values and set SQL statement comments.
 	{
 		timestamp := way.Now().Unix()
-		table := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.ColumnValue(department.Name, "Sales Department")
-			i.ColumnValue(department.SerialNum, 1)
-			i.Default(department.CreatedAt, timestamp)
-			i.Default(department.UpdatedAt, timestamp)
+		table := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(msd.Name, "Sales Department")
+			i.ColumnValue(msd.SerialNum, 1)
+			i.Default(msd.CreatedAt, timestamp)
+			i.Default(msd.UpdatedAt, timestamp)
 		})
 		way.Debug(table.ToInsert())
 		table.Labels("Example 1")
 		way.Debug(table.ToInsert())
 
 		// Not setting any columns will result in an incorrectly formatted SQL statement.
-		table = way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.Default(department.CreatedAt, timestamp)
-			i.Default(department.UpdatedAt, timestamp)
+		table = way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.Default(msd.CreatedAt, timestamp)
+			i.Default(msd.UpdatedAt, timestamp)
 		})
 		way.Debug(table.ToInsert())
 	}
@@ -270,14 +269,14 @@ func Insert() {
 	// Example 3: Delete the specified column before inserting data.
 	{
 		timestamp := way.Now().Unix()
-		script := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.ColumnValue(department.Name, "Sales Department")
-			i.ColumnValue(department.SerialNum, 1)
-			i.ColumnValue(department.DeletedAt, timestamp)
-			i.Default(department.CreatedAt, timestamp)
-			i.Default(department.UpdatedAt, timestamp)
+		script := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(msd.Name, "Sales Department")
+			i.ColumnValue(msd.SerialNum, 1)
+			i.ColumnValue(msd.DeletedAt, timestamp)
+			i.Default(msd.CreatedAt, timestamp)
+			i.Default(msd.UpdatedAt, timestamp)
 			// This deletes columns that have already been added.
-			i.Remove(department.DeletedAt)
+			i.Remove(msd.DeletedAt)
 		})
 		way.Debug(script.ToInsert())
 	}
@@ -285,12 +284,12 @@ func Insert() {
 	// Example 4: Use map insertion.
 	{
 		timestamp := way.Now().Unix()
-		script := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
+		script := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
 			i.Create(map[string]any{
-				department.Name:      "Sales Department",
-				department.SerialNum: 1,
-				department.CreatedAt: timestamp,
-				department.UpdatedAt: timestamp,
+				msd.Name:      "Sales Department",
+				msd.SerialNum: 1,
+				msd.CreatedAt: timestamp,
+				msd.UpdatedAt: timestamp,
 			})
 		})
 		way.Debug(script.ToInsert())
@@ -299,19 +298,19 @@ func Insert() {
 	// Example 5: Batch insertion using map slices.
 	{
 		timestamp := way.Now().Unix()
-		script := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
+		script := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
 			i.Create([]map[string]any{
 				{
-					department.Name:      "Sales Department1",
-					department.SerialNum: 1,
-					department.CreatedAt: timestamp,
-					department.UpdatedAt: timestamp,
+					msd.Name:      "Sales Department1",
+					msd.SerialNum: 1,
+					msd.CreatedAt: timestamp,
+					msd.UpdatedAt: timestamp,
 				},
 				{
-					department.Name:      "Sales Department2",
-					department.SerialNum: 1,
-					department.CreatedAt: timestamp,
-					department.UpdatedAt: timestamp,
+					msd.Name:      "Sales Department2",
+					msd.SerialNum: 1,
+					msd.CreatedAt: timestamp,
+					msd.UpdatedAt: timestamp,
 				},
 			})
 		})
@@ -321,8 +320,8 @@ func Insert() {
 	// Example 6: Inserting a structure.
 	{
 		timestamp := way.Now().Unix()
-		script := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.Forbid(department.Id, department.DeletedAt)
+		script := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(msd.Id, msd.DeletedAt)
 			name := "Sales Department"
 			i.Create(&model.Department{
 				Name:      &name,
@@ -337,8 +336,8 @@ func Insert() {
 	// Example 7: Batch insertion using structure slices.
 	{
 		timestamp := way.Now().Unix()
-		script := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.Forbid(department.Id, department.DeletedAt)
+		script := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(msd.Id, msd.DeletedAt)
 			name1 := "Sales Department1"
 			name2 := "Sales Department2"
 			name3 := "Sales Department3"
@@ -375,8 +374,8 @@ func Insert() {
 	{
 		timestamp := way.Now().Unix()
 		ctx := context.Background()
-		id, err := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.Forbid(department.Id, department.DeletedAt)
+		id, err := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(msd.Id, msd.DeletedAt)
 			name := fmt.Sprintf("Sales Department %d", time.Now().Nanosecond())
 			i.Create(&model.Department{
 				Name:      &name,
@@ -385,7 +384,7 @@ func Insert() {
 				UpdatedAt: timestamp,
 			})
 			i.Returning(func(r hey.SQLReturning) {
-				r.Returning(department.Id)
+				r.Returning(msd.Id)
 				r.SetExecute(r.QueryRowScan())
 			})
 		}).Insert(ctx)
@@ -400,8 +399,8 @@ func Insert() {
 	if false {
 		timestamp := way.Now().Unix()
 		ctx := context.Background()
-		id, err := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.Forbid(department.Id, department.DeletedAt)
+		id, err := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(msd.Id, msd.DeletedAt)
 			name := fmt.Sprintf("Sales Department %d", time.Now().Nanosecond())
 			i.Create(&model.Department{
 				Name:      &name,
@@ -425,8 +424,8 @@ func Insert() {
 		timestamp := way.Now().Unix()
 		ctx := context.Background()
 		scanName := ""
-		id, err := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.Forbid(department.Id, department.DeletedAt)
+		id, err := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.Forbid(msd.Id, msd.DeletedAt)
 			name := fmt.Sprintf("Sales Department %d", time.Now().Nanosecond())
 			i.Create(&model.Department{
 				Name:      &name,
@@ -435,7 +434,7 @@ func Insert() {
 				UpdatedAt: timestamp,
 			})
 			i.Returning(func(r hey.SQLReturning) {
-				r.Returning(department.Id, department.Name)
+				r.Returning(msd.Id, msd.Name)
 				r.SetExecute(func(ctx context.Context, stmt *hey.Stmt, args ...any) (id int64, err error) {
 					err = stmt.QueryRow(ctx, func(row *sql.Row) error {
 						return row.Scan(&id, &scanName)
@@ -454,12 +453,12 @@ func Insert() {
 	// Example 12: Use the query result set as the data source for insertion.
 	{
 		ctx := context.Background()
-		rows, err := way.Table(department.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.Column(department.Name, department.SerialNum)
+		rows, err := way.Table(msd.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.Column(msd.Name, msd.SerialNum)
 			i.SetSubquery(
-				way.Table(department.Table()).WhereFunc(func(f hey.Filter) {
-					f.LessThan(department.Id, 0)
-				}).Select(department.Name, department.SerialNum).Desc(department.Id).Limit(1000).ToSelect(),
+				way.Table(msd.Table()).WhereFunc(func(f hey.Filter) {
+					f.LessThan(msd.Id, 0)
+				}).Select(msd.Name, msd.SerialNum).Desc(msd.Id).Limit(1000).ToSelect(),
 			)
 		}).Insert(ctx)
 		if err != nil {
@@ -472,11 +471,11 @@ func Insert() {
 	{
 		ctx := context.Background()
 		timestamp := time.Now().Unix()
-		_, err := way.Table(employee.Table()).InsertFunc(func(i hey.SQLInsert) {
-			i.ColumnValue(employee.Name, "Jack")
-			i.ColumnValue(employee.Age, 18)
-			i.ColumnValue(employee.CreatedAt, timestamp)
-			i.ColumnValue(employee.UpdatedAt, timestamp)
+		_, err := way.Table(mse.Table()).InsertFunc(func(i hey.SQLInsert) {
+			i.ColumnValue(mse.Name, "Jack")
+			i.ColumnValue(mse.Age, 18)
+			i.ColumnValue(mse.CreatedAt, timestamp)
+			i.ColumnValue(mse.UpdatedAt, timestamp)
 		}).Insert(ctx)
 		if err != nil {
 			log.Fatal(err.Error())
@@ -487,9 +486,9 @@ func Insert() {
 func Update() {
 	// Example 1: Simple update.
 	{
-		script := way.Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			f.Equal(department.Id, 1)
-			u.Set(department.SerialNum, 999)
+		script := way.Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(msd.Id, 1)
+			u.Set(msd.SerialNum, 999)
 		}).Labels("Example").ToUpdate()
 		way.Debug(script)
 	}
@@ -497,15 +496,15 @@ func Update() {
 	// Example 2: Update conditions using subquery.
 	{
 		ctx := context.Background()
-		rows, err := way.Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			subquery := way.Table(department.Table()).Limit(1).Select(department.Id).WhereFunc(func(f hey.Filter) {
-				f.Equal(department.SerialNum, 11)
-			}).Desc(department.Id)
-			f.CompareEqual(department.Id, subquery)
+		rows, err := way.Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			subquery := way.Table(msd.Table()).Limit(1).Select(msd.Id).WhereFunc(func(f hey.Filter) {
+				f.Equal(msd.SerialNum, 11)
+			}).Desc(msd.Id)
+			f.CompareEqual(msd.Id, subquery.ToSelect())
 			f.OrGroup(func(g hey.Filter) {
-				g.In(department.Id, subquery)
+				g.In(msd.Id, subquery.ToSelect())
 			})
-			u.Set(department.SerialNum, 999)
+			u.Set(msd.SerialNum, 999)
 		}).Update(ctx)
 		if err != nil {
 			log.Println(err.Error())
@@ -516,23 +515,23 @@ func Update() {
 
 	// Example 3: Set the default update column.
 	{
-		script := way.Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			f.Equal(department.Id, 1)
-			u.Set(department.SerialNum, 999)
-			u.Default(department.UpdatedAt, way.Now().Unix())
+		script := way.Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(msd.Id, 1)
+			u.Set(msd.SerialNum, 999)
+			u.Default(msd.UpdatedAt, way.Now().Unix())
 		}).ToUpdate()
 		way.Debug(script)
 	}
 
 	// Example 4: Update using map[string]any.
 	{
-		script := way.Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			f.Equal(department.Id, 1)
+		script := way.Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(msd.Id, 1)
 			u.Update(map[string]any{
-				department.SerialNum: 999,
-				department.Name:      "Sales Department",
+				msd.SerialNum: 999,
+				msd.Name:      "Sales Department",
 			})
-			u.Default(department.UpdatedAt, way.Now().Unix())
+			u.Default(msd.UpdatedAt, way.Now().Unix())
 		}).ToUpdate()
 		way.Debug(script)
 	}
@@ -547,38 +546,38 @@ func Update() {
 			SerialNum: &serialNum,
 		}
 		update.Id = &id
-		script := way.Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			f.Equal(department.Id, 1)
-			u.Forbid(department.Id)
+		script := way.Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(msd.Id, 1)
+			u.Forbid(msd.Id)
 			u.Update(update)
-			u.Remove(department.UpdatedAt)
-			u.Default(department.UpdatedAt, way.Now().Unix())
+			u.Remove(msd.UpdatedAt)
+			u.Default(msd.UpdatedAt, way.Now().Unix())
 		}).ToUpdate()
 		way.Debug(script)
 	}
 
 	// Example 6: Set column values to increment/decrement.
 	{
-		script := way.Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			f.Equal(department.Id, 1)
-			u.Set(department.Name, "Sales Department")
-			u.Incr(department.SerialNum, 1)
-			u.Default(department.UpdatedAt, way.Now().Unix())
+		script := way.Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(msd.Id, 1)
+			u.Set(msd.Name, "Sales Department")
+			u.Incr(msd.SerialNum, 1)
+			u.Default(msd.UpdatedAt, way.Now().Unix())
 		}).ToUpdate()
 		way.Debug(script)
 	}
 
 	// Example 7: Assign values directly to columns, or set raw values in the SQL script.
 	{
-		script := way.Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			f.Equal(department.Id, 1)
-			u.Assign(department.DeletedAt, department.UpdatedAt)
-			u.Assign(department.SerialNum, "123")
-			// u.Assign(department.Name, cst.Empty)
-			u.Assign(department.Name, cst.NULL)
-			u.Remove(department.Name)
-			u.Assign(department.Name, "'Sales Department'")
-			u.Remove(department.CreatedAt)
+		script := way.Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(msd.Id, 1)
+			u.Assign(msd.DeletedAt, msd.UpdatedAt)
+			u.Assign(msd.SerialNum, "123")
+			// u.Assign(msd.Name, cst.Empty)
+			u.Assign(msd.Name, cst.NULL)
+			u.Remove(msd.Name)
+			u.Assign(msd.Name, "'Sales Department'")
+			u.Remove(msd.CreatedAt)
 		}).ToUpdate()
 		way.Debug(script)
 	}
@@ -609,7 +608,7 @@ func Select() {
 		log.Println(version)
 	}
 
-	tmp := way.Table(employee.Table())
+	tmp := way.Table(mse.Table())
 
 	script := tmp.ToSelect()
 	way.Debug(script)
@@ -617,7 +616,7 @@ func Select() {
 	// ORDER BY xxx LIMIT n
 	{
 		tmp.ToEmpty()
-		tmp.Asc(employee.Id).Limit(1)
+		tmp.Asc(mse.Id).Limit(1)
 		script = tmp.ToSelect()
 		way.Debug(script)
 
@@ -641,7 +640,7 @@ func Select() {
 	// OFFSET
 	{
 		tmp.ToEmpty()
-		tmp.Asc(employee.Id).Limit(1).Offset(10)
+		tmp.Asc(mse.Id).Limit(1).Offset(10)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -649,7 +648,7 @@ func Select() {
 	// PAGE
 	{
 		tmp.ToEmpty()
-		tmp.Asc(employee.Id).Page(2, 10)
+		tmp.Asc(mse.Id).Page(2, 10)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -657,7 +656,7 @@ func Select() {
 	// comment
 	{
 		tmp.ToEmpty()
-		tmp.Labels("test label").Asc(employee.Id).Page(2, 10)
+		tmp.Labels("test label").Asc(mse.Id).Page(2, 10)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -665,7 +664,7 @@ func Select() {
 	// SELECT columns
 	{
 		tmp.ToEmpty()
-		tmp.Select(employee.Id, employee.Salary).Asc(employee.Id).Limit(1)
+		tmp.Select(mse.Id, mse.Salary).Asc(mse.Id).Limit(1)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -673,11 +672,11 @@ func Select() {
 	// GROUP BY
 	{
 		tmp.ToEmpty()
-		tmp.Select(employee.Id).Group(employee.Id).GroupFunc(func(g hey.SQLGroupBy) {
+		tmp.Select(mse.Id).Group(mse.Id).GroupFunc(func(g hey.SQLGroupBy) {
 			g.Having(func(having hey.Filter) {
-				having.GreaterThanEqual(employee.Id, 0)
+				having.GreaterThanEqual(mse.Id, 0)
 			})
-		}).Asc(employee.Id).Limit(1)
+		}).Asc(mse.Id).Limit(1)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -685,7 +684,7 @@ func Select() {
 	// DISTINCT
 	{
 		tmp.ToEmpty()
-		tmp.Distinct().Select(employee.Id, employee.SerialNum).Asc(employee.Id).Limit(1)
+		tmp.Distinct().Select(mse.Id, mse.SerialNum).Asc(mse.Id).Limit(1)
 		script = tmp.ToSelect()
 		way.Debug(script)
 	}
@@ -693,15 +692,15 @@ func Select() {
 	// WITH
 	{
 		a := "a"
-		c := department.Table()
+		c := msd.Table()
 		tmpWith := way.Table(a).Labels("test1").WithFunc(func(w hey.SQLWith) {
 			w.Set(
 				a,
-				way.Table(c).Select(employee.Id, employee.SerialNum).WhereFunc(func(f hey.Filter) {
-					f.Equal(employee.Id, 1)
-				}).Desc(employee.Id).Limit(10).ToSelect(),
+				way.Table(c).Select(mse.Id, mse.SerialNum).WhereFunc(func(f hey.Filter) {
+					f.Equal(mse.Id, 1)
+				}).Desc(mse.Id).Limit(10).ToSelect(),
 			)
-		}).Asc(employee.Id).Limit(1)
+		}).Asc(mse.Id).Limit(1)
 		script = tmpWith.ToSelect()
 		way.Debug(script)
 	}
@@ -713,20 +712,20 @@ func Select() {
 		ac := a.Column
 		bc := b.Column
 		where := way.F()
-		get := way.Table(employee.Table()).Alias(a.Table())
+		get := way.Table(mse.Table()).Alias(a.Table())
 		get.LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
-			joinTable := join.Table(department.Table(), b.Table())
-			joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
-			where.GreaterThan(ac(employee.Id), 0)
+			joinTable := join.Table(msd.Table(), b.Table())
+			joinOn := join.JoinOnEqual(ac(mse.DepartmentId), bc(msd.Id))
+			where.GreaterThan(ac(mse.Id), 0)
 			return joinTable, joinOn
 		})
 		get.Where(where)
 		get.Select(
 			ac(cst.Asterisk),
-			hey.Alias(hey.Coalesce(bc(department.Name), hey.SQLString("")), "department_name"), // string
-			bc(department.SerialNum, "department_serial_num"),                                  // pointer int
+			hey.Alias(hey.Coalesce(bc(msd.Name), hey.SQLString("")), "department_name"), // string
+			bc(msd.SerialNum, "department_serial_num"),                                  // pointer int
 		)
-		get.Desc(ac(employee.Id))
+		get.Desc(ac(mse.Id))
 		get.Limit(10).Offset(1)
 		// count, err := get.Count(context.Background())
 		script = get.ToSelect()
@@ -737,7 +736,7 @@ func Select() {
 	{
 		tmp.ToEmpty()
 		ctx := context.Background()
-		exists, err := tmp.Table(employee.Table()).QueryExists(ctx)
+		exists, err := tmp.Table(mse.Table()).QueryExists(ctx)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
@@ -756,13 +755,13 @@ func Select() {
 			first := result[0]
 			for k, v := range first {
 				if v == nil {
-					fmt.Printf("%s = %#v\n", k, v)
+					log.Printf("%s = %#v\n", k, v)
 				} else {
 					value := reflect.ValueOf(v).Elem().Interface()
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
-					fmt.Printf("%s = %#v\n", k, value)
+					log.Printf("%s = %#v\n", k, value)
 				}
 			}
 		}
@@ -773,9 +772,9 @@ func Select() {
 		tmp.ToEmpty()
 		ctx := context.Background()
 		ids := make([]int64, 0)
-		err := tmp.Table(employee.Table()).
-			Select(employee.Id).
-			Desc(employee.Id).
+		err := tmp.Table(mse.Table()).
+			Select(mse.Id).
+			Desc(mse.Id).
 			Limit(10).
 			Scan(ctx, &ids)
 		if err != nil {
@@ -790,7 +789,7 @@ func Select() {
 		script = tmp.SelectFunc(func(q hey.SQLSelect) {
 			q.ToEmpty()
 		}).WhereFunc(func(f hey.Filter) {
-			f.Equal(employee.Id, 0)
+			f.Equal(mse.Id, 0)
 		}).Limit(1).ToSelect()
 
 		lists := make([][]*model.Employee, 0, 8)
@@ -822,9 +821,9 @@ func Select() {
 	{
 		ctx := context.Background()
 		script = tmp.UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			u.Set(employee.Age, 0)
+			u.Set(mse.Age, 0)
 			f.ToEmpty()
-			f.Equal(employee.Id, 0)
+			f.Equal(mse.Id, 0)
 		}).ToUpdate()
 
 		var result error
@@ -903,7 +902,7 @@ func Transaction() {
 
 	rows := int64(0)
 
-	idEqual := func(idValue any) hey.Filter { return way.F().Equal(employee.Id, idValue) }
+	idEqual := func(idValue any) hey.Filter { return way.F().Equal(mse.Id, idValue) }
 	modify := map[string]any{
 		"salary": 1500,
 	}
@@ -914,12 +913,12 @@ func Transaction() {
 	ctx := context.Background()
 	err = way.Transaction(ctx, func(tx *hey.Way) error {
 		tx.TransactionMessage("transaction-message-1")
-		remove := tx.Table(employee.Table()).Where(idEqual(1))
+		remove := tx.Table(mse.Table()).Where(idEqual(1))
 		// _, _ = remove.Delete(ctx)
 		script := remove.ToDelete()
 		way.Debug(script)
 
-		update := tx.Table(department.Table()).Where(idEqual(1)).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+		update := tx.Table(msd.Table()).Where(idEqual(1)).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 			u.Update(modify)
 		})
 		// _, _ = update.Update(ctx)
@@ -947,7 +946,7 @@ func Transaction() {
 		return nil
 	})
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println(err.Error())
 	}
 
 	// Custom handling of transaction.
@@ -985,7 +984,7 @@ func Transaction() {
 		return err
 	}()
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Println(err.Error())
 	}
 }
 
@@ -1014,7 +1013,6 @@ func Filter() {
 		a5 := []int32{1, 2, 3}
 		a6 := []int64{1, 2, 3}
 		a7 := []uint{1, 2, 3}
-		a8 := []uint8{1, 2, 3}
 		a9 := []uint16{1, 2, 3}
 		a10 := []uint32{1, 2, 3}
 		a11 := []uint64{1, 2, 3}
@@ -1025,7 +1023,7 @@ func Filter() {
 		base := []any{
 			a1, a2, a3,
 			a4, a5, a6,
-			a7, a8, a9,
+			a7, a9,
 			a10, a11, a12,
 			a13, a14, a15,
 		}
@@ -1041,7 +1039,6 @@ func Filter() {
 		inList = append(inList, filterInAll(a5))
 		inList = append(inList, filterInAll(a6))
 		inList = append(inList, filterInAll(a7))
-		inList = append(inList, filterInAll(a8))
 		inList = append(inList, filterInAll(a9))
 		inList = append(inList, filterInAll(a10))
 		inList = append(inList, filterInAll(a11))
@@ -1051,7 +1048,7 @@ func Filter() {
 		inList = append(inList, filterInAll(a15))
 		for _, v := range inList {
 			f.ToEmpty()
-			f.In(employee.Id, v)
+			f.In(mse.Id, v)
 			way.Debug(f)
 		}
 	}
@@ -1062,78 +1059,78 @@ func Filter() {
 		g.Not()
 		way.Debug(f)
 		way.Debug(g)
-		g.Between(employee.Age, 18, 20)
+		g.Between(mse.Age, 18, 20)
 		way.Debug(g)
 	}
 	{
 		f.ToEmpty()
-		f.Equal(employee.Id, 1).Or(way.F().LessThanEqual(employee.Age, 18).ToSQL())
+		f.Equal(mse.Id, 1).Or(way.F().LessThanEqual(mse.Age, 18).ToSQL())
 		way.Debug(f)
 	}
 	{
 		f.ToEmpty()
 		startAge := 18
 		endAge := 20
-		f.ToEmpty().Between(employee.Age, startAge, nil)
+		f.ToEmpty().Between(mse.Age, startAge, nil)
 		way.Debug(f)
-		f.ToEmpty().Between(employee.Age, nil, endAge)
+		f.ToEmpty().Between(mse.Age, nil, endAge)
 		way.Debug(f)
-		f.ToEmpty().Between(employee.Age, startAge, endAge)
+		f.ToEmpty().Between(mse.Age, startAge, endAge)
 		way.Debug(f)
-		f.ToEmpty().Between(employee.Age, &startAge, nil)
+		f.ToEmpty().Between(mse.Age, &startAge, nil)
 		way.Debug(f)
-		f.ToEmpty().Between(employee.Age, nil, &endAge)
+		f.ToEmpty().Between(mse.Age, nil, &endAge)
 		way.Debug(f)
-		f.ToEmpty().Between(employee.Age, &startAge, &endAge)
+		f.ToEmpty().Between(mse.Age, &startAge, &endAge)
 		way.Debug(f)
 
 		f.ToEmpty().Equal(
-			employee.Id,
-			way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1),
+			mse.Id,
+			way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect(),
 		)
 		way.Debug(f)
 
 		f.ToEmpty().Equal(
-			employee.Id,
-			way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1).ToSelect(),
+			mse.Id,
+			way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect(),
 		)
 		way.Debug(f)
 
 		f.ToEmpty().In(
-			employee.Id,
-			way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(10),
+			mse.Id,
+			way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(10).ToSelect(),
 		)
 		way.Debug(f)
 	}
 	{
-		f.ToEmpty().Exists(way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1).ToSelect())
+		f.ToEmpty().Exists(way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect())
 		way.Debug(f)
 
-		f.ToEmpty().NotExists(way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(1).ToSelect())
+		f.ToEmpty().NotExists(way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect())
 		way.Debug(f)
 
-		f.ToEmpty().Like(employee.Name, "%Jick%")
+		f.ToEmpty().Like(mse.Name, "%Jick%")
 		way.Debug(f)
 
-		f.ToEmpty().NotLike(employee.Name, "%Jick%")
+		f.ToEmpty().NotLike(mse.Name, "%Jick%")
 		way.Debug(f)
 
-		f.ToEmpty().IsNotNull(employee.Email)
+		f.ToEmpty().IsNotNull(mse.Email)
 		way.Debug(f)
 
-		f.ToEmpty().NotEqual(employee.Id, 1)
+		f.ToEmpty().NotEqual(mse.Id, 1)
 		way.Debug(f)
 
-		f.ToEmpty().NotBetween(employee.Id, 1, 10)
+		f.ToEmpty().NotBetween(mse.Id, 1, 10)
 		way.Debug(f)
 
-		f.ToEmpty().NotIn(employee.Id, 1, 2, 3)
+		f.ToEmpty().NotIn(mse.Id, 1, 2, 3)
 		way.Debug(f)
 
-		f.ToEmpty().NotIn(employee.Id, []int64{1, 2, 3})
+		f.ToEmpty().NotIn(mse.Id, []int64{1, 2, 3})
 		way.Debug(f)
 
-		f.ToEmpty().NotInGroup([]string{employee.Gender, employee.Age}, [][]any{
+		f.ToEmpty().NotInGroup([]string{mse.Gender, mse.Age}, [][]any{
 			{
 				status.MALE,
 				18,
@@ -1145,44 +1142,44 @@ func Filter() {
 		})
 		way.Debug(f)
 
-		f.ToEmpty().InGroup([]string{employee.Gender, employee.Age}, way.Table(employee.Table()).Select(employee.Gender, employee.Age).Desc(employee.Id).Limit(10))
+		f.ToEmpty().InGroup([]string{mse.Gender, mse.Age}, way.Table(mse.Table()).Select(mse.Gender, mse.Age).Desc(mse.Id).Limit(10))
 		way.Debug(f)
 
-		f.ToEmpty().InGroup([]string{employee.Gender, employee.Age}, way.Table(employee.Table()).Select(employee.Gender, employee.Age).Desc(employee.Id).Limit(10).ToSelect())
+		f.ToEmpty().InGroup([]string{mse.Gender, mse.Age}, way.Table(mse.Table()).Select(mse.Gender, mse.Age).Desc(mse.Id).Limit(10).ToSelect())
 		way.Debug(f)
 
-		f.ToEmpty().Keyword("%test%", employee.Name, employee.Email)
-		way.Debug(f)
-	}
-
-	{
-		f.ToEmpty().CompareNotEqual(employee.CreatedAt, employee.UpdatedAt)
-		f.CompareGreaterThan(employee.CreatedAt, employee.UpdatedAt)
-		f.CompareGreaterThanEqual(employee.CreatedAt, employee.UpdatedAt)
-		f.CompareLessThan(employee.CreatedAt, employee.UpdatedAt)
-		f.CompareLessThanEqual(employee.CreatedAt, employee.UpdatedAt)
+		f.ToEmpty().Keyword("%test%", mse.Name, mse.Email)
 		way.Debug(f)
 	}
 
 	{
-		queryId := way.Table(employee.Table()).Select(employee.Id).Desc(employee.Id).Limit(10).ToSelect()
-		queryAge := way.Table(employee.Table()).Select(employee.Age).Group(employee.Age).HavingFunc(func(h hey.Filter) {
-			h.Between(employee.Age, 18, 25)
+		f.ToEmpty().CompareNotEqual(mse.CreatedAt, mse.UpdatedAt)
+		f.CompareGreaterThan(mse.CreatedAt, mse.UpdatedAt)
+		f.CompareGreaterThanEqual(mse.CreatedAt, mse.UpdatedAt)
+		f.CompareLessThan(mse.CreatedAt, mse.UpdatedAt)
+		f.CompareLessThanEqual(mse.CreatedAt, mse.UpdatedAt)
+		way.Debug(f)
+	}
+
+	{
+		queryId := way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(10).ToSelect()
+		queryAge := way.Table(mse.Table()).Select(mse.Age).Group(mse.Age).HavingFunc(func(h hey.Filter) {
+			h.Between(mse.Age, 18, 25)
 		}).ToSelect()
 		f.ToEmpty().AllQuantifier(func(q hey.Quantifier) {
 			q.SetQuantifier(q.GetQuantifier())
-			q.Equal(employee.Age, queryAge)
-			q.NotEqual(employee.Id, queryId)
-			q.LessThan(employee.Age, queryAge)
-			q.LessThanEqual(employee.Age, queryAge)
-			q.GreaterThan(employee.Age, queryAge)
-			q.GreaterThanEqual(employee.Age, queryAge)
+			q.Equal(mse.Age, queryAge)
+			q.NotEqual(mse.Id, queryId)
+			q.LessThan(mse.Age, queryAge)
+			q.LessThanEqual(mse.Age, queryAge)
+			q.GreaterThan(mse.Age, queryAge)
+			q.GreaterThanEqual(mse.Age, queryAge)
 		})
 		way.Debug(f)
 
 		f.ToEmpty().AnyQuantifier(func(q hey.Quantifier) {
-			q.Equal(employee.Age, queryAge)
-			q.NotEqual(employee.Id, queryId)
+			q.Equal(mse.Age, queryAge)
+			q.NotEqual(mse.Id, queryId)
 		})
 		way.Debug(f)
 	}
@@ -1193,25 +1190,25 @@ func Filter() {
 		name := "aaa,ccc"
 		f.ToEmpty()
 		f.ExtractFilter(func(e hey.ExtractFilter) {
-			e.BetweenInt(employee.CreatedAt, &createdAt)
-			e.BetweenInt64(employee.UpdatedAt, nil)
+			e.BetweenInt(mse.CreatedAt, &createdAt)
+			e.BetweenInt64(mse.UpdatedAt, nil)
 			f.OrGroup(func(g hey.Filter) {
 				g.ExtractFilter(func(e hey.ExtractFilter) {
-					e.BetweenInt64(employee.UpdatedAt, &createdAt)
+					e.BetweenInt64(mse.UpdatedAt, &createdAt)
 				})
 			})
-			e.BetweenFloat64(employee.Salary, &salary)
-			e.BetweenString(employee.Name, &name)
-			e.InIntDirect(employee.Id, &createdAt)
-			e.InInt64Direct(employee.Id, &createdAt)
-			e.InStringDirect(employee.Name, &name)
-			e.InIntVerify(employee.Id, &createdAt, func(index int, value int) bool {
+			e.BetweenFloat64(mse.Salary, &salary)
+			e.BetweenString(mse.Name, &name)
+			e.InIntDirect(mse.Id, &createdAt)
+			e.InInt64Direct(mse.Id, &createdAt)
+			e.InStringDirect(mse.Name, &name)
+			e.InIntVerify(mse.Id, &createdAt, func(index int, value int) bool {
 				return true
 			})
-			e.InInt64Verify(employee.Id, &createdAt, func(index int, value int64) bool {
+			e.InInt64Verify(mse.Id, &createdAt, func(index int, value int64) bool {
 				return true
 			})
-			e.InStringVerify(employee.Name, &name, func(index int, value string) bool {
+			e.InStringVerify(mse.Name, &name, func(index int, value string) bool {
 				return false
 			})
 		})
@@ -1220,18 +1217,18 @@ func Filter() {
 		f.ToEmpty()
 		like := "Jack"
 		f.ExtractFilter(func(g hey.ExtractFilter) {
-			g.LikeSearch(&like, employee.Email, employee.Name)
+			g.LikeSearch(&like, mse.Email, mse.Name)
 		})
 		way.Debug(f)
 		f.ToEmpty()
 		f.ExtractFilter(func(g hey.ExtractFilter) {
-			g.LikeSearch(nil, employee.Email, employee.Name)
+			g.LikeSearch(nil, mse.Email, mse.Name)
 		})
 		way.Debug(f)
 		like = ""
 		f.ToEmpty()
 		f.ExtractFilter(func(g hey.ExtractFilter) {
-			g.LikeSearch(&like, employee.Email, employee.Name)
+			g.LikeSearch(&like, mse.Email, mse.Name)
 		})
 		way.Debug(f)
 	}
@@ -1241,27 +1238,27 @@ func Filter() {
 		now := time.Now()
 		f.TimeFilter(func(g hey.TimeFilter) {
 			g.SetTime(now)
-			g.LastMinutes(employee.CreatedAt, 7)
-			g.LastMinutes(employee.CreatedAt, 0)
-			g.LastHours(employee.CreatedAt, 7)
-			g.LastHours(employee.CreatedAt, -1)
-			g.Today(employee.CreatedAt)
-			g.Yesterday(employee.CreatedAt)
-			g.LastDays(employee.CreatedAt, 7)
-			g.LastDays(employee.CreatedAt, -7)
-			g.ThisMonth(employee.CreatedAt)
-			g.LastMonth(employee.CreatedAt)
-			g.LastMonths(employee.CreatedAt, 3)
-			g.LastMonths(employee.CreatedAt, -2)
-			g.ThisQuarter(employee.CreatedAt)
-			g.LastQuarter(employee.CreatedAt)
-			g.LastQuarters(employee.CreatedAt, 2)
-			g.LastQuarters(employee.CreatedAt, -1)
-			g.LastQuarters(employee.CreatedAt, 20)
-			g.ThisYear(employee.CreatedAt)
-			g.LastYear(employee.CreatedAt)
-			g.LastYears(employee.CreatedAt, 3)
-			g.LastYears(employee.CreatedAt, 0)
+			g.LastMinutes(mse.CreatedAt, 7)
+			g.LastMinutes(mse.CreatedAt, 0)
+			g.LastHours(mse.CreatedAt, 7)
+			g.LastHours(mse.CreatedAt, -1)
+			g.Today(mse.CreatedAt)
+			g.Yesterday(mse.CreatedAt)
+			g.LastDays(mse.CreatedAt, 7)
+			g.LastDays(mse.CreatedAt, -7)
+			g.ThisMonth(mse.CreatedAt)
+			g.LastMonth(mse.CreatedAt)
+			g.LastMonths(mse.CreatedAt, 3)
+			g.LastMonths(mse.CreatedAt, -2)
+			g.ThisQuarter(mse.CreatedAt)
+			g.LastQuarter(mse.CreatedAt)
+			g.LastQuarters(mse.CreatedAt, 2)
+			g.LastQuarters(mse.CreatedAt, -1)
+			g.LastQuarters(mse.CreatedAt, 20)
+			g.ThisYear(mse.CreatedAt)
+			g.LastYear(mse.CreatedAt)
+			g.LastYears(mse.CreatedAt, 3)
+			g.LastYears(mse.CreatedAt, 0)
 		})
 		way.Debug(f)
 	}
@@ -1272,11 +1269,11 @@ func MyMulti() {
 	m := way.Multi()
 	m.W(way)
 	script := m.V().
-		Table(employee.Table()).
+		Table(mse.Table()).
 		WhereFunc(func(f hey.Filter) {
-			f.Equal(employee.Id, 1)
+			f.Equal(mse.Id, 1)
 		}).
-		Select(employee.Id, employee.Name, employee.Email, employee.CreatedAt).
+		Select(mse.Id, mse.Name, mse.Email, mse.CreatedAt).
 		Limit(1)
 	first := &model.Employee{}
 	firstDepartment := &model.Department{}
@@ -1296,9 +1293,9 @@ func MyMulti() {
 			departmentId = 1
 		}
 		err := m.V().
-			Table(department.Table()).
+			Table(msd.Table()).
 			WhereFunc(func(f hey.Filter) {
-				f.Equal(department.Id, departmentId)
+				f.Equal(msd.Id, departmentId)
 			}).
 			Limit(1).
 			Scan(ctx, firstDepartment)
@@ -1313,10 +1310,10 @@ func MyMulti() {
 	m.Add(func(ctx context.Context) error {
 		if firstDepartment.Id > 0 {
 			_, err := m.V().
-				Table(employee.Table()).
+				Table(mse.Table()).
 				UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-					f.Equal(employee.Id, first.Id)
-					u.Incr(employee.SerialNum, 1)
+					f.Equal(mse.Id, first.Id)
+					u.Incr(mse.SerialNum, 1)
 				}).
 				Update(ctx)
 			if err != nil {
@@ -1328,11 +1325,11 @@ func MyMulti() {
 	})
 
 	exists := false
-	m.AddQueryExists(m.V().Table(department.Table()).ToExists(), &exists)
+	m.AddQueryExists(m.V().Table(msd.Table()).ToExists(), &exists)
 
-	execute := m.V().Table(department.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-		f.GreaterThan(department.Id, 0)
-		u.Decr(department.SerialNum, 1)
+	execute := m.V().Table(msd.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+		f.GreaterThan(msd.Id, 0)
+		u.Decr(msd.SerialNum, 1)
 	}).ToUpdate()
 	m.AddExec(execute, nil)
 	rows := int64(0)
@@ -1343,7 +1340,7 @@ func MyMulti() {
 	m.AddExec(execute, m.RowsAffected(&rows))
 
 	departmentRow := &model.Department{}
-	queryRow := m.V().Table(department.Table()).Select(department.Id, department.Name).Limit(1).ToSelect()
+	queryRow := m.V().Table(msd.Table()).Select(msd.Id, msd.Name).Limit(1).ToSelect()
 	m.AddQueryRow(queryRow, &departmentRow.Id, &departmentRow.Name)
 	departmentRow1 := &model.Department{}
 	m.AddQueryRow(queryRow, way.RowScan(&departmentRow1.Id, &departmentRow1.Name))
@@ -1359,7 +1356,7 @@ func MyMulti() {
 }
 
 func Complex() {
-	table := way.Table(employee.Table())
+	table := way.Table(mse.Table())
 
 	name := "test-complex"
 	email := fmt.Sprintf("%s@gmail.com", name)
@@ -1367,7 +1364,7 @@ func Complex() {
 
 	// Preset insert data.
 	table.InsertFunc(func(i hey.SQLInsert) {
-		i.Forbid(employee.Id, employee.DeletedAt)
+		i.Forbid(mse.Id, mse.DeletedAt)
 		i.Create(&model.Employee{
 			Age:          18,
 			Name:         name,
@@ -1385,9 +1382,9 @@ func Complex() {
 
 	// Preset update data, data filtering conditions, and general deletion.
 	table.UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-		f.Equal(employee.Email, email)
-		u.Set(employee.Name, name)
-		u.Default(employee.UpdatedAt, timestamp)
+		f.Equal(mse.Email, email)
+		u.Set(mse.Name, name)
+		u.Default(mse.UpdatedAt, timestamp)
 	})
 
 	// UPDATE or INSERT
@@ -1424,26 +1421,26 @@ func TableColumn() {
 	ac := a.Column
 	bc := b.Column
 	acc := func(column string) string { return ac(column, column) }
-	query := way.Table(employee.Table()).Alias(a.Table())
+	query := way.Table(mse.Table()).Alias(a.Table())
 	query.LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
-		joinTable := join.Table(department.Table(), b.Table())
-		joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
+		joinTable := join.Table(msd.Table(), b.Table())
+		joinOn := join.JoinOnEqual(ac(mse.DepartmentId), bc(msd.Id))
 		query.WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(ac(employee.Id), 0)
+			f.GreaterThan(ac(mse.Id), 0)
 		})
-		join.Select(acc(employee.Id))
-		join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+		join.Select(acc(mse.Id))
+		join.Select(a.ColumnAll(mse.Name, mse.Email, mse.DepartmentId))
 		join.Select(
-			bc(department.Name, "department_name"),
+			bc(msd.Name, "department_name"),
 		)
-		dca := bc(department.CreatedAt)
+		dca := bc(msd.CreatedAt)
 		join.Select(
 			hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 		)
 		return joinTable, joinOn
 	})
-	query.Desc(ac(employee.Id))
-	query.Desc(ac(employee.SerialNum))
+	query.Desc(ac(mse.Id))
+	query.Desc(ac(mse.SerialNum))
 	query.Limit(1)
 	ctx := context.Background()
 	result := &QueryTableColumn{}
@@ -1461,39 +1458,39 @@ func WindowFunc() {
 	bc := b.Column
 	acc := func(column string) string { return ac(column, column) }
 	{
-		query := way.Table(employee.Table()).Alias(a.Table()).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
-			joinTable := join.Table(department.Table(), b.Table())
-			joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
-			join.Select(acc(employee.Id))
-			join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+		query := way.Table(mse.Table()).Alias(a.Table()).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
+			joinTable := join.Table(msd.Table(), b.Table())
+			joinOn := join.JoinOnEqual(ac(mse.DepartmentId), bc(msd.Id))
+			join.Select(acc(mse.Id))
+			join.Select(a.ColumnAll(mse.Name, mse.Email, mse.DepartmentId))
 			join.Select(
-				way.WindowFunc("max_salary").Max(ac(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ac(employee.DepartmentId))
-					o.Desc(ac(employee.Id))
+				way.WindowFunc("max_salary").Max(ac(mse.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ac(mse.DepartmentId))
+					o.Desc(ac(mse.Id))
 				}),
-				way.WindowFunc("avg_salary").Avg(ac(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ac(employee.DepartmentId))
-					o.Desc(ac(employee.Id))
+				way.WindowFunc("avg_salary").Avg(ac(mse.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ac(mse.DepartmentId))
+					o.Desc(ac(mse.Id))
 				}),
-				way.WindowFunc("min_salary").Min(ac(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
-					o.Partition(ac(employee.DepartmentId))
-					o.Desc(ac(employee.Id))
+				way.WindowFunc("min_salary").Min(ac(mse.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
+					o.Partition(ac(mse.DepartmentId))
+					o.Desc(ac(mse.Id))
 				}),
 			)
 			join.Select(
-				bc(department.Name, "department_name"),
+				bc(msd.Name, "department_name"),
 			)
-			dca := bc(department.CreatedAt)
+			dca := bc(msd.CreatedAt)
 			join.Select(
 				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 			)
 			return joinTable, joinOn
 		})
 		query.WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(ac(employee.Id), 0)
+			f.GreaterThan(ac(mse.Id), 0)
 		})
-		query.Desc(ac(employee.Id))
-		query.Desc(ac(employee.SerialNum))
+		query.Desc(ac(mse.Id))
+		query.Desc(ac(mse.SerialNum))
 		query.Limit(1)
 		ctx := context.Background()
 		result, err := query.MapScan(ctx)
@@ -1503,13 +1500,13 @@ func WindowFunc() {
 		for _, tmp := range result {
 			for k, v := range tmp {
 				if v == nil {
-					fmt.Printf("%s = %#v\n", k, v)
+					log.Printf("%s = %#v\n", k, v)
 				} else {
 					value := reflect.ValueOf(v).Elem().Interface()
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
-					fmt.Printf("%s = %#v\n", k, value)
+					log.Printf("%s = %#v\n", k, value)
 				}
 			}
 		}
@@ -1517,34 +1514,34 @@ func WindowFunc() {
 
 	// With window alias
 	{
-		query := way.Table(employee.Table()).Alias(a.Table()).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
-			joinTable := join.Table(department.Table(), b.Table())
-			joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
-			join.Select(acc(employee.Id))
-			join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+		query := way.Table(mse.Table()).Alias(a.Table()).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
+			joinTable := join.Table(msd.Table(), b.Table())
+			joinOn := join.JoinOnEqual(ac(mse.DepartmentId), bc(msd.Id))
+			join.Select(acc(mse.Id))
+			join.Select(a.ColumnAll(mse.Name, mse.Email, mse.DepartmentId))
 			join.Select(
-				way.WindowFunc("max_salary").Max(ac(employee.DepartmentId)).Over("w1"),
-				way.WindowFunc("avg_salary").Avg(ac(employee.DepartmentId)).Over("w1"),
-				way.WindowFunc("min_salary").Min(ac(employee.DepartmentId)).Over("w1"),
+				way.WindowFunc("max_salary").Max(ac(mse.DepartmentId)).Over("w1"),
+				way.WindowFunc("avg_salary").Avg(ac(mse.DepartmentId)).Over("w1"),
+				way.WindowFunc("min_salary").Min(ac(mse.DepartmentId)).Over("w1"),
 			)
 			join.Select(
-				bc(department.Name, "department_name"),
+				bc(msd.Name, "department_name"),
 			)
-			dca := bc(department.CreatedAt)
+			dca := bc(msd.CreatedAt)
 			join.Select(
 				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 			)
 			return joinTable, joinOn
 		})
 		query.Window("w1", func(o hey.SQLWindowFuncOver) {
-			o.Partition(ac(employee.DepartmentId))
-			o.Desc(ac(employee.Id))
+			o.Partition(ac(mse.DepartmentId))
+			o.Desc(ac(mse.Id))
 		})
 		query.WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(ac(employee.Id), 0)
+			f.GreaterThan(ac(mse.Id), 0)
 		})
-		query.Desc(ac(employee.Id))
-		query.Desc(ac(employee.SerialNum))
+		query.Desc(ac(mse.Id))
+		query.Desc(ac(mse.SerialNum))
 		query.Limit(1)
 		ctx := context.Background()
 		result, err := query.MapScan(ctx)
@@ -1554,13 +1551,13 @@ func WindowFunc() {
 		for _, tmp := range result {
 			for k, v := range tmp {
 				if v == nil {
-					fmt.Printf("%s = %#v\n", k, v)
+					log.Printf("%s = %#v\n", k, v)
 				} else {
 					value := reflect.ValueOf(v).Elem().Interface()
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
-					fmt.Printf("%s = %#v\n", k, value)
+					log.Printf("%s = %#v\n", k, value)
 				}
 			}
 		}
@@ -1608,10 +1605,10 @@ func WayMulti() {
 			lists = append(lists, tmp)
 			assoc[v.Id] = tmp
 		}
-		script := way.Table(employee.Table()).WhereFunc(func(f hey.Filter) {
-			f.Equal(employee.Id, 0)
+		script := way.Table(mse.Table()).WhereFunc(func(f hey.Filter) {
+			f.Equal(mse.Id, 0)
 		}).
-			Select(employee.Id, employee.Name, employee.Email, employee.CreatedAt).
+			Select(mse.Id, mse.Name, mse.Email, mse.CreatedAt).
 			ToSelect()
 		if script == nil || script.IsEmpty() {
 			return
@@ -1642,10 +1639,10 @@ func WayMulti() {
 				v, timestamp, k,
 			})
 		}
-		script := way.Table(employee.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
-			f.Equal(employee.Id, 0)
-			u.Set(employee.Name, "")
-			u.Default(employee.UpdatedAt, 0)
+		script := way.Table(mse.Table()).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+			f.Equal(mse.Id, 0)
+			u.Set(mse.Name, "")
+			u.Default(mse.UpdatedAt, 0)
 		}).ToUpdate()
 		makers := make([]hey.Maker, 0, len(args))
 		for _, arg := range args {
@@ -1699,297 +1696,11 @@ func WayMulti() {
 					return err
 				})
 				if err != nil {
-					fmt.Println(err.Error())
+					log.Println(err.Error())
 				} else {
 					log.Println(rows)
 				}
 			}
 		}
-	}
-}
-
-// myCache Simulate the implementation of the hey.Cacher interface.
-type myCache struct {
-	data map[string][]byte
-}
-
-func newMyCache() *myCache {
-	return &myCache{
-		data: make(map[string][]byte),
-	}
-}
-
-func (s *myCache) Key(key string) string {
-	return key
-}
-
-func (s *myCache) Get(ctx context.Context, key string) ([]byte, error) {
-	tmp, ok := s.data[key]
-	if !ok {
-		return nil, hey.ErrNoDataInCache
-	}
-	return tmp, nil
-}
-
-func (s *myCache) Set(ctx context.Context, key string, value []byte, duration time.Duration) error {
-	s.data[key] = value
-	return nil
-}
-
-func (s *myCache) Del(ctx context.Context, key string) error {
-	delete(s.data, key)
-	return nil
-}
-
-func (s *myCache) Has(ctx context.Context, key string) (bool, error) {
-	if _, err := s.Get(ctx, key); err != nil {
-		if errors.Is(err, hey.ErrNoDataInCache) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-func (s *myCache) Marshal(v any) ([]byte, error) {
-	return json.Marshal(v)
-}
-
-func (s *myCache) Unmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
-}
-
-var (
-	cache      = hey.NewCache(newMyCache())
-	multiMutex = hey.NewMultiMutex(32)
-)
-
-func cacheQuery() (data *model.Employee, err error) {
-	ctx := context.Background()
-
-	query := way.Table(employee.Table()).WhereFunc(func(f hey.Filter) {
-		f.Equal(employee.Id, 1)
-	}).
-		Select(employee.Id, employee.Name, employee.Email, employee.CreatedAt).
-		Desc(employee.SerialNum).
-		Limit(1).
-		Offset(0)
-
-	cacheMaker := cache.Maker(query.ToSelect())
-
-	cacheKey := ""
-	cacheKey, err = cacheMaker.GetCacheKey()
-	if err != nil {
-		return
-	}
-
-	data = &model.Employee{}
-
-	err = cacheMaker.GetUnmarshal(ctx, data)
-	if err != nil {
-		if !errors.Is(err, hey.ErrNoDataInCache) {
-			return
-		}
-		err = nil
-	}
-	if data.Id > 0 {
-		return
-	}
-
-	mu := multiMutex.Get(cacheKey)
-	mu.Lock()
-	defer mu.Unlock()
-
-	err = cacheMaker.GetUnmarshal(ctx, data)
-	if err != nil {
-		if !errors.Is(err, hey.ErrNoDataInCache) {
-			return
-		}
-		err = nil
-	}
-	if data.Id > 0 {
-		return
-	}
-
-	err = query.Scan(ctx, data)
-	if err != nil {
-		return
-	}
-	rd := hey.NewRangeRandomDuration(time.Millisecond, 10, 30)
-	err = cacheMaker.MarshalSet(ctx, data, rd.Get())
-	if err != nil {
-		return
-	}
-
-	// for test
-	{
-		cache.SetCacher(cache.GetCacher())
-		key := "test001"
-		has := false
-		has, err = cache.Has(ctx, key)
-		if err != nil {
-			return
-		}
-		log.Printf("cache test001: %t\b", has)
-
-		_, _ = cache.GetString(ctx, key)
-		_ = cache.SetString(ctx, key, "", time.Second)
-		_, _ = cache.GetString(ctx, key)
-
-		_, _ = cache.GetFloat(ctx, key)
-		_ = cache.SetFloat(ctx, key, 0.0, time.Second)
-		_, _ = cache.GetFloat(ctx, key)
-
-		_, _ = cache.GetInt(ctx, key)
-		_ = cache.SetInt(ctx, key, 0, time.Second)
-		_, _ = cache.GetInt(ctx, key)
-
-		_, _ = cache.GetBool(ctx, key)
-		_ = cache.SetBool(ctx, key, false, time.Second)
-		_, _ = cache.GetBool(ctx, key)
-	}
-
-	return
-}
-
-func Cache() {
-	total := 101
-	for i := range total {
-		data, err := cacheQuery()
-		if err != nil {
-			log.Printf("Get cache query error: %03d %s\n", i, err.Error())
-			break
-		}
-		log.Printf("Get cache query data: %03d %#v\n", i, data)
-	}
-}
-
-var cacheQueryInstance hey.CacheQuery
-
-func CacheQuery() {
-	if cacheQueryInstance == nil {
-		cacheQueryInstance = hey.NewCacheQuery(cache, multiMutex, way)
-	}
-	ctx := context.Background()
-	query1 := way.Table(employee.Table()).
-		WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(employee.Id, 0)
-		}).
-		Desc(employee.SerialNum).
-		Limit(1).
-		Offset(100)
-	first1 := &model.Employee{}
-	script := query1.ToSelect()
-	err := cacheQueryInstance.Get(ctx, script, first1, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5))
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			log.Fatal(err.Error())
-		}
-		log.Println("data is not found")
-	} else {
-		log.Printf("%#v\n", first1)
-	}
-
-	query1.Offset(0)
-	script = query1.ToSelect()
-	for i := range 10 {
-		err = cacheQueryInstance.Get(ctx, script, first1, cacheQueryInstance.RangeRandomDuration(time.Second, 3, 5))
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		if i == 7 {
-			err = cacheQueryInstance.Del(ctx, script)
-			if err != nil {
-				log.Fatal(err.Error())
-			}
-		}
-		log.Printf("%02d %#v\n", i, first1)
-	}
-
-	version := ""
-	query2 := way.Table(nil).
-		Select(hey.FuncSQL("VERSION"))
-	script = query2.ToSelect()
-	for range 3 {
-		err = cacheQueryInstance.Get(ctx, script, &version, time.Second)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		log.Println("version:", version)
-	}
-
-	count := int64(0)
-	query3 := way.Table(employee.Table())
-	script = query3.ToCount()
-	for range 3 {
-		err = cacheQueryInstance.Get(ctx, script, &count, time.Second)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		log.Println("count:", count)
-	}
-
-	exists := false
-	query4 := way.Table(employee.Table())
-	script = query4.ToExists()
-	for range 3 {
-		err = cacheQueryInstance.Get(ctx, script, &exists, time.Second)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		log.Println("exists:", exists)
-	}
-
-	salary := float64(0)
-	query5 := way.Table(employee.Table()).
-		WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(employee.Id, 10000)
-		}).
-		Asc(employee.Id).
-		Limit(1).
-		Select(hey.Coalesce(employee.Salary, 0))
-	script = query5.ToSelect()
-	for i := range 3 {
-		err = cacheQueryInstance.Get(ctx, script, &salary, time.Second)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				log.Fatal(err.Error())
-			}
-			log.Printf("%02d select employee.salary data is not found\n", i)
-			continue
-		}
-		log.Printf("%02d salary: %f\n", i, salary)
-	}
-
-	name := ""
-	query6 := way.Table(employee.Table()).
-		WhereFunc(func(f hey.Filter) {
-			f.GreaterThan(employee.Id, 10000)
-		}).
-		Asc(employee.Id).
-		Limit(1).
-		Select(employee.Name)
-	script = query6.ToSelect()
-	for i := range 3 {
-		err = cacheQueryInstance.Get(ctx, script, &name, time.Second)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				log.Fatal(err.Error())
-			}
-			log.Printf("%02d select employee.name data is not found\n", i)
-			continue
-		}
-		log.Printf("%02d name: %s\n", i, name)
-	}
-
-	// for test
-	{
-		cacheMaker := cache.Maker(script)
-		_, _ = cacheMaker.Has(ctx)
-		_, _ = cacheMaker.Get(ctx)
-		_, _ = cacheMaker.GetString(ctx)
-		_ = cacheMaker.SetString(ctx, name, time.Second)
-		_ = cacheMaker.Set(ctx, nil, time.Second)
-		_, _ = cacheQueryInstance.Has(ctx, script)
 	}
 }

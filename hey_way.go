@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"strconv"
 	"sync"
 	"time"
 
@@ -172,18 +171,17 @@ func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 
 // prepare63236 Replace '?' in the SQL statement with '$n'.
 func prepare63236(prepare string) string {
-	var index int64
 	latest := poolGetStringBuilder()
 	defer poolPutStringBuilder(latest)
 	origin := []byte(prepare)
 	length := len(origin)
 	c36 := cst.Dollar[0]      // $
 	c63 := cst.Placeholder[0] // ?
+	num := 0
 	for i := range length {
 		if origin[i] == c63 {
-			index++
-			latest.WriteByte(c36)
-			latest.WriteString(strconv.FormatInt(index, 10))
+			num++
+			latest.WriteString(fmt.Sprintf("%c%d", c36, num))
 		} else {
 			latest.WriteByte(origin[i])
 		}
@@ -707,7 +705,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 	return
 }
 
-// commit Commit transaction.
+// commit commit-transaction.
 func (s *Way) commit() (err error) {
 	if s.transaction == nil {
 		return ErrTransactionIsNil
@@ -727,7 +725,7 @@ func (s *Way) commit() (err error) {
 	return err
 }
 
-// rollback Rollback transaction.
+// rollback rollback-transaction.
 func (s *Way) rollback() (err error) {
 	if s.transaction == nil {
 		return ErrTransactionIsNil
@@ -831,12 +829,18 @@ func (s *Way) TransactionNew(ctx context.Context, fx func(tx *Way) error, opts .
 
 // TransactionRetry starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
 func (s *Way) TransactionRetry(ctx context.Context, retries int, fx func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
+	if retries <= 0 {
+		err = ErrUnexpectedParameterValue
+		return
+	}
+
 	for range retries {
 		if err = s.newTransaction(ctx, fx, opts...); err == nil {
 			break
 		}
 	}
-	return err
+
+	return
 }
 
 // Now get current time, the transaction open status will get the same time.

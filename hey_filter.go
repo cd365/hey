@@ -36,7 +36,7 @@ func inArgs(args ...any) []any {
 	case []uint:
 		return AnyAny(v)
 	case []uint8: // Do not consider byte slices
-		return AnyAny(v)
+		return []any{args[0]}
 	case []uint16:
 		return AnyAny(v)
 	case []uint32:
@@ -245,7 +245,7 @@ type Filter interface {
 
 func newSQLFilter(way *Way) Filter {
 	if way == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	result := newFilter()
 	result.W(way)
@@ -556,7 +556,7 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 		args = append(args, start)
 	}
 	next = append(next, cst.AND)
-	if value, ok := start.(Maker); ok {
+	if value, ok := end.(Maker); ok {
 		if value == nil {
 			return s
 		}
@@ -1024,7 +1024,7 @@ type quantifier struct {
 
 func newQuantifier(filter Filter) Quantifier {
 	if filter == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &quantifier{
 		filter: filter,
@@ -1143,7 +1143,7 @@ type extractFilter struct {
 
 func newExtractFilter(filter Filter) ExtractFilter {
 	if filter == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &extractFilter{
 		filter:    filter,
@@ -1578,7 +1578,7 @@ type timeFilter struct {
 
 func newTimeFilter(filter Filter) TimeFilter {
 	if filter == nil {
-		panic(pin)
+		panic(errNilPtr)
 	}
 	return &timeFilter{
 		filter: filter,

@@ -9,8 +9,8 @@ func (s Err) Error() string {
 }
 
 const (
-	// pin Error pointer is nil.
-	pin = Err("hey: pointer is nil")
+	// errNilPtr Error nil pointer.
+	errNilPtr = Err("hey: nil pointer")
 
 	// ErrEmptySqlStatement Error empty sql statement.
 	ErrEmptySqlStatement = Err("hey: empty sql statement")
