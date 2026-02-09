@@ -86,9 +86,9 @@ func AnyToSQL(i any) *SQL {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		return NewSQL(fmt.Sprintf("%d", value))
 	case float32:
-		return NewSQL(strconv.FormatFloat(float64(value), 'f', -1, 64))
+		return NewSQL(strconv.FormatFloat(float64(value), 'g', -1, 32))
 	case float64:
-		return NewSQL(strconv.FormatFloat(value, 'f', -1, 64))
+		return NewSQL(strconv.FormatFloat(value, 'g', -1, 64))
 	case string:
 		return NewSQL(value)
 	case *SQL:
@@ -260,16 +260,14 @@ func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 	if script == nil || script.IsEmpty() {
 		return nil, ErrEmptySqlStatement
 	}
+
 	length := 16
-	if ctx == nil {
-		ctx = context.Background()
-	} else {
-		if tmp := ctx.Value(MakerScanAllMakeSliceLength); tmp != nil {
-			if val, ok := tmp.(int); ok && val > 0 && val <= 10000 {
-				length = val
-			}
+	if tmp := ctx.Value(MakerScanAllMakeSliceLength); tmp != nil {
+		if val, ok := tmp.(int); ok && val > 0 && val <= 10000 {
+			length = val
 		}
 	}
+
 	var err error
 	var group []V
 	result := make([]*V, 0, length)
@@ -911,14 +909,17 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 			using := lists[serial]
 			if serial+1 < total {
 				// Middle layer structures.
-				next := using.Field(indexChain[serial])
+				field := indexChain[serial]
+				next := using.Field(field)
 				if next.Type().Kind() == reflect.Pointer {
 					if next.IsNil() {
-						next.Set(reflect.New(next.Type().Elem()))
+						using.Field(field).Set(reflect.New(next.Type().Elem()))
+						next = using.Field(field)
 					}
-					next = next.Elem()
+					lists[serial+1] = next.Elem()
+				} else {
+					lists[serial+1] = next
 				}
-				lists[serial+1] = next
 				continue
 			}
 
@@ -981,6 +982,7 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 			if refValue.IsNil() {
 				refValue.Set(reflect.New(refValue.Type().Elem()))
 			}
+			refValue = refValue.Elem()
 		}
 		if rows.Next() {
 			if err := rows.Scan(result); err != nil {
@@ -1447,6 +1449,9 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 	reflectValue := reflect.ValueOf(object)
 	kind := reflectValue.Kind()
 	for ; kind == reflect.Pointer; kind = reflectValue.Kind() {
+		if reflectValue.IsNil() {
+			return columns, values, CategoryInsertUnknown
+		}
 		reflectValue = reflectValue.Elem()
 	}
 
@@ -1592,6 +1597,9 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 	ofValue := reflect.ValueOf(object)
 	ofKind := ofType.Kind()
 	for ; ofKind == reflect.Pointer; ofKind = ofType.Kind() {
+		if ofValue.IsNil() {
+			return columns, values
+		}
 		ofType = ofType.Elem()
 		ofValue = ofValue.Elem()
 	}
@@ -1682,19 +1690,18 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 
 		// ***...any
 		for index := pointerDepth; index > 1; index-- {
-			if index == 2 {
-				if fieldValue.IsNil() {
-					break
-				}
-				if fieldValue = fieldValue.Elem(); !fieldValue.IsNil() {
-					add(column, fieldValue.Elem().Interface())
-				}
-				break
-			}
 			if fieldValue.IsNil() {
 				break
 			}
+			if index > 2 {
+				fieldValue = fieldValue.Elem()
+				continue
+			}
 			fieldValue = fieldValue.Elem()
+			if fieldValue.IsNil() {
+				break
+			}
+			add(column, fieldValue.Elem().Interface())
 		}
 	}
 
@@ -1736,13 +1743,16 @@ func ObjectObtain(object any, tag string, except ...string) (columns []string, v
 	ofValue := reflect.ValueOf(object)
 	ofKind := ofType.Kind()
 	for ; ofKind == reflect.Pointer; ofKind = ofType.Kind() {
+		if ofValue.IsNil() {
+			return columns, values
+		}
 		ofType = ofType.Elem()
 		ofValue = ofValue.Elem()
 	}
 	switch ofKind {
 	case reflect.Struct:
 	case reflect.Interface:
-		columns, values = ObjectModify(ofValue.Interface(), tag, except...)
+		columns, values = ObjectObtain(ofValue.Interface(), tag, except...)
 		return columns, values
 	default:
 		return columns, values
@@ -2383,7 +2393,7 @@ func (s *sqlWindowFuncOver) Script(maker Maker) SQLWindowFuncOver {
 	if over.Prepare == cst.Empty {
 		return s
 	}
-	if strings.Index(over.Prepare, cst.Space) > 0 && over.Prepare[0] != cst.LeftParenthesis[0] {
+	if strings.ContainsRune(over.Prepare, ' ') && over.Prepare[0] != cst.LeftParenthesis[0] {
 		over.Prepare = ParcelPrepare(over.Prepare)
 	}
 	s.over = over

@@ -42,14 +42,13 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 
 // MergeSlice Combine multiple slices of the same type into one slice.
 func MergeSlice[V any](values ...[]V) []V {
-	length := len(values)
-	result := make([]V, 0)
-	for i := range length {
-		if i == 0 {
-			result = values[i]
-			continue
-		}
-		result = append(result, values[i]...)
+	length := 0
+	for _, v := range values {
+		length += len(v)
+	}
+	result := make([]V, 0, length)
+	for _, v := range values {
+		result = append(result, v...)
 	}
 	return result
 }
@@ -192,7 +191,7 @@ func InValues[T any](values []T, fx func(tmp T) any) []any {
 			result = append(result, elem)
 		}
 	}
-	return result[:num]
+	return result
 }
 
 // InGroupValues Build ( column1, column2, column3 ... ) IN ( ( values[0].attribute1, values[0].attribute2, values[0].attribute3 ... ), ( values[1].attribute1, values[1].attribute2, values[1].attribute3 ... ) ... )

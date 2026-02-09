@@ -1745,7 +1745,7 @@ func (s *timeFilter) LastYear(column string) TimeFilter {
 }
 
 func (s *timeFilter) LastYears(column string, years int) TimeFilter {
-	if years <= 0 {
+	if years <= 0 || years > 10000 {
 		return s
 	}
 	timestamp := s.time.Unix()
