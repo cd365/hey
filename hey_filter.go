@@ -117,7 +117,7 @@ type Filter interface {
 	W
 
 	// ToEmpty Clear existing filter criteria.
-	ToEmpty() Filter
+	ToEmpty()
 
 	// Clone Copy the current object.
 	Clone() Filter
@@ -308,16 +308,15 @@ func (s *filter) ToSQL() *SQL {
 	return NewSQL(b.String(), s.args[:]...)
 }
 
-func (s *filter) toEmpty() *filter {
+func (s *filter) toEmpty() {
 	s.not = false
 	s.num = 0
 	s.prepare.Reset()
 	s.args = nil
-	return s
 }
 
-func (s *filter) ToEmpty() Filter {
-	return s.toEmpty()
+func (s *filter) ToEmpty() {
+	s.toEmpty()
 }
 
 func (s *filter) Clone() Filter {
@@ -540,36 +539,30 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 	}
 	next = append(next, cst.BETWEEN)
 	args := make([]any, 0, 2)
-	if value, ok := start.(Maker); ok {
-		if value == nil {
-			return s
+	node := func(i any) bool {
+		if value, ok := i.(Maker); ok {
+			if value == nil {
+				return false
+			}
+			script := value.ToSQL()
+			if script == nil || script.IsEmpty() {
+				return false
+			}
+			tmp := script.Clone()
+			tmp.Prepare = ParcelPrepare(tmp.Prepare)
+			next = append(next, tmp)
+		} else {
+			next = append(next, cst.Placeholder)
+			args = append(args, start)
 		}
-		script := value.ToSQL()
-		if script == nil || script.IsEmpty() {
-			return s
-		}
-		tmp := script.Clone()
-		tmp.Prepare = ParcelPrepare(tmp.Prepare)
-		next = append(next, tmp)
-	} else {
-		next = append(next, cst.Placeholder)
-		args = append(args, start)
+		return true
+	}
+	if !node(start) {
+		return s
 	}
 	next = append(next, cst.AND)
-	if value, ok := end.(Maker); ok {
-		if value == nil {
-			return s
-		}
-		script := value.ToSQL()
-		if script == nil || script.IsEmpty() {
-			return s
-		}
-		tmp := script.Clone()
-		tmp.Prepare = ParcelPrepare(tmp.Prepare)
-		next = append(next, tmp)
-	} else {
-		next = append(next, cst.Placeholder)
-		args = append(args, end)
+	if !node(end) {
+		return s
 	}
 
 	result := s.firstNext(first, next...)
@@ -1363,6 +1356,33 @@ func KeepOnlyLast[T any](i []T) []T {
 	return []T{i[length-1]}
 }
 
+func handleInValues[T int | int64 | string](
+	result []string,
+	parse func(i int, v string) (any, bool),
+	keepOnly func(i []T) []T,
+	column string,
+	wheres Filter,
+) {
+	length := len(result)
+	values := make([]T, length)
+	for k, v := range result {
+		val, ok := parse(k, v)
+		if !ok {
+			return
+		}
+		tmp, ok := val.(T)
+		if !ok {
+			return
+		}
+		values[k] = tmp
+	}
+	if keepOnly != nil {
+		wheres.In(column, AnyAny(keepOnly(values)))
+	} else {
+		wheres.In(column, AnyAny(values))
+	}
+}
+
 func (s *extractFilter) in(column string, value *string, parse func(i int, v string) (any, bool), keepOnly any) *extractFilter {
 	if column == cst.Empty || value == nil || *value == cst.Empty || parse == nil {
 		return s
@@ -1392,59 +1412,11 @@ func (s *extractFilter) in(column string, value *string, parse func(i int, v str
 	}
 	switch fx := keepOnly.(type) {
 	case func(i []int) []int:
-		values := make([]int, length)
-		for k, v := range result {
-			val, ok := parse(k, v)
-			if !ok {
-				return s
-			}
-			tmp, ok := val.(int)
-			if !ok {
-				return s
-			}
-			values[k] = tmp
-		}
-		if fx == nil {
-			s.filter.In(column, AnyAny(values)...)
-		} else {
-			s.filter.In(column, AnyAny(fx(values))...)
-		}
+		handleInValues(result, parse, fx, column, s.filter)
 	case func(i []int64) []int64:
-		values := make([]int64, length)
-		for k, v := range result {
-			val, ok := parse(k, v)
-			if !ok {
-				return s
-			}
-			tmp, ok := val.(int64)
-			if !ok {
-				return s
-			}
-			values[k] = tmp
-		}
-		if fx == nil {
-			s.filter.In(column, AnyAny(values)...)
-		} else {
-			s.filter.In(column, AnyAny(fx(values))...)
-		}
+		handleInValues(result, parse, fx, column, s.filter)
 	case func(i []string) []string:
-		values := make([]string, length)
-		for k, v := range result {
-			val, ok := parse(k, v)
-			if !ok {
-				return s
-			}
-			tmp, ok := val.(string)
-			if !ok {
-				return s
-			}
-			values[k] = tmp
-		}
-		if fx == nil {
-			s.filter.In(column, AnyAny(values)...)
-		} else {
-			s.filter.In(column, AnyAny(fx(values))...)
-		}
+		handleInValues(result, parse, fx, column, s.filter)
 	default:
 
 	}

@@ -1554,9 +1554,8 @@ func ObjectInsert(object any, tag string, except []string, allow []string) (colu
 	return i.Insert(object, tag, except, allow)
 }
 
-// ObjectModify Object should be one of map[string]any, anyStruct, *anyStruct get the columns and values that need to be modified.
-// Friendly reminder: When using a struct type as the data update carrier, only data with non-nil values will be updated.
-func ObjectModify(object any, tag string, except ...string) (columns []string, values []any) {
+// objectValues Get columns and values from an object.
+func objectValues(object any, tag string, except []string, ignoreNil bool) (columns []string, values []any) {
 	if object == nil {
 		return columns, values
 	}
@@ -1565,7 +1564,7 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 		if tmp == nil || tmp.IsEmpty() {
 			return
 		}
-		return ObjectModify(tmp.Map(), tag, except...)
+		return objectValues(tmp.Map(), tag, except, ignoreNil)
 	}
 
 	excepted := make(map[string]*struct{}, 1<<3)
@@ -1606,7 +1605,7 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 	switch ofKind {
 	case reflect.Struct:
 	case reflect.Interface:
-		columns, values = ObjectModify(ofValue.Interface(), tag, except...)
+		columns, values = objectValues(ofValue.Interface(), tag, except, ignoreNil)
 		return columns, values
 	default:
 		return columns, values
@@ -1631,6 +1630,19 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 		values = append(values, value)
 		columnsIndex[field] = last
 		last++
+	}
+	addPtr := func(field string, value reflect.Value) {
+		if value.Type().Kind() != reflect.Pointer {
+			return
+		}
+		if value.IsNil() {
+			if ignoreNil {
+				return
+			}
+			add(field, nil)
+		} else {
+			add(field, value.Elem().Interface())
+		}
 	}
 
 	for i := range length {
@@ -1657,7 +1669,7 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 			if isNil {
 				continue
 			}
-			tmpFields, tmpValues := ObjectModify(fieldValue.Interface(), tag, except...)
+			tmpFields, tmpValues := objectValues(fieldValue.Interface(), tag, except, ignoreNil)
 			for index, tmpField := range tmpFields {
 				add(tmpField, tmpValues[index])
 			}
@@ -1682,9 +1694,7 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 
 		// *any
 		if pointerDepth == 1 {
-			if !fieldValue.IsNil() {
-				add(column, fieldValue.Elem().Interface())
-			}
+			addPtr(column, fieldValue)
 			continue
 		}
 
@@ -1701,127 +1711,22 @@ func ObjectModify(object any, tag string, except ...string) (columns []string, v
 			if fieldValue.IsNil() {
 				break
 			}
-			add(column, fieldValue.Elem().Interface())
+			addPtr(column, fieldValue)
 		}
 	}
 
 	return columns, values
 }
 
+// ObjectModify Object should be one of map[string]any, anyStruct, *anyStruct get the columns and values that need to be modified.
+// Friendly reminder: When using a struct type as the data update carrier, only data with non-nil values will be updated.
+func ObjectModify(object any, tag string, except ...string) (columns []string, values []any) {
+	return objectValues(object, tag, except, true)
+}
+
 // ObjectObtain Object should be one of map[string]any, anyStruct, *anyStruct for get all columns and values.
 func ObjectObtain(object any, tag string, except ...string) (columns []string, values []any) {
-	if object == nil {
-		return columns, values
-	}
-
-	excepted := make(map[string]*struct{}, 1<<3)
-	for _, column := range except {
-		excepted[column] = nil
-	}
-
-	if columnValue, ok := object.(map[string]any); ok {
-		columns = make([]string, 0, len(columnValue))
-		for column := range columnValue {
-			if _, ok = excepted[column]; ok {
-				continue
-			}
-			columns = append(columns, column)
-		}
-		sort.Strings(columns)
-		values = make([]any, len(columns))
-		for index, column := range columns {
-			values[index] = columnValue[column]
-		}
-		return columns, values
-	}
-
-	if tag == cst.Empty {
-		return columns, values
-	}
-
-	ofType := reflect.TypeOf(object)
-	ofValue := reflect.ValueOf(object)
-	ofKind := ofType.Kind()
-	for ; ofKind == reflect.Pointer; ofKind = ofType.Kind() {
-		if ofValue.IsNil() {
-			return columns, values
-		}
-		ofType = ofType.Elem()
-		ofValue = ofValue.Elem()
-	}
-	switch ofKind {
-	case reflect.Struct:
-	case reflect.Interface:
-		columns, values = ObjectObtain(ofValue.Interface(), tag, except...)
-		return columns, values
-	default:
-		return columns, values
-	}
-
-	length := ofType.NumField()
-
-	exists := make(map[string]*struct{}, length)
-	columns = make([]string, 0, length)
-	values = make([]any, 0, length)
-
-	last := 0
-	columnsIndex := make(map[string]int, 1<<5)
-
-	add := func(field string, value any) {
-		if _, ok := exists[field]; ok {
-			values[columnsIndex[field]] = value
-			return
-		}
-		exists[field] = nil
-		columns = append(columns, field)
-		values = append(values, value)
-		columnsIndex[field] = last
-		last++
-	}
-
-	for i := range length {
-		field := ofType.Field(i)
-
-		fieldType := field.Type
-		fieldKind := fieldType.Kind()
-		pointerDepth := 0
-		for fieldKind == reflect.Pointer {
-			pointerDepth++
-			fieldType = fieldType.Elem()
-			fieldKind = fieldType.Kind()
-		}
-
-		if fieldKind == reflect.Struct {
-			fieldValue := ofValue.Field(i)
-			isNil := false
-			for j := 0; j < pointerDepth; j++ {
-				if fieldValue.IsNil() {
-					isNil = true
-					break
-				}
-				fieldValue = fieldValue.Elem()
-			}
-			if isNil {
-				continue
-			}
-			tmpFields, tmpValues := ObjectObtain(fieldValue.Interface(), tag, except...)
-			for index, tmpField := range tmpFields {
-				add(tmpField, tmpValues[index])
-			}
-			continue
-		}
-
-		column := field.Tag.Get(tag)
-		if column == cst.Empty || column == "-" {
-			continue
-		}
-		if _, ok := excepted[column]; ok {
-			continue
-		}
-
-		add(column, ofValue.Field(i).Interface())
-	}
-	return columns, values
+	return objectValues(object, tag, except, false)
 }
 
 // StructUpdate Compare origin and latest for update.

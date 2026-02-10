@@ -1071,66 +1071,85 @@ func Filter() {
 		f.ToEmpty()
 		startAge := 18
 		endAge := 20
-		f.ToEmpty().Between(mse.Age, startAge, nil)
+		f.ToEmpty()
+		f.Between(mse.Age, startAge, nil)
 		way.Debug(f)
-		f.ToEmpty().Between(mse.Age, nil, endAge)
+		f.ToEmpty()
+		f.Between(mse.Age, nil, endAge)
 		way.Debug(f)
-		f.ToEmpty().Between(mse.Age, startAge, endAge)
+		f.ToEmpty()
+		f.Between(mse.Age, startAge, endAge)
 		way.Debug(f)
-		f.ToEmpty().Between(mse.Age, &startAge, nil)
+		f.ToEmpty()
+		f.Between(mse.Age, &startAge, nil)
 		way.Debug(f)
-		f.ToEmpty().Between(mse.Age, nil, &endAge)
+		f.ToEmpty()
+		f.Between(mse.Age, nil, &endAge)
 		way.Debug(f)
-		f.ToEmpty().Between(mse.Age, &startAge, &endAge)
+		f.ToEmpty()
+		f.Between(mse.Age, &startAge, &endAge)
 		way.Debug(f)
 
-		f.ToEmpty().Equal(
+		f.ToEmpty()
+		f.Equal(
 			mse.Id,
 			way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect(),
 		)
 		way.Debug(f)
 
-		f.ToEmpty().Equal(
+		f.ToEmpty()
+		f.Equal(
 			mse.Id,
 			way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect(),
 		)
 		way.Debug(f)
 
-		f.ToEmpty().In(
+		f.ToEmpty()
+		f.In(
 			mse.Id,
 			way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(10).ToSelect(),
 		)
 		way.Debug(f)
 	}
 	{
-		f.ToEmpty().Exists(way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect())
+		f.ToEmpty()
+		f.Exists(way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect())
 		way.Debug(f)
 
-		f.ToEmpty().NotExists(way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect())
+		f.ToEmpty()
+		f.NotExists(way.Table(mse.Table()).Select(mse.Id).Desc(mse.Id).Limit(1).ToSelect())
 		way.Debug(f)
 
-		f.ToEmpty().Like(mse.Name, "%Jick%")
+		f.ToEmpty()
+		f.Like(mse.Name, "%Jick%")
 		way.Debug(f)
 
-		f.ToEmpty().NotLike(mse.Name, "%Jick%")
+		f.ToEmpty()
+		f.NotLike(mse.Name, "%Jick%")
 		way.Debug(f)
 
-		f.ToEmpty().IsNotNull(mse.Email)
+		f.ToEmpty()
+		f.IsNotNull(mse.Email)
 		way.Debug(f)
 
-		f.ToEmpty().NotEqual(mse.Id, 1)
+		f.ToEmpty()
+		f.NotEqual(mse.Id, 1)
 		way.Debug(f)
 
-		f.ToEmpty().NotBetween(mse.Id, 1, 10)
+		f.ToEmpty()
+		f.NotBetween(mse.Id, 1, 10)
 		way.Debug(f)
 
-		f.ToEmpty().NotIn(mse.Id, 1, 2, 3)
+		f.ToEmpty()
+		f.NotIn(mse.Id, 1, 2, 3)
 		way.Debug(f)
 
-		f.ToEmpty().NotIn(mse.Id, []int64{1, 2, 3})
+		f.ToEmpty()
+		f.NotIn(mse.Id, []int64{1, 2, 3})
 		way.Debug(f)
 
-		f.ToEmpty().NotInGroup([]string{mse.Gender, mse.Age}, [][]any{
+		f.ToEmpty()
+		f.NotInGroup([]string{mse.Gender, mse.Age}, [][]any{
 			{
 				status.MALE,
 				18,
@@ -1142,18 +1161,22 @@ func Filter() {
 		})
 		way.Debug(f)
 
-		f.ToEmpty().InGroup([]string{mse.Gender, mse.Age}, way.Table(mse.Table()).Select(mse.Gender, mse.Age).Desc(mse.Id).Limit(10))
+		f.ToEmpty()
+		f.InGroup([]string{mse.Gender, mse.Age}, way.Table(mse.Table()).Select(mse.Gender, mse.Age).Desc(mse.Id).Limit(10))
 		way.Debug(f)
 
-		f.ToEmpty().InGroup([]string{mse.Gender, mse.Age}, way.Table(mse.Table()).Select(mse.Gender, mse.Age).Desc(mse.Id).Limit(10).ToSelect())
+		f.ToEmpty()
+		f.InGroup([]string{mse.Gender, mse.Age}, way.Table(mse.Table()).Select(mse.Gender, mse.Age).Desc(mse.Id).Limit(10).ToSelect())
 		way.Debug(f)
 
-		f.ToEmpty().Keyword("%test%", mse.Name, mse.Email)
+		f.ToEmpty()
+		f.Keyword("%test%", mse.Name, mse.Email)
 		way.Debug(f)
 	}
 
 	{
-		f.ToEmpty().CompareNotEqual(mse.CreatedAt, mse.UpdatedAt)
+		f.ToEmpty()
+		f.CompareNotEqual(mse.CreatedAt, mse.UpdatedAt)
 		f.CompareGreaterThan(mse.CreatedAt, mse.UpdatedAt)
 		f.CompareGreaterThanEqual(mse.CreatedAt, mse.UpdatedAt)
 		f.CompareLessThan(mse.CreatedAt, mse.UpdatedAt)
@@ -1166,7 +1189,8 @@ func Filter() {
 		queryAge := way.Table(mse.Table()).Select(mse.Age).Group(mse.Age).HavingFunc(func(h hey.Filter) {
 			h.Between(mse.Age, 18, 25)
 		}).ToSelect()
-		f.ToEmpty().AllQuantifier(func(q hey.Quantifier) {
+		f.ToEmpty()
+		f.AllQuantifier(func(q hey.Quantifier) {
 			q.SetQuantifier(q.GetQuantifier())
 			q.Equal(mse.Age, queryAge)
 			q.NotEqual(mse.Id, queryId)
@@ -1177,7 +1201,8 @@ func Filter() {
 		})
 		way.Debug(f)
 
-		f.ToEmpty().AnyQuantifier(func(q hey.Quantifier) {
+		f.ToEmpty()
+		f.AnyQuantifier(func(q hey.Quantifier) {
 			q.Equal(mse.Age, queryAge)
 			q.NotEqual(mse.Id, queryId)
 		})

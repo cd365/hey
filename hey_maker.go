@@ -88,6 +88,25 @@ func (s *sqlLabel) ToSQL() *SQL {
 	return NewSQL(SQLBlockComment(strings.Join(s.labels, s.separator)))
 }
 
+func aliasSpace(alias string, script *SQL, index int, builder *strings.Builder) bool {
+	if script == nil || script.IsEmpty() {
+		return true
+	}
+
+	script.Prepare = strings.TrimSpace(script.Prepare)
+	if script.Prepare == cst.Empty {
+		return true
+	}
+
+	if index > 0 {
+		builder.WriteString(cst.CommaSpace)
+	}
+
+	builder.WriteString(alias)
+	builder.WriteString(cst.Space)
+	return false
+}
+
 /*
 -- CTE
 WITH [RECURSIVE]
@@ -171,23 +190,10 @@ func (s *sqlWith) ToSQL() *SQL {
 		if prepare == nil {
 			continue
 		}
-
 		script := prepare.ToSQL()
-		if script == nil || script.IsEmpty() {
+		if aliasSpace(alias, script, index, b) {
 			continue
 		}
-
-		script.Prepare = strings.TrimSpace(script.Prepare)
-		if script.Prepare == cst.Empty {
-			continue
-		}
-
-		if index > 0 {
-			b.WriteString(cst.CommaSpace)
-		}
-
-		b.WriteString(alias)
-		b.WriteString(cst.Space)
 
 		if columns := s.column[alias]; len(columns) > 0 {
 			// Displays the column alias that defines the CTE, overwriting the original column name of the query result.
@@ -225,9 +231,6 @@ func (s *sqlWith) Set(alias string, maker Maker, columns ...string) SQLWith {
 }
 
 func (s *sqlWith) Del(alias string) SQLWith {
-	if alias == cst.Empty {
-		return s
-	}
 	if _, ok := s.prepare[alias]; !ok {
 		return s
 	}
@@ -855,23 +858,10 @@ func (s *sqlWindow) ToSQL() *SQL {
 		if prepare == nil {
 			continue
 		}
-
 		script := prepare.ToSQL()
-		if script == nil || script.IsEmpty() {
+		if aliasSpace(alias, script, index, b) {
 			continue
 		}
-
-		script.Prepare = strings.TrimSpace(script.Prepare)
-		if script.Prepare == cst.Empty {
-			continue
-		}
-
-		if index > 0 {
-			b.WriteString(cst.CommaSpace)
-		}
-
-		b.WriteString(alias)
-		b.WriteString(cst.Space)
 
 		notLeftParenthesis := script.Prepare[0] != cst.LeftParenthesis[0]
 		b.WriteString(JoinString(cst.AS, cst.Space))
@@ -906,9 +896,6 @@ func (s *sqlWindow) Set(alias string, maker func(o SQLWindowFuncOver)) SQLWindow
 }
 
 func (s *sqlWindow) Del(alias string) SQLWindow {
-	if alias == cst.Empty {
-		return s
-	}
 	if _, ok := s.prepare[alias]; !ok {
 		return s
 	}

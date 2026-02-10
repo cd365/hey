@@ -119,26 +119,42 @@ func toSQLInsert(s MakeSQL) *SQL {
 	return JoinSQLSpace(s.Label, script).ToSQL()
 }
 
+func toSQLUpdateDelete(s MakeSQL, category string) *SQL {
+	lists := make([]any, 0, 8)
+	way := s.Way
+	whereIsEmpty := s.Where == nil || s.Where.IsEmpty()
+	switch category {
+	case cst.UPDATE:
+		if way.cfg.UpdateRequireWhere && whereIsEmpty {
+			return NewEmptySQL()
+		}
+		lists = append(
+			lists,
+			s.Label, s.With, cst.UPDATE,
+			s.Table, cst.SET, s.UpdateSet,
+		)
+	case cst.DELETE:
+		if way.cfg.DeleteRequireWhere && whereIsEmpty {
+			return NewEmptySQL()
+		}
+		lists = append(
+			lists,
+			s.Label, s.With, cst.DELETE,
+			cst.FROM, s.Table, s.Join,
+		)
+	default:
+		return NewEmptySQL()
+	}
+	lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	return JoinSQLSpace(lists...).ToSQL()
+}
+
 // toSQLUpdate SQL: UPDATE xxx SET ...
 func toSQLUpdate(s MakeSQL) *SQL {
 	if s.UpdateSet == nil || s.Table == nil || s.Table.IsEmpty() || s.UpdateSet.IsEmpty() {
 		return NewEmptySQL()
 	}
-	lists := make([]any, 0, 8)
-	lists = append(
-		lists,
-		s.Label, s.With, cst.UPDATE,
-		s.Table, cst.SET, s.UpdateSet,
-	)
-	way := s.Way
-	if s.Where == nil || s.Where.IsEmpty() {
-		if way.cfg.UpdateRequireWhere {
-			return NewEmptySQL()
-		}
-	} else {
-		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
-	}
-	return JoinSQLSpace(lists...).ToSQL()
+	return toSQLUpdateDelete(s, cst.UPDATE)
 }
 
 // toSQLDelete SQL: DELETE FROM xxx ...
@@ -146,22 +162,7 @@ func toSQLDelete(s MakeSQL) *SQL {
 	if s.Table == nil || s.Table.IsEmpty() {
 		return NewEmptySQL()
 	}
-	lists := make([]any, 0, 8)
-	lists = append(
-		lists,
-		s.Label, s.With,
-		cst.DELETE, cst.FROM, s.Table,
-		s.Join,
-	)
-	way := s.Way
-	if s.Where == nil || s.Where.IsEmpty() {
-		if way.cfg.DeleteRequireWhere {
-			return NewEmptySQL()
-		}
-	} else {
-		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
-	}
-	return JoinSQLSpace(lists...).ToSQL()
+	return toSQLUpdateDelete(s, cst.DELETE)
 }
 
 // toSQLSelectExists SQL: SELECT EXISTS ( SELECT 1 FROM xxx ... ) AS a
@@ -282,38 +283,15 @@ func (s *Way) Table(table any) *Table {
 
 // ToEmpty Do not reset table.
 func (s *Table) ToEmpty() *Table {
-	if s.label != nil {
-		s.label.ToEmpty()
-	}
-	if s.with != nil {
-		s.with.ToEmpty()
-	}
-	if s.query != nil {
-		s.query.ToEmpty()
-	}
-	if s.joins != nil {
-		s.joins.ToEmpty()
-	}
-	if s.where != nil {
-		s.where.ToEmpty()
-	}
-	if s.groupBy != nil {
-		s.groupBy.ToEmpty()
-	}
-	if s.window != nil {
-		s.window.ToEmpty()
-	}
-	if s.orderBy != nil {
-		s.orderBy.ToEmpty()
-	}
-	if s.limit != nil {
-		s.limit.ToEmpty()
-	}
-	if s.insert != nil {
-		s.insert.ToEmpty()
-	}
-	if s.updateSet != nil {
-		s.updateSet.ToEmpty()
+	for _, v := range []ToEmpty{
+		s.label, s.with, s.query,
+		s.joins, s.where, s.groupBy,
+		s.window, s.orderBy, s.limit,
+		s.insert, s.updateSet,
+	} {
+		if v != nil {
+			v.ToEmpty()
+		}
 	}
 	return s
 }
@@ -456,7 +434,8 @@ func (s *Table) WhereFunc(fx func(f Filter)) *Table {
 // Where Set the WHERE condition.
 func (s *Table) Where(filters ...Filter) *Table {
 	return s.WhereFunc(func(f Filter) {
-		f.ToEmpty().Use(filters...)
+		f.ToEmpty()
+		f.Use(filters...)
 	})
 }
 
@@ -486,7 +465,8 @@ func (s *Table) HavingFunc(fx func(h Filter)) *Table {
 // Having Set the HAVING condition.
 func (s *Table) Having(filters ...Filter) *Table {
 	return s.HavingFunc(func(f Filter) {
-		f.ToEmpty().Use(filters...)
+		f.ToEmpty()
+		f.Use(filters...)
 	})
 }
 
