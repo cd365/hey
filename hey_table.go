@@ -297,8 +297,8 @@ func (s *Table) ToEmpty() *Table {
 }
 
 // F Quickly create a Filter.
-func (s *Table) F(filters ...Filter) Filter {
-	return s.way.F(filters...)
+func (s *Table) F(makers ...Maker) Filter {
+	return s.way.F(makers...)
 }
 
 // V Get the currently used *Way object.
@@ -432,10 +432,10 @@ func (s *Table) WhereFunc(fx func(f Filter)) *Table {
 }
 
 // Where Set the WHERE condition.
-func (s *Table) Where(filters ...Filter) *Table {
+func (s *Table) Where(values ...Maker) *Table {
 	return s.WhereFunc(func(f Filter) {
 		f.ToEmpty()
-		f.Use(filters...)
+		f.Use(values...)
 	})
 }
 
@@ -463,10 +463,10 @@ func (s *Table) HavingFunc(fx func(h Filter)) *Table {
 }
 
 // Having Set the HAVING condition.
-func (s *Table) Having(filters ...Filter) *Table {
+func (s *Table) Having(values ...Maker) *Table {
 	return s.HavingFunc(func(f Filter) {
 		f.ToEmpty()
-		f.Use(filters...)
+		f.Use(values...)
 	})
 }
 

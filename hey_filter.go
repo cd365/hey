@@ -146,7 +146,7 @@ type Filter interface {
 	OrGroup(group func(g Filter)) Filter
 
 	// Use Implement import a set of conditional filter objects into the current object.
-	Use(filters ...Filter) Filter
+	Use(values ...Maker) Filter
 
 	// New Create a new conditional filter object.
 	New() Filter
@@ -208,11 +208,11 @@ type Filter interface {
 	// Keyword Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
 	Keyword(keyword string, columns ...string) Filter
 
-	// AllQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
-	AllQuantifier(fx func(q Quantifier)) Filter
+	// AllCompare Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
+	AllCompare(fx func(q Quantifier)) Filter
 
-	// AnyQuantifier Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
-	AnyQuantifier(fx func(q Quantifier)) Filter
+	// AnyCompare Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
+	AnyCompare(fx func(q Quantifier)) Filter
 
 	// CompareEqual Implement conditional filtering: script1 = script2 .
 	CompareEqual(column1 any, column2 any) Filter
@@ -231,12 +231,6 @@ type Filter interface {
 
 	// CompareLessThanEqual Implement conditional filtering: script1 <= script2 .
 	CompareLessThanEqual(column1 any, column2 any) Filter
-
-	// ExtractFilter Call Filter using ExtractFilter.
-	ExtractFilter(fx func(f ExtractFilter)) Filter
-
-	// TimeFilter Call Filter using TimeFilter.
-	TimeFilter(fx func(f TimeFilter)) Filter
 
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
@@ -424,13 +418,10 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 	return s.addGroup(cst.OR, group)
 }
 
-func (s *filter) Use(filters ...Filter) Filter {
+func (s *filter) Use(values ...Maker) Filter {
 	group := s.New()
-	for _, tmp := range filters {
-		if tmp == nil || tmp.IsEmpty() {
-			continue
-		}
-		group.And(tmp.ToSQL())
+	for _, value := range values {
+		group.And(value)
 	}
 	return s.And(group.ToSQL())
 }
@@ -874,7 +865,7 @@ func (s *filter) newQuantifier(group Filter) Quantifier {
 	return s.way.cfg.NewQuantifier(group)
 }
 
-func (s *filter) AllQuantifier(fx func(q Quantifier)) Filter {
+func (s *filter) AllCompare(fx func(q Quantifier)) Filter {
 	if fx != nil {
 		group := s.New()
 		tmp := s.newQuantifier(group).SetQuantifier(cst.ALL)
@@ -884,7 +875,7 @@ func (s *filter) AllQuantifier(fx func(q Quantifier)) Filter {
 	return s
 }
 
-func (s *filter) AnyQuantifier(fx func(q Quantifier)) Filter {
+func (s *filter) AnyCompare(fx func(q Quantifier)) Filter {
 	if fx != nil {
 		group := s.New()
 		tmp := s.newQuantifier(group).SetQuantifier(cst.ANY)
@@ -965,20 +956,6 @@ func (s *filter) CompareLessThan(column1 any, column2 any) Filter {
 
 func (s *filter) CompareLessThanEqual(column1 any, column2 any) Filter {
 	return s.compares(column1, cst.LessThanEqual, column2)
-}
-
-func (s *filter) ExtractFilter(fx func(f ExtractFilter)) Filter {
-	if fx != nil {
-		fx(s.way.cfg.NewExtractFilter(s))
-	}
-	return s
-}
-
-func (s *filter) TimeFilter(fx func(f TimeFilter)) Filter {
-	if fx != nil {
-		fx(s.way.cfg.NewTimeFilter(s).SetTime(time.Now()))
-	}
-	return s
 }
 
 // Quantifier Implement the filter condition: column {=||<>||>||>=||<||<=} [QUANTIFIER ]( subquery ) .
@@ -1509,6 +1486,10 @@ func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilt
 	return s
 }
 
+func (s *Way) NewExtractFilter(filter Filter) ExtractFilter {
+	return s.cfg.NewExtractFilter(filter)
+}
+
 // TimeFilter Commonly used timestamp range filtering conditions.
 type TimeFilter interface {
 	SetTime(value time.Time) TimeFilter
@@ -1724,4 +1705,8 @@ func (s *timeFilter) LastYears(column string, years int) TimeFilter {
 	startAt := time.Unix(timestamp, 0).AddDate(-years+1, 0, 0).In(s.time.Location()).Unix()
 	s.filter.Between(column, startAt, timestamp)
 	return s
+}
+
+func (s *Way) NewTimeFilter(filter Filter) TimeFilter {
+	return s.cfg.NewTimeFilter(filter).SetTime(s.Now())
 }

@@ -357,112 +357,55 @@ func (s *Config) fully(way *Way) bool {
 		if s.Manual.DatabaseType == cst.Empty {
 			return false
 		}
-		if s.MapScanner == nil {
-			return false
-		}
-		if s.RowsScan == nil {
-			return false
+		for _, value := range []any{
+			s.MapScanner,
+			s.RowsScan,
+		} {
+			if value == nil {
+				return false
+			}
 		}
 		if s.ScanTag == cst.Empty {
 			return false
 		}
 	}
 
-	if s.NewSQLLabel == nil {
-		return false
-	}
-	if s.NewSQLWith == nil {
-		return false
-	}
-	if s.NewSQLSelect == nil {
-		return false
-	}
-	if s.NewSQLTable == nil {
-		return false
-	}
-	if s.NewSQLJoin == nil {
-		return false
-	}
-	if s.NewSQLJoinOn == nil {
-		return false
-	}
-	if s.NewSQLFilter == nil {
-		return false
-	}
-	if s.NewSQLGroupBy == nil {
-		return false
-	}
-	if s.NewSQLWindow == nil {
-		return false
-	}
-	if s.NewSQLOrderBy == nil {
-		return false
-	}
-	if s.NewSQLLimit == nil {
-		return false
-	}
-
-	if s.NewSQLInsert == nil {
-		return false
-	}
-	if s.NewSQLValues == nil {
-		return false
-	}
-	if s.NewSQLReturning == nil {
-		return false
-	}
-	if s.NewSQLOnConflict == nil {
-		return false
-	}
-	if s.NewSQLOnConflictUpdateSet == nil {
-		return false
-	}
-
-	if s.NewSQLUpdateSet == nil {
-		return false
-	}
-	if s.NewSQLCase == nil {
-		return false
-	}
-	if s.NewSQLWindowFuncFrame == nil {
-		return false
-	}
-	if s.NewSQLWindowFuncOver == nil {
-		return false
-	}
-	if s.NewMulti == nil {
-		return false
-	}
-	if s.NewQuantifier == nil {
-		return false
-	}
-	if s.NewExtractFilter == nil {
-		return false
-	}
-	if s.NewTimeFilter == nil {
-		return false
-	}
-	if s.NewTableColumn == nil {
-		return false
-	}
-
-	if s.ToSQLSelect == nil {
-		return false
-	}
-	if s.ToSQLInsert == nil {
-		return false
-	}
-	if s.ToSQLDelete == nil {
-		return false
-	}
-	if s.ToSQLUpdate == nil {
-		return false
-	}
-	if s.ToSQLSelectExists == nil {
-		return false
-	}
-	if s.ToSQLSelectCount == nil {
-		return false
+	for _, value := range []any{
+		s.NewSQLLabel,
+		s.NewSQLWith,
+		s.NewSQLSelect,
+		s.NewSQLTable,
+		s.NewSQLJoin,
+		s.NewSQLJoinOn,
+		s.NewSQLFilter,
+		s.NewSQLGroupBy,
+		s.NewSQLWindow,
+		s.NewSQLOrderBy,
+		s.NewSQLLimit,
+		s.NewSQLInsert,
+		s.NewSQLValues,
+		s.NewSQLReturning,
+		s.NewSQLOnConflict,
+		s.NewSQLOnConflictUpdateSet,
+		s.NewSQLUpdateSet,
+		s.NewSQLCase,
+		s.NewSQLWindowFuncFrame,
+		s.NewSQLWindowFuncOver,
+		s.NewMulti,
+		s.NewQuantifier,
+		s.NewExtractFilter,
+		s.NewTimeFilter,
+		s.NewTableColumn,
+		s.ToSQLSelect,
+		s.ToSQLInsert,
+		s.ToSQLDelete,
+		s.ToSQLUpdate,
+		s.ToSQLSelectExists,
+		s.ToSQLSelectCount,
+	} {
+		if value == nil {
+			return false
+		}
 	}
 
 	return true
@@ -1224,8 +1167,8 @@ func (s *Way) Debug(maker Maker) *Way {
 }
 
 // F quickly initialize a Filter.
-func (s *Way) F(filters ...Filter) Filter {
-	return s.cfg.NewSQLFilter(s).Use(filters...)
+func (s *Way) F(values ...Maker) Filter {
+	return s.cfg.NewSQLFilter(s).Use(values...)
 }
 
 // W prioritize the specified non-nil object, otherwise use the current object.

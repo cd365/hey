@@ -722,8 +722,8 @@ func Select() {
 		get.Where(where)
 		get.Select(
 			ac(cst.Asterisk),
-			hey.Alias(hey.Coalesce(bc(msd.Name), hey.SQLString("")), "department_name"), // string
-			bc(msd.SerialNum, "department_serial_num"),                                  // pointer int
+			hey.Alias(hey.Coalesce(bc(msd.Name), hey.VarcharValue("")), "department_name"), // string
+			bc(msd.SerialNum, "department_serial_num"),                                     // pointer int
 		)
 		get.Desc(ac(mse.Id))
 		get.Limit(10).Offset(1)
@@ -1190,7 +1190,7 @@ func Filter() {
 			h.Between(mse.Age, 18, 25)
 		}).ToSelect()
 		f.ToEmpty()
-		f.AllQuantifier(func(q hey.Quantifier) {
+		f.AllCompare(func(q hey.Quantifier) {
 			q.SetQuantifier(q.GetQuantifier())
 			q.Equal(mse.Age, queryAge)
 			q.NotEqual(mse.Id, queryId)
@@ -1202,7 +1202,7 @@ func Filter() {
 		way.Debug(f)
 
 		f.ToEmpty()
-		f.AnyQuantifier(func(q hey.Quantifier) {
+		f.AnyCompare(func(q hey.Quantifier) {
 			q.Equal(mse.Age, queryAge)
 			q.NotEqual(mse.Id, queryId)
 		})
@@ -1214,77 +1214,68 @@ func Filter() {
 		salary := "1000,5000"
 		name := "aaa,ccc"
 		f.ToEmpty()
-		f.ExtractFilter(func(e hey.ExtractFilter) {
-			e.BetweenInt(mse.CreatedAt, &createdAt)
-			e.BetweenInt64(mse.UpdatedAt, nil)
-			f.OrGroup(func(g hey.Filter) {
-				g.ExtractFilter(func(e hey.ExtractFilter) {
-					e.BetweenInt64(mse.UpdatedAt, &createdAt)
-				})
-			})
-			e.BetweenFloat64(mse.Salary, &salary)
-			e.BetweenString(mse.Name, &name)
-			e.InIntDirect(mse.Id, &createdAt)
-			e.InInt64Direct(mse.Id, &createdAt)
-			e.InStringDirect(mse.Name, &name)
-			e.InIntVerify(mse.Id, &createdAt, func(index int, value int) bool {
+		way.NewExtractFilter(f).
+			BetweenInt(mse.CreatedAt, &createdAt).
+			BetweenInt64(mse.UpdatedAt, nil).
+			BetweenInt64(mse.UpdatedAt, &createdAt).
+			BetweenFloat64(mse.Salary, &salary).
+			BetweenString(mse.Name, &name).
+			InIntDirect(mse.Id, &createdAt).
+			InInt64Direct(mse.Id, &createdAt).
+			InStringDirect(mse.Name, &name).
+			InIntVerify(mse.Id, &createdAt, func(index int, value int) bool {
 				return true
-			})
-			e.InInt64Verify(mse.Id, &createdAt, func(index int, value int64) bool {
+			}).
+			InInt64Verify(mse.Id, &createdAt, func(index int, value int64) bool {
 				return true
-			})
-			e.InStringVerify(mse.Name, &name, func(index int, value string) bool {
+			}).
+			InStringVerify(mse.Name, &name, func(index int, value string) bool {
 				return false
 			})
-		})
 		way.Debug(f)
 
 		f.ToEmpty()
 		like := "Jack"
-		f.ExtractFilter(func(g hey.ExtractFilter) {
-			g.LikeSearch(&like, mse.Email, mse.Name)
-		})
+		way.NewExtractFilter(f).
+			LikeSearch(&like, mse.Email, mse.Name)
 		way.Debug(f)
 		f.ToEmpty()
-		f.ExtractFilter(func(g hey.ExtractFilter) {
-			g.LikeSearch(nil, mse.Email, mse.Name)
-		})
+		way.NewExtractFilter(f).
+			LikeSearch(nil, mse.Email, mse.Name)
 		way.Debug(f)
 		like = ""
 		f.ToEmpty()
-		f.ExtractFilter(func(g hey.ExtractFilter) {
-			g.LikeSearch(&like, mse.Email, mse.Name)
-		})
+		way.NewExtractFilter(f).
+			LikeSearch(&like, mse.Email, mse.Name)
 		way.Debug(f)
 	}
 
 	{
 		f.ToEmpty()
 		now := time.Now()
-		f.TimeFilter(func(g hey.TimeFilter) {
-			g.SetTime(now)
-			g.LastMinutes(mse.CreatedAt, 7)
-			g.LastMinutes(mse.CreatedAt, 0)
-			g.LastHours(mse.CreatedAt, 7)
-			g.LastHours(mse.CreatedAt, -1)
-			g.Today(mse.CreatedAt)
-			g.Yesterday(mse.CreatedAt)
-			g.LastDays(mse.CreatedAt, 7)
-			g.LastDays(mse.CreatedAt, -7)
-			g.ThisMonth(mse.CreatedAt)
-			g.LastMonth(mse.CreatedAt)
-			g.LastMonths(mse.CreatedAt, 3)
-			g.LastMonths(mse.CreatedAt, -2)
-			g.ThisQuarter(mse.CreatedAt)
-			g.LastQuarter(mse.CreatedAt)
-			g.LastQuarters(mse.CreatedAt, 2)
-			g.LastQuarters(mse.CreatedAt, -1)
-			g.LastQuarters(mse.CreatedAt, 20)
-			g.ThisYear(mse.CreatedAt)
-			g.LastYear(mse.CreatedAt)
-			g.LastYears(mse.CreatedAt, 3)
-			g.LastYears(mse.CreatedAt, 0)
-		})
+		way.NewTimeFilter(f).
+			SetTime(now).
+			LastMinutes(mse.CreatedAt, 7).
+			LastMinutes(mse.CreatedAt, 0).
+			LastHours(mse.CreatedAt, 7).
+			LastHours(mse.CreatedAt, -1).
+			Today(mse.CreatedAt).
+			Yesterday(mse.CreatedAt).
+			LastDays(mse.CreatedAt, 7).
+			LastDays(mse.CreatedAt, -7).
+			ThisMonth(mse.CreatedAt).
+			LastMonth(mse.CreatedAt).
+			LastMonths(mse.CreatedAt, 3).
+			LastMonths(mse.CreatedAt, -2).
+			ThisQuarter(mse.CreatedAt).
+			LastQuarter(mse.CreatedAt).
+			LastQuarters(mse.CreatedAt, 2).
+			LastQuarters(mse.CreatedAt, -1).
+			LastQuarters(mse.CreatedAt, 20).
+			ThisYear(mse.CreatedAt).
+			LastYear(mse.CreatedAt).
+			LastYears(mse.CreatedAt, 3).
+			LastYears(mse.CreatedAt, 0)
 		way.Debug(f)
 	}
 }

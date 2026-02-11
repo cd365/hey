@@ -75,6 +75,12 @@ func (s *SQL) ToSQL() *SQL {
 	return s
 }
 
+type String string
+
+func (s String) ToSQL() *SQL {
+	return NewSQL(string(s))
+}
+
 // AnyToSQL Convert values of any type into SQL expressions or SQL statements.
 func AnyToSQL(i any) *SQL {
 	if i == nil {
@@ -468,7 +474,7 @@ func SliceDataToTableSQL(columns []string, rows func() [][]any, concat func(valu
 			} else {
 				script = AnyToSQL(value)
 				if script.IsEmpty() {
-					script.Prepare = SQLString(script.Prepare)
+					script.Prepare = VarcharValue(script.Prepare)
 				}
 			}
 			if serial == 0 {

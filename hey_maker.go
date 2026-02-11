@@ -1995,7 +1995,7 @@ func (s *sqlUpdateSet) Assign(dst string, src string) SQLUpdateSet {
 	scripts := make([]any, 0, 3)
 	scripts = append(scripts, s.way.Replace(dst), cst.Equal)
 	if src == cst.Empty {
-		src = SQLString(src)
+		src = VarcharValue(src)
 	}
 	scripts = append(scripts, AnyToSQL(src))
 	return s.columnUpdate(dst, JoinSQLSpace(scripts...))
@@ -2631,8 +2631,8 @@ func (s *sqlInsert) OnConflict(fx func(o SQLOnConflict)) SQLInsert {
 	return s
 }
 
-// SQLString Convert a go string to a SQL string.
-func SQLString(value string) string {
+// VarcharValue Convert a go string to a SQL string.
+func VarcharValue(value string) string {
 	return JoinString(cst.SingleQuotationMark, value, cst.SingleQuotationMark)
 }
 
@@ -2729,7 +2729,7 @@ func (s *sqlCase) Alias(alias string) SQLCase {
 
 func handleCaseEmptyString(script *SQL) *SQL {
 	if script.Prepare == cst.Empty {
-		script.Prepare, script.Args = SQLString(cst.Empty), nil
+		script.Prepare, script.Args = VarcharValue(cst.Empty), nil
 	}
 	return script
 }
