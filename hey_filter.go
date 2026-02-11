@@ -170,6 +170,7 @@ type Filter interface {
 	Between(column any, start any, end any) Filter
 
 	// In Implement conditional filtering: column IN ( value1, value2, value3... ) || column IN ( subquery ) .
+	// Please do not use []uint8 as the value of values.
 	In(column any, values ...any) Filter
 
 	// InGroup Implement conditional filtering: ( column1, column2, column3... ) IN ( ( value1, value2, value3... ), ( value21, value22, value23... )... ) || ( column1, column2, column3... ) IN ( subquery ) .
@@ -544,7 +545,7 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 			next = append(next, tmp)
 		} else {
 			next = append(next, cst.Placeholder)
-			args = append(args, start)
+			args = append(args, i)
 		}
 		return true
 	}
@@ -1494,32 +1495,46 @@ func (s *Way) NewExtractFilter(filter Filter) ExtractFilter {
 type TimeFilter interface {
 	SetTime(value time.Time) TimeFilter
 
+	// LastMinutes Last n minutes.
 	LastMinutes(column string, minutes int) TimeFilter
 
+	// LastHours Last n hours.
 	LastHours(column string, hours int) TimeFilter
 
+	// Today Time range that has passed today.
 	Today(column string) TimeFilter
 
+	// Yesterday From midnight yesterday to midnight today.
 	Yesterday(column string) TimeFilter
 
+	// LastDays Last n days.
 	LastDays(column string, days int) TimeFilter
 
+	// ThisMonth This month.
 	ThisMonth(column string) TimeFilter
 
+	// LastMonth Last month.
 	LastMonth(column string) TimeFilter
 
+	// LastMonths Last n months.
 	LastMonths(column string, months int) TimeFilter
 
+	// ThisQuarter This quarter.
 	ThisQuarter(column string) TimeFilter
 
+	// LastQuarter Last quarter.
 	LastQuarter(column string) TimeFilter
 
+	// LastQuarters Last n quarters.
 	LastQuarters(column string, quarters int) TimeFilter
 
+	// ThisYear This year.
 	ThisYear(column string) TimeFilter
 
+	// LastYear Last year.
 	LastYear(column string) TimeFilter
 
+	// LastYears Last n years.
 	LastYears(column string, years int) TimeFilter
 }
 
