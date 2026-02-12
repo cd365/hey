@@ -75,12 +75,6 @@ func (s *SQL) ToSQL() *SQL {
 	return s
 }
 
-type String string
-
-func (s String) ToSQL() *SQL {
-	return NewSQL(string(s))
-}
-
 // AnyToSQL Convert values of any type into SQL expressions or SQL statements.
 func AnyToSQL(i any) *SQL {
 	if i == nil {

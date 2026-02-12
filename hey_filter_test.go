@@ -321,37 +321,19 @@ func TestExtractFilter(t *testing.T) {
 	nameValue := "aaa,ccc"
 
 	way.NewExtractFilter(where).
-		BetweenInt(createdAt, &createdAtValue).
-		BetweenInt64(updatedAt, nil).
-		BetweenInt64(updatedAt, &updatedAtValue).
-		BetweenFloat64(salary, &salaryValue).
-		BetweenString(name, &nameValue).
-		InIntDirect(id, &idValue).
-		InInt64Direct(id, &idValue).
-		InStringDirect(name, &nameValue).
-		InIntVerify(id, &idValue, func(index int, value int) bool {
-			return value > 0
-		}).
-		InInt64Verify(id, &idValue, func(index int, value int64) bool {
-			return value > 0
-		}).
-		InStringVerify(name, &nameValue, func(index int, value string) bool {
-			return value != ""
-		})
-	assert(where, "( created_at BETWEEN ? AND ? AND updated_at BETWEEN ? AND ? AND salary BETWEEN ? AND ? AND name BETWEEN ? AND ? AND id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) AND name IN ( ?, ? ) AND id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) AND name IN ( ?, ? ) )")
+		IntBetween(createdAt, &createdAtValue).
+		Int64Between(updatedAt, nil).
+		Int64Between(updatedAt, &updatedAtValue).
+		Float64Between(salary, &salaryValue).
+		StringBetween(name, &nameValue)
+	assert(where, "( created_at BETWEEN ? AND ? AND updated_at BETWEEN ? AND ? AND salary BETWEEN ? AND ? AND name BETWEEN ? AND ? )")
 
 	where.ToEmpty()
 	way.NewExtractFilter(where).
-		InIntVerify(id, &idValue, func(index int, value int) bool {
-			return value > 0
-		}).
-		InInt64(id, &idValue, func(index int, value int64) bool {
-			return value > 0
-		}, KeepOnlyFirst).
-		InString(id, &idValue, func(index int, value string) bool {
-			return value != ""
-		}, KeepOnlyLast)
-	assert(where, "( id IN ( ?, ?, ? ) AND id = ? AND id = ? )")
+		IntIn(id, &idValue).
+		Int64In(id, &idValue).
+		StringIn(id, &idValue)
+	assert(where, "( id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) )")
 
 	where.ToEmpty()
 	like := "Jack"
