@@ -52,7 +52,7 @@ func argValueToString(i any) string {
 			if bts == nil {
 				return cst.NULL
 			}
-			return hexEncodeToString(bts)
+			return fmt.Sprintf("'%s'", hexEncodeToString(bts))
 		}
 		return fmt.Sprintf("'%v'", tmp)
 	}
@@ -556,7 +556,6 @@ func NewWay(options ...Option) *Way {
 	return way
 }
 
-// Config Updating the returned object's properties will not affect the configuration values that have been set.
 func (s *Way) Config() *Config {
 	return s.cfg
 }
