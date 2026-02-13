@@ -4,12 +4,12 @@ func assert(value any, prepare string) {
 	switch v := value.(type) {
 	case *SQL:
 		if v.Prepare != prepare {
-			panic("assert failed:\ngot:" + v.Prepare + "\nexpect:" + prepare)
+			panic("assert failed\nexpected: " + prepare + "\nactual: " + v.Prepare)
 		}
 	case Maker:
 		script := v.ToSQL()
 		if script.Prepare != prepare {
-			panic("assert failed:\ngot:" + script.Prepare + "\nexpect:" + prepare)
+			panic("assert failed\nexpected: " + prepare + "\nactual: " + script.Prepare)
 		}
 	default:
 		panic("unexpected data")
