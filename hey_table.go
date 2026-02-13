@@ -314,7 +314,7 @@ func (s *Table) W(way *Way) {
 }
 
 // LabelFunc Set label through func.
-func (s *Table) LabelFunc(fx func(c SQLLabel)) *Table {
+func (s *Table) LabelFunc(fx func(l SQLLabel)) *Table {
 	if s.label == nil {
 		s.label = s.way.cfg.NewSQLLabel(s.way)
 	}

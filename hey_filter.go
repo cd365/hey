@@ -1187,19 +1187,20 @@ func (s *extractFilter) split(column string, value *string, handle func(values [
 
 func (s *extractFilter) between(column string, value *string, handle func(values []string) []any) *extractFilter {
 	values := s.split(column, value, handle)
-	if len(values) != 2 {
+	length := len(values)
+	if length == 0 || length > 2 {
 		return s
 	}
-	if values[0] != nil {
-		if values[1] != nil {
-			s.filter.Between(column, values[0], values[1])
-		} else {
-			s.filter.GreaterThanEqual(column, values[0])
-		}
-	} else {
-		if values[1] != nil {
-			s.filter.LessThanEqual(column, values[1])
-		}
+	if length == 2 {
+		s.filter.Between(column, values[0], values[1])
+		return s
+	}
+	trim := strings.TrimSpace(*value)
+	if strings.HasPrefix(trim, s.delimiter) {
+		s.filter.LessThanEqual(column, values[0])
+	}
+	if strings.HasSuffix(trim, s.delimiter) {
+		s.filter.GreaterThanEqual(column, values[0])
 	}
 	return s
 }
