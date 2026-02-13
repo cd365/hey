@@ -212,7 +212,7 @@ func InGroupValues[T any](values []T, fx func(tmp T) []any) [][]any {
 			result = append(result, elem)
 		}
 	}
-	return result[:num]
+	return result
 }
 
 // NamingPascal Naming pascal case.

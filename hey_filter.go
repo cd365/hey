@@ -21,7 +21,7 @@ func inArgs(args ...any) []any {
 	}
 	switch v := args[0].(type) {
 	case []any:
-		return inArgs(v...)
+		return v
 	case []string:
 		return AnyAny(v)
 	case []int:

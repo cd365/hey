@@ -777,7 +777,7 @@ func (s *Way) TransactionRetry(ctx context.Context, retries int, fx func(tx *Way
 		return
 	}
 
-	for range retries {
+	for i := 0; i < retries; i++ {
 		if err = s.newTransaction(ctx, fx, opts...); err == nil {
 			break
 		}
