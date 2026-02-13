@@ -74,7 +74,7 @@ func SQLToString(script *SQL) string {
 	defer poolPutStringBuilder(result)
 	length := len(origin)
 	c63 := cst.Placeholder[0]
-	for i := range length {
+	for i := 0; i < length; i++ {
 		if origin[i] == c63 && index < counts {
 			result.WriteString(argValueToString(script.Args[index]))
 			index++
@@ -178,7 +178,7 @@ func prepare63236(prepare string) string {
 	c36 := cst.Dollar[0]      // $
 	c63 := cst.Placeholder[0] // ?
 	num := 0
-	for i := range length {
+	for i := 0; i < length; i++ {
 		if origin[i] == c63 {
 			num++
 			latest.WriteString(fmt.Sprintf("%c%d", c36, num))

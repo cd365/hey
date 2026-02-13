@@ -87,7 +87,7 @@ func inArgs(args ...any) []any {
 		rv := reflect.ValueOf(args[0])
 		count := rv.Len()
 		result := make([]any, 0, count)
-		for i := range count {
+		for i := 0; i < count; i++ {
 			result = append(result, rv.Index(i).Interface())
 		}
 		return result
@@ -623,7 +623,7 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 	}
 
 	places := make([]string, length)
-	for i := range length {
+	for i := 0; i < length; i++ {
 		places[i] = cst.Placeholder
 	}
 	next := make([]any, 0, 3)
@@ -670,13 +670,13 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		}
 		count := len(value[0])
 		group := make([]string, count)
-		for i := range count {
+		for i := 0; i < count; i++ {
 			group[i] = cst.Placeholder
 		}
 		args := make([]any, 0, length*count)
 		lines := make([]string, length)
 		place := ParcelPrepare(strings.Join(group, cst.CommaSpace))
-		for i := range length {
+		for i := 0; i < length; i++ {
 			args = append(args, value[i]...)
 			lines[i] = place
 		}
@@ -1477,7 +1477,7 @@ func (s *timeFilter) LastQuarters(column string, quarters int) TimeFilter {
 	}
 	startAt := int64(0)
 	timestamp := s.time.Unix()
-	for i := range quarters {
+	for i := 0; i < quarters; i++ {
 		if i == 0 {
 			startAt = timestamp
 		}

@@ -164,7 +164,7 @@ func JoinMaker(elems []Maker, sep string) *SQL {
 func JoinSQL(elems []any, sep string) *SQL {
 	length := len(elems)
 	makers := make([]Maker, length)
-	for i := range length {
+	for i := 0; i < length; i++ {
 		makers[i] = AnyToSQL(elems[i])
 	}
 	return JoinMaker(makers, sep)
@@ -533,7 +533,7 @@ func (s *replacer) Map() map[string]string {
 func (s *replacer) GetAll(keys []string) []string {
 	length := len(keys)
 	result := make([]string, length)
-	for i := range keys {
+	for i := 0; i < length; i++ {
 		result[i] = s.Get(keys[i])
 	}
 	return result
@@ -820,7 +820,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 
 	length := refStructType.NumField()
 
-	for i := range length {
+	for i := 0; i < length; i++ {
 
 		attribute := refStructType.Field(i)
 
@@ -876,7 +876,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 // Prepare The preparatory work before executing rows.Scan.
 // Find the pointer of the corresponding field from the reflection value of the receiving object, and bind it.
 func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect reflect.Value, length int) error {
-	for i := range length {
+	for i := 0; i < length; i++ {
 		index, ok := s.direct[columns[i]]
 		if ok {
 			// root structure.
@@ -1266,7 +1266,7 @@ func (s *objectInsert) setAllow(allow []string) {
 func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allowed bool) (columns []string, values []any) {
 	reflectType := structReflectValue.Type()
 	length := reflectType.NumField()
-	for i := range length {
+	for i := 0; i < length; i++ {
 		field := reflectType.Field(i)
 		if !field.IsExported() {
 			continue
@@ -1315,7 +1315,7 @@ func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allow
 func (s *objectInsert) structValue(structReflectValue reflect.Value, allowed bool) (values []any) {
 	reflectType := structReflectValue.Type()
 	length := reflectType.NumField()
-	for i := range length {
+	for i := 0; i < length; i++ {
 		field := reflectType.Field(i)
 		if !field.IsExported() {
 			continue
@@ -1468,7 +1468,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		values = make([][]any, sliceLength)
 		var indexValueType reflect.Type
 	VALUES:
-		for i := range sliceLength {
+		for i := 0; i < sliceLength; i++ {
 			indexValue := reflectValue.Index(i)
 
 			if indexValueType == nil {
@@ -1645,7 +1645,7 @@ func objectValues(object any, tag string, except []string, ignoreNil bool) (colu
 		}
 	}
 
-	for i := range length {
+	for i := 0; i < length; i++ {
 		field := ofType.Field(i)
 
 		fieldType := field.Type
@@ -1946,7 +1946,7 @@ func QuickScan(
 			return nil, err
 		}
 		item := make(map[string]any, length)
-		for i := range length {
+		for i := 0; i < length; i++ {
 			item[columns[i]] = dest[i]
 		}
 		results = append(results, item)
