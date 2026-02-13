@@ -715,7 +715,7 @@ func Select() {
 		get := way.Table(employee).Alias(a.Table())
 		get.LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
 			joinTable := join.Table(department, b.Table())
-			joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
+			joinOn := join.Equal(ac(employee.DepartmentId), bc(department.Id))
 			where.GreaterThan(ac(employee.Id), 0)
 			return joinTable, joinOn
 		})
@@ -1148,7 +1148,7 @@ func TableColumn() {
 	query := way.Table(employee).Alias(a.Table())
 	query.LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
 		joinTable := join.Table(department, b.Table())
-		joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
+		joinOn := join.Equal(ac(employee.DepartmentId), bc(department.Id))
 		query.WhereFunc(func(f hey.Filter) {
 			f.GreaterThan(ac(employee.Id), 0)
 		})
@@ -1184,7 +1184,7 @@ func WindowFunc() {
 	{
 		query := way.Table(employee).Alias(a.Table()).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
 			joinTable := join.Table(department, b.Table())
-			joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
+			joinOn := join.Equal(ac(employee.DepartmentId), bc(department.Id))
 			join.Select(aca(employee.Id))
 			join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
 			join.Select(
@@ -1241,7 +1241,7 @@ func WindowFunc() {
 		wa := "wa"
 		query := way.Table(employee).Alias(a.Table()).LeftJoin(func(join hey.SQLJoin) (hey.SQLAlias, hey.SQLJoinOn) {
 			joinTable := join.Table(department, b.Table())
-			joinOn := join.JoinOnEqual(ac(employee.DepartmentId), bc(department.Id))
+			joinOn := join.Equal(ac(employee.DepartmentId), bc(department.Id))
 			join.Select(aca(employee.Id))
 			join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
 			join.Select(

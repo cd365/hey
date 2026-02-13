@@ -33,7 +33,7 @@ func TestTable_With(t *testing.T) {
 	bc := b.Column
 	bca := func(column string) string { return bc(column, column) }
 	table.LeftJoin(func(join SQLJoin) (SQLAlias, SQLJoinOn) {
-		return join.Table(cst.B, cst.Empty), join.JoinOnEqual(ac("id"), bc("id"))
+		return join.Table(cst.B, cst.Empty), join.Equal(ac("id"), bc("id"))
 	})
 	table.Select(
 		a.ColumnAllSQL("id", "name", "email"),
@@ -152,7 +152,7 @@ func TestTable_Join(t *testing.T) {
 	acs := a.ColumnAll
 	table.Alias(a.Table())
 	table.InnerJoin(func(join SQLJoin) (SQLAlias, SQLJoinOn) {
-		return join.Table(account, cst.B), join.JoinOnEqual(ac("pid"), bc("id"))
+		return join.Table(account, cst.B), join.Equal(ac("pid"), bc("id"))
 	})
 	table.Select(
 		acs("id", "name"),
@@ -284,7 +284,7 @@ func TestTable_Window(t *testing.T) {
 	{
 		query := way.Table(table1).Alias(a.Table()).LeftJoin(func(join SQLJoin) (SQLAlias, SQLJoinOn) {
 			joinTable := join.Table(table2, b.Table())
-			joinOn := join.JoinOnEqual(ac(departmentId), bc(id))
+			joinOn := join.Equal(ac(departmentId), bc(id))
 			join.Select(aca(id))
 			join.Select(a.ColumnAll(name, email, departmentId))
 			join.Select(
@@ -323,7 +323,7 @@ func TestTable_Window(t *testing.T) {
 		wa := "wa"
 		query := way.Table(table1).Alias(a.Table()).LeftJoin(func(join SQLJoin) (SQLAlias, SQLJoinOn) {
 			joinTable := join.Table(table2, b.Table())
-			joinOn := join.JoinOnEqual(ac(departmentId), bc(id))
+			joinOn := join.Equal(ac(departmentId), bc(id))
 			join.Select(aca(id))
 			join.Select(a.ColumnAll(name, email, departmentId))
 			join.Select(
