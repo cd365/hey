@@ -475,6 +475,7 @@ func Insert() {
 			i.ColumnValue(employee.Age, 18)
 			i.ColumnValue(employee.CreatedAt, timestamp)
 			i.ColumnValue(employee.UpdatedAt, timestamp)
+			i.ReturningId()
 		}).Insert(ctx)
 		if err != nil {
 			log.Fatal(err.Error())

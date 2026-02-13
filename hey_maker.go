@@ -1558,12 +1558,10 @@ func (s *sqlReturning) Prepare(prepare func(tmp *SQL)) SQLReturning {
 // Returning Set the RETURNING statement to return one or more columns.
 func (s *sqlReturning) Returning(columns ...string) SQLReturning {
 	columns = SliceDiscard(columns, func(k int, v string) bool { return strings.TrimSpace(v) == cst.Empty })
-	length := len(columns)
-	if length == 0 {
-		columns = []string{cst.Asterisk}
-	} else {
-		columns = s.way.ReplaceAll(columns)
+	if len(columns) == 0 {
+		return s
 	}
+	columns = s.way.ReplaceAll(columns)
 	return s.Prepare(func(tmp *SQL) {
 		tmp.Prepare = JoinSQLSpace(tmp.Prepare, cst.RETURNING, JoinSQLCommaSpace(AnyAny(columns)...)).Prepare
 	})
@@ -2366,7 +2364,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 		return NewEmptySQL()
 	}
 
-	if s.returning != nil {
+	if s.returning != nil && len(values) == 1 {
 		execute := s.returning.GetExecute()
 		if execute != nil {
 			s.returning.SetInsert(JoinSQLSpace(makers...))
@@ -2598,6 +2596,12 @@ func (s *sqlInsert) Remove(columns ...string) SQLInsert {
 }
 
 func (s *sqlInsert) GetReturning() SQLReturning {
+	if s.values.GetSubquery() != nil {
+		return nil
+	}
+	if len(s.values.GetValues()) != 1 {
+		return nil
+	}
 	return s.returning
 }
 
