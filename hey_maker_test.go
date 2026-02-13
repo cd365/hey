@@ -2,6 +2,8 @@ package hey
 
 import (
 	"testing"
+
+	"github.com/cd365/hey/v7/cst"
 )
 
 func TestNewOffsetRowsFetchNextRowsOnly(t *testing.T) {
@@ -21,6 +23,6 @@ func TestNewSQLCase(t *testing.T) {
 	cases.WhenThen("score >= 90", 1)
 	cases.WhenThen("score >= 80", 2)
 	cases.WhenThen("score >= 60", 3)
-	cases.Else(4)
-	assert(cases, "CASE WHEN score >= 90 THEN 1 WHEN score >= 80 THEN 2 WHEN score >= 60 THEN 3 ELSE 4 END")
+	cases.Else(cst.NULL)
+	assert(cases, "CASE WHEN score >= 90 THEN 1 WHEN score >= 80 THEN 2 WHEN score >= 60 THEN 3 ELSE NULL END")
 }

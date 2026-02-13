@@ -746,7 +746,7 @@ func (s *sqlJoin) filter(filter func(on SQLJoinOn)) SQLJoinOn {
 	return result
 }
 
-// JoinOn For `... JOIN ON ...`
+// On For `... JOIN ON ...`
 func (s *sqlJoin) On(filter func(on SQLJoinOn)) SQLJoinOn {
 	return s.filter(filter)
 }
