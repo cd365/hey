@@ -1116,7 +1116,7 @@ func (s *extractFilter) Delimiter(delimiter string) ExtractFilter {
 	return s
 }
 
-func kindValue(kind reflect.Kind, value string) (any, error) {
+func string2any(kind reflect.Kind, value string) (any, error) {
 	switch kind {
 	case reflect.String:
 		return value, nil
@@ -1143,34 +1143,19 @@ func kindValue(kind reflect.Kind, value string) (any, error) {
 	}
 }
 
-func (s *extractFilter) kindValue(category reflect.Kind) func(values []string) []any {
+func (s *extractFilter) string2any(category reflect.Kind) func(values []string) []any {
 	return func(values []string) []any {
 		length := len(values)
 		result := make([]any, 0, length)
 		for i := 0; i < length; i++ {
-			val, err := kindValue(category, values[i])
-			if err == nil {
-				result = append(result, val)
+			val, err := string2any(category, values[i])
+			if err != nil {
+				continue
 			}
+			result = append(result, val)
 		}
 		return result
 	}
-}
-
-func (s *extractFilter) String() func(values []string) []any {
-	return s.kindValue(reflect.String)
-}
-
-func (s *extractFilter) Int() func(values []string) []any {
-	return s.kindValue(reflect.Int)
-}
-
-func (s *extractFilter) Int64() func(values []string) []any {
-	return s.kindValue(reflect.Int64)
-}
-
-func (s *extractFilter) Float64() func(values []string) []any {
-	return s.kindValue(reflect.Float64)
 }
 
 func (s *extractFilter) split(column string, value *string, handle func(values []string) []any) []any {
@@ -1210,19 +1195,19 @@ func (s *extractFilter) Between(column string, value *string, handle func(values
 }
 
 func (s *extractFilter) IntBetween(column string, value *string) ExtractFilter {
-	return s.between(column, value, s.Int())
+	return s.between(column, value, s.string2any(reflect.Int))
 }
 
 func (s *extractFilter) Int64Between(column string, value *string) ExtractFilter {
-	return s.between(column, value, s.Int64())
+	return s.between(column, value, s.string2any(reflect.Int64))
 }
 
 func (s *extractFilter) Float64Between(column string, value *string) ExtractFilter {
-	return s.between(column, value, s.Float64())
+	return s.between(column, value, s.string2any(reflect.Float64))
 }
 
 func (s *extractFilter) StringBetween(column string, value *string) ExtractFilter {
-	return s.between(column, value, s.String())
+	return s.between(column, value, s.string2any(reflect.String))
 }
 
 func (s *extractFilter) in(column string, value *string, handle func(values []string) []any) *extractFilter {
@@ -1250,27 +1235,27 @@ func (s *extractFilter) In(column string, value *string, handle func(values []st
 }
 
 func (s *extractFilter) IntIn(column string, value *string) ExtractFilter {
-	return s.in(column, value, s.Int())
+	return s.in(column, value, s.string2any(reflect.Int))
 }
 
 func (s *extractFilter) Int64In(column string, value *string) ExtractFilter {
-	return s.in(column, value, s.Int64())
+	return s.in(column, value, s.string2any(reflect.Int64))
 }
 
 func (s *extractFilter) StringIn(column string, value *string) ExtractFilter {
-	return s.in(column, value, s.String())
+	return s.in(column, value, s.string2any(reflect.String))
 }
 
 func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilter {
 	if value == nil {
 		return nil
 	}
-	search := strings.TrimSpace(*value)
-	if search == cst.Empty {
-		return s
-	}
 	length := len(columns)
 	if length == 0 {
+		return s
+	}
+	search := strings.TrimSpace(*value)
+	if search == cst.Empty {
 		return s
 	}
 	search = JoinString(cst.PercentSign, search, cst.PercentSign)
