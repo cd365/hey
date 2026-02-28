@@ -235,7 +235,7 @@ func TestFilter_IsNotNull(t *testing.T) {
 
 func TestFilter_Keyword(t *testing.T) {
 	where := way.F()
-	where.Keyword("keyword-value", "name", "username", "email")
+	where.LikeSearch("keyword-value", "name", "username", "email")
 	assert(where, "( name LIKE ? OR username LIKE ? OR email LIKE ? )")
 }
 

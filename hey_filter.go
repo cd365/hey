@@ -207,8 +207,8 @@ type Filter interface {
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
 	IsNotNull(column any) Filter
 
-	// Keyword Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
-	Keyword(keyword string, columns ...string) Filter
+	// LikeSearch Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
+	LikeSearch(value string, columns ...string) Filter
 
 	// AllCompare Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
 	AllCompare(fx func(q Quantifier)) Filter
@@ -829,8 +829,7 @@ func (s *filter) IsNotNull(column any) Filter {
 	return s.isNull(column, true)
 }
 
-// Keyword Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
-func (s *filter) Keyword(value string, columns ...string) Filter {
+func (s *filter) LikeSearch(value string, columns ...string) Filter {
 	if value == cst.Empty {
 		return s
 	}
@@ -1254,12 +1253,12 @@ func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilt
 	if length == 0 {
 		return s
 	}
-	search := strings.TrimSpace(*value)
-	if search == cst.Empty {
+	keyword := strings.TrimSpace(*value)
+	if keyword == cst.Empty {
 		return s
 	}
-	search = JoinString(cst.PercentSign, search, cst.PercentSign)
-	s.filter.Keyword(search, columns...)
+	keyword = JoinString(cst.PercentSign, keyword, cst.PercentSign)
+	s.filter.LikeSearch(keyword, columns...)
 	return s
 }
 
