@@ -7,6 +7,7 @@ During the development phase, you can view the dynamically generated SQL stateme
 Log the executed SQL statements and transactions(Use it as an ORM).<br>
 
 
+
 ## hey's mission
 1. Support as many SQL general syntax as possible.
 2. Write less or no original strings in business code, such as "username", "SUM(salary)", "id = ?", "SELECT id, name FROM your_table_name" ...
@@ -18,16 +19,20 @@ Log the executed SQL statements and transactions(Use it as an ORM).<br>
 8. Allows you to efficiently build the SQL statements you need.
 
 
+
 ## Special requirements:
 1. All SQL parameters should be passed using parameter placeholders "?" and a list of parameter values.
 2. Parameter placeholders "?" are prohibited in SQL statement comments.
 3. Parameter placeholders "?" are prohibited in SQL statement string constants.
 
 
+
 ## INSTALL
 ```shell
 go get github.com/cd365/hey/v7@latest
 ```
+
+
 
 ## EXAMPLE
 Currently, only PostgreSQL is used in this case; the usage methods for other databases are similar.<br>
