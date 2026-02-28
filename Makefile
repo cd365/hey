@@ -18,7 +18,7 @@ fmt:
 	for file in $$(find . -name "*.go"); do go fmt "$${file}"; done
 
 .PHONY: all
-all: mod-tidy fmt test test-coverage
+all: mod-tidy fmt test example-test-coverage
 
 .PHONY: mod-tidy
 mod-tidy:
@@ -29,18 +29,18 @@ install:
 	go install github.com/dkorunic/betteralign/cmd/betteralign@latest
 	go install mvdan.cc/gofumpt@latest
 
-.PHONY: run
-run:
-	@cd _examples;go run .
-
 .PHONY: test
 test:
-	@cd _examples/all;go test -v
+	@go test -v
 
-.PHONY: test-coverage
-test-coverage:
+.PHONY: example-run
+example-run:
+	@cd _examples;go run .
+
+.PHONY: example-test-coverage
+example-test-coverage:
 	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v7;go tool cover -html=.coverage.out -o .coverage.html;cd -
 
-.PHONY: test-coverage-all
-test-coverage-all:
+.PHONY: example-test-coverage-all
+example-test-coverage-all:
 	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v7,examples/pgsql;go tool cover -html=.coverage.out -o .coverage.html;cd -
