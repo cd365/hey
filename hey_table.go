@@ -17,6 +17,8 @@ type TableNamer interface {
 
 // MakeSQL Data structures for building SQL scripts.
 type MakeSQL struct {
+	Way *Way
+
 	// Label Used for setting SQL statement labels.
 	Label SQLLabel
 
@@ -52,8 +54,6 @@ type MakeSQL struct {
 
 	// UpdateSet -> UPDATE xxx SET xxx [WHERE ( xxx )]
 	UpdateSet SQLUpdateSet
-
-	Way *Way
 
 	// Other additional parameters.
 
@@ -588,6 +588,7 @@ func (s *Table) UpdateFunc(fx func(f Filter, u SQLUpdateSet)) *Table {
 
 func (s *Table) newMakeSQL() MakeSQL {
 	return MakeSQL{
+		Way:       s.way,
 		Label:     s.label,
 		With:      s.with,
 		Query:     s.query,
@@ -600,7 +601,6 @@ func (s *Table) newMakeSQL() MakeSQL {
 		Limit:     s.limit,
 		Insert:    s.insert,
 		UpdateSet: s.updateSet,
-		Way:       s.way,
 	}
 }
 

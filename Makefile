@@ -1,11 +1,9 @@
 .PHONY: code
-code: betteralign fmt gofumpt
+code: fmt gofumpt
 
-.PHONY: betteralign
-betteralign:
-	betteralign -apply -fix ./...
-	betteralign -apply -fix ./cst/...
-	betteralign -apply -fix ./status/...
+.PHONY: fmt
+fmt:
+	for file in $$(find . -name "*.go"); do go fmt "$${file}"; done
 
 .PHONY: gofumpt
 gofumpt:
@@ -13,12 +11,8 @@ gofumpt:
 	gofumpt -w ./cst/
 	gofumpt -w ./status/
 
-.PHONY: fmt
-fmt:
-	for file in $$(find . -name "*.go"); do go fmt "$${file}"; done
-
 .PHONY: all
-all: mod-tidy fmt test example-test-coverage
+all: mod-tidy fmt gofumpt test example-test-coverage
 
 .PHONY: mod-tidy
 mod-tidy:
@@ -26,7 +20,6 @@ mod-tidy:
 
 .PHONY: install
 install:
-	go install github.com/dkorunic/betteralign/cmd/betteralign@latest
 	go install mvdan.cc/gofumpt@latest
 
 .PHONY: test

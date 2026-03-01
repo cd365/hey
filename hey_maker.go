@@ -34,12 +34,12 @@ type SQLLabel interface {
 type sqlLabel struct {
 	way *Way
 
+	labels []string
+
 	labelsMap map[string]*struct{}
 
 	// separator Set separator string between multiple labels.
 	separator string
-
-	labels []string
 }
 
 func newSQLLabel(way *Way) SQLLabel {
@@ -280,13 +280,13 @@ type SQLSelect interface {
 }
 
 type sqlSelect struct {
-	columnsMap map[string]int
-
-	columnsArgs map[int][]any
-
 	way *Way
 
 	columns []string
+
+	columnsMap map[string]int
+
+	columnsArgs map[int][]any
 
 	// distinct Allows multiple columns to be deduplicated, such as: DISTINCT column1, column2, column3 ...
 	distinct bool
@@ -297,10 +297,10 @@ func newSQLSelect(way *Way) SQLSelect {
 		panic(errNilPtr)
 	}
 	return &sqlSelect{
-		columnsMap:  make(map[string]int, 1<<5),
-		columnsArgs: make(map[int][]any, 1<<5),
 		way:         way,
 		columns:     make([]string, 0, 1<<5),
+		columnsMap:  make(map[string]int, 1<<5),
+		columnsArgs: make(map[int][]any, 1<<5),
 	}
 }
 
@@ -586,11 +586,11 @@ func (s *sqlJoinOn) ToSQL() *SQL {
 }
 
 type sqlJoinSchema struct {
+	joinType string
+
 	joinTable SQLAlias
 
 	condition Maker
-
-	joinType string
 }
 
 // SQLJoin Build a join query.
@@ -643,11 +643,11 @@ type SQLJoin interface {
 }
 
 type sqlJoin struct {
+	way *Way
+
 	table SQLAlias
 
 	query SQLSelect
-
-	way *Way
 
 	joins []sqlJoinSchema
 }
@@ -658,8 +658,8 @@ func newSQLJoin(way *Way, query SQLSelect) SQLJoin {
 	}
 	tmp := &sqlJoin{
 		way:   way,
-		joins: make([]sqlJoinSchema, 0, 1<<1),
 		query: query,
+		joins: make([]sqlJoinSchema, 0, 1<<1),
 	}
 	return tmp
 }
@@ -933,15 +933,15 @@ type SQLGroupBy interface {
 }
 
 type sqlGroupBy struct {
-	having Filter
+	way *Way
+
+	groupColumns []string
 
 	groupColumnsMap map[string]int
 
-	way *Way
-
 	groupColumnsArgs map[string][]any
 
-	groupColumns []string
+	having Filter
 }
 
 func newSQLGroupBy(way *Way) SQLGroupBy {
@@ -949,11 +949,11 @@ func newSQLGroupBy(way *Way) SQLGroupBy {
 		panic(errNilPtr)
 	}
 	return &sqlGroupBy{
-		having:           way.F(),
-		groupColumnsMap:  make(map[string]int, 1<<1),
 		way:              way,
-		groupColumnsArgs: make(map[string][]any, 1<<1),
 		groupColumns:     make([]string, 0, 1<<1),
+		groupColumnsMap:  make(map[string]int, 1<<1),
+		groupColumnsArgs: make(map[string][]any, 1<<1),
+		having:           way.F(),
 	}
 }
 
@@ -1067,15 +1067,15 @@ type SQLOrderBy interface {
 	OrderString(order *string) SQLOrderBy
 }
 type sqlOrderBy struct {
+	way *Way
+
 	allow map[string]*struct{}
 
 	replace map[string]string
 
-	orderMap map[string]int
-
-	way *Way
-
 	orderBy []string
+
+	orderMap map[string]int
 }
 
 func newSQLOrderBy(way *Way) SQLOrderBy {
@@ -1083,9 +1083,9 @@ func newSQLOrderBy(way *Way) SQLOrderBy {
 		panic(errNilPtr)
 	}
 	return &sqlOrderBy{
-		orderMap: make(map[string]int, 1<<1),
 		way:      way,
 		orderBy:  make([]string, 0, 1<<1),
+		orderMap: make(map[string]int, 1<<1),
 	}
 }
 
@@ -1694,6 +1694,8 @@ type SQLUpdateSet interface {
 }
 
 type sqlUpdateSet struct {
+	way *Way
+
 	forbidSet map[string]*struct{}
 
 	exists map[string]string // Existing update column, map[column-name]column-update-expression
@@ -1701,8 +1703,6 @@ type sqlUpdateSet struct {
 	onlyAllow map[string]*struct{} // Set columns that only allow updates.
 
 	updateMap map[string]int
-
-	way *Way
 
 	defaults *sqlUpdateSet
 
@@ -2084,9 +2084,9 @@ type SQLOnConflict interface {
 }
 
 type sqlOnConflict struct {
-	onConflictsDoUpdateSet SQLOnConflictUpdateSet
-
 	way *Way
+
+	onConflictsDoUpdateSet SQLOnConflictUpdateSet
 
 	insert Maker
 
@@ -2241,11 +2241,11 @@ type SQLInsert interface {
 }
 
 type sqlInsert struct {
-	forbidSet map[string]*struct{}
-
 	way *Way
 
 	table *SQL
+
+	forbidSet map[string]*struct{}
 
 	onlyAllow map[string]*struct{} // Set the columns to allow inserts only.
 
@@ -2676,15 +2676,15 @@ type SQLCase interface {
 }
 
 type sqlCase struct {
+	way *Way
+
 	sqlCase *SQL // CASE value, value is optional.
+
+	whenThen []*SQL // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
 
 	sqlElse *SQL // ELSE value, value is optional.
 
-	way *Way
-
 	alias string // Alias-name for CASE , value is optional.
-
-	whenThen []*SQL // WHEN xxx THEN xxx [WHEN xxx THEN xxx] ...
 }
 
 func NewSQLCase(way *Way) SQLCase {

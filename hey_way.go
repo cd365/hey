@@ -99,11 +99,11 @@ type transaction struct {
 	// track Tracking transaction.
 	track *MyTrack
 
-	// script List of SQL statements that have been executed within a transaction.
-	script []*MyTrack
-
 	// mutex Mutex lock.
 	mutex sync.Mutex
+
+	// script List of SQL statements that have been executed within a transaction.
+	script []*MyTrack
 }
 
 // addScript Add information about the executed SQL statement.
@@ -135,6 +135,9 @@ func (s *transaction) write() {
 
 // Manual For handling different types of databases.
 type Manual struct {
+	// DatabaseType Database type value.
+	DatabaseType cst.DatabaseType
+
 	// Replacer SQL Identifier Replacer.
 	Replacer Replacer
 
@@ -143,9 +146,6 @@ type Manual struct {
 
 	// InsertOneReturningId Insert a record and return the id value of the inserted data.
 	InsertOneReturningId func(r SQLReturning)
-
-	// DatabaseType Database type value.
-	DatabaseType cst.DatabaseType
 
 	// More custom methods can be added here to achieve the same function using different databases.
 }

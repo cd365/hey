@@ -47,11 +47,11 @@ type MyTrack struct {
 	// Prepare Original SQL statement.
 	Prepare string
 
-	// Script Visual SQL statement.
-	Script string
-
 	// Args The parameter list corresponding to the original SQL statement.
 	Args []any
+
+	// Script Visual SQL statement.
+	Script string
 }
 
 func (s *MyTrack) write(track Track, way *Way) {

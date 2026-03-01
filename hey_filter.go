@@ -250,9 +250,9 @@ func newSQLFilter(way *Way) Filter {
 
 // filter Implementing interface Filter.
 type filter struct {
-	prepare *strings.Builder
-
 	way *Way
+
+	prepare *strings.Builder
 
 	args []any
 
@@ -1096,7 +1096,8 @@ type ExtractFilter interface {
 }
 
 type extractFilter struct {
-	filter    Filter
+	filter Filter
+
 	delimiter string
 }
 

@@ -563,9 +563,11 @@ type SQLAlias interface {
 }
 
 type sqlAlias struct {
-	way    *Way
+	way *Way
+
 	script *SQL
-	alias  string
+
+	alias string
 }
 
 func newSqlAlias(script any, aliases ...string) *sqlAlias {
@@ -1982,7 +1984,8 @@ type TableColumn interface {
 }
 
 type tableColumn struct {
-	way       *Way
+	way *Way
+
 	tableName string
 }
 
@@ -2202,6 +2205,12 @@ type sqlWindowFuncOver struct {
 	// over The over statement.
 	over *SQL
 
+	// partition Setting up window partitions.
+	partition []string
+
+	// order Sorting data within a group.
+	order []string
+
 	// frameGroups Define the window based on the sort column values.
 	frameGroups *SQL
 
@@ -2210,12 +2219,6 @@ type sqlWindowFuncOver struct {
 
 	// frameRows Defines a window based on a range of values, including all rows with the same ORDER BY column value; suitable for handling scenarios with equal values (such as time ranges).
 	frameRows *SQL
-
-	// partition Setting up window partitions.
-	partition []string
-
-	// order Sorting data within a group.
-	order []string
 }
 
 func NewSQLWindowFuncOver(way *Way) SQLWindowFuncOver {
@@ -2229,11 +2232,11 @@ func NewSQLWindowFuncOver(way *Way) SQLWindowFuncOver {
 
 func (s *sqlWindowFuncOver) ToEmpty() {
 	s.over = nil
+	s.partition = nil
+	s.order = nil
 	s.frameGroups = nil
 	s.frameRange = nil
 	s.frameRows = nil
-	s.partition = nil
-	s.order = nil
 }
 
 func (s *sqlWindowFuncOver) ToSQL() *SQL {
