@@ -100,7 +100,7 @@ func filterUsingValue(value any) any {
 		return nil
 	}
 	v := reflect.ValueOf(value)
-	for v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil
 		}

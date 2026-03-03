@@ -181,7 +181,7 @@ func prepare63236(prepare string) string {
 	for i := 0; i < length; i++ {
 		if origin[i] == c63 {
 			num++
-			latest.WriteString(fmt.Sprintf("%c%d", c36, num))
+			fmt.Fprintf(latest, "%c%d", c36, num)
 		} else {
 			latest.WriteByte(origin[i])
 		}
