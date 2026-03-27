@@ -309,7 +309,9 @@ func MakerScanOne[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 
 var poolStringBuilder = &sync.Pool{
 	New: func() any {
-		return &strings.Builder{}
+		b := &strings.Builder{}
+		b.Grow(1 << 8)
+		return b
 	},
 }
 
