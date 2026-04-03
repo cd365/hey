@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"sync"
@@ -1291,8 +1292,12 @@ func (s *myMap) ToEmpty() Map {
 	return s
 }
 
-func NewMap() Map {
-	return &myMap{
+func NewMap(lists ...map[string]any) Map {
+	result := &myMap{
 		m: make(map[string]any, 1<<1),
 	}
+	for _, value := range lists {
+		maps.Copy(result.m, value)
+	}
+	return result
 }
