@@ -2188,6 +2188,8 @@ type SQLInsert interface {
 
 	ToEmpty
 
+	IsEmpty() bool
+
 	// Table Insert data into the target table.
 	Table(table Maker) SQLInsert
 
@@ -2301,6 +2303,10 @@ func newSQLInsert(way *Way) SQLInsert {
 func (s *sqlInsert) ToEmpty() {
 	s.toEmpty()
 	s.defaults.toEmpty()
+}
+
+func (s *sqlInsert) IsEmpty() bool {
+	return s.values.IsEmpty()
 }
 
 func (s *sqlInsert) ToSQL() *SQL {
