@@ -501,7 +501,7 @@ type SQLJoinOn interface {
 	Equal(table1column string, table2column string) SQLJoinOn
 
 	// Equals Use equal value JOIN ON condition.
-	Equals(table1alias string, table1column string, table2alias string, table2column string) SQLJoinOn
+	Equals(table1 string, column1 string, table2 string, column2 string) SQLJoinOn
 
 	// Using Use USING instead of ON.
 	Using(columns ...string) SQLJoinOn
@@ -538,12 +538,12 @@ func (s *sqlJoinOn) Equal(table1column string, table2column string) SQLJoinOn {
 	})
 }
 
-func (s *sqlJoinOn) Equals(table1alias string, table1column string, table2alias string, table2column string) SQLJoinOn {
+func (s *sqlJoinOn) Equals(table1 string, column1 string, table2 string, column2 string) SQLJoinOn {
 	return s.And(func(f Filter) {
-		if table1alias == cst.Empty || table1column == cst.Empty || table2alias == cst.Empty || table2column == cst.Empty {
+		if table1 == cst.Empty || column1 == cst.Empty || table2 == cst.Empty || column2 == cst.Empty {
 			return
 		}
-		f.And(JoinSQLSpace(Prefix(s.way.Replace(table1alias), s.way.Replace(table1column)), cst.Equal, Prefix(s.way.Replace(table2alias), s.way.Replace(table2column))))
+		f.And(JoinSQLSpace(Prefix(s.way.Replace(table1), s.way.Replace(column1)), cst.Equal, Prefix(s.way.Replace(table2), s.way.Replace(column2))))
 	})
 }
 
@@ -628,6 +628,10 @@ type SQLJoin interface {
 	// Always ensure the validity of parameter values and be wary of SQL injection vulnerabilities.
 	// Example: Equal("a.id", "b.pid")
 	Equal(table1column string, table2column string) SQLJoinOn
+
+	// Equals Set connection conditions. For example: a.id = b.pid
+	// Example: Equals("a", "id", "b", "pid")
+	Equals(table1 string, column1 string, table2 string, column2 string) SQLJoinOn
 
 	// Using The conditions for the join query use USING.
 	Using(columns ...string) SQLJoinOn
@@ -759,12 +763,17 @@ func (s *sqlJoin) Equal(table1column string, table2column string) SQLJoinOn {
 	ok2 := strings.Contains(table2column, cst.Point)
 	if ok1 && ok2 {
 		return s.filter(func(on SQLJoinOn) {
-			on.And(func(f Filter) {
-				f.And(NewSQL(JoinString(table1column, cst.Space, cst.Equal, cst.Space, table2column)))
-			})
+			on.Equal(table1column, table2column)
 		})
 	}
 	return s.filter(nil)
+}
+
+// Equals For `... JOIN ON ... = ... [...]`
+func (s *sqlJoin) Equals(table1 string, column1 string, table2 string, column2 string) SQLJoinOn {
+	return s.filter(func(on SQLJoinOn) {
+		on.Equals(table1, column1, table2, column2)
+	})
 }
 
 // Using For `... JOIN USING ...`

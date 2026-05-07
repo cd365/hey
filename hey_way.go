@@ -1235,8 +1235,11 @@ type Map interface {
 	// Has Checking if the key exists in the map.
 	Has(key string) bool
 
-	// Del Deleting map key.
+	// Del Remove an element from the map using a key.
 	Del(key string) Map
+
+	// Pop Remove multiple elements from the map by keys.
+	Pop(keys ...string) Map
 
 	// Map Getting the map value.
 	Map() map[string]any
@@ -1272,6 +1275,13 @@ func (s *myMap) Has(key string) bool {
 
 func (s *myMap) Del(key string) Map {
 	delete(s.m, key)
+	return s
+}
+
+func (s *myMap) Pop(keys ...string) Map {
+	for _, key := range keys {
+		delete(s.m, key)
+	}
 	return s
 }
 
