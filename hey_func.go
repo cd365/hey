@@ -143,6 +143,19 @@ func MapDiscard[K comparable, V any](values map[K]V, discard func(k K, v V) bool
 	return result
 }
 
+// KeyValueMap Merge the []K and []V to be map[K]V.
+func KeyValueMap[K comparable, V any](columns []K, values []V) map[K]V {
+	length, length1 := len(columns), len(values)
+	if length != length1 {
+		return make(map[K]V)
+	}
+	result := make(map[K]V, length)
+	for i := 0; i < length; i++ {
+		result[columns[i]] = values[i]
+	}
+	return result
+}
+
 // JoinString Concatenate multiple strings in sequence.
 func JoinString(elems ...string) string {
 	builder := poolGetStringBuilder()
