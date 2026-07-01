@@ -670,44 +670,7 @@ func (s *sqlAlias) ToSQL() *SQL {
 	return result
 }
 
-// optimizeTableSQL Optimize table SQL.
-func optimizeTableSQL(way *Way, table *SQL) *SQL {
-	if way == nil {
-		panic(errNilPtr)
-	}
-
-	result := NewEmptySQL()
-	if table == nil || table.IsEmpty() {
-		return result
-	}
-
-	latest := table.Clone()
-	latest.Prepare = strings.TrimSpace(latest.Prepare)
-	if latest.IsEmpty() {
-		return result
-	}
-
-	length := len(latest.Prepare)
-	single := true
-	for i := 0; i < length; i++ {
-		if cst.Space[0] == latest.Prepare[i] {
-			single = false
-			break
-		}
-	}
-
-	if single {
-		// Table name.
-		latest.Prepare = way.Replace(latest.Prepare)
-		return latest
-	}
-
-	// Use a subquery as table.
-	latest = ParcelSQL(latest)
-	return latest
-}
-
-// newSQLTable Extract table names from any type.
+// newSQLTable Extract table names from any type. table1 a, table2 b, table3 c
 func newSQLTable(way *Way, table any) SQLAlias {
 	if way == nil {
 		panic(errNilPtr)
@@ -719,15 +682,15 @@ func newSQLTable(way *Way, table any) SQLAlias {
 	}
 	switch value := table.(type) {
 	case string:
-		result.SetSQL(optimizeTableSQL(way, NewSQL(value)))
+		result.SetSQL(NewSQL(value))
 	case *SQL:
-		result.SetSQL(optimizeTableSQL(way, value))
+		result.SetSQL(value)
 	case Maker:
 		if value != nil {
-			result.SetSQL(optimizeTableSQL(way, value.ToSQL()))
+			result.SetSQL(value.ToSQL())
 		}
 	case TableNamer:
-		result.SetSQL(optimizeTableSQL(way, NewSQL(value.Table())))
+		result.SetSQL(NewSQL(value.Table()))
 	default:
 		methodName := way.cfg.TableMethodName
 		if methodName == cst.Empty {
@@ -749,10 +712,10 @@ func newSQLTable(way *Way, table any) SQLAlias {
 		}
 		switch refValue.Kind() {
 		case reflect.Interface:
-			result.SetSQL(optimizeTableSQL(way, AnyToSQL(refValue.Interface())))
+			result.SetSQL(AnyToSQL(refValue.Interface()))
 			return result
 		case reflect.String:
-			result.SetSQL(optimizeTableSQL(way, AnyToSQL(refValue.String())))
+			result.SetSQL(AnyToSQL(refValue.String()))
 			return result
 		case reflect.Pointer, reflect.Struct: // struct OR struct pointer
 			method := refValue.MethodByName(methodName)

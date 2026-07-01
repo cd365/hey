@@ -255,7 +255,7 @@ func (s *multi) AddExec(maker Maker, result ...any) Multi {
 		return s
 	}
 	return s.Add(func(ctx context.Context) error {
-		custom := (any)(nil)
+		custom := any(nil)
 		length := len(result)
 		for i := length - 1; i >= 0; i-- {
 			if result[i] != nil {
