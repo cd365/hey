@@ -958,15 +958,20 @@ func (s *Way) QueryScan(ctx context.Context, maker Maker, scan func(rows *sql.Ro
 }
 
 // QueryScanOne executes a query statement, scan only one record.
-func (s *Way) QueryScanOne(ctx context.Context, maker Maker, dest ...any) error {
-	return s.Query(ctx, maker, func(rows *sql.Rows) error {
+func (s *Way) QueryScanOne(ctx context.Context, maker Maker, dest ...any) (exist bool, err error) {
+	err = s.Query(ctx, maker, func(rows *sql.Rows) error {
 		if rows.Next() {
+			exist = true
 			if err := rows.Scan(dest...); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return exist, err
+	}
+	return exist, nil
 }
 
 // RowScan scan a row of query results.
