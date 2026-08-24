@@ -945,6 +945,30 @@ func (s *Way) Query(ctx context.Context, maker Maker, query func(rows *sql.Rows)
 	return
 }
 
+// QueryScan executes a query statement, scan multiple records.
+func (s *Way) QueryScan(ctx context.Context, maker Maker, scan func(rows *sql.Rows) error) (err error) {
+	return s.Query(ctx, maker, func(rows *sql.Rows) error {
+		for rows.Next() {
+			if err := scan(rows); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// QueryScanOne executes a query statement, scan only one record.
+func (s *Way) QueryScanOne(ctx context.Context, maker Maker, dest ...any) error {
+	return s.Query(ctx, maker, func(rows *sql.Rows) error {
+		if rows.Next() {
+			if err := rows.Scan(dest...); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // RowScan scan a row of query results.
 func (s *Way) RowScan(dest ...any) func(row *sql.Row) error {
 	return func(row *sql.Row) error {
@@ -967,6 +991,11 @@ func (s *Way) QueryRow(ctx context.Context, maker Maker, query func(row *sql.Row
 	}()
 	err = stmt.QueryRow(ctx, query, script.Args...)
 	return
+}
+
+// QueryRowScan executes a statement and return row data, typically, these are INSERT, UPDATE and DELETE.
+func (s *Way) QueryRowScan(ctx context.Context, maker Maker, dest ...any) error {
+	return s.QueryRow(ctx, maker, func(row *sql.Row) error { return row.Scan(dest...) })
 }
 
 // QueryExists executes a query statement to check if the data exists.
