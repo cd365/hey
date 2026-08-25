@@ -304,6 +304,9 @@ type Config struct {
 	// NewTableColumn Create TableColumn, cannot be set to nil.
 	NewTableColumn func(way *Way, tableName ...string) TableColumn
 
+	// NewColumnName Create ColumnName, cannot be set to nil.
+	NewColumnName func(way *Way, tableName string) ColumnName
+
 	// ToSQLSelect Construct a query statement, cannot be set to nil.
 	ToSQLSelect func(s MakeSQL) *SQL
 
@@ -449,6 +452,7 @@ func ConfigDefault() *Config {
 		NewExtractFilter:          newExtractFilter,
 		NewTimeFilter:             newTimeFilter,
 		NewTableColumn:            NewTableColumn,
+		NewColumnName:             NewColumnName,
 
 		ToSQLSelect:       toSQLSelect,
 		ToSQLInsert:       toSQLInsert,
@@ -1213,6 +1217,11 @@ func (s *Way) W(way *Way) *Way {
 	return s
 }
 
+// ColumnName Create a ColumnName object.
+func (s *Way) ColumnName(tableName string) ColumnName {
+	return s.cfg.NewColumnName(s, tableName)
+}
+
 // SelectUpdate Extract specific key-value pairs from an object for updating.
 func (s *Way) SelectUpdate(object any, columns ...string) map[string]any {
 	length := len(columns)
@@ -1234,11 +1243,6 @@ func (s *Way) SelectUpdate(object any, columns ...string) map[string]any {
 		}
 	}
 	return result
-}
-
-// ColumnName Create a column-name object.
-func (s *Way) ColumnName(tableName string) ColumnName {
-	return NewColumnName(s, tableName)
 }
 
 // reader Implement Reader.
