@@ -1236,6 +1236,11 @@ func (s *Way) SelectUpdate(object any, columns ...string) map[string]any {
 	return result
 }
 
+// ColumnName Create a column-name object.
+func (s *Way) ColumnName(tableName string) ColumnName {
+	return NewColumnName(s, tableName)
+}
+
 // reader Implement Reader.
 type reader struct {
 	// choose Gets a read-only object from the read list.
