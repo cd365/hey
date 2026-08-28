@@ -628,6 +628,12 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		}
 	}
 
+	if s.cfg.TransactionMaxDuration > 0 {
+		if _, ok := ctx.Deadline(); !ok {
+			return nil, Err("hey: please set the maximum transaction execution time")
+		}
+	}
+
 	way.transaction = &transaction{}
 	way.transaction.ctx = ctx
 	way.transaction.way = way
