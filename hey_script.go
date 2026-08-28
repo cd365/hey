@@ -1930,6 +1930,12 @@ type TableColumn interface {
 	// Columns Add table name prefix to column names in batches.
 	Columns(columns ...string) []string
 
+	// C Alias method of the `Column` method.
+	C(column string, alias ...string) string
+
+	// S Alias method of the `Columns` method.
+	S(columns ...string) []string
+
 	// Avg Call an aggregate function AVG() on a column and give it an alias.
 	// age => AVG(a.age) AS age || AVG(a.age) AS avg_age
 	Avg(column string, alias ...string) string
@@ -2006,6 +2012,16 @@ func (s *tableColumn) columnAlias(column string, alias ...string) string {
 // Column Add table name prefix to single column name, allowing column alias to be set.
 func (s *tableColumn) Column(column string, alias ...string) string {
 	return s.columnAlias(s.Columns(column)[0], alias...)
+}
+
+// C Alias method of the Column method.
+func (s *tableColumn) C(column string, alias ...string) string {
+	return s.Column(column, alias...)
+}
+
+// S Alias method of the Columns method.
+func (s *tableColumn) S(columns ...string) []string {
+	return s.Columns(columns...)
 }
 
 // funcColumnAliasName SUM(salary) AS salary || SUM(salary) AS salary1
