@@ -3,7 +3,7 @@ package hey
 import (
 	"testing"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 func TestNewOffsetRowsFetchNextRowsOnly(t *testing.T) {

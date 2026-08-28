@@ -63,7 +63,7 @@ type Multi interface {
 // NewMulti Create a Multi object.
 func NewMulti(way *Way) Multi {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &multi{
 		way: way,

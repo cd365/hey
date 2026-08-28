@@ -32,8 +32,8 @@ example-run:
 
 .PHONY: example-test-coverage
 example-test-coverage:
-	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v7;go tool cover -html=.coverage.out -o .coverage.html;cd -
+	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v8;go tool cover -html=.coverage.out -o .coverage.html;cd -
 
 .PHONY: example-test-coverage-all
 example-test-coverage-all:
-	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v7,examples/pgsql;go tool cover -html=.coverage.out -o .coverage.html;cd -
+	@cd _examples/all;go test -v -coverprofile=.coverage.out -coverpkg=github.com/cd365/hey/v8,examples/pgsql;go tool cover -html=.coverage.out -o .coverage.html;cd -

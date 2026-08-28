@@ -19,8 +19,8 @@ import (
 
 	"examples/common"
 
-	"github.com/cd365/hey/v7"
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8"
+	"github.com/cd365/hey/v8/cst"
 	_ "github.com/lib/pq"
 )
 
@@ -707,8 +707,8 @@ func Select() {
 
 	// JOIN
 	{
-		a := way.T(cst.A)
-		b := way.T(cst.B)
+		a := way.TableColumn(cst.A)
+		b := way.TableColumn(cst.B)
 		ac := a.Column
 		bc := b.Column
 		where := way.F()
@@ -722,7 +722,7 @@ func Select() {
 		get.Where(where)
 		get.Select(
 			ac(cst.Asterisk),
-			hey.Alias(hey.Coalesce(bc(department.Name), hey.VarcharValue("")), "department_name"), // string
+			way.Alias(hey.Coalesce(bc(department.Name), hey.VarcharValue("")), "department_name"), // string
 			bc(department.SerialNum, "department_serial_num"),                                     // pointer int
 		)
 		get.Desc(ac(employee.Id))
@@ -911,14 +911,14 @@ func Transaction() {
 	delete4 := way.Table("example4").Where(idEqual(4))
 
 	ctx := context.Background()
-	err = way.Transaction(ctx, func(tx *hey.Way) error {
-		tx.TransactionMessage("transaction-message-1")
-		remove := tx.Table(employee).Where(idEqual(1))
+	err = way.Transaction(ctx, time.Second*10, func(ctx context.Context, way *hey.Way) error {
+		way.TransactionMessage("transaction-message-1")
+		remove := way.Table(employee).Where(idEqual(1))
 		// _, _ = remove.Delete(ctx)
 		script := remove.ToDelete()
 		way.Debug(script)
 
-		update := tx.Table(department).Where(idEqual(1)).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
+		update := way.Table(department).Where(idEqual(1)).UpdateFunc(func(f hey.Filter, u hey.SQLUpdateSet) {
 			u.Update(modify)
 		})
 		// _, _ = update.Update(ctx)
@@ -926,20 +926,20 @@ func Transaction() {
 		way.Debug(script)
 
 		if false {
-			rows, err = tx.Execute(ctx, delete3.ToDelete())
+			rows, err = way.Execute(ctx, delete3.ToDelete())
 			if err != nil {
 				return err
 			}
 			if rows <= 0 {
-				return hey.ErrNoRowsAffected
+				return hey.Err("no rows affected")
 			}
-			delete4.W(tx)
+			delete4.W(way)
 			rows, err = delete4.Delete(ctx)
 			if err != nil {
 				return err
 			}
 			if rows <= 0 {
-				return hey.ErrNoRowsAffected
+				return hey.Err("no rows affected")
 			}
 		}
 
@@ -952,6 +952,8 @@ func Transaction() {
 	// Custom handling of transaction.
 	err = func() (err error) {
 		tx := (*hey.Way)(nil)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+		defer cancel()
 		tx, err = way.Begin(ctx)
 		if err != nil {
 			return err
@@ -1140,8 +1142,8 @@ func TableColumn() {
 		DepartmentCreatedAt *int64  `db:"department_created_at"`
 	}
 
-	a := way.T(cst.A)
-	b := way.T(cst.B)
+	a := way.TableColumn(cst.A)
+	b := way.TableColumn(cst.B)
 	ac := a.Column
 	bc := b.Column
 	aca := func(column string) string { return ac(column, column) }
@@ -1153,13 +1155,13 @@ func TableColumn() {
 			f.GreaterThan(ac(employee.Id), 0)
 		})
 		join.Select(aca(employee.Id))
-		join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+		join.Select(a.Columns(employee.Name, employee.Email, employee.DepartmentId))
 		join.Select(
 			bc(department.Name, "department_name"),
 		)
 		dca := bc(department.CreatedAt)
 		join.Select(
-			hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
+			way.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 		)
 		return joinTable, joinOn
 	})
@@ -1176,8 +1178,8 @@ func TableColumn() {
 }
 
 func WindowFunc() {
-	a := way.T(cst.A)
-	b := way.T(cst.B)
+	a := way.TableColumn(cst.A)
+	b := way.TableColumn(cst.B)
 	ac := a.Column
 	bc := b.Column
 	aca := func(column string) string { return ac(column, column) }
@@ -1186,7 +1188,7 @@ func WindowFunc() {
 			joinTable := join.Table(department, b.Table())
 			joinOn := join.Equal(ac(employee.DepartmentId), bc(department.Id))
 			join.Select(aca(employee.Id))
-			join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+			join.Select(a.Columns(employee.Name, employee.Email, employee.DepartmentId))
 			join.Select(
 				way.WindowFunc("max_salary").Max(ac(employee.DepartmentId)).OverFunc(func(o hey.SQLWindowFuncOver) {
 					o.Partition(ac(employee.DepartmentId))
@@ -1206,7 +1208,7 @@ func WindowFunc() {
 			)
 			dca := bc(department.CreatedAt)
 			join.Select(
-				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
+				way.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 			)
 			return joinTable, joinOn
 		})
@@ -1243,7 +1245,7 @@ func WindowFunc() {
 			joinTable := join.Table(department, b.Table())
 			joinOn := join.Equal(ac(employee.DepartmentId), bc(department.Id))
 			join.Select(aca(employee.Id))
-			join.Select(a.ColumnAll(employee.Name, employee.Email, employee.DepartmentId))
+			join.Select(a.Columns(employee.Name, employee.Email, employee.DepartmentId))
 			join.Select(
 				way.WindowFunc("max_salary").Max(ac(employee.DepartmentId)).Over(wa),
 				way.WindowFunc("avg_salary").Avg(ac(employee.DepartmentId)).Over(wa),
@@ -1254,7 +1256,7 @@ func WindowFunc() {
 			)
 			dca := bc(department.CreatedAt)
 			join.Select(
-				hey.Alias(hey.Coalesce(dca, 0), "department_created_at"),
+				way.Alias(hey.Coalesce(dca, 0), "department_created_at"),
 			)
 			return joinTable, joinOn
 		})
@@ -1402,7 +1404,7 @@ func WayMulti() {
 			}
 			var err error
 			rows := int64(0)
-			err = way.Transaction(ctx, func(tx *hey.Way) error {
+			err = way.Transaction(ctx, time.Second*5, func(ctx context.Context, way *hey.Way) error {
 				rows, err = way.MultiExecute(ctx, makers)
 				return err
 			})
@@ -1416,7 +1418,7 @@ func WayMulti() {
 					b.WriteString("x")
 				}
 				fail.Args[0] = fmt.Sprintf("%s-%s", fail.Args[0].(string), b.String())
-				err = way.Transaction(ctx, func(tx *hey.Way) error {
+				err = way.Transaction(ctx, time.Second*3, func(ctx context.Context, way *hey.Way) error {
 					rows, err = way.MultiExecute(ctx, makers)
 					return err
 				})

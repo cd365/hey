@@ -1,3 +1,3 @@
-module github.com/cd365/hey/v7
+module github.com/cd365/hey/v8
 
 go 1.25.6

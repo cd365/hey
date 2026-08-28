@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 // SQL Prepare SQL statements and parameter lists corresponding to placeholders.
@@ -253,14 +253,7 @@ const (
 
 // MakerScanAll Rows scan to any struct, based on struct scan data.
 func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(rows *sql.Rows, v *V) error) ([]*V, error) {
-	if way == nil || maker == nil || scan == nil {
-		return nil, ErrUnexpectedParameterValue
-	}
 	script := maker.ToSQL()
-	if script == nil || script.IsEmpty() {
-		return nil, ErrEmptySqlStatement
-	}
-
 	length := 16
 	if tmp := ctx.Value(MakerScanAllMakeSliceLength); tmp != nil {
 		if val, ok := tmp.(int); ok && val > 0 && val <= 10000 {
@@ -579,10 +572,6 @@ func newSqlAlias(script any, aliases ...string) *sqlAlias {
 	}
 }
 
-func Alias(script any, aliases ...string) SQLAlias {
-	return newSqlAlias(script, aliases...)
-}
-
 func (s *Way) Alias(script any, aliases ...string) SQLAlias {
 	return newSqlAlias(script, aliases...).w(s)
 }
@@ -673,9 +662,9 @@ func (s *sqlAlias) ToSQL() *SQL {
 // newSQLTable Extract table names from any type. table1 a, table2 b, table3 c
 func newSQLTable(way *Way, table any) SQLAlias {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
-	result := newSqlAlias(cst.Empty).w(way)
+	result := way.Alias(cst.Empty)
 	if table == nil {
 		result.SetSQL(AnyToSQL(table))
 		return result
@@ -1748,9 +1737,6 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (columns
 
 // ExecuteScript Execute SQL script; Data is invaluable, please use this method with caution.
 func ExecuteScript(ctx context.Context, db *sql.DB, execute string, args ...any) error {
-	if execute = strings.TrimSpace(execute); execute == cst.Empty {
-		return ErrEmptySqlStatement
-	}
 	result, err := db.ExecContext(ctx, execute, args...)
 	if err != nil {
 		return err
@@ -1932,20 +1918,39 @@ func QuickScan(
 // TableColumn Add the prefix "table_name." before the column name.
 // Allow the table name to be empty, which makes it possible to replace column names or construct SQL statements based on column names.
 type TableColumn interface {
+	// SQL Custom SQL expression, this method has nothing to do with the table prefix.
+	SQL(prepare string, args ...any) *SQL
+
 	// Table Get the current table name.
 	Table() string
 
 	// Column Add table name prefix to single column name, allowing column alias to be set.
 	Column(column string, alias ...string) string
 
-	// ColumnAll Add table name prefix to column names in batches.
-	ColumnAll(columnAll ...string) []string
+	// Columns Add table name prefix to column names in batches.
+	Columns(columns ...string) []string
+
+	// Avg Call an aggregate function AVG() on a column and give it an alias.
+	// age => AVG(a.age) AS age || AVG(a.age) AS avg_age
+	Avg(column string, alias ...string) string
+
+	// Max Call an aggregate function MAX() on a column and give it an alias.
+	// age => MAX(a.age) AS age || MAX(a.age) AS max_age
+	Max(column string, alias ...string) string
+
+	// Min Call an aggregate function MIN() on a column and give it an alias.
+	// age => MIN(a.age) AS age || MIN(a.age) AS min_age
+	Min(column string, alias ...string) string
+
+	// Sum Call an aggregate function SUM() on a column and give it an alias.
+	// balance => SUM(a.balance) AS balance || SUM(a.balance) AS all_balance
+	Sum(column string, alias ...string) string
 
 	// ColumnSQL Single column to *SQL.
 	ColumnSQL(column string, alias ...string) *SQL
 
-	// ColumnAllSQL Multiple columns to *SQL.
-	ColumnAllSQL(columnAll ...string) *SQL
+	// ColumnsSQL Multiple columns to *SQL.
+	ColumnsSQL(columns ...string) *SQL
 }
 
 type tableColumn struct {
@@ -1956,7 +1961,7 @@ type tableColumn struct {
 
 func NewTableColumn(way *Way, tableName ...string) TableColumn {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	tmp := &tableColumn{
 		way: way,
@@ -1965,9 +1970,27 @@ func NewTableColumn(way *Way, tableName ...string) TableColumn {
 	return tmp
 }
 
+// SQL Custom SQL expression.
+func (s *tableColumn) SQL(prepare string, args ...any) *SQL {
+	return NewSQL(prepare, args...)
+}
+
 // Table Get the current table name.
 func (s *tableColumn) Table() string {
 	return s.tableName
+}
+
+// Columns Add table name prefix to column names in batches.
+func (s *tableColumn) Columns(columns ...string) []string {
+	if s.tableName == cst.Empty {
+		return s.way.ReplaceAll(columns)
+	}
+	table := s.way.Replace(s.tableName)
+	result := make([]string, len(columns))
+	for index, column := range columns {
+		result[index] = Prefix(table, s.way.Replace(column))
+	}
+	return result
 }
 
 // columnAlias Set an alias for the column.
@@ -1975,27 +1998,63 @@ func (s *tableColumn) Table() string {
 // "[prefix.]column_name + alias_name" -> "column_name AS column_alias_name"
 func (s *tableColumn) columnAlias(column string, alias ...string) string {
 	if aliasName := LastNotEmptyString(alias); aliasName != cst.Empty {
-		return newSqlAlias(column).w(s.way).SetAlias(aliasName).ToSQL().Prepare
+		return s.way.Alias(column, aliasName).ToSQL().Prepare
 	}
 	return column
 }
 
 // Column Add table name prefix to single column name, allowing column alias to be set.
 func (s *tableColumn) Column(column string, alias ...string) string {
-	return s.columnAlias(s.ColumnAll(column)[0], alias...)
+	return s.columnAlias(s.Columns(column)[0], alias...)
 }
 
-// ColumnAll Add table name prefix to column names in batches.
-func (s *tableColumn) ColumnAll(columnAll ...string) []string {
-	if s.tableName == cst.Empty {
-		return s.way.ReplaceAll(columnAll)
+// funcColumnAliasName SUM(salary) AS salary || SUM(salary) AS salary1
+func (s *tableColumn) funcColumnAliasName(column string, aliases ...string) string {
+	alias := LastNotEmptyString(aliases)
+	if alias != cst.Empty {
+		return alias
 	}
-	table := s.way.Replace(s.tableName)
-	result := make([]string, len(columnAll))
-	for index, column := range columnAll {
-		result[index] = Prefix(table, s.way.Replace(column))
+	if column == cst.Asterisk {
+		return alias
 	}
-	return result
+	index := strings.LastIndex(column, cst.Point)
+	if index == -1 {
+		return column
+	}
+	return column[index+1:]
+}
+
+// funcColumnAlias SUM(salary) AS salary
+func (s *tableColumn) funcColumnAlias(funcName string, column string, alias ...string) string {
+	tableColumnName := column
+	if column != cst.Asterisk {
+		tableColumnName = s.Column(tableColumnName)
+	}
+	return s.way.Alias(FuncSQL(funcName, tableColumnName), s.funcColumnAliasName(column, alias...)).ToSQL().Prepare
+}
+
+// Avg Call an aggregate function AVG() on a column and give it an alias.
+// age => AVG(a.age) AS age || AVG(a.age) AS avg_age
+func (s *tableColumn) Avg(column string, alias ...string) string {
+	return s.funcColumnAlias(cst.AVG, column, alias...)
+}
+
+// Max Call an aggregate function MAX() on a column and give it an alias.
+// age => MAX(a.age) AS age || MAX(a.age) AS max_age
+func (s *tableColumn) Max(column string, alias ...string) string {
+	return s.funcColumnAlias(cst.MAX, column, alias...)
+}
+
+// Min Call an aggregate function MIN() on a column and give it an alias.
+// age => MIN(a.age) AS age || MIN(a.age) AS min_age
+func (s *tableColumn) Min(column string, alias ...string) string {
+	return s.funcColumnAlias(cst.MIN, column, alias...)
+}
+
+// Sum Call an aggregate function SUM() on a column and give it an alias.
+// salary => SUM(a.salary) AS salary || SUM(a.salary) AS all_salary
+func (s *tableColumn) Sum(column string, alias ...string) string {
+	return s.funcColumnAlias(cst.SUM, column, alias...)
 }
 
 // ColumnSQL Single column to *SQL.
@@ -2003,18 +2062,18 @@ func (s *tableColumn) ColumnSQL(column string, alias ...string) *SQL {
 	return NewSQL(s.Column(column, alias...))
 }
 
-// ColumnAllSQL Multiple columns to *SQL.
-func (s *tableColumn) ColumnAllSQL(columnAll ...string) *SQL {
-	columnAll = s.ColumnAll(columnAll...)
-	valuesAll := make([]any, len(columnAll))
-	for i := range columnAll {
-		valuesAll[i] = columnAll[i]
+// ColumnsSQL Multiple columns to *SQL.
+func (s *tableColumn) ColumnsSQL(columns ...string) *SQL {
+	columns = s.Columns(columns...)
+	valuesAll := make([]any, len(columns))
+	for i := range columns {
+		valuesAll[i] = columns[i]
 	}
 	return JoinSQLCommaSpace(valuesAll...)
 }
 
-// T Register a shortcut method T to quickly create a TableColumn instance.
-func (s *Way) T(tableName ...string) TableColumn {
+// TableColumn Create a TableColumn instance.
+func (s *Way) TableColumn(tableName ...string) TableColumn {
 	return s.cfg.NewTableColumn(s, tableName...)
 }
 
@@ -2188,7 +2247,7 @@ type sqlWindowFuncOver struct {
 
 func NewSQLWindowFuncOver(way *Way) SQLWindowFuncOver {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlWindowFuncOver{
 		way: way,
@@ -2501,5 +2560,5 @@ func (s *WindowFunc) ToSQL() *SQL {
 	}
 
 	result.Prepare = b.String()
-	return newSqlAlias(result).w(s.way).SetAlias(s.alias).ToSQL()
+	return s.way.Alias(result, s.alias).ToSQL()
 }

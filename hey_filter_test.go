@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 func TestFilter_Equal(t *testing.T) {
@@ -235,14 +235,14 @@ func TestFilter_IsNotNull(t *testing.T) {
 
 func TestFilter_Keyword(t *testing.T) {
 	where := way.F()
-	where.LikeSearch("keyword-value", "name", "username", "email")
+	where.GroupLike("keyword-value", "name", "username", "email")
 	assert(where, "( name LIKE ? OR username LIKE ? OR email LIKE ? )")
 }
 
 func TestFilter_AllCompare(t *testing.T) {
 	where := way.F()
-	where.AllCompare(func(q Quantifier) {
-		q.Equal(
+	where.CompareAll(func(ck CompareKey) {
+		ck.Equal(
 			"id",
 			way.Table("account").
 				Select("id").
@@ -255,8 +255,8 @@ func TestFilter_AllCompare(t *testing.T) {
 
 func TestFilter_AnyCompare(t *testing.T) {
 	where := way.F()
-	where.AnyCompare(func(q Quantifier) {
-		q.GreaterThan(
+	where.CompareAny(func(ck CompareKey) {
+		ck.GreaterThan(
 			"age",
 			way.Table("account").
 				Select(way.Alias(Avg("age"), "age")).
@@ -303,7 +303,7 @@ func TestFilter_CompareLessThanEqual(t *testing.T) {
 	assert(where, "column1 <= column2")
 }
 
-func TestExtractFilter(t *testing.T) {
+func TestStringFilter(t *testing.T) {
 	where := way.F()
 
 	id := "id"
@@ -320,7 +320,7 @@ func TestExtractFilter(t *testing.T) {
 	salaryValue := "1000,5000"
 	nameValue := "aaa,ccc"
 
-	way.NewExtractFilter(where).
+	way.NewStringFilter(where).
 		IntBetween(createdAt, &createdAtValue).
 		Int64Between(updatedAt, nil).
 		Int64Between(updatedAt, &updatedAtValue).
@@ -329,27 +329,29 @@ func TestExtractFilter(t *testing.T) {
 	assert(where, "( created_at BETWEEN ? AND ? AND updated_at BETWEEN ? AND ? AND salary BETWEEN ? AND ? AND name BETWEEN ? AND ? )")
 
 	where.ToEmpty()
-	way.NewExtractFilter(where).
+	way.NewStringFilter(where).
 		IntIn(id, &idValue).
 		Int64In(id, &idValue).
 		StringIn(id, &idValue)
 	assert(where, "( id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) )")
 
 	where.ToEmpty()
-	like := "Jack"
-	way.NewExtractFilter(where).
-		LikeSearch(&like, email, name, username)
+	like := ""
+	where.GroupLike(like, email, name, username)
+	assert(where, "")
+
+	like = "Jack"
+	where.GroupLike(like, email, name, username)
 	assert(where, "( email LIKE ? OR name LIKE ? OR username LIKE ? )")
 
 	where.ToEmpty()
-	way.NewExtractFilter(where).
-		LikeSearch(nil, email, name)
-	assert(where, "")
+	like = "Jerry"
+	where.GroupLikeSearch(like, email, name)
+	assert(where, "( email LIKE ? OR name LIKE ? )")
 
 	where.ToEmpty()
 	like = ""
-	way.NewExtractFilter(where).
-		LikeSearch(&like, email, name)
+	where.GroupLikeSearch(like, email, name)
 	assert(where, "")
 }
 

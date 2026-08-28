@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 // ToEmpty Set the property values of the object to the default values of the corresponding types.
@@ -44,7 +44,7 @@ type sqlLabel struct {
 
 func newSQLLabel(way *Way) SQLLabel {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	separator := way.cfg.LabelsSeparator
 	if separator == cst.Empty {
@@ -152,7 +152,7 @@ type sqlWith struct {
 
 func newSQLWith(way *Way) SQLWith {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlWith{
 		column:  make(map[string][]string, 1<<1),
@@ -294,7 +294,7 @@ type sqlSelect struct {
 
 func newSQLSelect(way *Way) SQLSelect {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlSelect{
 		way:         way,
@@ -517,7 +517,7 @@ type sqlJoinOn struct {
 
 func newSQLJoinOn(way *Way) SQLJoinOn {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlJoinOn{
 		way:    way,
@@ -658,7 +658,7 @@ type sqlJoin struct {
 
 func newSQLJoin(way *Way, query SQLSelect) SQLJoin {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	tmp := &sqlJoin{
 		way:   way,
@@ -810,7 +810,7 @@ func (s *sqlJoin) tableColumns(table any, columns []string) []string {
 			return s.tableColumns(refValue.String(), columns)
 		}
 	}
-	return s.way.T(value).ColumnAll(columns...)
+	return s.way.TableColumn(value).Columns(columns...)
 }
 
 func (s *sqlJoin) TableColumn(table any, column string, aliases ...string) string {
@@ -843,7 +843,7 @@ type sqlWindow struct {
 
 func newSQLWindow(way *Way) SQLWindow {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlWindow{
 		way:     way,
@@ -955,7 +955,7 @@ type sqlGroupBy struct {
 
 func newSQLGroupBy(way *Way) SQLGroupBy {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlGroupBy{
 		way:              way,
@@ -1089,7 +1089,7 @@ type sqlOrderBy struct {
 
 func newSQLOrderBy(way *Way) SQLOrderBy {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlOrderBy{
 		way:      way,
@@ -1269,7 +1269,7 @@ type sqlLimit struct {
 
 func newSQLLimit(way *Way) SQLLimit {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlLimit{
 		way: way,
@@ -1458,7 +1458,7 @@ type sqlValues struct {
 
 func newSQLValues(way *Way) SQLValues {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlValues{
 		values: make([][]any, 1),
@@ -1553,7 +1553,7 @@ type sqlReturning struct {
 
 func newSQLReturning(way *Way, insert Maker) SQLReturning {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlReturning{
 		way:    way,
@@ -1739,7 +1739,7 @@ func (s *sqlUpdateSet) toEmpty() {
 
 func newSQLUpdateSet(way *Way) SQLUpdateSet {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	result := &sqlUpdateSet{
 		way: way,
@@ -2048,7 +2048,7 @@ type sqlOnConflictUpdateSet struct {
 
 func newSQLOnConflictUpdateSet(way *Way) SQLOnConflictUpdateSet {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	tmp := &sqlOnConflictUpdateSet{
 		way: way,
@@ -2106,7 +2106,7 @@ type sqlOnConflict struct {
 
 func newSQLOnConflict(way *Way, insert Maker) SQLOnConflict {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlOnConflict{
 		way:    way,
@@ -2291,7 +2291,7 @@ func (s *sqlInsert) toEmpty() {
 
 func newSQLInsert(way *Way) SQLInsert {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	result := &sqlInsert{
 		way: way,
@@ -2704,7 +2704,7 @@ type sqlCase struct {
 
 func NewSQLCase(way *Way) SQLCase {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &sqlCase{
 		way: way,
@@ -2747,7 +2747,7 @@ func (s *sqlCase) ToSQL() *SQL {
 	b.WriteString(cst.Space)
 	b.WriteString(cst.END)
 	script.Prepare = b.String()
-	return newSqlAlias(script).w(s.way).SetAlias(s.alias).ToSQL()
+	return s.way.Alias(script, s.alias).ToSQL()
 }
 
 func (s *sqlCase) Alias(alias string) SQLCase {

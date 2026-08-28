@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 // AnyAny Convert any type of slice to []any.

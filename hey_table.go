@@ -6,7 +6,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 // TableNamer Generic interface for getting table name.
@@ -707,9 +707,6 @@ func (s *Table) MapScan(ctx context.Context, adjusts ...AdjustColumnAnyValue) ([
 // Insert Execute an INSERT INTO statement.
 func (s *Table) Insert(ctx context.Context) (int64, error) {
 	script := s.ToInsert()
-	if script.IsEmpty() {
-		return 0, ErrEmptySqlStatement
-	}
 	if insert := s.insert; insert != nil {
 		if returning := insert.GetReturning(); returning != nil {
 			if execute := returning.GetExecute(); execute != nil {
@@ -727,7 +724,7 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 // Update Execute an UPDATE statement.
 func (s *Table) Update(ctx context.Context) (int64, error) {
 	if s.way.cfg.UpdateRequireWhere && (s.where == nil || s.where.IsEmpty()) {
-		return 0, ErrNoWhereCondition
+		return 0, Err("hey: WHERE is empty")
 	}
 	return s.way.Execute(ctx, s.ToUpdate())
 }
@@ -735,7 +732,7 @@ func (s *Table) Update(ctx context.Context) (int64, error) {
 // Delete Execute a DELETE statement.
 func (s *Table) Delete(ctx context.Context) (int64, error) {
 	if s.way.cfg.DeleteRequireWhere && (s.where == nil || s.where.IsEmpty()) {
-		return 0, ErrNoWhereCondition
+		return 0, Err("hey: WHERE is empty")
 	}
 	return s.way.Execute(ctx, s.ToDelete())
 }
@@ -768,21 +765,25 @@ type myComplex struct {
 	table *Table
 }
 
-func (s myComplex) atomic(ctx context.Context, group func(tx *Way) error) error {
+func (s myComplex) atomic(ctx context.Context, group func(ctx context.Context, way *Way) error) error {
 	way := s.table.way
 	if way.IsInTransaction() {
-		return group(way)
+		return group(ctx, way)
 	}
 	defer func() { s.table.W(way) }()
-	return way.TransactionNew(ctx, func(tx *Way) error {
-		s.table.W(tx)
-		return group(tx)
-	})
+	return way.TransactionNew(
+		ctx,
+		-1,
+		func(ctx context.Context, way *Way) error {
+			s.table.W(way)
+			return group(ctx, way)
+		},
+	)
 }
 
 // Upsert If the data exists, update the data; otherwise, insert the data.
 func (s myComplex) Upsert(ctx context.Context) (updateAffectedRows int64, insertResult int64, err error) {
-	err = s.atomic(ctx, func(tx *Way) error {
+	err = s.atomic(ctx, func(ctx context.Context, way *Way) error {
 		exist, table := false, s.table
 		exist, err = table.QueryExists(ctx)
 		if err != nil {
@@ -806,7 +807,7 @@ func (s myComplex) Upsert(ctx context.Context) (updateAffectedRows int64, insert
 
 // DeleteCreate Delete data first, then insert data.
 func (s myComplex) DeleteCreate(ctx context.Context) (deleteAffectedRows int64, insertResult int64, err error) {
-	err = s.atomic(ctx, func(tx *Way) error {
+	err = s.atomic(ctx, func(ctx context.Context, way *Way) error {
 		table := s.table
 		if where := table.where; where != nil && !where.IsEmpty() {
 			deleteAffectedRows, err = table.Delete(ctx)

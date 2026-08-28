@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 // hexEncodeToString Convert binary byte array to hexadecimal string.
@@ -292,20 +292,17 @@ type Config struct {
 	// NewMulti Create Multi, cannot be set to nil.
 	NewMulti func(way *Way) Multi
 
-	// NewQuantifier Create Quantifier, cannot be set to nil.
-	NewQuantifier func(filter Filter) Quantifier
+	// NewCompareKey Create CompareKey, cannot be set to nil.
+	NewCompareKey func(filter Filter) CompareKey
 
-	// NewExtractFilter Create ExtractFilter, cannot be set to nil.
-	NewExtractFilter func(filter Filter) ExtractFilter
+	// NewStringFilter Create StringFilter, cannot be set to nil.
+	NewStringFilter func(filter Filter) StringFilter
 
 	// NewTimeFilter Create TimeFilter, cannot be set to nil.
 	NewTimeFilter func(filter Filter) TimeFilter
 
 	// NewTableColumn Create TableColumn, cannot be set to nil.
 	NewTableColumn func(way *Way, tableName ...string) TableColumn
-
-	// NewColumnName Create ColumnName, cannot be set to nil.
-	NewColumnName func(way *Way, tableName string) ColumnName
 
 	// ToSQLSelect Construct a query statement, cannot be set to nil.
 	ToSQLSelect func(s MakeSQL) *SQL
@@ -396,8 +393,8 @@ func (s *Config) fully(way *Way) bool {
 		s.NewSQLWindowFuncFrame,
 		s.NewSQLWindowFuncOver,
 		s.NewMulti,
-		s.NewQuantifier,
-		s.NewExtractFilter,
+		s.NewCompareKey,
+		s.NewStringFilter,
 		s.NewTimeFilter,
 		s.NewTableColumn,
 		s.ToSQLSelect,
@@ -448,11 +445,10 @@ func ConfigDefault() *Config {
 		NewSQLWindowFuncFrame:     NewSQLWindowFuncFrame,
 		NewSQLWindowFuncOver:      NewSQLWindowFuncOver,
 		NewMulti:                  NewMulti,
-		NewQuantifier:             newQuantifier,
-		NewExtractFilter:          newExtractFilter,
+		NewCompareKey:             newCompareKey,
+		NewStringFilter:           newStringFilter,
 		NewTimeFilter:             newTimeFilter,
 		NewTableColumn:            NewTableColumn,
-		NewColumnName:             NewColumnName,
 
 		ToSQLSelect:       toSQLSelect,
 		ToSQLInsert:       toSQLInsert,
@@ -610,16 +606,16 @@ func (s *Way) ReplaceAll(keys []string) []string {
 }
 
 // begin Open a transaction.
-func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (tx *Way, err error) {
+func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (way *Way, err error) {
 	if s.db == nil {
-		err = ErrDatabaseIsNil
+		err = Err("hey: db is nil")
 		return
 	}
 
 	tmp := *s
-	tx = &tmp
+	way = &tmp
 
-	opt := tx.cfg.TxOptions
+	opt := way.cfg.TxOptions
 	length := len(opts)
 	for i := length - 1; i >= 0; i-- {
 		if opts[i] != nil {
@@ -628,24 +624,23 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		}
 	}
 
-	tx.transaction = &transaction{
-		ctx: ctx,
-		way: tx,
-	}
+	way.transaction = &transaction{}
+	way.transaction.ctx = ctx
+	way.transaction.way = way
 	if conn != nil {
-		tx.transaction.tx, err = conn.BeginTx(ctx, opt)
+		way.transaction.tx, err = conn.BeginTx(ctx, opt)
 	} else {
-		tx.transaction.tx, err = tx.db.BeginTx(ctx, opt)
+		way.transaction.tx, err = way.db.BeginTx(ctx, opt)
 	}
 	if err != nil {
-		tx = nil
+		way = nil
 		return
 	}
 	start := time.Now()
 	tracked := trackTransaction(ctx, start)
-	tracked.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, tx.transaction)
+	tracked.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, way.transaction)
 	tracked.TxState = cst.BEGIN
-	tx.transaction.track = tracked
+	way.transaction.track = tracked
 	if s.track != nil {
 		s.track.Track(ctx, tracked)
 	}
@@ -654,50 +649,44 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 
 // commit commit-transaction.
 func (s *Way) commit() (err error) {
-	if s.transaction == nil {
-		return ErrTransactionIsNil
-	}
-	tx := s.transaction
-	if tx.track != nil {
-		tx.track.TxState = cst.COMMIT
+	way := s.transaction
+	if way.track != nil {
+		way.track.TxState = cst.COMMIT
 	}
 	defer func() {
-		tx.write()
+		way.write()
 		s.transaction = nil
 	}()
-	err = tx.tx.Commit()
-	if tx.track != nil {
-		tx.track.Err = err
+	err = way.tx.Commit()
+	if way.track != nil {
+		way.track.Err = err
 	}
 	return err
 }
 
 // rollback rollback-transaction.
 func (s *Way) rollback() (err error) {
-	if s.transaction == nil {
-		return ErrTransactionIsNil
-	}
-	tx := s.transaction
-	if tx.track != nil {
-		tx.track.TxState = cst.ROLLBACK
+	way := s.transaction
+	if way.track != nil {
+		way.track.TxState = cst.ROLLBACK
 	}
 	defer func() {
-		tx.write()
+		way.write()
 		s.transaction = nil
 	}()
-	err = tx.tx.Rollback()
-	if tx.track != nil {
-		tx.track.Err = err
+	err = way.tx.Rollback()
+	if way.track != nil {
+		way.track.Err = err
 	}
 	return err
 }
 
-// Begin Open a transaction.
+// Begin Open a transaction, highly recommend using a timeout-controlled context.
 func (s *Way) Begin(ctx context.Context, opts ...*sql.TxOptions) (*Way, error) {
 	return s.begin(ctx, nil, opts...)
 }
 
-// BeginConn Open a transaction using *sql.Conn.
+// BeginConn Open a transaction using *sql.Conn, highly recommend using a timeout-controlled context.
 func (s *Way) BeginConn(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions) (*Way, error) {
 	return s.begin(ctx, conn, opts...)
 }
@@ -729,9 +718,15 @@ func (s *Way) TransactionMessage(message string) *Way {
 }
 
 // newTransaction start a new transaction and execute a set of SQL statements atomically.
-func (s *Way) newTransaction(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
-	tx := (*Way)(nil)
-	tx, err = s.begin(ctx, nil, opts...)
+func (s *Way) newTransaction(ctx context.Context, timeout time.Duration, transaction func(ctx context.Context, way *Way) error, opts ...*sql.TxOptions) (err error) {
+	if timeout > 0 {
+		newCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		ctx = newCtx
+	}
+
+	way := (*Way)(nil)
+	way, err = s.begin(ctx, nil, opts...)
 	if err != nil {
 		return
 	}
@@ -740,11 +735,11 @@ func (s *Way) newTransaction(ctx context.Context, fx func(tx *Way) error, opts .
 
 	defer func() {
 		if err == nil && ok {
-			if e := tx.commit(); e != nil {
+			if e := way.commit(); e != nil {
 				err = e
 			}
 		} else {
-			if e := tx.rollback(); e != nil {
+			if e := way.rollback(); e != nil {
 				if err == nil {
 					err = e
 				}
@@ -752,7 +747,7 @@ func (s *Way) newTransaction(ctx context.Context, fx func(tx *Way) error, opts .
 		}
 	}()
 
-	if err = fx(tx); err != nil {
+	if err = transaction(ctx, way); err != nil {
 		return
 	}
 
@@ -762,31 +757,25 @@ func (s *Way) newTransaction(ctx context.Context, fx func(tx *Way) error, opts .
 }
 
 // Transaction atomically executes a set of SQL statements. If a transaction has been opened, the opened transaction instance will be used.
-func (s *Way) Transaction(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) error {
+func (s *Way) Transaction(ctx context.Context, timeout time.Duration, transaction func(ctx context.Context, way *Way) error, opts ...*sql.TxOptions) error {
 	if s.IsInTransaction() {
-		return fx(s)
+		return transaction(ctx, s)
 	}
-	return s.newTransaction(ctx, fx, opts...)
+	return s.newTransaction(ctx, timeout, transaction, opts...)
 }
 
 // TransactionNew starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
-func (s *Way) TransactionNew(ctx context.Context, fx func(tx *Way) error, opts ...*sql.TxOptions) error {
-	return s.newTransaction(ctx, fx, opts...)
+func (s *Way) TransactionNew(ctx context.Context, timeout time.Duration, transaction func(ctx context.Context, way *Way) error, opts ...*sql.TxOptions) error {
+	return s.newTransaction(ctx, timeout, transaction, opts...)
 }
 
 // TransactionRetry starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
-func (s *Way) TransactionRetry(ctx context.Context, retries int, fx func(tx *Way) error, opts ...*sql.TxOptions) (err error) {
-	if retries <= 0 {
-		err = ErrUnexpectedParameterValue
-		return
-	}
-
+func (s *Way) TransactionRetry(ctx context.Context, timeout time.Duration, retries int, transaction func(ctx context.Context, way *Way) error, opts ...*sql.TxOptions) (err error) {
 	for i := 0; i < retries; i++ {
-		if err = s.newTransaction(ctx, fx, opts...); err == nil {
+		if err = s.newTransaction(ctx, timeout, transaction, opts...); err == nil {
 			break
 		}
 	}
-
 	return
 }
 
@@ -902,10 +891,7 @@ func (s *Stmt) Scan(ctx context.Context, result any, args ...any) error {
 // If a transaction has already started, the transaction object should be used first.
 func (s *Way) Prepare(ctx context.Context, query string) (stmt *Stmt, err error) {
 	if s.db == nil {
-		return nil, ErrDatabaseIsNil
-	}
-	if query == cst.Empty {
-		return nil, ErrEmptySqlStatement
+		return nil, Err("hey: db is nil")
 	}
 	stmt = &Stmt{
 		way:     s,
@@ -1215,11 +1201,6 @@ func (s *Way) W(way *Way) *Way {
 		return way
 	}
 	return s
-}
-
-// ColumnName Create a ColumnName object.
-func (s *Way) ColumnName(tableName string) ColumnName {
-	return s.cfg.NewColumnName(s, tableName)
 }
 
 // SelectUpdate Extract specific key-value pairs from an object for updating.

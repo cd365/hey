@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 // inArgs Compatibility parameter.
@@ -207,14 +207,17 @@ type Filter interface {
 	// IsNotNull Implement conditional filtering: column IS NOT NULL .
 	IsNotNull(column any) Filter
 
-	// LikeSearch Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
-	LikeSearch(value string, columns ...string) Filter
+	// GroupLike Implement the filter condition: ( column1 LIKE 'value' OR column2 LIKE 'value' OR column3 LIKE 'value' ... ) .
+	GroupLike(value string, columns ...string) Filter
 
-	// AllCompare Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
-	AllCompare(fx func(q Quantifier)) Filter
+	// GroupLikeSearch Implement the filter condition: ( column1 LIKE '%value%' OR column2 LIKE '%value%' OR column3 LIKE '%value%' ... ) .
+	GroupLikeSearch(value string, columns ...string) Filter
 
-	// AnyCompare Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
-	AnyCompare(fx func(q Quantifier)) Filter
+	// CompareAll Implement conditional filtering: column {=||<>||>||>=||<||<=} ALL ( subquery ) .
+	CompareAll(compare func(ck CompareKey)) Filter
+
+	// CompareAny Implement conditional filtering: column {=||<>||>||>=||<||<=} ANY ( subquery ) .
+	CompareAny(compare func(ck CompareKey)) Filter
 
 	// CompareEqual Implement conditional filtering: script1 = script2 .
 	CompareEqual(column1 any, column2 any) Filter
@@ -237,11 +240,17 @@ type Filter interface {
 	// You might be thinking why there is no method with the prefix `Or` defined to implement methods like OrEqual, OrLike, OrIn ...
 	// 1. Considering that, most of the OR is not used frequently in the business development process.
 	// 2. If the business really needs to use it, you can use the OrGroup method: OrGroup(func(g Filter) { g.Equal("column", 1) }) .
+
+	// NewStringFilter Create a StringFilter.
+	NewStringFilter(filters ...Filter) StringFilter
+
+	// NewTimeFilter Create a TimeFilter.
+	NewTimeFilter(filters ...Filter) TimeFilter
 }
 
 func newSQLFilter(way *Way) Filter {
 	if way == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	result := newFilter()
 	result.W(way)
@@ -829,7 +838,7 @@ func (s *filter) IsNotNull(column any) Filter {
 	return s.isNull(column, true)
 }
 
-func (s *filter) LikeSearch(value string, columns ...string) Filter {
+func (s *filter) GroupLike(value string, columns ...string) Filter {
 	if value == cst.Empty {
 		return s
 	}
@@ -862,25 +871,30 @@ func (s *filter) LikeSearch(value string, columns ...string) Filter {
 	return s
 }
 
-func (s *filter) newQuantifier(group Filter) Quantifier {
-	return s.way.cfg.NewQuantifier(group)
+func (s *filter) GroupLikeSearch(value string, columns ...string) Filter {
+	if value == cst.Empty {
+		return s
+	}
+	return s.GroupLike(JoinString(cst.PercentSign, value, cst.PercentSign), columns...)
 }
 
-func (s *filter) AllCompare(fx func(q Quantifier)) Filter {
-	if fx != nil {
+func (s *filter) newCompareKey(group Filter) CompareKey {
+	return s.way.cfg.NewCompareKey(group)
+}
+
+func (s *filter) CompareAll(compare func(ck CompareKey)) Filter {
+	if compare != nil {
 		group := s.New()
-		tmp := s.newQuantifier(group).SetQuantifier(cst.ALL)
-		fx(tmp)
+		compare(s.newCompareKey(group).SetKey(cst.ALL))
 		return s.Use(group)
 	}
 	return s
 }
 
-func (s *filter) AnyCompare(fx func(q Quantifier)) Filter {
-	if fx != nil {
+func (s *filter) CompareAny(compare func(ck CompareKey)) Filter {
+	if compare != nil {
 		group := s.New()
-		tmp := s.newQuantifier(group).SetQuantifier(cst.ANY)
-		fx(tmp)
+		compare(s.newCompareKey(group).SetKey(cst.ANY))
 		return s.Use(group)
 	}
 	return s
@@ -959,60 +973,78 @@ func (s *filter) CompareLessThanEqual(column1 any, column2 any) Filter {
 	return s.compares(column1, cst.LessThanEqual, column2)
 }
 
-// Quantifier Implement the filter condition: column {=||<>||>||>=||<||<=} [QUANTIFIER ]( subquery ) .
-// QUANTIFIER is usually one of ALL, ANY, SOME ... or EmptyString.
-type Quantifier interface {
-	// GetQuantifier Get quantifier value.
-	GetQuantifier() string
-
-	// SetQuantifier Set quantifier value.
-	SetQuantifier(quantifierString string) Quantifier
-
-	// Equal Implement the filter condition: column = QUANTIFIER ( subquery ) .
-	Equal(column any, subquery Maker) Quantifier
-
-	// NotEqual Implement the filter condition: column <> QUANTIFIER ( subquery ) .
-	NotEqual(column any, subquery Maker) Quantifier
-
-	// LessThan Implement the filter condition: column < QUANTIFIER ( subquery ) .
-	LessThan(column any, subquery Maker) Quantifier
-
-	// LessThanEqual Implement the filter condition: column <= QUANTIFIER ( subquery ) .
-	LessThanEqual(column any, subquery Maker) Quantifier
-
-	// GreaterThan Implement the filter condition: column > QUANTIFIER ( subquery ) .
-	GreaterThan(column any, subquery Maker) Quantifier
-
-	// GreaterThanEqual Implement the filter condition: column >= QUANTIFIER ( subquery ) .
-	GreaterThanEqual(column any, subquery Maker) Quantifier
+func (s *filter) NewStringFilter(filters ...Filter) StringFilter {
+	for i := len(filters) - 1; i >= 0; i++ {
+		if filters[i] != nil {
+			return s.way.NewStringFilter(filters[i])
+		}
+	}
+	return s.way.NewStringFilter(s)
 }
 
-type quantifier struct {
+func (s *filter) NewTimeFilter(filters ...Filter) TimeFilter {
+	for i := len(filters) - 1; i >= 0; i++ {
+		if filters[i] != nil {
+			return s.way.NewTimeFilter(filters[i])
+		}
+	}
+	return s.way.NewTimeFilter(s)
+}
+
+// CompareKey Implement the filter condition: column {=||<>||>||>=||<||<=} [KEY ]( subquery ) .
+// KEY is usually one of ALL, ANY, SOME ... or EmptyString.
+type CompareKey interface {
+	// GetKey Get key value.
+	GetKey() string
+
+	// SetKey Set key value.
+	SetKey(key string) CompareKey
+
+	// Equal Implement the filter condition: column = KEY ( subquery ) .
+	Equal(column any, subquery Maker) CompareKey
+
+	// NotEqual Implement the filter condition: column <> KEY ( subquery ) .
+	NotEqual(column any, subquery Maker) CompareKey
+
+	// LessThan Implement the filter condition: column < KEY ( subquery ) .
+	LessThan(column any, subquery Maker) CompareKey
+
+	// LessThanEqual Implement the filter condition: column <= KEY ( subquery ) .
+	LessThanEqual(column any, subquery Maker) CompareKey
+
+	// GreaterThan Implement the filter condition: column > KEY ( subquery ) .
+	GreaterThan(column any, subquery Maker) CompareKey
+
+	// GreaterThanEqual Implement the filter condition: column >= KEY ( subquery ) .
+	GreaterThanEqual(column any, subquery Maker) CompareKey
+}
+
+type compareKey struct {
 	filter Filter
 
-	quantifier string // The value is usually one of ALL, ANY, SOME.
+	key string // The value is usually one of ALL, ANY, SOME.
 }
 
-func newQuantifier(filter Filter) Quantifier {
+func newCompareKey(filter Filter) CompareKey {
 	if filter == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
-	return &quantifier{
+	return &compareKey{
 		filter: filter,
 	}
 }
 
-func (s *quantifier) GetQuantifier() string {
-	return s.quantifier
+func (s *compareKey) GetKey() string {
+	return s.key
 }
 
-func (s *quantifier) SetQuantifier(quantifierString string) Quantifier {
-	s.quantifier = quantifierString
+func (s *compareKey) SetKey(key string) CompareKey {
+	s.key = key
 	return s
 }
 
 // build Add SQL filter statement.
-func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier {
+func (s *compareKey) build(column any, logic string, subquery Maker) CompareKey {
 	if column == nil || logic == cst.Empty || subquery == nil {
 		return s
 	}
@@ -1023,95 +1055,99 @@ func (s *quantifier) build(column any, logic string, subquery Maker) Quantifier 
 	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
 		return s
 	}
-	s.filter.And(JoinSQLSpace(prefix, logic, s.quantifier, ParcelSQL(suffix)))
+	suffix.Prepare = ParcelPrepare(suffix.Prepare)
+	s.filter.And(JoinSQLSpace(prefix, logic, s.key, suffix))
 	return s
 }
 
-func (s *quantifier) Equal(column any, subquery Maker) Quantifier {
+func (s *compareKey) Equal(column any, subquery Maker) CompareKey {
 	return s.build(column, cst.Equal, subquery)
 }
 
-func (s *quantifier) NotEqual(column any, subquery Maker) Quantifier {
+func (s *compareKey) NotEqual(column any, subquery Maker) CompareKey {
 	return s.build(column, cst.NotEqual, subquery)
 }
 
-func (s *quantifier) LessThan(column any, subquery Maker) Quantifier {
+func (s *compareKey) LessThan(column any, subquery Maker) CompareKey {
 	return s.build(column, cst.LessThan, subquery)
 }
 
-func (s *quantifier) LessThanEqual(column any, subquery Maker) Quantifier {
+func (s *compareKey) LessThanEqual(column any, subquery Maker) CompareKey {
 	return s.build(column, cst.LessThanEqual, subquery)
 }
 
-func (s *quantifier) GreaterThan(column any, subquery Maker) Quantifier {
+func (s *compareKey) GreaterThan(column any, subquery Maker) CompareKey {
 	return s.build(column, cst.GreaterThan, subquery)
 }
 
-func (s *quantifier) GreaterThanEqual(column any, subquery Maker) Quantifier {
+func (s *compareKey) GreaterThanEqual(column any, subquery Maker) CompareKey {
 	return s.build(column, cst.GreaterThanEqual, subquery)
 }
 
-// ExtractFilter Extract the available condition values for the Filter.
+// StringFilter Extract the available condition values for the Filter.
 // Use a delimiter string to separate multiple element values, with ',' as the default.
-type ExtractFilter interface {
-	// Delimiter Custom a delimiter string is used to split the target string.
-	Delimiter(delimiter string) ExtractFilter
+type StringFilter interface {
+	// GetDelimiter Get the string delimiter character.
+	GetDelimiter() string
+
+	// SetDelimiter Custom a delimiter string is used to split the target string.
+	SetDelimiter(delimiter string) StringFilter
 
 	// Between Use a delimiter string to separate multiple element values, with ',' as the default.
-	Between(column string, value *string, handle func(values []string) []any) ExtractFilter
+	Between(column string, value *string, handle func(values []string) []any) StringFilter
 
 	// IntBetween Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN int-min AND int-max, column >= int-min, column <= int-max
-	IntBetween(column string, value *string) ExtractFilter
+	IntBetween(column string, value *string) StringFilter
 
 	// Int64Between Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN int64-min AND int64-max, column >= int64-min, column <= int64-max
-	Int64Between(column string, value *string) ExtractFilter
+	Int64Between(column string, value *string) StringFilter
 
 	// Float64Between Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN float64-min AND float64-max, column >= float64-min, column <= float64-max
-	Float64Between(column string, value *string) ExtractFilter
+	Float64Between(column string, value *string) StringFilter
 
 	// StringBetween Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column BETWEEN string-min AND string-max, column >= string-min, column <= string-max
-	StringBetween(column string, value *string) ExtractFilter
+	StringBetween(column string, value *string) StringFilter
 
 	// In Use a delimiter string to separate multiple element values, with ',' as the default.
-	In(column string, value *string, handle func(values []string) []any) ExtractFilter
+	In(column string, value *string, handle func(values []string) []any) StringFilter
 
 	// IntIn Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column IN ( int-value1, int-value2, int-value3 ... )
-	IntIn(column string, value *string) ExtractFilter
+	IntIn(column string, value *string) StringFilter
 
 	// Int64In Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column IN ( int64-value1, int64-value2, int64-value3 ... )
-	Int64In(column string, value *string) ExtractFilter
+	Int64In(column string, value *string) StringFilter
 
 	// StringIn Use a delimiter string to separate multiple element values, with ',' as the default.
 	// column IN ( string-value1, string-value2, string-value3 ... )
-	StringIn(column string, value *string) ExtractFilter
-
-	// LikeSearch Fuzzy search for a single keyword across multiple column values, ( column1 LIKE '%value%' OR column2 LIKE '%value%' OR column3 LIKE '%value%' ... )
-	LikeSearch(value *string, columns ...string) ExtractFilter
+	StringIn(column string, value *string) StringFilter
 }
 
-type extractFilter struct {
-	filter Filter
-
+type stringFilter struct {
 	delimiter string
+	filter    Filter
 }
 
-func newExtractFilter(filter Filter) ExtractFilter {
+func newStringFilter(filter Filter) StringFilter {
 	if filter == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
-	return &extractFilter{
-		filter:    filter,
+	return &stringFilter{
 		delimiter: cst.Comma,
+		filter:    filter,
 	}
 }
 
-func (s *extractFilter) Delimiter(delimiter string) ExtractFilter {
+func (s *stringFilter) GetDelimiter() string {
+	return s.delimiter
+}
+
+func (s *stringFilter) SetDelimiter(delimiter string) StringFilter {
 	s.delimiter = delimiter
 	return s
 }
@@ -1143,7 +1179,7 @@ func string2any(kind reflect.Kind, value string) (any, error) {
 	}
 }
 
-func (s *extractFilter) string2any(category reflect.Kind) func(values []string) []any {
+func (s *stringFilter) string2any(category reflect.Kind) func(values []string) []any {
 	return func(values []string) []any {
 		length := len(values)
 		result := make([]any, 0, length)
@@ -1158,7 +1194,7 @@ func (s *extractFilter) string2any(category reflect.Kind) func(values []string) 
 	}
 }
 
-func (s *extractFilter) split(column string, value *string, handle func(values []string) []any) []any {
+func (s *stringFilter) split(column string, value *string, handle func(values []string) []any) []any {
 	if column == cst.Empty || value == nil || *value == cst.Empty || handle == nil {
 		return nil
 	}
@@ -1170,7 +1206,7 @@ func (s *extractFilter) split(column string, value *string, handle func(values [
 	return handle(values)
 }
 
-func (s *extractFilter) between(column string, value *string, handle func(values []string) []any) *extractFilter {
+func (s *stringFilter) between(column string, value *string, handle func(values []string) []any) *stringFilter {
 	values := s.split(column, value, handle)
 	length := len(values)
 	if length == 0 || length > 2 {
@@ -1190,27 +1226,27 @@ func (s *extractFilter) between(column string, value *string, handle func(values
 	return s
 }
 
-func (s *extractFilter) Between(column string, value *string, handle func(values []string) []any) ExtractFilter {
+func (s *stringFilter) Between(column string, value *string, handle func(values []string) []any) StringFilter {
 	return s.between(column, value, handle)
 }
 
-func (s *extractFilter) IntBetween(column string, value *string) ExtractFilter {
+func (s *stringFilter) IntBetween(column string, value *string) StringFilter {
 	return s.between(column, value, s.string2any(reflect.Int))
 }
 
-func (s *extractFilter) Int64Between(column string, value *string) ExtractFilter {
+func (s *stringFilter) Int64Between(column string, value *string) StringFilter {
 	return s.between(column, value, s.string2any(reflect.Int64))
 }
 
-func (s *extractFilter) Float64Between(column string, value *string) ExtractFilter {
+func (s *stringFilter) Float64Between(column string, value *string) StringFilter {
 	return s.between(column, value, s.string2any(reflect.Float64))
 }
 
-func (s *extractFilter) StringBetween(column string, value *string) ExtractFilter {
+func (s *stringFilter) StringBetween(column string, value *string) StringFilter {
 	return s.between(column, value, s.string2any(reflect.String))
 }
 
-func (s *extractFilter) in(column string, value *string, handle func(values []string) []any) *extractFilter {
+func (s *stringFilter) in(column string, value *string, handle func(values []string) []any) *stringFilter {
 	values := s.split(column, value, handle)
 	length := len(values)
 	if length == 0 {
@@ -1230,46 +1266,36 @@ func (s *extractFilter) in(column string, value *string, handle func(values []st
 	return s
 }
 
-func (s *extractFilter) In(column string, value *string, handle func(values []string) []any) ExtractFilter {
+func (s *stringFilter) In(column string, value *string, handle func(values []string) []any) StringFilter {
 	return s.in(column, value, handle)
 }
 
-func (s *extractFilter) IntIn(column string, value *string) ExtractFilter {
+func (s *stringFilter) IntIn(column string, value *string) StringFilter {
 	return s.in(column, value, s.string2any(reflect.Int))
 }
 
-func (s *extractFilter) Int64In(column string, value *string) ExtractFilter {
+func (s *stringFilter) Int64In(column string, value *string) StringFilter {
 	return s.in(column, value, s.string2any(reflect.Int64))
 }
 
-func (s *extractFilter) StringIn(column string, value *string) ExtractFilter {
+func (s *stringFilter) StringIn(column string, value *string) StringFilter {
 	return s.in(column, value, s.string2any(reflect.String))
 }
 
-func (s *extractFilter) LikeSearch(value *string, columns ...string) ExtractFilter {
-	if value == nil {
-		return nil
-	}
-	length := len(columns)
-	if length == 0 {
-		return s
-	}
-	keyword := strings.TrimSpace(*value)
-	if keyword == cst.Empty {
-		return s
-	}
-	keyword = JoinString(cst.PercentSign, keyword, cst.PercentSign)
-	s.filter.LikeSearch(keyword, columns...)
-	return s
-}
-
-func (s *Way) NewExtractFilter(filter Filter) ExtractFilter {
-	return s.cfg.NewExtractFilter(filter)
+func (s *Way) NewStringFilter(filter Filter) StringFilter {
+	return s.cfg.NewStringFilter(filter)
 }
 
 // TimeFilter Commonly used timestamp range filtering conditions.
 type TimeFilter interface {
-	SetTime(value time.Time) TimeFilter
+	// TimeIn Set time zone.
+	TimeIn(loc *time.Location) TimeFilter
+
+	// GetTime Get the time point.
+	GetTime() time.Time
+
+	// SetTime Set the time point.
+	SetTime(timeAt time.Time) TimeFilter
 
 	// LastMinutes Last n minutes.
 	LastMinutes(column string, minutes int) TimeFilter
@@ -1316,16 +1342,16 @@ type TimeFilter interface {
 
 type timeFilter struct {
 	filter Filter
-
-	time time.Time
+	time   time.Time
 }
 
 func newTimeFilter(filter Filter) TimeFilter {
 	if filter == nil {
-		panic(errNilPtr)
+		panic(nilPointer)
 	}
 	return &timeFilter{
 		filter: filter,
+		time:   filter.V().Now(),
 	}
 }
 
@@ -1372,8 +1398,17 @@ func (s *timeFilter) yearStartAt(timestamp int64) int64 {
 	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, s.time.Location()).Unix()
 }
 
-func (s *timeFilter) SetTime(value time.Time) TimeFilter {
-	s.time = value
+func (s *timeFilter) TimeIn(loc *time.Location) TimeFilter {
+	s.time.In(loc)
+	return s
+}
+
+func (s *timeFilter) GetTime() time.Time {
+	return s.time
+}
+
+func (s *timeFilter) SetTime(timeAt time.Time) TimeFilter {
+	s.time = timeAt
 	return s
 }
 

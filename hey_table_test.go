@@ -3,7 +3,7 @@ package hey
 import (
 	"testing"
 
-	"github.com/cd365/hey/v7/cst"
+	"github.com/cd365/hey/v8/cst"
 )
 
 const (
@@ -38,8 +38,8 @@ func TestTable_With(t *testing.T) {
 	table.With(cst.A, way.Table(account).Where(where1).Select("id", "name", "email").ToSelect())
 	where2 := way.F().GreaterThanEqual("age", 18)
 	table.With(cst.B, way.Table(account).Where(where2).Select("id", "name", "email", "username").ToSelect())
-	a := way.T(cst.A)
-	b := way.T(cst.B)
+	a := way.TableColumn(cst.A)
+	b := way.TableColumn(cst.B)
 	ac := a.Column
 	bc := b.Column
 	bca := func(column string) string { return bc(column, column) }
@@ -47,7 +47,7 @@ func TestTable_With(t *testing.T) {
 		return join.Table(cst.B, cst.Empty), join.Equal(ac("id"), bc("id"))
 	})
 	table.Select(
-		a.ColumnAllSQL("id", "name", "email"),
+		a.ColumnsSQL("id", "name", "email"),
 		bca("username"),
 	)
 	where := way.F().IsNotNull(bc("username"))
@@ -163,14 +163,14 @@ func TestTable_Table(t *testing.T) {
 	assert(table.ToSelect(), "SELECT * FROM account")
 
 	table.ToEmpty()
-	table.Table(
-		way.Table(account).
-			Where(
-				NewSQL("id IN ( ?, ?, ? )", 1, 2, 3),
-			).
-			Select("id", "name", "age").
-			ToSelect(),
-	).Alias(cst.A).Asc("id").Limit(10).Offset(10)
+	subquery := way.Table(account).
+		Where(
+			NewSQL("id IN ( ?, ?, ? )", 1, 2, 3),
+		).
+		Select("id", "name", "age").
+		ToSelect()
+	subquery.Prepare = ParcelPrepare(subquery.Prepare)
+	table.Table(subquery).Alias(cst.A).Asc("id").Limit(10).Offset(10)
 	assert(table.ToSelect(), "SELECT * FROM ( SELECT id, name, age FROM account WHERE ( id IN ( ?, ?, ? ) ) ) AS a ORDER BY id ASC LIMIT 10 OFFSET 10")
 }
 
@@ -186,11 +186,11 @@ func TestTable_Alias(t *testing.T) {
 func TestTable_Join(t *testing.T) {
 	table := way.Table(account)
 
-	a := way.T(cst.A)
-	b := way.T(cst.B)
+	a := way.TableColumn(cst.A)
+	b := way.TableColumn(cst.B)
 	ac := a.Column
 	bc := b.Column
-	acs := a.ColumnAll
+	acs := a.Columns
 	table.Alias(a.Table())
 	table.InnerJoin(func(join SQLJoin) (SQLAlias, SQLJoinOn) {
 		return join.Table(account, cst.B), join.Equal(ac("pid"), bc("id"))
@@ -225,60 +225,60 @@ func TestTable_Where(t *testing.T) {
 
 	table.ToEmpty()
 
-	extract := way.NewExtractFilter(where)
+	parse := way.NewStringFilter(where)
 
 	{
 		where.ToEmpty()
-		extract.Int64Between("created_at", nil)
+		parse.Int64Between("created_at", nil)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account")
 
 		createdAt := ""
 		where.ToEmpty()
-		extract.Int64Between("created_at", &createdAt)
+		parse.Int64Between("created_at", &createdAt)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account")
 
 		createdAt = "1701234567,"
 		where.ToEmpty()
-		extract.Int64Between("created_at", &createdAt)
+		parse.Int64Between("created_at", &createdAt)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at >= ? )")
 
 		createdAt = ",1701234567"
 		where.ToEmpty()
-		extract.Int64Between("created_at", &createdAt)
+		parse.Int64Between("created_at", &createdAt)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at <= ? )")
 
 		createdAt = "1701234567,1711234567"
 		where.ToEmpty()
-		extract.Int64Between("created_at", &createdAt)
+		parse.Int64Between("created_at", &createdAt)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at BETWEEN ? AND ? )")
 	}
 
 	{
 		where.ToEmpty()
-		extract.StringIn("username", nil)
+		parse.StringIn("username", nil)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account")
 
 		username := ""
 		where.ToEmpty()
-		extract.StringIn("username", &username)
+		parse.StringIn("username", &username)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account")
 
 		username = "username1"
 		where.ToEmpty()
-		extract.StringIn("username", &username)
+		parse.StringIn("username", &username)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account WHERE ( username = ? )")
 
 		username = "username1,username2,username3"
 		where.ToEmpty()
-		extract.StringIn("username", &username)
+		parse.StringIn("username", &username)
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account WHERE ( username IN ( ?, ?, ? ) )")
 	}
@@ -286,23 +286,23 @@ func TestTable_Where(t *testing.T) {
 	{
 		like := ""
 		where.ToEmpty()
-		extract.LikeSearch(nil, "name", "username", "email")
+		where.GroupLike(like, "name", "username", "email")
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account")
 
 		where.ToEmpty()
-		extract.LikeSearch(&like, "name", "username", "email")
+		where.GroupLike(like, "name", "username", "email")
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account")
 
 		like = "a"
 		where.ToEmpty()
-		extract.LikeSearch(&like, "name", "username", "email")
+		where.GroupLike(like, "name", "username", "email")
 		table.Where(where)
 		assert(table.ToSelect(), "SELECT * FROM account WHERE ( name LIKE ? OR username LIKE ? OR email LIKE ? )")
 
 		where.ToEmpty()
-		extract.LikeSearch(&like, "name", "username")
+		where.GroupLike(like, "name", "username")
 		table.WhereFunc(func(f Filter) {
 			f.ToEmpty()
 			f.Group(func(g Filter) {
@@ -347,8 +347,8 @@ func TestTable_GroupBy(t *testing.T) {
 }
 
 func TestTable_Window(t *testing.T) {
-	a := way.T(cst.A)
-	b := way.T(cst.B)
+	a := way.TableColumn(cst.A)
+	b := way.TableColumn(cst.B)
 	ac := a.Column
 	bc := b.Column
 	table1 := "employee"
@@ -365,7 +365,7 @@ func TestTable_Window(t *testing.T) {
 			joinTable := join.Table(table2, b.Table())
 			joinOn := join.Equal(ac(departmentId), bc(id))
 			join.Select(aca(id))
-			join.Select(a.ColumnAll(name, email, departmentId))
+			join.Select(a.Columns(name, email, departmentId))
 			join.Select(
 				way.WindowFunc("max_salary").Max(ac(departmentId)).OverFunc(func(o SQLWindowFuncOver) {
 					o.Partition(ac(departmentId))
@@ -384,7 +384,7 @@ func TestTable_Window(t *testing.T) {
 				bc(name, "department_name"),
 			)
 			join.Select(
-				Alias(Coalesce(bc(createdAt), 0), "department_created_at"),
+				way.Alias(Coalesce(bc(createdAt), 0), "department_created_at"),
 			)
 			return joinTable, joinOn
 		})
@@ -404,7 +404,7 @@ func TestTable_Window(t *testing.T) {
 			joinTable := join.Table(table2, b.Table())
 			joinOn := join.Equal(ac(departmentId), bc(id))
 			join.Select(aca(id))
-			join.Select(a.ColumnAll(name, email, departmentId))
+			join.Select(a.Columns(name, email, departmentId))
 			join.Select(
 				way.WindowFunc("max_salary").Max(ac(departmentId)).Over(wa),
 				way.WindowFunc("avg_salary").Avg(ac(departmentId)).Over(wa),
@@ -414,7 +414,7 @@ func TestTable_Window(t *testing.T) {
 				bc(name, "department_name"),
 			)
 			join.Select(
-				Alias(Coalesce(bc(createdAt), 0), "department_created_at"),
+				way.Alias(Coalesce(bc(createdAt), 0), "department_created_at"),
 			)
 			return joinTable, joinOn
 		})
@@ -487,7 +487,9 @@ func TestTable_Exists(t *testing.T) {
 		where.ToEmpty()
 		where.Equal("status", 1)
 		query := way.Table(account).Select("id", "username").Where(where).Desc("id").Limit(1)
-		table.Table(query.ToSelect())
+		subquery := query.ToSelect()
+		subquery.Prepare = ParcelPrepare(subquery.Prepare)
+		table.Table(subquery)
 		table.Alias(cst.B)
 		assert(table.ToExists(), "SELECT EXISTS ( SELECT 1 FROM ( SELECT id, username FROM account WHERE ( status = ? ) ORDER BY id DESC LIMIT 1 ) AS b ) AS a")
 	}
