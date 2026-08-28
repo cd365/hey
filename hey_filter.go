@@ -146,11 +146,14 @@ type Filter interface {
 	// OrGroup Add a new condition group, which is connected by the `OR` logical operator by default.
 	OrGroup(group func(g Filter)) Filter
 
+	// New Create a new conditional filter object.
+	New() Filter
+
 	// Use Implement import a set of conditional filter objects into the current object.
 	Use(values ...Maker) Filter
 
-	// New Create a new conditional filter object.
-	New() Filter
+	// NewUse Create a new conditional filter object, and import a set of conditional filter objects into the new object.
+	NewUse(values ...Maker) Filter
 
 	// Equal Implement conditional filtering: column = value .
 	Equal(column any, value any) Filter
@@ -429,6 +432,10 @@ func (s *filter) OrGroup(group func(g Filter)) Filter {
 	return s.addGroup(cst.OR, group)
 }
 
+func (s *filter) New() Filter {
+	return s.way.cfg.NewSQLFilter(s.way)
+}
+
 func (s *filter) Use(values ...Maker) Filter {
 	group := s.New()
 	for _, value := range values {
@@ -437,8 +444,8 @@ func (s *filter) Use(values ...Maker) Filter {
 	return s.And(group.ToSQL())
 }
 
-func (s *filter) New() Filter {
-	return s.way.cfg.NewSQLFilter(s.way)
+func (s *filter) NewUse(values ...Maker) Filter {
+	return s.New().Use(values...)
 }
 
 func (s *filter) get(key string) string {
@@ -974,21 +981,27 @@ func (s *filter) CompareLessThanEqual(column1 any, column2 any) Filter {
 }
 
 func (s *filter) NewStringFilter(filters ...Filter) StringFilter {
-	for i := len(filters) - 1; i >= 0; i++ {
-		if filters[i] != nil {
-			return s.way.NewStringFilter(filters[i])
-		}
+	inputs := s.New()
+	length := len(filters)
+	for i := range length {
+		inputs.Use(filters[i])
 	}
-	return s.way.NewStringFilter(s)
+	if inputs.IsEmpty() {
+		return s.way.NewStringFilter(s)
+	}
+	return s.way.NewStringFilter(inputs)
 }
 
 func (s *filter) NewTimeFilter(filters ...Filter) TimeFilter {
-	for i := len(filters) - 1; i >= 0; i++ {
-		if filters[i] != nil {
-			return s.way.NewTimeFilter(filters[i])
-		}
+	inputs := s.New()
+	length := len(filters)
+	for i := range length {
+		inputs.Use(filters[i])
 	}
-	return s.way.NewTimeFilter(s)
+	if inputs.IsEmpty() {
+		return s.way.NewTimeFilter(s)
+	}
+	return s.way.NewTimeFilter(inputs)
 }
 
 // CompareKey Implement the filter condition: column {=||<>||>||>=||<||<=} [KEY ]( subquery ) .

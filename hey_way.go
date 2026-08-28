@@ -337,6 +337,9 @@ type Config struct {
 	// UpdateForbidColumn List of columns ignored when updating data.
 	UpdateForbidColumn []string
 
+	// TransactionMaxDuration The maximum time for transaction execution; a value less than or equal to 0 will be unlimited.
+	TransactionMaxDuration time.Duration
+
 	// MaxLimit Check the maximum allowed LIMIT value; a value less than or equal to 0 will be unlimited.
 	MaxLimit int64
 
@@ -723,6 +726,14 @@ func (s *Way) newTransaction(ctx context.Context, timeout time.Duration, transac
 		newCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		ctx = newCtx
+	} else {
+		if s.cfg.TransactionMaxDuration > 0 {
+			if _, ok := ctx.Deadline(); !ok {
+				newCtx, cancel := context.WithTimeout(ctx, s.cfg.TransactionMaxDuration)
+				defer cancel()
+				ctx = newCtx
+			}
+		}
 	}
 
 	way := (*Way)(nil)
