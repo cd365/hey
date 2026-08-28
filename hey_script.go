@@ -262,24 +262,16 @@ func MakerScanAll[V any](ctx context.Context, way *Way, maker Maker, scan func(r
 	}
 
 	var err error
-	var group []V
 	result := make([]*V, 0, length)
 	err = way.Query(ctx, script, func(rows *sql.Rows) error {
-		index := 0
 		for rows.Next() {
-			if index == 0 {
-				group = make([]V, length)
-			}
-			if err = scan(rows, &group[index]); err != nil {
+			item := new(V)
+			if err = scan(rows, item); err != nil {
 				return err
 			}
-			result = append(result, &group[index])
-			index++
-			if index == length {
-				index = 0
-			}
+			result = append(result, item)
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return nil, err
@@ -438,6 +430,12 @@ func ExceptAllSQL(scripts ...*SQL) *SQL {
 }
 
 // SliceDataToTableSQL Concatenate one or more objects into a table SQL statement.
+//
+// Supported value types are the basic Go types: int, int8, int16, int32, int64,
+// uint, uint8, uint16, uint32, uint64, float32, float64, bool, string, and nil.
+// Other types (for example []byte, time.Time, struct, map, slice) are not supported
+// and are converted to an empty string literal.
+//
 // ["id", "name"]
 // [ {"id":1, "name":"name1"}, {"id":2, "name":"name2"}, {"id":3, "name":"name3"} ... ]
 // ==>
@@ -460,6 +458,8 @@ func SliceDataToTableSQL(columns []string, rows func() [][]any, concat func(valu
 		for index, value := range values {
 			if value == nil {
 				script = NewSQL(cst.NULL)
+			} else if str, ok := value.(string); ok {
+				script = NewSQL(VarcharValue(str))
 			} else {
 				script = AnyToSQL(value)
 				if script.IsEmpty() {
@@ -773,6 +773,7 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 	}
 
 	s.structType[refStructType] = nil
+	defer delete(s.structType, refStructType)
 
 	length := refStructType.NumField()
 
@@ -820,9 +821,13 @@ func (s *bindScanStruct) binding(refStructType reflect.Type, depth []int, tag st
 		}
 
 		// another structure attributes, nested anonymous structure or named structure.
+		// Copy depth into a fresh slice before appending: `append(depth[:], i)` would
+		// reuse depth's backing array when it has spare capacity, so a sibling field
+		// appended later would overwrite this stored index chain and corrupt the mapping.
 		if _, ok := s.indirect[tagValue]; !ok {
-			dst := depth[:]
-			dst = append(dst, i)
+			dst := make([]int, len(depth)+1)
+			copy(dst, depth)
+			dst[len(depth)] = i
 			s.indirect[tagValue] = dst
 		}
 
@@ -945,6 +950,9 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				return err
 			}
 		} else {
+			if err := rows.Err(); err != nil {
+				return err
+			}
 			return sql.ErrNoRows
 		}
 		return nil
@@ -990,6 +998,9 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				current.Set(refStructVal)
 			}
 			return nil
+		}
+		if err := rows.Err(); err != nil {
+			return err
 		}
 		return sql.ErrNoRows
 	}
@@ -1040,13 +1051,9 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 	// Query single column.
 	if isSimple {
 		for rows.Next() {
+			// database/sql allocates any intermediate pointer levels itself, so no
+			// pre-allocation of nil pointers is needed here.
 			item := reflect.New(sliceItemType)
-			next := item
-			for range depth2 {
-				if next = next.Elem(); next.IsNil() {
-					next = reflect.New(next.Type())
-				}
-			}
 			if err := rows.Scan(item.Interface()); err != nil {
 				return err
 			}
@@ -1110,6 +1117,10 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 		}
 	}
 
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
 	// Set the value of the slice.
 	current := refValue.Elem()
 	for current.Kind() == reflect.Pointer {
@@ -1138,6 +1149,7 @@ func poolGetObjectInsert() *objectInsert {
 	tmp.allow = make(map[string]*struct{}, 1<<5)
 	tmp.except = make(map[string]*struct{}, 1<<5)
 	tmp.used = make(map[string]*struct{}, 1<<3)
+	tmp.structType = make(map[reflect.Type]*struct{}, 1<<2)
 	return tmp
 }
 
@@ -1146,6 +1158,7 @@ func poolPutObjectInsert(b *objectInsert) {
 	b.allow = nil
 	b.except = nil
 	b.used = nil
+	b.structType = nil
 	poolObjectInsert.Put(b)
 }
 
@@ -1200,6 +1213,10 @@ type objectInsert struct {
 	// already existing columns Hash table.
 	used map[string]*struct{}
 
+	// struct types currently being recursed, used to prevent self-referential structs
+	// from causing infinite recursion.
+	structType map[reflect.Type]*struct{}
+
 	// struct tag name value used as table.column name.
 	tag string
 }
@@ -1221,6 +1238,13 @@ func (s *objectInsert) setAllow(allow []string) {
 // structColumnValue Checkout columns, values.
 func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allowed bool) (columns []string, values []any) {
 	reflectType := structReflectValue.Type()
+	if _, ok := s.structType[reflectType]; ok {
+		// prevent self-referential structs from causing infinite recursion.
+		return columns, values
+	}
+	s.structType[reflectType] = nil
+	defer delete(s.structType, reflectType)
+
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
 		field := reflectType.Field(i)
@@ -1269,7 +1293,20 @@ func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allow
 
 // structValue Checkout struct values.
 func (s *objectInsert) structValue(structReflectValue reflect.Value, allowed bool) (values []any) {
+	return s.structValueDeep(structReflectValue, allowed, make(map[string]*struct{}, 1<<3))
+}
+
+// structValueDeep Checkout struct values with a per-row dedup set so that the
+// value order and count always match the columns produced by structColumnValue.
+func (s *objectInsert) structValueDeep(structReflectValue reflect.Value, allowed bool, seen map[string]*struct{}) (values []any) {
 	reflectType := structReflectValue.Type()
+	if _, ok := s.structType[reflectType]; ok {
+		// prevent self-referential structs from causing infinite recursion.
+		return values
+	}
+	s.structType[reflectType] = nil
+	defer delete(s.structType, reflectType)
+
 	length := reflectType.NumField()
 	for i := 0; i < length; i++ {
 		field := reflectType.Field(i)
@@ -1287,7 +1324,7 @@ func (s *objectInsert) structValue(structReflectValue reflect.Value, allowed boo
 			valueIndexFieldKind = valueIndexField.Kind()
 		}
 		if valueIndexFieldKind == reflect.Struct {
-			values = append(values, s.structValue(valueIndexField, allowed)...)
+			values = append(values, s.structValueDeep(valueIndexField, allowed, seen)...)
 			continue
 		}
 
@@ -1298,11 +1335,16 @@ func (s *objectInsert) structValue(structReflectValue reflect.Value, allowed boo
 		if _, ok := s.except[valueIndexFieldTag]; ok {
 			continue
 		}
+		if _, ok := seen[valueIndexFieldTag]; ok {
+			// skip duplicate tags, matching structColumnValue.
+			continue
+		}
 		if allowed {
 			if _, ok := s.allow[valueIndexFieldTag]; !ok {
 				continue
 			}
 		}
+		seen[valueIndexFieldTag] = nil
 
 		values = append(values, basicTypeValue(valueIndexField.Interface()))
 	}
@@ -1421,7 +1463,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 	if kind == reflect.Slice {
 		category = CategoryInsertAll
 		sliceLength := reflectValue.Len()
-		values = make([][]any, sliceLength)
+		values = make([][]any, 0, sliceLength)
 		var indexValueType reflect.Type
 	VALUES:
 		for i := 0; i < sliceLength; i++ {
@@ -1437,6 +1479,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 
 			for indexValue.Kind() == reflect.Pointer {
 				if indexValue.IsNil() {
+					// Skip nil elements without leaving a nil hole in values.
 					continue VALUES
 				}
 				indexValue = indexValue.Elem()
@@ -1444,10 +1487,12 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 
 			indexValueKind := indexValue.Kind()
 			if indexValueKind == reflect.Struct {
-				if i == 0 {
-					columns, values[i] = s.structColumnValue(indexValue, allowed)
+				if len(values) == 0 {
+					var row []any
+					columns, row = s.structColumnValue(indexValue, allowed)
+					values = append(values, row)
 				} else {
-					values[i] = s.structValue(indexValue, allowed)
+					values = append(values, s.structValue(indexValue, allowed))
 				}
 				continue
 			}
@@ -1462,21 +1507,13 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 			mapValue, ok := value.(map[string]any)
 			if ok {
 				mapColumns, mapValues, _ := s.Insert(mapValue, tag, except, allow)
-				lenColumns := len(mapColumns)
-				if lenColumns == 0 {
-					continue
-				}
-				lenValues := len(mapValues)
-				if lenValues == 0 {
-					continue
-				}
-				if lenColumns != len(mapValues[0]) {
+				if len(mapColumns) == 0 || len(mapValues) == 0 || len(mapColumns) != len(mapValues[0]) {
 					continue
 				}
 				if columns == nil {
 					columns = mapColumns
 				}
-				values[i] = mapValues[0]
+				values = append(values, mapValues[0])
 				continue
 			}
 
@@ -1490,10 +1527,12 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 				panic(fmt.Errorf("hey: unsupported data type %T", value))
 			}
 
-			if i == 0 {
-				columns, values[i] = s.structColumnValue(indexValue, allowed)
+			if len(values) == 0 {
+				var row []any
+				columns, row = s.structColumnValue(indexValue, allowed)
+				values = append(values, row)
 			} else {
-				values[i] = s.structValue(indexValue, allowed)
+				values = append(values, s.structValue(indexValue, allowed))
 			}
 		}
 		return
@@ -1512,6 +1551,12 @@ func ObjectInsert(object any, tag string, except []string, allow []string) (colu
 
 // objectValues Get columns and values from an object.
 func objectValues(object any, tag string, except []string, ignoreNil bool) (columns []string, values []any) {
+	return objectValuesDeep(object, tag, except, ignoreNil, make(map[reflect.Type]*struct{}, 1<<3))
+}
+
+// objectValuesDeep Implementation of objectValues with an explicit visited set to
+// prevent self-referential structs from causing infinite recursion.
+func objectValuesDeep(object any, tag string, except []string, ignoreNil bool, visited map[reflect.Type]*struct{}) (columns []string, values []any) {
 	if object == nil {
 		return columns, values
 	}
@@ -1520,7 +1565,7 @@ func objectValues(object any, tag string, except []string, ignoreNil bool) (colu
 		if tmp == nil || tmp.IsEmpty() {
 			return
 		}
-		return objectValues(tmp.Map(), tag, except, ignoreNil)
+		return objectValuesDeep(tmp.Map(), tag, except, ignoreNil, visited)
 	}
 
 	excepted := make(map[string]*struct{}, 1<<3)
@@ -1560,8 +1605,14 @@ func objectValues(object any, tag string, except []string, ignoreNil bool) (colu
 	}
 	switch ofKind {
 	case reflect.Struct:
+		if _, ok := visited[ofType]; ok {
+			// prevent self-referential structs from causing infinite recursion.
+			return columns, values
+		}
+		visited[ofType] = nil
+		defer delete(visited, ofType)
 	case reflect.Interface:
-		columns, values = objectValues(ofValue.Interface(), tag, except, ignoreNil)
+		columns, values = objectValuesDeep(ofValue.Interface(), tag, except, ignoreNil, visited)
 		return columns, values
 	default:
 		return columns, values
@@ -1625,7 +1676,7 @@ func objectValues(object any, tag string, except []string, ignoreNil bool) (colu
 			if isNil {
 				continue
 			}
-			tmpFields, tmpValues := objectValues(fieldValue.Interface(), tag, except, ignoreNil)
+			tmpFields, tmpValues := objectValuesDeep(fieldValue.Interface(), tag, except, ignoreNil, visited)
 			for index, tmpField := range tmpFields {
 				add(tmpField, tmpValues[index])
 			}
@@ -1686,13 +1737,18 @@ func ObjectObtain(object any, tag string, except ...string) (columns []string, v
 }
 
 // StructUpdate Compare origin and latest for update.
+//
+// For pointer-typed fields, when exactly one of origin and latest is nil (the value
+// changed between NULL and a concrete value), the column is updated: a nil latest sets
+// the column to NULL, a nil origin sets it to the concrete value. Non-pointer fields
+// are compared by value and never produce a NULL update.
 func StructUpdate(origin any, latest any, tag string, except ...string) (columns []string, values []any) {
 	if origin == nil || latest == nil || tag == cst.Empty {
 		return columns, values
 	}
 
 	originColumns, originValues := ObjectObtain(origin, tag, except...)
-	latestColumns, latestValues := ObjectModify(latest, tag, except...)
+	latestColumns, latestValues := ObjectObtain(latest, tag, except...)
 
 	storage := make(map[string]any, len(originColumns))
 	for k, v := range originColumns {
@@ -1720,9 +1776,6 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (columns
 
 	for k, v := range latestColumns {
 		if _, ok := storage[v]; !ok {
-			continue
-		}
-		if latestValues[k] == nil {
 			continue
 		}
 		bvo, bvl := basicTypeValue(storage[v]), basicTypeValue(latestValues[k])
@@ -1876,6 +1929,10 @@ func adjustColumnValueDefault(columnTypes []*sql.ColumnType, results []map[strin
 }
 
 // QuickScan Quickly scan query results into []map[string]any.
+//
+// Results are keyed by column name, so duplicate column names (for example from a
+// JOIN or SELECT a, a) overwrite each other and only the last value is kept. To
+// handle duplicate column names, use raw rows.Next + rows.Scan instead.
 func QuickScan(
 	rows *sql.Rows,
 	adjustColumnValue func(columnTypes []*sql.ColumnType, results []map[string]any) error,
@@ -1900,9 +1957,12 @@ func QuickScan(
 		}
 		item := make(map[string]any, length)
 		for i := 0; i < length; i++ {
-			item[columns[i]] = dest[i]
+			item[columns[i]] = *dest[i].(*any)
 		}
 		results = append(results, item)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	if adjustColumnValue == nil {
 		err = adjustColumnValueDefault(columnTypes, results)

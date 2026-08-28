@@ -172,7 +172,9 @@ func (s *multi) AddQueryExists(maker Maker, exists *bool) Multi {
 		if err != nil {
 			return err
 		}
-		*exists = tmp
+		if exists != nil {
+			*exists = tmp
+		}
 		return nil
 	})
 }

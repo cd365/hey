@@ -535,7 +535,7 @@ func TestTable_Insert(t *testing.T) {
 		i.Default("created_at", now.Unix())
 		i.Default("updated_at", now.Unix())
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( ?, ?, ?, ? )")
+	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( ?, ?, ?, ? ) RETURNING id")
 
 	table.ToEmpty()
 	table.InsertFunc(func(i SQLInsert) {
@@ -547,7 +547,7 @@ func TestTable_Insert(t *testing.T) {
 		i.Default("created_at", now.Unix())
 		i.Default("updated_at", now.Unix())
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( ?, ?, ?, ? )")
+	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( ?, ?, ?, ? ) RETURNING id")
 
 	// Insert one and return the id, *Table.Insert will return the id of the inserted row.
 	switch way.Config().Manual.DatabaseType {
@@ -608,7 +608,7 @@ func TestTable_Insert(t *testing.T) {
 
 func TestTable_Delete(t *testing.T) {
 	table := way.Table(account)
-	if way.Config().DeleteRequireWhere {
+	if way.Config().requireDeleteWhere() {
 		assert(table.ToDelete(), "")
 	}
 	table.WhereFunc(func(f Filter) {
@@ -629,7 +629,7 @@ func TestTable_Delete(t *testing.T) {
 
 func TestTable_Update(t *testing.T) {
 	table := way.Table(account)
-	if way.Config().UpdateRequireWhere {
+	if way.Config().requireUpdateWhere() {
 		assert(table.ToUpdate(), "")
 	}
 	table.WhereFunc(func(f Filter) {

@@ -79,6 +79,9 @@ func inArgs(args ...any) []any {
 	case []*float64:
 		return AnyAny(v)
 	default:
+		if args[0] == nil {
+			return args
+		}
 		rt := reflect.TypeOf(args[0])
 		if rt.Kind() != reflect.Slice {
 			return args
@@ -629,7 +632,7 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 		return s
 	}
 
-	values = DiscardDuplicate(nil, values...)
+	values = DiscardDuplicateAny(nil, values...)
 	length = len(values)
 	if length == 1 {
 		if not {
@@ -667,6 +670,7 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		if length := len(lists); length == 0 {
 			return s
 		}
+		lists = append([]string(nil), lists...)
 		for key, val := range lists {
 			lists[key] = s.get(val)
 		}
@@ -685,6 +689,10 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 			return s
 		}
 		count := len(value[0])
+		if count <= 1 {
+			// At least two columns.
+			return s
+		}
 		group := make([]string, count)
 		for i := 0; i < count; i++ {
 			group[i] = cst.Placeholder
@@ -693,6 +701,9 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		lines := make([]string, length)
 		place := ParcelPrepare(strings.Join(group, cst.CommaSpace))
 		for i := 0; i < length; i++ {
+			if i > 0 && count != len(value[i]) {
+				return s
+			}
 			args = append(args, value[i]...)
 			lines[i] = place
 		}
@@ -1412,7 +1423,9 @@ func (s *timeFilter) yearStartAt(timestamp int64) int64 {
 }
 
 func (s *timeFilter) TimeIn(loc *time.Location) TimeFilter {
-	s.time.In(loc)
+	if loc != nil {
+		s.time = s.time.In(loc)
+	}
 	return s
 }
 
@@ -1461,7 +1474,8 @@ func (s *timeFilter) LastDays(column string, days int) TimeFilter {
 		return s
 	}
 	timestamp := s.time.Unix()
-	s.filter.Between(column, s.dayStartAt(timestamp)-(int64(days)-1)*86400, timestamp)
+	startAt := time.Unix(s.dayStartAt(timestamp), 0).In(s.time.Location()).AddDate(0, 0, -days+1).Unix()
+	s.filter.Between(column, startAt, timestamp)
 	return s
 }
 
@@ -1541,7 +1555,7 @@ func (s *timeFilter) LastYears(column string, years int) TimeFilter {
 		return s
 	}
 	timestamp := s.time.Unix()
-	startAt := time.Unix(timestamp, 0).AddDate(-years+1, 0, 0).In(s.time.Location()).Unix()
+	startAt := time.Unix(s.yearStartAt(timestamp), 0).In(s.time.Location()).AddDate(-years+1, 0, 0).Unix()
 	s.filter.Between(column, startAt, timestamp)
 	return s
 }

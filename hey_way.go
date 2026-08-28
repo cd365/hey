@@ -3,6 +3,7 @@
 package hey
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -11,7 +12,7 @@ import (
 	"maps"
 	"os"
 	"reflect"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/cd365/hey/v8/cst"
@@ -47,7 +48,7 @@ func argValueToString(i any) string {
 	case reflect.Float32, reflect.Float64:
 		return fmt.Sprintf("%f", tmp)
 	case reflect.String:
-		return fmt.Sprintf("'%s'", tmp)
+		return fmt.Sprintf("'%s'", strings.ReplaceAll(v.String(), cst.SingleQuotationMark, cst.SingleQuotationMarks))
 	default:
 		if bts, ok := tmp.([]byte); ok {
 			if bts == nil {
@@ -100,17 +101,12 @@ type transaction struct {
 	// track Tracking transaction.
 	track *MyTrack
 
-	// mutex Mutex lock.
-	mutex sync.Mutex
-
 	// script List of SQL statements that have been executed within a transaction.
 	script []*MyTrack
 }
 
 // addScript Add information about the executed SQL statement.
 func (s *transaction) addScript(script *MyTrack) *transaction {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
 	s.script = append(s.script, script)
 	return s
 }
@@ -171,6 +167,8 @@ func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 }
 
 // prepare63236 Replace '?' in the SQL statement with '$n'.
+// '?' characters inside single-quoted string literals, line comments (--) and
+// block comments (/* ... */) are left unchanged because they are not placeholders.
 func prepare63236(prepare string) string {
 	latest := poolGetStringBuilder()
 	defer poolPutStringBuilder(latest)
@@ -179,15 +177,101 @@ func prepare63236(prepare string) string {
 	c36 := cst.Dollar[0]      // $
 	c63 := cst.Placeholder[0] // ?
 	num := 0
-	for i := 0; i < length; i++ {
-		if origin[i] == c63 {
+	for i := 0; i < length; {
+		switch {
+		case origin[i] == cst.SingleQuotationMark[0]:
+			latest.WriteByte(origin[i])
+			i++
+			for i < length {
+				latest.WriteByte(origin[i])
+				if origin[i] == cst.SingleQuotationMark[0] {
+					if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
+						latest.WriteByte(origin[i+1])
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+		case origin[i] == '-' && i+1 < length && origin[i+1] == '-':
+			for i < length {
+				latest.WriteByte(origin[i])
+				if origin[i] == '\n' {
+					i++
+					break
+				}
+				i++
+			}
+		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
+			for i < length {
+				latest.WriteByte(origin[i])
+				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+					latest.WriteByte(origin[i+1])
+					i += 2
+					break
+				}
+				i++
+			}
+		case origin[i] == c36:
+			delimiter := dollarQuoteDelimiter(origin, i)
+			if delimiter == nil {
+				latest.WriteByte(origin[i])
+				i++
+				break
+			}
+			latest.Write(delimiter)
+			i += len(delimiter)
+			for i < length {
+				if bytes.HasPrefix(origin[i:], delimiter) {
+					latest.Write(delimiter)
+					i += len(delimiter)
+					break
+				}
+				latest.WriteByte(origin[i])
+				i++
+			}
+		case origin[i] == c63:
 			num++
 			fmt.Fprintf(latest, "%c%d", c36, num)
-		} else {
+			i++
+		default:
 			latest.WriteByte(origin[i])
+			i++
 		}
 	}
 	return latest.String()
+}
+
+// dollarQuoteDelimiter Return the PostgreSQL dollar-quote delimiter starting at origin[i]
+// ($$ or $tag$, where tag follows unquoted-identifier rules), or nil if none starts there.
+func dollarQuoteDelimiter(origin []byte, i int) []byte {
+	if i < 0 || i >= len(origin) || origin[i] != '$' {
+		return nil
+	}
+	j := i + 1
+	if j < len(origin) && origin[j] == '$' {
+		return origin[i : j+1]
+	}
+	if j >= len(origin) {
+		return nil
+	}
+	if c := origin[j]; c != '_' && !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') {
+		return nil
+	}
+	for j < len(origin) {
+		c := origin[j]
+		if c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			j++
+			continue
+		}
+		break
+	}
+	if j < len(origin) && origin[j] == '$' {
+		return origin[i : j+1]
+	}
+	return nil
 }
 
 // manualPostgresql Postgresql manual.
@@ -338,81 +422,70 @@ type Config struct {
 	UpdateForbidColumn []string
 
 	// TransactionMaxDuration The maximum time for transaction execution; a value less than or equal to 0 will be unlimited.
-	TransactionMaxDuration time.Duration
+	TransactionMaxDuration *time.Duration
 
 	// MaxLimit Check the maximum allowed LIMIT value; a value less than or equal to 0 will be unlimited.
-	MaxLimit int64
+	MaxLimit *int64
 
 	// MaxOffset Check the maximum allowed OFFSET value; a value less than or equal to 0 will be unlimited.
-	MaxOffset int64
+	MaxOffset *int64
 
 	// DefaultPageSize The default value of limit when querying data with the page parameter for pagination.
-	DefaultPageSize int64
+	DefaultPageSize *int64
 
 	// DeleteRequireWhere Deletion of data must be filtered using conditions.
-	DeleteRequireWhere bool
+	DeleteRequireWhere *bool
 
 	// UpdateRequireWhere Updated data must be filtered using conditions.
-	UpdateRequireWhere bool
+	UpdateRequireWhere *bool
 }
 
-func (s *Config) fully(way *Way) bool {
-	if way.db != nil {
-		if s.Manual.DatabaseType == cst.Empty {
-			return false
-		}
-		for _, value := range []any{
-			s.MapScanner,
-			s.RowsScan,
-		} {
-			if value == nil {
-				return false
-			}
-		}
-		if s.ScanTag == cst.Empty {
-			return false
-		}
-	}
+// pointer returns a pointer to v. It lets pointer-valued Config fields be populated with a
+// literal value while keeping nil as the "unset" sentinel during config merging.
+func pointer[T any](v T) *T {
+	return &v
+}
 
-	for _, value := range []any{
-		s.NewSQLLabel,
-		s.NewSQLWith,
-		s.NewSQLSelect,
-		s.NewSQLTable,
-		s.NewSQLJoin,
-		s.NewSQLJoinOn,
-		s.NewSQLFilter,
-		s.NewSQLGroupBy,
-		s.NewSQLWindow,
-		s.NewSQLOrderBy,
-		s.NewSQLLimit,
-		s.NewSQLInsert,
-		s.NewSQLValues,
-		s.NewSQLReturning,
-		s.NewSQLOnConflict,
-		s.NewSQLOnConflictUpdateSet,
-		s.NewSQLUpdateSet,
-		s.NewSQLCase,
-		s.NewSQLWindowFuncFrame,
-		s.NewSQLWindowFuncOver,
-		s.NewMulti,
-		s.NewCompareKey,
-		s.NewStringFilter,
-		s.NewTimeFilter,
-		s.NewTableColumn,
-		s.ToSQLSelect,
-		s.ToSQLInsert,
-		s.ToSQLDelete,
-		s.ToSQLUpdate,
-		s.ToSQLSelectExists,
-		s.ToSQLSelectCount,
-	} {
-		if value == nil {
-			return false
-		}
+// maxTransactionDuration returns the configured maximum transaction duration, or 0 when unset.
+func (s *Config) maxTransactionDuration() time.Duration {
+	if s.TransactionMaxDuration == nil {
+		return 0
 	}
+	return *s.TransactionMaxDuration
+}
 
-	return true
+// maxLimit returns the configured maximum LIMIT, or 0 when unset.
+func (s *Config) maxLimit() int64 {
+	if s.MaxLimit == nil {
+		return 0
+	}
+	return *s.MaxLimit
+}
+
+// maxOffset returns the configured maximum OFFSET, or 0 when unset.
+func (s *Config) maxOffset() int64 {
+	if s.MaxOffset == nil {
+		return 0
+	}
+	return *s.MaxOffset
+}
+
+// defaultPageSize returns the configured default page size, or 0 when unset.
+func (s *Config) defaultPageSize() int64 {
+	if s.DefaultPageSize == nil {
+		return 10
+	}
+	return *s.DefaultPageSize
+}
+
+// requireDeleteWhere reports whether DELETE statements must carry a WHERE condition.
+func (s *Config) requireDeleteWhere() bool {
+	return s.DeleteRequireWhere != nil && *s.DeleteRequireWhere
+}
+
+// requireUpdateWhere reports whether UPDATE statements must carry a WHERE condition.
+func (s *Config) requireUpdateWhere() bool {
+	return s.UpdateRequireWhere != nil && *s.UpdateRequireWhere
 }
 
 const (
@@ -420,10 +493,11 @@ const (
 	TableMethodName = "Table"
 )
 
-// ConfigDefault Default configuration.
+// ConfigDefault Default configuration (defaults to PostgreSQL).
 // If there is no highly customized configuration, please use it and set the Manual property for the specific database.
 func ConfigDefault() *Config {
 	return &Config{
+		Manual:     manualPostgresql(),
 		MapScanner: NewMapScanner(),
 		RowsScan:   RowsScan,
 
@@ -465,12 +539,12 @@ func ConfigDefault() *Config {
 		TableMethodName:        TableMethodName,
 		InsertForbidColumn:     []string{cst.Id},
 		UpdateForbidColumn:     []string{cst.Id},
-		TransactionMaxDuration: time.Second * 30,
-		MaxLimit:               10000,
-		MaxOffset:              100000,
-		DefaultPageSize:        10,
-		DeleteRequireWhere:     true,
-		UpdateRequireWhere:     true,
+		TransactionMaxDuration: pointer(time.Second * 30),
+		MaxLimit:               pointer(int64(10000)),
+		MaxOffset:              pointer(int64(100000)),
+		DefaultPageSize:        pointer(int64(10)),
+		DeleteRequireWhere:     pointer(true),
+		UpdateRequireWhere:     pointer(true),
 	}
 }
 
@@ -499,10 +573,161 @@ type Option func(way *Way)
 
 func WithConfig(cfg *Config) Option {
 	return func(way *Way) {
-		if cfg != nil && cfg.fully(way) {
-			way.cfg = cfg
+		if cfg == nil {
+			return
 		}
+		way.cfg = mergeConfig(ConfigDefault(), cfg)
 	}
+}
+
+// mergeConfig Merge the fields of over onto a default configuration so that a partially
+// specified Config still inherits defaults for the fields it leaves unset. A field is
+// treated as "set" when it is non-nil (for pointer-valued fields) or differs from its
+// zero value (for the remaining scalar fields).
+func mergeConfig(base, over *Config) *Config {
+	if over == nil {
+		return base
+	}
+	result := *base
+	if over.Manual.DatabaseType != cst.Empty {
+		result.Manual = over.Manual
+	}
+	if over.TxOptions != nil {
+		result.TxOptions = over.TxOptions
+	}
+	if over.MapScanner != nil {
+		result.MapScanner = over.MapScanner
+	}
+	if over.RowsScan != nil {
+		result.RowsScan = over.RowsScan
+	}
+	if over.NewSQLLabel != nil {
+		result.NewSQLLabel = over.NewSQLLabel
+	}
+	if over.NewSQLWith != nil {
+		result.NewSQLWith = over.NewSQLWith
+	}
+	if over.NewSQLSelect != nil {
+		result.NewSQLSelect = over.NewSQLSelect
+	}
+	if over.NewSQLTable != nil {
+		result.NewSQLTable = over.NewSQLTable
+	}
+	if over.NewSQLJoin != nil {
+		result.NewSQLJoin = over.NewSQLJoin
+	}
+	if over.NewSQLJoinOn != nil {
+		result.NewSQLJoinOn = over.NewSQLJoinOn
+	}
+	if over.NewSQLFilter != nil {
+		result.NewSQLFilter = over.NewSQLFilter
+	}
+	if over.NewSQLGroupBy != nil {
+		result.NewSQLGroupBy = over.NewSQLGroupBy
+	}
+	if over.NewSQLWindow != nil {
+		result.NewSQLWindow = over.NewSQLWindow
+	}
+	if over.NewSQLOrderBy != nil {
+		result.NewSQLOrderBy = over.NewSQLOrderBy
+	}
+	if over.NewSQLLimit != nil {
+		result.NewSQLLimit = over.NewSQLLimit
+	}
+	if over.NewSQLInsert != nil {
+		result.NewSQLInsert = over.NewSQLInsert
+	}
+	if over.NewSQLValues != nil {
+		result.NewSQLValues = over.NewSQLValues
+	}
+	if over.NewSQLReturning != nil {
+		result.NewSQLReturning = over.NewSQLReturning
+	}
+	if over.NewSQLOnConflict != nil {
+		result.NewSQLOnConflict = over.NewSQLOnConflict
+	}
+	if over.NewSQLOnConflictUpdateSet != nil {
+		result.NewSQLOnConflictUpdateSet = over.NewSQLOnConflictUpdateSet
+	}
+	if over.NewSQLUpdateSet != nil {
+		result.NewSQLUpdateSet = over.NewSQLUpdateSet
+	}
+	if over.NewSQLCase != nil {
+		result.NewSQLCase = over.NewSQLCase
+	}
+	if over.NewSQLWindowFuncFrame != nil {
+		result.NewSQLWindowFuncFrame = over.NewSQLWindowFuncFrame
+	}
+	if over.NewSQLWindowFuncOver != nil {
+		result.NewSQLWindowFuncOver = over.NewSQLWindowFuncOver
+	}
+	if over.NewMulti != nil {
+		result.NewMulti = over.NewMulti
+	}
+	if over.NewCompareKey != nil {
+		result.NewCompareKey = over.NewCompareKey
+	}
+	if over.NewStringFilter != nil {
+		result.NewStringFilter = over.NewStringFilter
+	}
+	if over.NewTimeFilter != nil {
+		result.NewTimeFilter = over.NewTimeFilter
+	}
+	if over.NewTableColumn != nil {
+		result.NewTableColumn = over.NewTableColumn
+	}
+	if over.ToSQLSelect != nil {
+		result.ToSQLSelect = over.ToSQLSelect
+	}
+	if over.ToSQLInsert != nil {
+		result.ToSQLInsert = over.ToSQLInsert
+	}
+	if over.ToSQLDelete != nil {
+		result.ToSQLDelete = over.ToSQLDelete
+	}
+	if over.ToSQLUpdate != nil {
+		result.ToSQLUpdate = over.ToSQLUpdate
+	}
+	if over.ToSQLSelectExists != nil {
+		result.ToSQLSelectExists = over.ToSQLSelectExists
+	}
+	if over.ToSQLSelectCount != nil {
+		result.ToSQLSelectCount = over.ToSQLSelectCount
+	}
+	if over.ScanTag != cst.Empty {
+		result.ScanTag = over.ScanTag
+	}
+	if over.LabelsSeparator != cst.Empty {
+		result.LabelsSeparator = over.LabelsSeparator
+	}
+	if over.TableMethodName != cst.Empty {
+		result.TableMethodName = over.TableMethodName
+	}
+	if over.InsertForbidColumn != nil {
+		result.InsertForbidColumn = over.InsertForbidColumn
+	}
+	if over.UpdateForbidColumn != nil {
+		result.UpdateForbidColumn = over.UpdateForbidColumn
+	}
+	if over.TransactionMaxDuration != nil {
+		result.TransactionMaxDuration = over.TransactionMaxDuration
+	}
+	if over.MaxLimit != nil {
+		result.MaxLimit = over.MaxLimit
+	}
+	if over.MaxOffset != nil {
+		result.MaxOffset = over.MaxOffset
+	}
+	if over.DefaultPageSize != nil {
+		result.DefaultPageSize = over.DefaultPageSize
+	}
+	if over.DeleteRequireWhere != nil {
+		result.DeleteRequireWhere = over.DeleteRequireWhere
+	}
+	if over.UpdateRequireWhere != nil {
+		result.UpdateRequireWhere = over.UpdateRequireWhere
+	}
+	return &result
 }
 
 func WithDatabase(db *sql.DB) Option {
@@ -628,9 +853,9 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		}
 	}
 
-	if s.cfg.TransactionMaxDuration > 0 {
+	if s.cfg.maxTransactionDuration() > 0 {
 		if _, ok := ctx.Deadline(); !ok {
-			return nil, Err("hey: please set the maximum transaction execution time")
+			return nil, Err("hey: please wrap ctx with context.WithTimeout")
 		}
 	}
 
@@ -660,6 +885,9 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 // commit commit-transaction.
 func (s *Way) commit() (err error) {
 	way := s.transaction
+	if way == nil {
+		return nil
+	}
 	if way.track != nil {
 		way.track.TxState = cst.COMMIT
 	}
@@ -677,6 +905,9 @@ func (s *Way) commit() (err error) {
 // rollback rollback-transaction.
 func (s *Way) rollback() (err error) {
 	way := s.transaction
+	if way == nil {
+		return nil
+	}
 	if way.track != nil {
 		way.track.TxState = cst.ROLLBACK
 	}
@@ -734,9 +965,9 @@ func (s *Way) newTransaction(ctx context.Context, timeout time.Duration, transac
 		defer cancel()
 		ctx = newCtx
 	} else {
-		if s.cfg.TransactionMaxDuration > 0 {
+		if s.cfg.maxTransactionDuration() > 0 {
 			if _, ok := ctx.Deadline(); !ok {
-				newCtx, cancel := context.WithTimeout(ctx, s.cfg.TransactionMaxDuration)
+				newCtx, cancel := context.WithTimeout(ctx, s.cfg.maxTransactionDuration())
 				defer cancel()
 				ctx = newCtx
 			}
@@ -785,16 +1016,6 @@ func (s *Way) Transaction(ctx context.Context, timeout time.Duration, transactio
 // TransactionNew starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
 func (s *Way) TransactionNew(ctx context.Context, timeout time.Duration, transaction func(ctx context.Context, way *Way) error, opts ...*sql.TxOptions) error {
 	return s.newTransaction(ctx, timeout, transaction, opts...)
-}
-
-// TransactionRetry starts a new transaction and executes a set of SQL statements atomically. Does not care whether the current transaction instance is open.
-func (s *Way) TransactionRetry(ctx context.Context, timeout time.Duration, retries int, transaction func(ctx context.Context, way *Way) error, opts ...*sql.TxOptions) (err error) {
-	for i := 0; i < retries; i++ {
-		if err = s.newTransaction(ctx, timeout, transaction, opts...); err == nil {
-			break
-		}
-	}
-	return
 }
 
 // Now get current time, the transaction open status will get the same time.
@@ -961,7 +1182,7 @@ func (s *Way) QueryScan(ctx context.Context, maker Maker, scan func(rows *sql.Ro
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 }
 
@@ -974,7 +1195,7 @@ func (s *Way) QueryScanOne(ctx context.Context, maker Maker, dest ...any) (exist
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return exist, err
@@ -1028,7 +1249,7 @@ func (s *Way) QueryExists(ctx context.Context, maker Maker) (bool, error) {
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return false, err
@@ -1274,7 +1495,11 @@ func NewReader(choose func(n int) int, reads []*Way) Reader {
 
 // Read Get an instance for querying.
 func (s *reader) Read() *Way {
-	return s.reads[s.choose(s.total)]
+	index := s.choose(s.total)
+	if index < 0 || index >= s.total {
+		panic(fmt.Errorf("hey: reader choose returned an out-of-range index %d of %d", index, s.total))
+	}
+	return s.reads[index]
 }
 
 // V Get the currently used *Way object value.

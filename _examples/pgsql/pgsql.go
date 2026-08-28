@@ -88,9 +88,10 @@ func initialize() error {
 		// config.NewSQLLimit = hey.NewOffsetRowsFetchNextRowsOnly
 		maxLimit := int64(5000)
 		maxOffset := int64(500000) - maxLimit
-		config.MaxLimit = maxLimit
-		config.MaxOffset = maxOffset
-		config.DefaultPageSize = 20
+		defaultPageSize := int64(20)
+		config.MaxLimit = &maxLimit
+		config.MaxOffset = &maxOffset
+		config.DefaultPageSize = &defaultPageSize
 		// config.TxOptions = &sql.TxOptions{
 		// 	Isolation: sql.LevelReadCommitted,
 		// 	ReadOnly:  false,
@@ -757,7 +758,11 @@ func Select() {
 				if v == nil {
 					log.Printf("%s = %#v\n", k, v)
 				} else {
-					value := reflect.ValueOf(v).Elem().Interface()
+					rv := reflect.ValueOf(v)
+					value := rv.Interface()
+					if rv.Type().Kind() == reflect.Pointer && !rv.IsNil() {
+						value = rv.Elem().Interface()
+					}
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
@@ -1228,7 +1233,11 @@ func WindowFunc() {
 				if v == nil {
 					log.Printf("%s = %#v\n", k, v)
 				} else {
-					value := reflect.ValueOf(v).Elem().Interface()
+					rv := reflect.ValueOf(v)
+					value := rv.Interface()
+					if rv.Type().Kind() == reflect.Pointer && !rv.IsNil() {
+						value = rv.Elem().Interface()
+					}
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
@@ -1280,7 +1289,11 @@ func WindowFunc() {
 				if v == nil {
 					log.Printf("%s = %#v\n", k, v)
 				} else {
-					value := reflect.ValueOf(v).Elem().Interface()
+					rv := reflect.ValueOf(v)
+					value := rv.Interface()
+					if rv.Type().Kind() == reflect.Pointer && !rv.IsNil() {
+						value = rv.Elem().Interface()
+					}
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}

@@ -4,6 +4,7 @@ package hey
 
 import (
 	"maps"
+	"reflect"
 	"strings"
 	"unsafe"
 
@@ -40,6 +41,38 @@ func DiscardDuplicate[T comparable](discard func(tmp T) bool, dynamic ...T) (res
 	return result
 }
 
+// DiscardDuplicateAny Slice member deduplication for []any.
+// Unlike DiscardDuplicate, unhashable values (such as []byte, map, func, or other slices)
+// are always retained instead of causing a runtime panic.
+func DiscardDuplicateAny(discard func(tmp any) bool, dynamic ...any) []any {
+	length := len(dynamic)
+	mp := make(map[any]*struct{}, length)
+	result := make([]any, 0, length)
+	for _, value := range dynamic {
+		if discard != nil && discard(value) {
+			continue
+		}
+		if !comparableValue(value) {
+			result = append(result, value)
+			continue
+		}
+		if _, ok := mp[value]; ok {
+			continue
+		}
+		mp[value] = nil
+		result = append(result, value)
+	}
+	return result
+}
+
+// comparableValue Report whether the dynamic type of value is comparable, thus safe to use as a map key.
+func comparableValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	return reflect.TypeOf(value).Comparable()
+}
+
 // MergeSlice Combine multiple slices of the same type into one slice.
 func MergeSlice[V any](values ...[]V) []V {
 	length := 0
@@ -55,10 +88,13 @@ func MergeSlice[V any](values ...[]V) []V {
 
 // MergeMap Combine multiple maps of the same type into one map.
 func MergeMap[K comparable, V any](values ...map[K]V) map[K]V {
-	length := len(values)
-	result := make(map[K]V, 8)
-	for i := range length {
-		maps.Copy(result, values[i])
+	length := 0
+	for _, value := range values {
+		length += len(value)
+	}
+	result := make(map[K]V, length)
+	for _, value := range values {
+		maps.Copy(result, value)
 	}
 	return result
 }
@@ -195,12 +231,10 @@ func InValues[T any](values []T, fx func(tmp T) any) []any {
 	if length == 0 {
 		return nil
 	}
-	num := 0
 	result := make([]any, 0, length)
 	for _, value := range values {
 		elem := fx(value)
 		if elem != nil {
-			num++
 			result = append(result, elem)
 		}
 	}
@@ -216,12 +250,10 @@ func InGroupValues[T any](values []T, fx func(tmp T) []any) [][]any {
 	if length == 0 {
 		return nil
 	}
-	num := 0
 	result := make([][]any, 0, length)
 	for _, value := range values {
 		elem := fx(value)
 		if elem != nil {
-			num++
 			result = append(result, elem)
 		}
 	}
@@ -253,10 +285,10 @@ func NamingPascal(value string) string {
 
 // NamingCamel Naming camel case.
 func NamingCamel(value string) string {
+	value = NamingPascal(value)
 	if value == cst.Empty {
 		return cst.Empty
 	}
-	value = NamingPascal(value)
 	return JoinString(strings.ToLower(value[0:1]), value[1:])
 }
 
@@ -277,5 +309,8 @@ func NamingUnderline(value string) string {
 			result = append(result, value[i])
 		}
 	}
-	return *(*string)(unsafe.Pointer(&result))
+	// unsafe.String shares the backing array of result without a copy. result is
+	// freshly allocated inside this function and never mutated after this point,
+	// so the returned string is safe to use.
+	return unsafe.String(unsafe.SliceData(result), len(result))
 }

@@ -125,7 +125,7 @@ func toSQLUpdateDelete(s MakeSQL, category string) *SQL {
 	whereIsEmpty := s.Where == nil || s.Where.IsEmpty()
 	switch category {
 	case cst.UPDATE:
-		if way.cfg.UpdateRequireWhere && whereIsEmpty {
+		if way.cfg.requireUpdateWhere() && whereIsEmpty {
 			return NewEmptySQL()
 		}
 		lists = append(
@@ -134,7 +134,7 @@ func toSQLUpdateDelete(s MakeSQL, category string) *SQL {
 			s.Table, cst.SET, s.UpdateSet,
 		)
 	case cst.DELETE:
-		if way.cfg.DeleteRequireWhere && whereIsEmpty {
+		if way.cfg.requireDeleteWhere() && whereIsEmpty {
 			return NewEmptySQL()
 		}
 		lists = append(
@@ -145,7 +145,9 @@ func toSQLUpdateDelete(s MakeSQL, category string) *SQL {
 	default:
 		return NewEmptySQL()
 	}
-	lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	if !whereIsEmpty {
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	}
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
@@ -176,8 +178,10 @@ func toSQLSelectExists(s MakeSQL) *SQL {
 	if s.Query == nil {
 		s.Query = way.cfg.NewSQLSelect(way)
 	}
+	distinct := false
 	if s.Query.Len() > 0 {
 		columns, columnsArgs = s.Query.Get()
+		distinct = s.Query.GetDistinct()
 		s.Query.ToEmpty()
 	}
 	s.Query.Select("1")
@@ -186,6 +190,9 @@ func toSQLSelectExists(s MakeSQL) *SQL {
 			s.Query.ToEmpty()
 		} else {
 			s.Query.Set(columns, columnsArgs)
+			if distinct {
+				s.Query.Distinct()
+			}
 		}
 	}()
 	subquery := toSQLSelect(s)
@@ -670,7 +677,7 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return 0, err
@@ -714,7 +721,12 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 				if err != nil {
 					return 0, err
 				}
-				return execute(ctx, stmt, script.Args...)
+				defer stmt.Close()
+				id, err := execute(ctx, stmt, script.Args...)
+				if err != nil {
+					return 0, err
+				}
+				return id, nil
 			}
 		}
 	}
@@ -723,7 +735,7 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 
 // Update Execute an UPDATE statement.
 func (s *Table) Update(ctx context.Context) (int64, error) {
-	if s.way.cfg.UpdateRequireWhere && (s.where == nil || s.where.IsEmpty()) {
+	if s.way.cfg.requireUpdateWhere() && (s.where == nil || s.where.IsEmpty()) {
 		return 0, Err("hey: WHERE is empty")
 	}
 	return s.way.Execute(ctx, s.ToUpdate())
@@ -731,7 +743,7 @@ func (s *Table) Update(ctx context.Context) (int64, error) {
 
 // Delete Execute a DELETE statement.
 func (s *Table) Delete(ctx context.Context) (int64, error) {
-	if s.way.cfg.DeleteRequireWhere && (s.where == nil || s.where.IsEmpty()) {
+	if s.way.cfg.requireDeleteWhere() && (s.where == nil || s.where.IsEmpty()) {
 		return 0, Err("hey: WHERE is empty")
 	}
 	return s.way.Execute(ctx, s.ToDelete())
