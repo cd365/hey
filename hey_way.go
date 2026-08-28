@@ -460,16 +460,17 @@ func ConfigDefault() *Config {
 		ToSQLSelectExists: toSQLSelectExists,
 		ToSQLSelectCount:  toSQLSelectCount,
 
-		ScanTag:            DefaultTag,
-		LabelsSeparator:    cst.Comma,
-		TableMethodName:    TableMethodName,
-		InsertForbidColumn: []string{cst.Id},
-		UpdateForbidColumn: []string{cst.Id},
-		MaxLimit:           10000,
-		MaxOffset:          100000,
-		DefaultPageSize:    10,
-		DeleteRequireWhere: true,
-		UpdateRequireWhere: true,
+		ScanTag:                DefaultTag,
+		LabelsSeparator:        cst.Comma,
+		TableMethodName:        TableMethodName,
+		InsertForbidColumn:     []string{cst.Id},
+		UpdateForbidColumn:     []string{cst.Id},
+		TransactionMaxDuration: time.Second * 30,
+		MaxLimit:               10000,
+		MaxOffset:              100000,
+		DefaultPageSize:        10,
+		DeleteRequireWhere:     true,
+		UpdateRequireWhere:     true,
 	}
 }
 
