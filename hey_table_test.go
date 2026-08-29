@@ -163,14 +163,14 @@ func TestTable_Table(t *testing.T) {
 	assert(table.ToSelect(), "SELECT * FROM account")
 
 	table.ToEmpty()
-	table.Table(
-		way.Table(account).
-			Where(
-				NewSQL("id IN ( ?, ?, ? )", 1, 2, 3),
-			).
-			Select("id", "name", "age").
-			ToSelect(),
-	).Alias(cst.A).Asc("id").Limit(10).Offset(10)
+	subquery := way.Table(account).
+		Where(
+			NewSQL("id IN ( ?, ?, ? )", 1, 2, 3),
+		).
+		Select("id", "name", "age").
+		ToSelect()
+	subquery.Prepare = ParcelPrepare(subquery.Prepare)
+	table.Table(subquery).Alias(cst.A).Asc("id").Limit(10).Offset(10)
 	assert(table.ToSelect(), "SELECT * FROM ( SELECT id, name, age FROM account WHERE ( id IN ( ?, ?, ? ) ) ) AS a ORDER BY id ASC LIMIT 10 OFFSET 10")
 }
 
@@ -487,7 +487,9 @@ func TestTable_Exists(t *testing.T) {
 		where.ToEmpty()
 		where.Equal("status", 1)
 		query := way.Table(account).Select("id", "username").Where(where).Desc("id").Limit(1)
-		table.Table(query.ToSelect())
+		subquery := query.ToSelect()
+		subquery.Prepare = ParcelPrepare(subquery.Prepare)
+		table.Table(subquery)
 		table.Alias(cst.B)
 		assert(table.ToExists(), "SELECT EXISTS ( SELECT 1 FROM ( SELECT id, username FROM account WHERE ( status = ? ) ORDER BY id DESC LIMIT 1 ) AS b ) AS a")
 	}

@@ -3,6 +3,7 @@
 package hey
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -11,7 +12,7 @@ import (
 	"maps"
 	"os"
 	"reflect"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/cd365/hey/v7/cst"
@@ -47,7 +48,7 @@ func argValueToString(i any) string {
 	case reflect.Float32, reflect.Float64:
 		return fmt.Sprintf("%f", tmp)
 	case reflect.String:
-		return fmt.Sprintf("'%s'", tmp)
+		return fmt.Sprintf("'%s'", strings.ReplaceAll(v.String(), cst.SingleQuotationMark, cst.SingleQuotationMarks))
 	default:
 		if bts, ok := tmp.([]byte); ok {
 			if bts == nil {
@@ -100,17 +101,12 @@ type transaction struct {
 	// track Tracking transaction.
 	track *MyTrack
 
-	// mutex Mutex lock.
-	mutex sync.Mutex
-
 	// script List of SQL statements that have been executed within a transaction.
 	script []*MyTrack
 }
 
 // addScript Add information about the executed SQL statement.
 func (s *transaction) addScript(script *MyTrack) *transaction {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
 	s.script = append(s.script, script)
 	return s
 }
@@ -171,6 +167,8 @@ func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 }
 
 // prepare63236 Replace '?' in the SQL statement with '$n'.
+// '?' characters inside single-quoted string literals, line comments (--) and
+// block comments (/* ... */) are left unchanged because they are not placeholders.
 func prepare63236(prepare string) string {
 	latest := poolGetStringBuilder()
 	defer poolPutStringBuilder(latest)
@@ -179,15 +177,101 @@ func prepare63236(prepare string) string {
 	c36 := cst.Dollar[0]      // $
 	c63 := cst.Placeholder[0] // ?
 	num := 0
-	for i := 0; i < length; i++ {
-		if origin[i] == c63 {
+	for i := 0; i < length; {
+		switch {
+		case origin[i] == cst.SingleQuotationMark[0]:
+			latest.WriteByte(origin[i])
+			i++
+			for i < length {
+				latest.WriteByte(origin[i])
+				if origin[i] == cst.SingleQuotationMark[0] {
+					if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
+						latest.WriteByte(origin[i+1])
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+		case origin[i] == '-' && i+1 < length && origin[i+1] == '-':
+			for i < length {
+				latest.WriteByte(origin[i])
+				if origin[i] == '\n' {
+					i++
+					break
+				}
+				i++
+			}
+		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
+			for i < length {
+				latest.WriteByte(origin[i])
+				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+					latest.WriteByte(origin[i+1])
+					i += 2
+					break
+				}
+				i++
+			}
+		case origin[i] == c36:
+			delimiter := dollarQuoteDelimiter(origin, i)
+			if delimiter == nil {
+				latest.WriteByte(origin[i])
+				i++
+				break
+			}
+			latest.Write(delimiter)
+			i += len(delimiter)
+			for i < length {
+				if bytes.HasPrefix(origin[i:], delimiter) {
+					latest.Write(delimiter)
+					i += len(delimiter)
+					break
+				}
+				latest.WriteByte(origin[i])
+				i++
+			}
+		case origin[i] == c63:
 			num++
 			fmt.Fprintf(latest, "%c%d", c36, num)
-		} else {
+			i++
+		default:
 			latest.WriteByte(origin[i])
+			i++
 		}
 	}
 	return latest.String()
+}
+
+// dollarQuoteDelimiter Return the PostgreSQL dollar-quote delimiter starting at origin[i]
+// ($$ or $tag$, where tag follows unquoted-identifier rules), or nil if none starts there.
+func dollarQuoteDelimiter(origin []byte, i int) []byte {
+	if i < 0 || i >= len(origin) || origin[i] != '$' {
+		return nil
+	}
+	j := i + 1
+	if j < len(origin) && origin[j] == '$' {
+		return origin[i : j+1]
+	}
+	if j >= len(origin) {
+		return nil
+	}
+	if c := origin[j]; c != '_' && !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') {
+		return nil
+	}
+	for j < len(origin) {
+		c := origin[j]
+		if c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			j++
+			continue
+		}
+		break
+	}
+	if j < len(origin) && origin[j] == '$' {
+		return origin[i : j+1]
+	}
+	return nil
 }
 
 // manualPostgresql Postgresql manual.
@@ -957,7 +1041,7 @@ func (s *Way) QueryScan(ctx context.Context, maker Maker, scan func(rows *sql.Ro
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 }
 
@@ -970,7 +1054,7 @@ func (s *Way) QueryScanOne(ctx context.Context, maker Maker, dest ...any) (exist
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return exist, err
@@ -1024,7 +1108,7 @@ func (s *Way) QueryExists(ctx context.Context, maker Maker) (bool, error) {
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return false, err

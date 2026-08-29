@@ -145,7 +145,9 @@ func toSQLUpdateDelete(s MakeSQL, category string) *SQL {
 	default:
 		return NewEmptySQL()
 	}
-	lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	if !whereIsEmpty {
+		lists = append(lists, cst.WHERE, parcelSingleFilter(s.Where))
+	}
 	return JoinSQLSpace(lists...).ToSQL()
 }
 
@@ -670,7 +672,7 @@ func (s *Table) Count(ctx context.Context, counts ...string) (int64, error) {
 				return err
 			}
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return 0, err
@@ -717,7 +719,12 @@ func (s *Table) Insert(ctx context.Context) (int64, error) {
 				if err != nil {
 					return 0, err
 				}
-				return execute(ctx, stmt, script.Args...)
+				defer stmt.Close()
+				id, err := execute(ctx, stmt, script.Args...)
+				if err != nil {
+					return 0, err
+				}
+				return id, nil
 			}
 		}
 	}

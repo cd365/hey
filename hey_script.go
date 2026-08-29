@@ -956,6 +956,9 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				return err
 			}
 		} else {
+			if err := rows.Err(); err != nil {
+				return err
+			}
 			return sql.ErrNoRows
 		}
 		return nil
@@ -1001,6 +1004,9 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				current.Set(refStructVal)
 			}
 			return nil
+		}
+		if err := rows.Err(); err != nil {
+			return err
 		}
 		return sql.ErrNoRows
 	}
@@ -1119,6 +1125,10 @@ func RowsScan(rows *sql.Rows, result any, tag string) error {
 				refValueSlice = reflect.Append(refValueSlice, leap)
 			}
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
 	}
 
 	// Set the value of the slice.
@@ -1697,13 +1707,18 @@ func ObjectObtain(object any, tag string, except ...string) (columns []string, v
 }
 
 // StructUpdate Compare origin and latest for update.
+//
+// For pointer-typed fields, when exactly one of origin and latest is nil (the value
+// changed between NULL and a concrete value), the column is updated: a nil latest sets
+// the column to NULL, a nil origin sets it to the concrete value. Non-pointer fields
+// are compared by value and never produce a NULL update.
 func StructUpdate(origin any, latest any, tag string, except ...string) (columns []string, values []any) {
 	if origin == nil || latest == nil || tag == cst.Empty {
 		return columns, values
 	}
 
 	originColumns, originValues := ObjectObtain(origin, tag, except...)
-	latestColumns, latestValues := ObjectModify(latest, tag, except...)
+	latestColumns, latestValues := ObjectObtain(latest, tag, except...)
 
 	storage := make(map[string]any, len(originColumns))
 	for k, v := range originColumns {
@@ -1731,9 +1746,6 @@ func StructUpdate(origin any, latest any, tag string, except ...string) (columns
 
 	for k, v := range latestColumns {
 		if _, ok := storage[v]; !ok {
-			continue
-		}
-		if latestValues[k] == nil {
 			continue
 		}
 		bvo, bvl := basicTypeValue(storage[v]), basicTypeValue(latestValues[k])
@@ -1914,9 +1926,12 @@ func QuickScan(
 		}
 		item := make(map[string]any, length)
 		for i := 0; i < length; i++ {
-			item[columns[i]] = dest[i]
+			item[columns[i]] = *dest[i].(*any)
 		}
 		results = append(results, item)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	if adjustColumnValue == nil {
 		err = adjustColumnValueDefault(columnTypes, results)

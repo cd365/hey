@@ -79,6 +79,9 @@ func inArgs(args ...any) []any {
 	case []*float64:
 		return AnyAny(v)
 	default:
+		if args[0] == nil {
+			return args
+		}
 		rt := reflect.TypeOf(args[0])
 		if rt.Kind() != reflect.Slice {
 			return args
@@ -651,6 +654,7 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		if length := len(lists); length == 0 {
 			return s
 		}
+		lists = append([]string(nil), lists...)
 		for key, val := range lists {
 			lists[key] = s.get(val)
 		}
@@ -1413,7 +1417,8 @@ func (s *timeFilter) LastDays(column string, days int) TimeFilter {
 		return s
 	}
 	timestamp := s.time.Unix()
-	s.filter.Between(column, s.dayStartAt(timestamp)-(int64(days)-1)*86400, timestamp)
+	startAt := time.Unix(s.dayStartAt(timestamp), 0).In(s.time.Location()).AddDate(0, 0, -days+1).Unix()
+	s.filter.Between(column, startAt, timestamp)
 	return s
 }
 
@@ -1493,7 +1498,7 @@ func (s *timeFilter) LastYears(column string, years int) TimeFilter {
 		return s
 	}
 	timestamp := s.time.Unix()
-	startAt := time.Unix(timestamp, 0).AddDate(-years+1, 0, 0).In(s.time.Location()).Unix()
+	startAt := time.Unix(s.yearStartAt(timestamp), 0).In(s.time.Location()).AddDate(-years+1, 0, 0).Unix()
 	s.filter.Between(column, startAt, timestamp)
 	return s
 }

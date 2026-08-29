@@ -757,7 +757,11 @@ func Select() {
 				if v == nil {
 					log.Printf("%s = %#v\n", k, v)
 				} else {
-					value := reflect.ValueOf(v).Elem().Interface()
+					rv := reflect.ValueOf(v)
+					value := rv.Interface()
+					if rv.Type().Kind() == reflect.Pointer && !rv.IsNil() {
+						value = rv.Elem().Interface()
+					}
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
@@ -1226,7 +1230,11 @@ func WindowFunc() {
 				if v == nil {
 					log.Printf("%s = %#v\n", k, v)
 				} else {
-					value := reflect.ValueOf(v).Elem().Interface()
+					rv := reflect.ValueOf(v)
+					value := rv.Interface()
+					if rv.Type().Kind() == reflect.Pointer && !rv.IsNil() {
+						value = rv.Elem().Interface()
+					}
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
@@ -1278,7 +1286,11 @@ func WindowFunc() {
 				if v == nil {
 					log.Printf("%s = %#v\n", k, v)
 				} else {
-					value := reflect.ValueOf(v).Elem().Interface()
+					rv := reflect.ValueOf(v)
+					value := rv.Interface()
+					if rv.Type().Kind() == reflect.Pointer && !rv.IsNil() {
+						value = rv.Elem().Interface()
+					}
 					if val, ok := value.([]byte); ok {
 						value = string(val)
 					}
