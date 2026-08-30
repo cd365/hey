@@ -3,7 +3,9 @@
 package hey
 
 import (
+	"database/sql/driver"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -97,19 +99,107 @@ func inArgs(args ...any) []any {
 	}
 }
 
-// filterUsingValue Get value's current value as an any, otherwise return nil.
+// filterUsingValue unwraps pointers and interfaces while preserving SQL-aware values.
 func filterUsingValue(value any) any {
 	if value == nil {
 		return nil
 	}
 	v := reflect.ValueOf(value)
-	for v.Kind() == reflect.Pointer {
-		if v.IsNil() {
+	for {
+		kind := v.Kind()
+		if (kind == reflect.Interface || kind == reflect.Pointer) && v.IsNil() {
 			return nil
+		}
+		current := v.Interface()
+		// Preserve SQL builders and database values before dereferencing their pointer receivers.
+		if _, ok := current.(Maker); ok {
+			return current
+		}
+		if _, ok := current.(driver.Valuer); ok {
+			return current
+		}
+		if kind != reflect.Interface && kind != reflect.Pointer {
+			return current
 		}
 		v = v.Elem()
 	}
-	return v.Interface()
+}
+
+// filterUsingBoundaryValue normalizes a range boundary and rejects SQL NULL values.
+func filterUsingBoundaryValue(value any) any {
+	value = filterUsingValue(value)
+	if filterNilValue(value) {
+		return nil
+	}
+	return value
+}
+
+// filterNilValue recognizes both deeply nested nil pointers and Valuers that produce SQL NULL.
+func filterNilValue(value any) bool {
+	value = filterUsingValue(value)
+	if value == nil {
+		return true
+	}
+	if _, ok := value.(Maker); ok {
+		return false
+	}
+	if valuer, ok := value.(driver.Valuer); ok {
+		current, err := valuer.Value()
+		// Preserve conversion errors so database/sql can report them during execution.
+		if err != nil {
+			return false
+		}
+		return filterPhysicalNilValue(current)
+	}
+	return filterPhysicalNilValue(value)
+}
+
+// filterPhysicalNilValue unwraps pointer and interface layers without invoking user code.
+func filterPhysicalNilValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	for {
+		switch v.Kind() {
+		case reflect.Interface, reflect.Pointer:
+			if v.IsNil() {
+				return true
+			}
+			v = v.Elem()
+		case reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
+			return v.IsNil()
+		default:
+			return false
+		}
+	}
+}
+
+// filterUsingString accepts built-in and named string values after unwrapping pointers and interfaces.
+func filterUsingString(value any) (string, bool) {
+	value = filterUsingValue(value)
+	if value == nil {
+		return cst.Empty, false
+	}
+	v := reflect.ValueOf(value)
+	if v.Kind() != reflect.String {
+		return cst.Empty, false
+	}
+	return v.String(), true
+}
+
+// filterUsingColumn quotes string-like column names while preserving explicit SQL makers.
+func filterUsingColumn(where Filter, column any) any {
+	if column == nil {
+		return nil
+	}
+	if _, ok := column.(Maker); ok {
+		return column
+	}
+	if value, ok := filterUsingString(column); ok {
+		return where.V().Replace(value)
+	}
+	return column
 }
 
 // Filter Implement SQL statement conditional filtering (general conditional filtering).
@@ -306,7 +396,8 @@ func (s *filter) ToSQL() *SQL {
 		b.WriteString(cst.Space)
 	}
 
-	if s.num > 1 {
+	// NOT must always target a parenthesized expression, even when it contains one condition.
+	if s.not || s.num > 1 {
 		b.WriteString(cst.LeftParenthesis)
 		b.WriteString(cst.Space)
 		b.WriteString(s.prepare.String())
@@ -316,7 +407,8 @@ func (s *filter) ToSQL() *SQL {
 		b.WriteString(s.prepare.String())
 	}
 
-	return NewSQL(b.String(), s.args[:]...)
+	args := append([]any(nil), s.args...)
+	return NewSQL(b.String(), args...)
 }
 
 func (s *filter) toEmpty() {
@@ -360,8 +452,8 @@ func (s *filter) add(logic string, maker Maker) *filter {
 	if logic == cst.Empty || maker == nil {
 		return s
 	}
-	script := maker.ToSQL()
-	if script == nil || script.IsEmpty() {
+	script := AnyToSQL(maker)
+	if script.IsEmpty() {
 		return s
 	}
 
@@ -385,6 +477,20 @@ func (s *filter) add(logic string, maker Maker) *filter {
 	s.num++
 
 	return s
+}
+
+func (s *filter) addCustom(logic string, maker Maker) *filter {
+	if maker == nil {
+		return s
+	}
+	script := AnyToSQL(maker)
+	if script.IsEmpty() {
+		return s
+	}
+	// Treat each custom maker as one logical operand without mutating caller-owned SQL.
+	script = script.Clone()
+	script.Prepare = ParcelPrepare(strings.TrimSpace(script.Prepare))
+	return s.add(logic, script)
 }
 
 func (s *filter) addGroup(logic string, group func(g Filter)) *filter {
@@ -420,11 +526,11 @@ func (s *filter) firstNext(first *SQL, next ...any) *SQL {
 }
 
 func (s *filter) And(maker Maker) Filter {
-	return s.add(cst.AND, maker)
+	return s.addCustom(cst.AND, maker)
 }
 
 func (s *filter) Or(maker Maker) Filter {
-	return s.add(cst.OR, maker)
+	return s.addCustom(cst.OR, maker)
 }
 
 func (s *filter) Group(group func(g Filter)) Filter {
@@ -442,9 +548,17 @@ func (s *filter) New() Filter {
 func (s *filter) Use(values ...Maker) Filter {
 	group := s.New()
 	for _, value := range values {
+		// A Filter already owns its logical boundary; adding it directly avoids redundant wrapping.
+		if _, ok := value.(Filter); ok {
+			if current, ok := group.(*filter); ok {
+				current.add(cst.AND, value)
+				continue
+			}
+		}
 		group.And(value)
 	}
-	return s.And(group.ToSQL())
+	// The combined group is already parenthesized when required by its condition count.
+	return s.add(cst.AND, group.ToSQL())
 }
 
 func (s *filter) NewUse(values ...Maker) Filter {
@@ -460,12 +574,15 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 		return s
 	}
 
-	if script, ok := column.(string); ok {
-		column = s.get(script)
-	}
-
+	column = filterUsingColumn(s, column)
 	first := AnyToSQL(column)
 	if first.IsEmpty() {
+		return s
+	}
+
+	// Normalize pointers without stripping Maker or driver.Valuer implementations.
+	value = filterUsingValue(value)
+	if filterNilValue(value) {
 		return s
 	}
 
@@ -474,20 +591,12 @@ func (s *filter) compare(logic string, column any, compare string, value any) Fi
 	args := ([]any)(nil)
 	switch v := value.(type) {
 	case Maker:
-		if v == nil {
+		tmp := ParcelSQL(AnyToSQL(v))
+		if tmp.IsEmpty() {
 			return s
 		}
-		tmp := v.ToSQL()
-		if tmp == nil || tmp.IsEmpty() {
-			return s
-		}
-		elem := tmp.Clone()
-		elem.Prepare = ParcelPrepare(elem.Prepare)
-		next = append(next, elem)
+		next = append(next, tmp)
 	default:
-		if value = filterUsingValue(value); value == nil {
-			return s
-		}
 		next = append(next, cst.Placeholder)
 		args = []any{value}
 	}
@@ -524,22 +633,25 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 	if column == nil {
 		return s
 	}
-	start, end = filterUsingValue(start), filterUsingValue(end)
+	start, end = filterUsingBoundaryValue(start), filterUsingBoundaryValue(end)
 	if start == nil {
 		if end == nil {
 			return s
+		}
+		if not {
+			return s.GreaterThan(column, end)
 		}
 		return s.LessThanEqual(column, end)
 	}
 
 	if end == nil {
+		if not {
+			return s.LessThan(column, start)
+		}
 		return s.GreaterThanEqual(column, start)
 	}
 
-	if script, ok := column.(string); ok {
-		column = s.get(script)
-	}
-
+	column = filterUsingColumn(s, column)
 	first := AnyToSQL(column)
 	if first.IsEmpty() {
 		return s
@@ -550,22 +662,18 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 		next = append(next, cst.NOT)
 	}
 	next = append(next, cst.BETWEEN)
-	args := make([]any, 0, 2)
 	node := func(i any) bool {
+		if i == nil {
+			return false
+		}
 		if value, ok := i.(Maker); ok {
-			if value == nil {
+			tmp := ParcelSQL(AnyToSQL(value))
+			if tmp.IsEmpty() {
 				return false
 			}
-			script := value.ToSQL()
-			if script == nil || script.IsEmpty() {
-				return false
-			}
-			tmp := script.Clone()
-			tmp.Prepare = ParcelPrepare(tmp.Prepare)
 			next = append(next, tmp)
 		} else {
-			next = append(next, cst.Placeholder)
-			args = append(args, i)
+			next = append(next, NewSQL(cst.Placeholder, i))
 		}
 		return true
 	}
@@ -578,10 +686,6 @@ func (s *filter) between(logic string, column any, start any, end any, not bool)
 	}
 
 	result := s.firstNext(first, next...)
-	if len(args) > 0 {
-		result.Args = append(result.Args, args...)
-	}
-
 	return s.add(logic, result)
 }
 
@@ -594,51 +698,48 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 		return s
 	}
 
-	if script, ok := column.(string); ok {
-		column = s.get(script)
-	}
-
+	column = filterUsingColumn(s, column)
 	script := AnyToSQL(column)
 	if script.IsEmpty() {
 		return s
 	}
 
+	values = inArgs(values...)
 	length := len(values)
 	if length == 0 {
 		return s
 	}
 
-	if length == 1 {
-		if value, ok := values[0].(Maker); ok { // subquery value
-			if value != nil {
-				if subquery := value.ToSQL(); subquery != nil && !subquery.IsEmpty() {
-					latest := subquery.Clone()
-					latest.Prepare = ParcelPrepare(latest.Prepare)
-					lists := make([]any, 0, 3)
-					if not {
-						lists = append(lists, cst.NOT)
-					}
-					lists = append(lists, cst.IN, latest)
-					return s.add(logic, s.firstNext(script, lists...))
-				}
-			}
-			return s
-		}
-	}
-
-	values = inArgs(values...)
+	values = DiscardDuplicateAny(filterNilValue, values...)
 	length = len(values)
 	if length == 0 {
 		return s
 	}
 
-	values = DiscardDuplicateAny(nil, values...)
-	length = len(values)
 	if length == 1 {
+		if value, ok := values[0].(Maker); ok {
+			latest := ParcelSQL(AnyToSQL(value))
+			if latest.IsEmpty() {
+				return s
+			}
+			lists := make([]any, 0, 3)
+			if not {
+				lists = append(lists, cst.NOT)
+			}
+			lists = append(lists, cst.IN, latest)
+			return s.add(logic, s.firstNext(script, lists...))
+		}
 		if not {
 			return s.NotEqual(script, values[0])
 		}
 		return s.Equal(script, values[0])
+	}
+
+	// A subquery must be the only IN value; it cannot be mixed with bound scalar values.
+	for _, value := range values {
+		if _, ok := value.(Maker); ok {
+			return s
+		}
 	}
 
 	places := make([]string, length)
@@ -666,13 +767,20 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		return s
 	}
 
+	length := 0
 	if lists, ok := columns.([]string); ok {
-		if length := len(lists); length == 0 {
+		length = len(lists)
+		if length == 0 {
 			return s
 		}
 		lists = append([]string(nil), lists...)
 		for key, val := range lists {
-			lists[key] = s.get(val)
+			val = s.get(val)
+			// Reject the complete tuple instead of emitting an invalid empty identifier.
+			if strings.TrimSpace(val) == cst.Empty {
+				return s
+			}
+			lists[key] = val
 		}
 		columns = NewSQL(ParcelPrepare(strings.Join(lists, cst.CommaSpace)))
 	}
@@ -684,8 +792,8 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 
 	switch value := values.(type) {
 	case [][]any:
-		length := len(value)
-		if length == 0 {
+		total := len(value)
+		if total == 0 {
 			return s
 		}
 		count := len(value[0])
@@ -693,17 +801,42 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 			// At least two columns.
 			return s
 		}
+		if length > 0 && length != count {
+			return s
+		}
+		for i := 1; i < total; i++ {
+			if count != len(value[i]) {
+				return s
+			}
+		}
+		if not {
+			rows := make([][]any, 0, total)
+			for _, row := range value {
+				hasNil := false
+				for _, item := range row {
+					if filterNilValue(item) {
+						hasNil = true
+						break
+					}
+				}
+				if !hasNil {
+					rows = append(rows, row)
+				}
+			}
+			value = rows
+			total = len(value)
+			if total == 0 {
+				return s
+			}
+		}
 		group := make([]string, count)
 		for i := 0; i < count; i++ {
 			group[i] = cst.Placeholder
 		}
-		args := make([]any, 0, length*count)
-		lines := make([]string, length)
+		args := make([]any, 0, total*count)
+		lines := make([]string, total)
 		place := ParcelPrepare(strings.Join(group, cst.CommaSpace))
-		for i := 0; i < length; i++ {
-			if i > 0 && count != len(value[i]) {
-				return s
-			}
+		for i := 0; i < total; i++ {
 			args = append(args, value[i]...)
 			lines[i] = place
 		}
@@ -714,11 +847,10 @@ func (s *filter) inGroup(logic string, columns any, values any, not bool) Filter
 		}
 		values = ParcelSQL(value)
 	case Maker:
-		tmp := value.ToSQL()
-		if tmp == nil || tmp.IsEmpty() {
+		tmp := ParcelSQL(AnyToSQL(value))
+		if tmp.IsEmpty() {
 			return s
 		}
-		tmp.Prepare = ParcelPrepare(tmp.Prepare)
 		values = tmp
 	default:
 		return s
@@ -742,8 +874,8 @@ func (s *filter) exists(subquery Maker, not bool) Filter {
 		return s
 	}
 
-	script := subquery.ToSQL()
-	if script == nil || script.IsEmpty() {
+	script := AnyToSQL(subquery)
+	if script.IsEmpty() {
 		return s
 	}
 
@@ -765,13 +897,11 @@ func (s *filter) Exists(subquery Maker) Filter {
 }
 
 func (s *filter) like(logic string, column any, value any, not bool) Filter {
-	if value = filterUsingValue(value); value == nil {
+	if value = filterUsingBoundaryValue(value); value == nil {
 		return s
 	}
 
-	if script, ok := column.(string); ok {
-		column = s.get(script)
-	}
+	column = filterUsingColumn(s, column)
 	script := AnyToSQL(column)
 	if script.IsEmpty() {
 		return s
@@ -782,11 +912,24 @@ func (s *filter) like(logic string, column any, value any, not bool) Filter {
 		lists = append(lists, cst.NOT)
 	}
 	lists = append(lists, cst.LIKE)
-	if like, ok := value.(string); ok && like != cst.Empty {
-		lists = append(lists, cst.Placeholder)
-		result := s.firstNext(script, lists...)
-		result.Args = append(result.Args, like)
-		return s.add(logic, result)
+	// String-like values are bound as parameters, while makers remain explicit SQL expressions.
+	if _, ok := value.(Maker); !ok {
+		if like, ok := filterUsingString(value); ok {
+			if like == cst.Empty {
+				return s
+			}
+			lists = append(lists, cst.Placeholder)
+			result := s.firstNext(script, lists...)
+			result.Args = append(result.Args, like)
+			return s.add(logic, result)
+		}
+		// Valuers are scalar parameters; keep the original object for database/sql conversion.
+		if _, ok := value.(driver.Valuer); ok {
+			lists = append(lists, cst.Placeholder)
+			result := s.firstNext(script, lists...)
+			result.Args = append(result.Args, value)
+			return s.add(logic, result)
+		}
 	}
 	if like := AnyToSQL(value); !like.IsEmpty() {
 		lists = append(lists, like)
@@ -796,17 +939,14 @@ func (s *filter) like(logic string, column any, value any, not bool) Filter {
 }
 
 func (s *filter) Like(column any, value any) Filter {
-	if value = filterUsingValue(value); value == nil {
+	if value = filterUsingBoundaryValue(value); value == nil {
 		return s
 	}
 	return s.like(cst.AND, column, value, false)
 }
 
 func (s *filter) isNull(column any, not bool) Filter {
-	if script, ok := column.(string); ok {
-		column = s.get(script)
-	}
-
+	column = filterUsingColumn(s, column)
 	script := AnyToSQL(column)
 	if script.IsEmpty() {
 		return s
@@ -846,7 +986,7 @@ func (s *filter) NotExists(subquery Maker) Filter {
 }
 
 func (s *filter) NotLike(column any, value any) Filter {
-	if value = filterUsingValue(value); value == nil {
+	if value = filterUsingBoundaryValue(value); value == nil {
 		return s
 	}
 	return s.like(cst.AND, column, value, true)
@@ -923,48 +1063,37 @@ func (s *filter) compares(column1 any, compare string, column2 any) Filter {
 		return s
 	}
 
-	if column, ok := column1.(string); ok {
-		if column = s.get(column); column == cst.Empty {
-			return s
-		}
-		column1 = column
-	}
-
+	column1 = filterUsingColumn(s, column1)
 	prefix := AnyToSQL(column1)
 	if prefix == nil || prefix.IsEmpty() {
 		return s
 	}
 
 	var suffix *SQL
-	if column, ok := column2.(string); ok {
-		if column = s.get(column); column == cst.Empty {
+	column2 = filterUsingColumn(s, column2)
+	switch value := column2.(type) {
+	case string:
+		suffix = AnyToSQL(value)
+	case *SQL:
+		suffix = ParcelSQL(value)
+		if suffix.IsEmpty() {
 			return s
 		}
-		suffix = AnyToSQL(column)
-	} else {
-		switch value := column2.(type) {
-		case *SQL:
-			suffix = value.Clone()
-			if suffix.IsEmpty() {
-				return s
-			}
-			suffix.Prepare = ParcelPrepare(suffix.Prepare)
-		case Maker:
-			suffix = value.ToSQL()
-			if suffix.IsEmpty() {
-				return s
-			}
-			suffix.Prepare = ParcelPrepare(suffix.Prepare)
-		default:
-			suffix = AnyToSQL(column)
+	case Maker:
+		suffix = ParcelSQL(AnyToSQL(value))
+		if suffix.IsEmpty() {
+			return s
 		}
+	default:
+		suffix = AnyToSQL(value)
 	}
 
 	if suffix == nil || suffix.IsEmpty() {
 		return s
 	}
 
-	return s.And(JoinSQLSpace(prefix, compare, suffix))
+	// The comparison is already one complete operand and does not need custom-maker wrapping.
+	return s.add(cst.AND, JoinSQLSpace(prefix, compare, suffix))
 }
 
 func (s *filter) CompareEqual(column1 any, column2 any) Filter {
@@ -1072,15 +1201,18 @@ func (s *compareKey) build(column any, logic string, subquery Maker) CompareKey 
 	if column == nil || logic == cst.Empty || subquery == nil {
 		return s
 	}
-	if script, ok := column.(string); ok {
-		column = s.filter.V().Replace(script)
-	}
-	prefix, suffix := AnyToSQL(column), subquery.ToSQL()
+	column = filterUsingColumn(s.filter, column)
+	prefix, suffix := AnyToSQL(column), ParcelSQL(AnyToSQL(subquery))
 	if prefix == nil || prefix.IsEmpty() || suffix == nil || suffix.IsEmpty() {
 		return s
 	}
-	suffix.Prepare = ParcelPrepare(suffix.Prepare)
-	s.filter.And(JoinSQLSpace(prefix, logic, s.key, suffix))
+	script := JoinSQLSpace(prefix, logic, s.key, suffix)
+	// Add the complete comparison directly when the concrete filter implementation is available.
+	if where, ok := s.filter.(*filter); ok {
+		where.add(cst.AND, script)
+	} else {
+		s.filter.And(script)
+	}
 	return s
 }
 
@@ -1181,7 +1313,7 @@ func string2any(kind reflect.Kind, value string) (any, error) {
 	case reflect.String:
 		return value, nil
 	case reflect.Int:
-		val, err := strconv.ParseInt(value, 10, 64)
+		val, err := strconv.ParseInt(value, 10, strconv.IntSize)
 		if err != nil {
 			return nil, err
 		}
@@ -1219,7 +1351,7 @@ func (s *stringFilter) string2any(category reflect.Kind) func(values []string) [
 }
 
 func (s *stringFilter) split(column string, value *string, handle func(values []string) []any) []any {
-	if column == cst.Empty || value == nil || *value == cst.Empty || handle == nil {
+	if column == cst.Empty || value == nil || *value == cst.Empty || s.delimiter == cst.Empty || handle == nil {
 		return nil
 	}
 	values := strings.Split(*value, s.delimiter)
@@ -1231,21 +1363,40 @@ func (s *stringFilter) split(column string, value *string, handle func(values []
 }
 
 func (s *stringFilter) between(column string, value *string, handle func(values []string) []any) *stringFilter {
-	values := s.split(column, value, handle)
-	length := len(values)
-	if length == 0 || length > 2 {
+	if column == cst.Empty || value == nil || *value == cst.Empty || s.delimiter == cst.Empty || handle == nil {
 		return s
 	}
-	if length == 2 {
-		s.filter.Between(column, values[0], values[1])
+
+	raw := strings.Split(*value, s.delimiter)
+	if len(raw) != 2 {
 		return s
 	}
+
 	trim := strings.TrimSpace(*value)
-	if strings.HasPrefix(trim, s.delimiter) {
-		s.filter.LessThanEqual(column, values[0])
+	leftOpen := strings.HasPrefix(trim, s.delimiter)
+	rightOpen := strings.HasSuffix(trim, s.delimiter)
+	if leftOpen && rightOpen {
+		return s
 	}
-	if strings.HasSuffix(trim, s.delimiter) {
-		s.filter.GreaterThanEqual(column, values[0])
+
+	if leftOpen {
+		values := handle(raw[1:])
+		if len(values) == 1 {
+			s.filter.LessThanEqual(column, values[0])
+		}
+		return s
+	}
+	if rightOpen {
+		values := handle(raw[:1])
+		if len(values) == 1 {
+			s.filter.GreaterThanEqual(column, values[0])
+		}
+		return s
+	}
+
+	values := handle(raw)
+	if len(values) == 2 {
+		s.filter.Between(column, values[0], values[1])
 	}
 	return s
 }
@@ -1321,10 +1472,10 @@ type TimeFilter interface {
 	// SetTime Set the time point.
 	SetTime(timeAt time.Time) TimeFilter
 
-	// LastMinutes Last n minutes.
+	// LastMinutes Current minute and previous n-1 minute buckets.
 	LastMinutes(column string, minutes int) TimeFilter
 
-	// LastHours Last n hours.
+	// LastHours Current hour and previous n-1 hour buckets.
 	LastHours(column string, hours int) TimeFilter
 
 	// Today Time range that has passed today.
@@ -1369,6 +1520,13 @@ type timeFilter struct {
 	time   time.Time
 }
 
+const (
+	maxTimeFilterYears    = 10000
+	maxTimeFilterQuarters = maxTimeFilterYears * 4
+	maxTimeFilterMonths   = maxTimeFilterYears * 12
+	maxTimeFilterDays     = maxTimeFilterYears * 366
+)
+
 func newTimeFilter(filter Filter) TimeFilter {
 	if filter == nil {
 		panic(nilPointer)
@@ -1379,28 +1537,34 @@ func newTimeFilter(filter Filter) TimeFilter {
 	}
 }
 
+func (s *timeFilter) timeAt(timestamp int64) time.Time {
+	return time.Unix(timestamp, 0).In(s.time.Location())
+}
+
 func (s *timeFilter) minuteStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0)
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, s.time.Location()).Unix()
+	t := s.timeAt(timestamp)
+	// Subtraction preserves the selected UTC offset when a local minute occurs twice.
+	return timestamp - int64(t.Second())
 }
 
 func (s *timeFilter) hourStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0)
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, s.time.Location()).Unix()
+	t := s.timeAt(timestamp)
+	// Reconstructing the local hour with time.Date may select the wrong side of a DST fallback.
+	return timestamp - int64(t.Minute()*60+t.Second())
 }
 
 func (s *timeFilter) dayStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0)
+	t := s.timeAt(timestamp)
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, s.time.Location()).Unix()
 }
 
 func (s *timeFilter) monthStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0)
+	t := s.timeAt(timestamp)
 	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, s.time.Location()).Unix()
 }
 
 func (s *timeFilter) quarterStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0)
+	t := s.timeAt(timestamp)
 	year := t.Year()
 	month := t.Month()
 	var startMonth time.Month
@@ -1418,8 +1582,23 @@ func (s *timeFilter) quarterStartAt(timestamp int64) int64 {
 }
 
 func (s *timeFilter) yearStartAt(timestamp int64) int64 {
-	t := time.Unix(timestamp, 0)
+	t := s.timeAt(timestamp)
 	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, s.time.Location()).Unix()
+}
+
+func subtractTimeUnits(timestamp int64, count int, seconds int64) (int64, bool) {
+	if count <= 0 {
+		return 0, false
+	}
+	units := int64(count) - 1
+	if units > math.MaxInt64/seconds {
+		return 0, false
+	}
+	delta := units * seconds
+	if timestamp < math.MinInt64+delta {
+		return 0, false
+	}
+	return timestamp - delta, true
 }
 
 func (s *timeFilter) TimeIn(loc *time.Location) TimeFilter {
@@ -1439,20 +1618,22 @@ func (s *timeFilter) SetTime(timeAt time.Time) TimeFilter {
 }
 
 func (s *timeFilter) LastMinutes(column string, minutes int) TimeFilter {
-	if minutes <= 0 {
+	timestamp := s.time.Unix()
+	startAt, ok := subtractTimeUnits(s.minuteStartAt(timestamp), minutes, 60)
+	if !ok {
 		return s
 	}
-	timestamp := s.time.Unix()
-	s.filter.Between(column, s.minuteStartAt(timestamp)-(int64(minutes)-1)*60, timestamp)
+	s.filter.Between(column, startAt, timestamp)
 	return s
 }
 
 func (s *timeFilter) LastHours(column string, hours int) TimeFilter {
-	if hours <= 0 {
+	timestamp := s.time.Unix()
+	startAt, ok := subtractTimeUnits(s.hourStartAt(timestamp), hours, 3600)
+	if !ok {
 		return s
 	}
-	timestamp := s.time.Unix()
-	s.filter.Between(column, s.hourStartAt(timestamp)-(int64(hours)-1)*3600, timestamp)
+	s.filter.Between(column, startAt, timestamp)
 	return s
 }
 
@@ -1470,7 +1651,7 @@ func (s *timeFilter) Yesterday(column string) TimeFilter {
 }
 
 func (s *timeFilter) LastDays(column string, days int) TimeFilter {
-	if days <= 0 {
+	if days <= 0 || days > maxTimeFilterDays {
 		return s
 	}
 	timestamp := s.time.Unix()
@@ -1494,7 +1675,7 @@ func (s *timeFilter) LastMonth(column string) TimeFilter {
 }
 
 func (s *timeFilter) LastMonths(column string, months int) TimeFilter {
-	if months <= 0 {
+	if months <= 0 || months > maxTimeFilterMonths {
 		return s
 	}
 	timestamp := s.time.Unix()
@@ -1520,19 +1701,13 @@ func (s *timeFilter) LastQuarter(column string) TimeFilter {
 }
 
 func (s *timeFilter) LastQuarters(column string, quarters int) TimeFilter {
-	if quarters <= 0 {
+	if quarters <= 0 || quarters > maxTimeFilterQuarters {
 		return s
 	}
-	startAt := int64(0)
 	timestamp := s.time.Unix()
-	for i := 0; i < quarters; i++ {
-		if i == 0 {
-			startAt = timestamp
-		}
-		startAt = s.quarterStartAt(startAt)
-		startAt--
-	}
-	s.filter.Between(column, startAt+1, timestamp)
+	thisQuarterStartAt := s.timeAt(s.quarterStartAt(timestamp))
+	startAt := thisQuarterStartAt.AddDate(0, -(quarters-1)*3, 0).Unix()
+	s.filter.Between(column, startAt, timestamp)
 	return s
 }
 
@@ -1551,7 +1726,7 @@ func (s *timeFilter) LastYear(column string) TimeFilter {
 }
 
 func (s *timeFilter) LastYears(column string, years int) TimeFilter {
-	if years <= 0 || years > 10000 {
+	if years <= 0 || years > maxTimeFilterYears {
 		return s
 	}
 	timestamp := s.time.Unix()

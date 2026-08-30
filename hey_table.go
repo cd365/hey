@@ -57,11 +57,11 @@ type MakeSQL struct {
 
 	// Other additional parameters.
 
-	// ToExistsSubquery -> SELECT EXISTS ( SELECT 1 FROM xxx ) AS a
-	ToExistsSubquery []func(script *SQL)
+	// customHandlingExistsSubquery -> SELECT EXISTS ( SELECT 1 FROM xxx ) AS a
+	customHandlingExistsSubquery []func(script *SQL)
 
-	// ToCountColumns -> SELECT COUNT(*) FROM xxx ...
-	ToCountColumns []string
+	// customCountColumns -> SELECT COUNT(*) FROM xxx ...
+	customCountColumns []string
 }
 
 // toSQLSelect SQL: SELECT xxx ...
@@ -173,35 +173,20 @@ func toSQLSelectExists(s MakeSQL) *SQL {
 	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
 	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
 
-	columns, columnsArgs := ([]string)(nil), (map[int][]any)(nil)
 	way := s.Way
-	if s.Query == nil {
-		s.Query = way.cfg.NewSQLSelect(way)
-	}
-	distinct := false
-	if s.Query.Len() > 0 {
-		columns, columnsArgs = s.Query.Get()
-		distinct = s.Query.GetDistinct()
-		s.Query.ToEmpty()
-	}
-	s.Query.Select("1")
-	defer func() {
-		if len(columns) == 0 {
-			s.Query.ToEmpty()
-		} else {
-			s.Query.Set(columns, columnsArgs)
-			if distinct {
-				s.Query.Distinct()
-			}
+	// Build the subquery from a copy with a fresh SELECT so the caller's Query object
+	// is left untouched (mutating it in place is not reentrant).
+	tmp := s
+	tmp.Query = way.cfg.NewSQLSelect(way)
+	tmp.Query.Select("1")
+	subquery := toSQLSelect(tmp)
+	exists := s.customHandlingExistsSubquery
+	length := len(exists)
+	for i := 0; i < length; i++ {
+		if exists[i] == nil {
+			continue
 		}
-	}()
-	subquery := toSQLSelect(s)
-	exists := s.ToExistsSubquery
-	for i := len(exists) - 1; i >= 0; i-- {
-		if exists[i] != nil {
-			exists[i](subquery)
-			break
-		}
+		exists[i](subquery)
 	}
 	if subquery.IsEmpty() {
 		return NewEmptySQL()
@@ -221,7 +206,7 @@ func toSQLSelectCount(s MakeSQL) *SQL {
 	if s.Table == nil || s.Table.IsEmpty() {
 		return NewEmptySQL()
 	}
-	counts := s.ToCountColumns[:]
+	counts := s.customCountColumns[:]
 	way := s.Way
 	query := JoinSQLSpace("COUNT(*)", cst.AS, way.Replace("counts"))
 	if len(counts) > 0 {
@@ -642,7 +627,7 @@ func (s *Table) ToDelete() *SQL {
 // ToCount Build COUNT-SELECT statement.
 func (s *Table) ToCount(counts ...string) *SQL {
 	script := s.newMakeSQL()
-	script.ToCountColumns = counts[:]
+	script.customCountColumns = counts[:]
 	return s.way.cfg.ToSQLSelectCount(script)
 }
 
@@ -652,7 +637,7 @@ func (s *Table) ToExists(exists ...func(script *SQL)) *SQL {
 	// SELECT EXISTS ( SELECT 1 FROM example_table WHERE ( id > 0 ) ) AS a
 	// SELECT EXISTS ( ( SELECT 1 FROM example_table WHERE ( column1 = 'value1' ) ) UNION ALL ( SELECT 1 FROM example_table WHERE ( column2 = 'value2' ) ) ) AS a
 	script := s.newMakeSQL()
-	script.ToExistsSubquery = exists[:]
+	script.customHandlingExistsSubquery = exists[:]
 	return s.way.cfg.ToSQLSelectExists(script)
 }
 

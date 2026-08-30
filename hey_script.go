@@ -3,9 +3,9 @@
 package hey
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -121,11 +121,18 @@ func AnyToSQL(i any) *SQL {
 			t = v.Type()
 			k = t.Kind()
 		}
+		// Format named primitives directly to avoid redispatching the same concrete type recursively.
 		switch k {
-		case reflect.Bool, reflect.Float32, reflect.Float64, reflect.String,
-			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			return AnyToSQL(v.Interface())
+		case reflect.Bool:
+			return NewSQL(strconv.FormatBool(v.Bool()))
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return NewSQL(strconv.FormatInt(v.Int(), 10))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return NewSQL(strconv.FormatUint(v.Uint(), 10))
+		case reflect.Float32, reflect.Float64:
+			return NewSQL(strconv.FormatFloat(v.Float(), 'g', -1, t.Bits()))
+		case reflect.String:
+			return NewSQL(v.String())
 		default: // Other types of values are invalid.
 
 		}
@@ -325,6 +332,124 @@ func ParcelPrepare(prepare string) string {
 	return JoinString(cst.LeftParenthesis, cst.Space, prepare, cst.Space, cst.RightParenthesis)
 }
 
+// prepareIsParenthesized reports whether the first opening parenthesis encloses
+// the complete SQL fragment. Parentheses inside literals and comments are ignored.
+func prepareIsParenthesized(prepare string) bool {
+	origin := []byte(strings.TrimSpace(prepare))
+	length := len(origin)
+	if length < 2 || origin[0] != cst.LeftParenthesis[0] {
+		return false
+	}
+
+	depth := 0
+	for i := 0; i < length; {
+		switch {
+		case origin[i] == '\'' || origin[i] == '"' || origin[i] == '`':
+			next, ok := skipSQLQuoted(origin, i, origin[i])
+			if !ok {
+				return false
+			}
+			i = next
+		case origin[i] == '[':
+			next, ok := skipSQLBracketIdentifier(origin, i)
+			if !ok {
+				return false
+			}
+			i = next
+		case origin[i] == '-' && i+1 < length && origin[i+1] == '-':
+			i += 2
+			for i < length && origin[i] != '\n' {
+				i++
+			}
+		case origin[i] == '#':
+			i++
+			for i < length && origin[i] != '\n' {
+				i++
+			}
+		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
+			i += 2
+			commentDepth := 1
+			for i < length && commentDepth > 0 {
+				switch {
+				case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
+					commentDepth++
+					i += 2
+				case origin[i] == '*' && i+1 < length && origin[i+1] == '/':
+					commentDepth--
+					i += 2
+				default:
+					i++
+				}
+			}
+			if commentDepth != 0 {
+				return false
+			}
+		case origin[i] == '$':
+			delimiter := dollarQuoteDelimiter(origin, i)
+			if delimiter == nil {
+				i++
+				continue
+			}
+			i += len(delimiter)
+			offset := bytes.Index(origin[i:], delimiter)
+			if offset < 0 {
+				return false
+			}
+			i += offset + len(delimiter)
+		case origin[i] == cst.LeftParenthesis[0]:
+			depth++
+			i++
+		case origin[i] == cst.RightParenthesis[0]:
+			if depth == 0 {
+				return false
+			}
+			depth--
+			if depth == 0 {
+				// The first opening parenthesis is an outer boundary only if it closes at EOF.
+				return i == length-1
+			}
+			i++
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+// skipSQLQuoted skips a single-, double-, or backtick-quoted SQL token.
+func skipSQLQuoted(origin []byte, index int, quote byte) (int, bool) {
+	for i := index + 1; i < len(origin); i++ {
+		if origin[i] == '\\' && i+1 < len(origin) {
+			i++
+			continue
+		}
+		if origin[i] != quote {
+			continue
+		}
+		if i+1 < len(origin) && origin[i+1] == quote {
+			i++
+			continue
+		}
+		return i + 1, true
+	}
+	return len(origin), false
+}
+
+// skipSQLBracketIdentifier skips a SQL Server-style bracket-quoted identifier.
+func skipSQLBracketIdentifier(origin []byte, index int) (int, bool) {
+	for i := index + 1; i < len(origin); i++ {
+		if origin[i] != ']' {
+			continue
+		}
+		if i+1 < len(origin) && origin[i+1] == ']' {
+			i++
+			continue
+		}
+		return i + 1, true
+	}
+	return len(origin), false
+}
+
 // ParcelSQL Parcel the SQL statement. `subquery` => ( `subquery` )
 func ParcelSQL(script *SQL) *SQL {
 	if script == nil || script.IsEmpty() {
@@ -335,7 +460,8 @@ func ParcelSQL(script *SQL) *SQL {
 	if prepare == cst.Empty {
 		return result.ToEmpty()
 	}
-	if prepare[0] != cst.LeftParenthesis[0] {
+	// A leading '(' alone is insufficient: compound SQL may continue after its matching ')'.
+	if !prepareIsParenthesized(prepare) {
 		result.Prepare = ParcelPrepare(prepare)
 	}
 	return result
@@ -903,6 +1029,9 @@ func (s *bindScanStruct) prepare(columns []string, rowsScan []any, indirect refl
 // RowsScan Scan the query result set into the receiving object. Support type *AnyStruct, **AnyStruct, *[]AnyStruct, *[]*AnyStruct, **[]AnyStruct, **[]*AnyStruct, *[]int, *[]float64, *[]string ...
 func RowsScan(rows *sql.Rows, result any, tag string) error {
 	refType, refValue := reflect.TypeOf(result), reflect.ValueOf(result)
+	if refType == nil {
+		return fmt.Errorf("hey: the receiving parameter value is nil")
+	}
 
 	depth1 := 0
 	refType1 := refType
@@ -1148,16 +1277,16 @@ func poolGetObjectInsert() *objectInsert {
 	tmp := poolObjectInsert.Get().(*objectInsert)
 	tmp.allow = make(map[string]*struct{}, 1<<5)
 	tmp.except = make(map[string]*struct{}, 1<<5)
-	tmp.used = make(map[string]*struct{}, 1<<3)
 	tmp.structType = make(map[reflect.Type]*struct{}, 1<<2)
+	tmp.depth = 2
 	return tmp
 }
 
 func poolPutObjectInsert(b *objectInsert) {
 	b.tag = cst.Empty
+	b.depth = 0
 	b.allow = nil
 	b.except = nil
-	b.used = nil
 	b.structType = nil
 	poolObjectInsert.Put(b)
 }
@@ -1184,7 +1313,9 @@ func basicTypeValue(value any) any {
 				reflect.Float32, reflect.Float64:
 				return nil
 			default:
-				return reflect.Indirect(reflect.New(t)).Interface()
+				// Non-basic types (struct, slice, map, ...) are returned as-is so a nil
+				// pointer to such a type stays nil instead of a fabricated zero value.
+				return value
 			}
 		}
 		t, v = t.Elem(), v.Elem()
@@ -1210,12 +1341,12 @@ type objectInsert struct {
 	// ignored columns Hash table.
 	except map[string]*struct{}
 
-	// already existing columns Hash table.
-	used map[string]*struct{}
-
 	// struct types currently being recursed, used to prevent self-referential structs
 	// from causing infinite recursion.
 	structType map[reflect.Type]*struct{}
+
+	// maximum struct nesting depth to flatten; 0 means unbounded recursion.
+	depth int
 
 	// struct tag name value used as table.column name.
 	tag string
@@ -1235,8 +1366,11 @@ func (s *objectInsert) setAllow(allow []string) {
 	}
 }
 
-// structColumnValue Checkout columns, values.
-func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allowed bool) (columns []string, values []any) {
+// walkStruct Checkout columns, values from a struct. Nested structs are flattened
+// only up to s.depth levels (0 means unbounded); struct fields beyond the depth limit
+// are skipped. seen is the per-row dedup set so the value count always matches the
+// column count.
+func (s *objectInsert) walkStruct(structReflectValue reflect.Value, depth int, allowed bool, seen map[string]*struct{}) (columns []string, values []any) {
 	reflectType := structReflectValue.Type()
 	if _, ok := s.structType[reflectType]; ok {
 		// prevent self-referential structs from causing infinite recursion.
@@ -1262,7 +1396,11 @@ func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allow
 			valueIndexFieldKind = valueIndexField.Kind()
 		}
 		if valueIndexFieldKind == reflect.Struct {
-			tmpColumns, tmpValues := s.structColumnValue(valueIndexField, allowed)
+			if s.depth > 0 && depth >= s.depth {
+				// nested struct beyond the depth limit is no longer flattened.
+				continue
+			}
+			tmpColumns, tmpValues := s.walkStruct(valueIndexField, depth+1, allowed, seen)
 			columns = append(columns, tmpColumns...)
 			values = append(values, tmpValues...)
 			continue
@@ -1275,68 +1413,8 @@ func (s *objectInsert) structColumnValue(structReflectValue reflect.Value, allow
 		if _, ok := s.except[valueIndexFieldTag]; ok {
 			continue
 		}
-		if _, ok := s.used[valueIndexFieldTag]; ok {
-			continue
-		}
-		if allowed {
-			if _, ok := s.allow[valueIndexFieldTag]; !ok {
-				continue
-			}
-		}
-		s.used[valueIndexFieldTag] = nil
-
-		columns = append(columns, valueIndexFieldTag)
-		values = append(values, basicTypeValue(valueIndexField.Interface()))
-	}
-	return columns, values
-}
-
-// structValue Checkout struct values.
-func (s *objectInsert) structValue(structReflectValue reflect.Value, allowed bool) (values []any) {
-	return s.structValueDeep(structReflectValue, allowed, make(map[string]*struct{}, 1<<3))
-}
-
-// structValueDeep Checkout struct values with a per-row dedup set so that the
-// value order and count always match the columns produced by structColumnValue.
-func (s *objectInsert) structValueDeep(structReflectValue reflect.Value, allowed bool, seen map[string]*struct{}) (values []any) {
-	reflectType := structReflectValue.Type()
-	if _, ok := s.structType[reflectType]; ok {
-		// prevent self-referential structs from causing infinite recursion.
-		return values
-	}
-	s.structType[reflectType] = nil
-	defer delete(s.structType, reflectType)
-
-	length := reflectType.NumField()
-	for i := 0; i < length; i++ {
-		field := reflectType.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-
-		valueIndexField := structReflectValue.Field(i)
-		valueIndexFieldKind := valueIndexField.Kind()
-		for valueIndexFieldKind == reflect.Pointer {
-			if valueIndexField.IsNil() {
-				break
-			}
-			valueIndexField = valueIndexField.Elem()
-			valueIndexFieldKind = valueIndexField.Kind()
-		}
-		if valueIndexFieldKind == reflect.Struct {
-			values = append(values, s.structValueDeep(valueIndexField, allowed, seen)...)
-			continue
-		}
-
-		valueIndexFieldTag := field.Tag.Get(s.tag)
-		if valueIndexFieldTag == cst.Empty || valueIndexFieldTag == "-" {
-			continue
-		}
-		if _, ok := s.except[valueIndexFieldTag]; ok {
-			continue
-		}
 		if _, ok := seen[valueIndexFieldTag]; ok {
-			// skip duplicate tags, matching structColumnValue.
+			// skip duplicate tags; first occurrence wins.
 			continue
 		}
 		if allowed {
@@ -1346,9 +1424,74 @@ func (s *objectInsert) structValueDeep(structReflectValue reflect.Value, allowed
 		}
 		seen[valueIndexFieldTag] = nil
 
+		columns = append(columns, valueIndexFieldTag)
 		values = append(values, basicTypeValue(valueIndexField.Interface()))
 	}
-	return values
+	return columns, values
+}
+
+// mapRow Checkout sorted, filtered columns and values from a map[string]any row.
+func (s *objectInsert) mapRow(m map[string]any, allowed bool) (columns []string, values []any) {
+	columns = make([]string, 0, len(m))
+	for column := range m {
+		if allowed {
+			if _, ok := s.allow[column]; !ok {
+				continue
+			}
+		}
+		if _, ok := s.except[column]; ok {
+			continue
+		}
+		columns = append(columns, column)
+	}
+	sort.Strings(columns)
+	values = make([]any, len(columns))
+	for index, column := range columns {
+		values[index] = m[column]
+	}
+	return columns, values
+}
+
+// alignColumns reorders rowValues into the fixed column order. ok is false when the
+// row misses one of the fixed columns.
+func alignColumns(fixed []string, rowColumns []string, rowValues []any) (aligned []any, ok bool) {
+	if len(rowColumns) != len(rowValues) {
+		return nil, false
+	}
+	index := make(map[string]int, len(rowColumns))
+	for i, column := range rowColumns {
+		index[column] = i
+	}
+	aligned = make([]any, len(fixed))
+	for i, column := range fixed {
+		j, exist := index[column]
+		if !exist {
+			return nil, false
+		}
+		aligned[i] = rowValues[j]
+	}
+	return aligned, true
+}
+
+// normalizeValue dereferences multi-level pointers and unwraps interface values to
+// the underlying concrete value. ok is false when a nil pointer or interface is hit.
+func normalizeValue(v reflect.Value) (reflect.Value, bool) {
+	for {
+		switch v.Kind() {
+		case reflect.Pointer:
+			if v.IsNil() {
+				return reflect.Value{}, false
+			}
+			v = v.Elem()
+		case reflect.Interface:
+			if v.IsNil() {
+				return reflect.Value{}, false
+			}
+			v = v.Elem()
+		default:
+			return v, true
+		}
+	}
 }
 
 // Insert Object should be one of map[string]any, []map[string]any, struct{}, *struct{}, []struct, []*struct{}, *[]struct{}, *[]*struct{}.
@@ -1374,28 +1517,12 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 
 	// map[string]any
 	if tmp, ok := object.(map[string]any); ok {
-		length := len(tmp)
-		if length == 0 {
+		if len(tmp) == 0 {
 			return columns, values, CategoryInsertOne
 		}
-		columns = make([]string, 0, length)
-		for column := range tmp {
-			if allowed {
-				if _, ok = s.allow[column]; !ok {
-					continue
-				}
-			}
-			if _, ok = s.except[column]; ok {
-				continue
-			}
-			columns = append(columns, column)
-		}
-		sort.Strings(columns)
+		columns, row := s.mapRow(tmp, allowed)
 		values = make([][]any, 1)
-		values[0] = make([]any, 0, length)
-		for _, column := range columns {
-			values[0] = append(values[0], tmp[column])
-		}
+		values[0] = row
 		return columns, values, CategoryInsertOne
 	}
 
@@ -1405,35 +1532,19 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		if length == 0 {
 			return columns, values, CategoryInsertAll
 		}
-		columns = make([]string, 0, length)
-		for column := range tmp[0] {
-			if allowed {
-				if _, ok = s.allow[column]; !ok {
-					continue
-				}
-			}
-			if _, ok = s.except[column]; ok {
-				continue
-			}
-			columns = append(columns, column)
-		}
-		count := len(columns)
-		if count == 0 {
+		columns, _ = s.mapRow(tmp[0], allowed)
+		if len(columns) == 0 {
 			return columns, values, CategoryInsertAll
 		}
-		sort.Strings(columns)
 		values = make([][]any, 0, length)
 		for _, value := range tmp {
-			tmpValues := make([]any, 0, count)
-			for _, column := range columns {
-				tmpValue, exist := value[column]
-				if exist {
-					tmpValues = append(tmpValues, tmpValue)
-				} else {
-					tmpValues = append(tmpValues, nil)
-				}
+			rowColumns, rowValues := s.mapRow(value, allowed)
+			aligned, exist := alignColumns(columns, rowColumns, rowValues)
+			if !exist {
+				// a subsequent row misses a fixed column: the whole insert is empty.
+				return nil, nil, CategoryInsertUnknown
 			}
-			values = append(values, tmpValues)
+			values = append(values, aligned)
 		}
 		return columns, values, CategoryInsertAll
 	}
@@ -1456,7 +1567,7 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 	if kind == reflect.Struct {
 		category = CategoryInsertOne
 		values = make([][]any, 1)
-		columns, values[0] = s.structColumnValue(reflectValue, allowed)
+		columns, values[0] = s.walkStruct(reflectValue, 1, allowed, make(map[string]*struct{}, 1<<3))
 		return
 	}
 
@@ -1464,76 +1575,46 @@ func (s *objectInsert) Insert(object any, tag string, except []string, allow []s
 		category = CategoryInsertAll
 		sliceLength := reflectValue.Len()
 		values = make([][]any, 0, sliceLength)
-		var indexValueType reflect.Type
-	VALUES:
+		columnsFixed := false
 		for i := 0; i < sliceLength; i++ {
 			indexValue := reflectValue.Index(i)
-
-			if indexValueType == nil {
-				indexValueType = indexValue.Type()
-			} else {
-				if indexValueType != indexValue.Type() {
-					panic(errors.New("hey: slice element types are inconsistent"))
-				}
-			}
-
-			for indexValue.Kind() == reflect.Pointer {
-				if indexValue.IsNil() {
-					// Skip nil elements without leaving a nil hole in values.
-					continue VALUES
-				}
-				indexValue = indexValue.Elem()
-			}
-
-			indexValueKind := indexValue.Kind()
-			if indexValueKind == reflect.Struct {
-				if len(values) == 0 {
-					var row []any
-					columns, row = s.structColumnValue(indexValue, allowed)
-					values = append(values, row)
-				} else {
-					values = append(values, s.structValue(indexValue, allowed))
-				}
+			indexValue, ok := normalizeValue(indexValue)
+			if !ok {
+				// skip nil elements.
 				continue
 			}
 
-			if indexValueKind != reflect.Interface {
+			var rowColumns []string
+			var rowValues []any
+			switch indexValue.Kind() {
+			case reflect.Struct:
+				rowColumns, rowValues = s.walkStruct(indexValue, 1, allowed, make(map[string]*struct{}, 1<<3))
+			case reflect.Map:
+				if m, isMap := indexValue.Interface().(map[string]any); isMap {
+					rowColumns, rowValues = s.mapRow(m, allowed)
+				} else {
+					panic(fmt.Errorf("hey: unsupported data type %T", indexValue.Interface()))
+				}
+			default:
 				panic(fmt.Errorf("hey: unsupported data type %T", indexValue.Interface()))
 			}
 
-			value := indexValue.Interface()
-
-			// First try the map[string]any type assertion.
-			mapValue, ok := value.(map[string]any)
-			if ok {
-				mapColumns, mapValues, _ := s.Insert(mapValue, tag, except, allow)
-				if len(mapColumns) == 0 || len(mapValues) == 0 || len(mapColumns) != len(mapValues[0]) {
+			if !columnsFixed {
+				if len(rowColumns) == 0 {
 					continue
 				}
-				if columns == nil {
-					columns = mapColumns
-				}
-				values = append(values, mapValues[0])
+				columns = rowColumns
+				columnsFixed = true
+				values = append(values, rowValues)
 				continue
 			}
 
-			// Second try parsing the struct type.
-			indexValue = reflect.ValueOf(value)
-			indexValueKind = indexValue.Kind()
-			for ; indexValueKind == reflect.Pointer; indexValueKind = indexValue.Kind() {
-				indexValue = indexValue.Elem()
+			aligned, exist := alignColumns(columns, rowColumns, rowValues)
+			if !exist {
+				// a subsequent row misses a fixed column: the whole insert is empty.
+				return nil, nil, CategoryInsertUnknown
 			}
-			if indexValueKind != reflect.Struct {
-				panic(fmt.Errorf("hey: unsupported data type %T", value))
-			}
-
-			if len(values) == 0 {
-				var row []any
-				columns, row = s.structColumnValue(indexValue, allowed)
-				values = append(values, row)
-			} else {
-				values = append(values, s.structValue(indexValue, allowed))
-			}
+			values = append(values, aligned)
 		}
 		return
 	}
@@ -1708,17 +1789,15 @@ func objectValuesDeep(object any, tag string, except []string, ignoreNil bool, v
 		// ***...any
 		for index := pointerDepth; index > 1; index-- {
 			if fieldValue.IsNil() {
+				// addPtr adds nil (or skips, per ignoreNil) instead of silently
+				// dropping the column, matching the single-level pointer path.
+				addPtr(column, fieldValue)
 				break
-			}
-			if index > 2 {
-				fieldValue = fieldValue.Elem()
-				continue
 			}
 			fieldValue = fieldValue.Elem()
-			if fieldValue.IsNil() {
-				break
+			if index == 2 {
+				addPtr(column, fieldValue)
 			}
-			addPtr(column, fieldValue)
 		}
 	}
 
@@ -1993,23 +2072,23 @@ type TableColumn interface {
 	// C Alias method of the `Column` method.
 	C(column string, alias ...string) string
 
-	// S Alias method of the `Columns` method.
-	S(columns ...string) []string
+	// Cs Alias method of the `Columns` method.
+	Cs(columns ...string) []string
 
 	// Avg Call an aggregate function AVG() on a column and give it an alias.
-	// age => AVG(a.age) AS age || AVG(a.age) AS avg_age
+	// age => COALESCE(AVG(a.age),0) AS age || COALESCE(AVG(a.age),0) AS avg_age
 	Avg(column string, alias ...string) string
 
 	// Max Call an aggregate function MAX() on a column and give it an alias.
-	// age => MAX(a.age) AS age || MAX(a.age) AS max_age
+	// age => COALESCE(MAX(a.age),0) AS age || COALESCE(MAX(a.age),0) AS max_age
 	Max(column string, alias ...string) string
 
 	// Min Call an aggregate function MIN() on a column and give it an alias.
-	// age => MIN(a.age) AS age || MIN(a.age) AS min_age
+	// age => COALESCE(MIN(a.age),0) AS age || COALESCE(MIN(a.age),0) AS min_age
 	Min(column string, alias ...string) string
 
 	// Sum Call an aggregate function SUM() on a column and give it an alias.
-	// balance => SUM(a.balance) AS balance || SUM(a.balance) AS all_balance
+	// balance => COALESCE(SUM(a.balance),0) AS balance || COALESCE(SUM(a.balance),0) AS all_balance
 	Sum(column string, alias ...string) string
 
 	// ColumnSQL Single column to *SQL.
@@ -2017,6 +2096,9 @@ type TableColumn interface {
 
 	// ColumnsSQL Multiple columns to *SQL.
 	ColumnsSQL(columns ...string) *SQL
+
+	// X Use a custom function to handle multiple column names, then concatenate them.
+	X(custom func(table TableColumn, column string) *SQL, columns ...string) *SQL
 }
 
 type tableColumn struct {
@@ -2079,13 +2161,13 @@ func (s *tableColumn) C(column string, alias ...string) string {
 	return s.Column(column, alias...)
 }
 
-// S Alias method of the Columns method.
-func (s *tableColumn) S(columns ...string) []string {
+// Cs Alias method of the Columns method.
+func (s *tableColumn) Cs(columns ...string) []string {
 	return s.Columns(columns...)
 }
 
-// funcColumnAliasName SUM(salary) AS salary || SUM(salary) AS salary1
-func (s *tableColumn) funcColumnAliasName(column string, aliases ...string) string {
+// columnFunctionAliasName SUM(salary) AS salary || SUM(salary) AS salary1
+func (s *tableColumn) columnFunctionAliasName(column string, aliases ...string) string {
 	alias := LastNotEmptyString(aliases)
 	if alias != cst.Empty {
 		return alias
@@ -2100,37 +2182,54 @@ func (s *tableColumn) funcColumnAliasName(column string, aliases ...string) stri
 	return column[index+1:]
 }
 
-// funcColumnAlias SUM(salary) AS salary
-func (s *tableColumn) funcColumnAlias(funcName string, column string, alias ...string) string {
+// columnFunctionAlias SUM(salary) AS salary
+func (s *tableColumn) columnFunctionAlias(funcName string, column string, handle func(column string) string, alias ...string) string {
+	column = strings.TrimSpace(column)
 	tableColumnName := column
-	if column != cst.Asterisk {
+	switch column {
+	case cst.Asterisk:
+	default:
 		tableColumnName = s.Column(tableColumnName)
 	}
-	return s.way.Alias(FuncSQL(funcName, tableColumnName), s.funcColumnAliasName(column, alias...)).ToSQL().Prepare
+	prepare := FuncSQL(funcName, tableColumnName).Prepare
+	if handle != nil {
+		prepare = handle(prepare)
+	}
+	return s.way.Alias(prepare, s.columnFunctionAliasName(column, alias...)).ToSQL().Prepare
+}
+
+// cloumnAggregateFunction column => COALESCE(column,0)
+func (s *tableColumn) cloumnAggregateFunction(column string) string {
+	return Coalesce(column, 0).Prepare
+}
+
+// columnAggregateFunctionAlias funcName column => COALESCE(funcName(column),0) AS salary
+func (s *tableColumn) columnAggregateFunctionAlias(funcName string, column string, alias ...string) string {
+	return s.columnFunctionAlias(funcName, column, s.cloumnAggregateFunction, alias...)
 }
 
 // Avg Call an aggregate function AVG() on a column and give it an alias.
-// age => AVG(a.age) AS age || AVG(a.age) AS avg_age
+// age => COALESCE(AVG(a.age),0) AS age || COALESCE(AVG(a.age),0) AS avg_age
 func (s *tableColumn) Avg(column string, alias ...string) string {
-	return s.funcColumnAlias(cst.AVG, column, alias...)
+	return s.columnAggregateFunctionAlias(cst.AVG, column, alias...)
 }
 
 // Max Call an aggregate function MAX() on a column and give it an alias.
-// age => MAX(a.age) AS age || MAX(a.age) AS max_age
+// age => COALESCE(MAX(a.age),0) AS age || COALESCE(MAX(a.age),0) AS max_age
 func (s *tableColumn) Max(column string, alias ...string) string {
-	return s.funcColumnAlias(cst.MAX, column, alias...)
+	return s.columnAggregateFunctionAlias(cst.MAX, column, alias...)
 }
 
 // Min Call an aggregate function MIN() on a column and give it an alias.
-// age => MIN(a.age) AS age || MIN(a.age) AS min_age
+// age => COALESCE(MIN(a.age),0) AS age || COALESCE(MIN(a.age),0) AS min_age
 func (s *tableColumn) Min(column string, alias ...string) string {
-	return s.funcColumnAlias(cst.MIN, column, alias...)
+	return s.columnAggregateFunctionAlias(cst.MIN, column, alias...)
 }
 
 // Sum Call an aggregate function SUM() on a column and give it an alias.
-// salary => SUM(a.salary) AS salary || SUM(a.salary) AS all_salary
+// salary => COALESCE(SUM(a.salary),0) AS salary || COALESCE(SUM(a.salary),0) AS all_salary
 func (s *tableColumn) Sum(column string, alias ...string) string {
-	return s.funcColumnAlias(cst.SUM, column, alias...)
+	return s.columnAggregateFunctionAlias(cst.SUM, column, alias...)
 }
 
 // ColumnSQL Single column to *SQL.
@@ -2146,6 +2245,15 @@ func (s *tableColumn) ColumnsSQL(columns ...string) *SQL {
 		valuesAll[i] = columns[i]
 	}
 	return JoinSQLCommaSpace(valuesAll...)
+}
+
+// X Use a custom function to handle multiple column names, then concatenate them.
+func (s *tableColumn) X(custom func(table TableColumn, column string) *SQL, columns ...string) *SQL {
+	result := make([]any, 0, len(columns))
+	for _, column := range columns {
+		result = append(result, custom(s, column))
+	}
+	return JoinSQLCommaSpace(result...)
 }
 
 // TableColumn Create a TableColumn instance.
@@ -2341,7 +2449,7 @@ func (s *sqlWindowFuncOver) ToEmpty() {
 
 func (s *sqlWindowFuncOver) ToSQL() *SQL {
 	if s.over != nil && !s.over.IsEmpty() {
-		return s.over
+		return s.over.Clone()
 	}
 	result := NewEmptySQL()
 	b := poolGetStringBuilder()

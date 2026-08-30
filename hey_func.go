@@ -52,6 +52,7 @@ func DiscardDuplicateAny(discard func(tmp any) bool, dynamic ...any) []any {
 		if discard != nil && discard(value) {
 			continue
 		}
+		// Keep unhashable values without deduplicating them; using one as a map key panics.
 		if !comparableValue(value) {
 			result = append(result, value)
 			continue
@@ -65,12 +66,13 @@ func DiscardDuplicateAny(discard func(tmp any) bool, dynamic ...any) []any {
 	return result
 }
 
-// comparableValue Report whether the dynamic type of value is comparable, thus safe to use as a map key.
+// comparableValue reports whether this concrete value can safely be used as a map key.
+// Value.Comparable also checks dynamic values stored in interface fields.
 func comparableValue(value any) bool {
 	if value == nil {
 		return true
 	}
-	return reflect.TypeOf(value).Comparable()
+	return reflect.ValueOf(value).Comparable()
 }
 
 // MergeSlice Combine multiple slices of the same type into one slice.

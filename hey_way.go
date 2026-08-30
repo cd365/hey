@@ -62,6 +62,9 @@ func argValueToString(i any) string {
 
 // SQLToString Use parameter values to replace placeholders in SQL statements and build a visual SQL script.
 // Warning: Binary byte slice will be converted to hexadecimal strings.
+// Placeholder '?' characters inside single-quoted string literals, line comments (--),
+// block comments (/* ... */), dollar-quoted strings and JSONB operators are left
+// unchanged, mirroring prepare63236.
 func SQLToString(script *SQL) string {
 	if script == nil {
 		return cst.Empty
@@ -76,12 +79,89 @@ func SQLToString(script *SQL) string {
 	defer poolPutStringBuilder(result)
 	length := len(origin)
 	c63 := cst.Placeholder[0]
-	for i := 0; i < length; i++ {
-		if origin[i] == c63 && index < counts {
-			result.WriteString(argValueToString(script.Args[index]))
-			index++
-		} else {
+	for i := 0; i < length; {
+		switch {
+		case origin[i] == cst.SingleQuotationMark[0]:
 			result.WriteByte(origin[i])
+			i++
+			for i < length {
+				result.WriteByte(origin[i])
+				if origin[i] == cst.SingleQuotationMark[0] {
+					if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
+						result.WriteByte(origin[i+1])
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+		case origin[i] == '-' && i+1 < length && origin[i+1] == '-':
+			for i < length {
+				result.WriteByte(origin[i])
+				if origin[i] == '\n' {
+					i++
+					break
+				}
+				i++
+			}
+		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
+			for i < length {
+				result.WriteByte(origin[i])
+				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+					result.WriteByte(origin[i+1])
+					i += 2
+					break
+				}
+				i++
+			}
+		case origin[i] == cst.Dollar[0]:
+			delimiter := dollarQuoteDelimiter(origin, i)
+			if delimiter == nil {
+				result.WriteByte(origin[i])
+				i++
+				break
+			}
+			result.Write(delimiter)
+			i += len(delimiter)
+			for i < length {
+				if bytes.HasPrefix(origin[i:], delimiter) {
+					result.Write(delimiter)
+					i += len(delimiter)
+					break
+				}
+				result.WriteByte(origin[i])
+				i++
+			}
+		case origin[i] == c63:
+			// JSONB operators '?|' and '?&' are not placeholders.
+			if i+1 < length && (origin[i+1] == '|' || origin[i+1] == '&') {
+				result.WriteByte(origin[i])
+				i++
+				continue
+			}
+			// A '?' followed (ignoring whitespace) by a string literal is the JSONB
+			// existence operator (jsonb ? 'key'), not a placeholder.
+			j := i + 1
+			for j < length && (origin[j] == ' ' || origin[j] == '\t' || origin[j] == '\n' || origin[j] == '\r') {
+				j++
+			}
+			if j < length && origin[j] == cst.SingleQuotationMark[0] {
+				result.WriteByte(origin[i])
+				i++
+				continue
+			}
+			if index < counts {
+				result.WriteString(argValueToString(script.Args[index]))
+				index++
+			} else {
+				result.WriteByte(origin[i])
+			}
+			i++
+		default:
+			result.WriteByte(origin[i])
+			i++
 		}
 	}
 	return result.String()
@@ -233,6 +313,24 @@ func prepare63236(prepare string) string {
 				i++
 			}
 		case origin[i] == c63:
+			// The PostgreSQL JSONB operators '?|' and '?&' are two-character tokens and
+			// are never placeholders.
+			if i+1 < length && (origin[i+1] == '|' || origin[i+1] == '&') {
+				latest.WriteByte(origin[i])
+				i++
+				continue
+			}
+			// A '?' followed (ignoring whitespace) by a string literal is the JSONB
+			// existence operator (jsonb ? 'key'), not a placeholder.
+			j := i + 1
+			for j < length && (origin[j] == ' ' || origin[j] == '\t' || origin[j] == '\n' || origin[j] == '\r') {
+				j++
+			}
+			if j < length && origin[j] == cst.SingleQuotationMark[0] {
+				latest.WriteByte(origin[i])
+				i++
+				continue
+			}
 			num++
 			fmt.Fprintf(latest, "%c%d", c36, num)
 			i++

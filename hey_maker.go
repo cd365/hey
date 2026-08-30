@@ -291,13 +291,17 @@ type SQLSelect interface {
 }
 
 type sqlSelect struct {
+	// way *Way
 	way *Way
 
+	// columns columns slice
 	columns []string
 
-	columnsMap map[string]int
-
+	// columnsArgs column-name -> column-args
 	columnsArgs map[int][]any
+
+	// columnsIndexMap column-name -> column-index
+	columnsIndexMap map[string]int
 
 	// distinct Allows multiple columns to be deduplicated, such as: DISTINCT column1, column2, column3 ...
 	distinct bool
@@ -308,17 +312,17 @@ func newSQLSelect(way *Way) SQLSelect {
 		panic(nilPointer)
 	}
 	return &sqlSelect{
-		way:         way,
-		columns:     make([]string, 0, 1<<5),
-		columnsMap:  make(map[string]int, 1<<5),
-		columnsArgs: make(map[int][]any, 1<<5),
+		way:             way,
+		columns:         make([]string, 0, 1<<4),
+		columnsArgs:     make(map[int][]any, 1<<4),
+		columnsIndexMap: make(map[string]int, 1<<4),
 	}
 }
 
 func (s *sqlSelect) ToEmpty() {
-	s.columns = make([]string, 0, 1<<5)
-	s.columnsMap = make(map[string]int, 1<<5)
-	s.columnsArgs = make(map[int][]any)
+	s.columns = make([]string, 0, 1<<4)
+	s.columnsArgs = make(map[int][]any, 1<<4)
+	s.columnsIndexMap = make(map[string]int, 1<<4)
 	s.distinct = false
 }
 
@@ -366,7 +370,7 @@ func (s *sqlSelect) GetDistinct() bool {
 }
 
 func (s *sqlSelect) Has(column string) bool {
-	_, ok := s.columnsMap[column]
+	_, ok := s.columnsIndexMap[column]
 	return ok
 }
 
@@ -374,14 +378,14 @@ func (s *sqlSelect) add(column string, args ...any) *sqlSelect {
 	if column == cst.Empty {
 		return s
 	}
-	index, ok := s.columnsMap[column]
+	index, ok := s.columnsIndexMap[column]
 	if ok {
 		s.columnsArgs[index] = args
 		return s
 	}
 	index = len(s.columns)
 	s.columns = append(s.columns, column)
-	s.columnsMap[column] = index
+	s.columnsIndexMap[column] = index
 	s.columnsArgs[index] = args
 	return s
 }
@@ -398,39 +402,39 @@ func (s *sqlSelect) Add(maker Maker) SQLSelect {
 }
 
 func (s *sqlSelect) Del(columns ...string) SQLSelect {
-	removes := len(columns)
-	if removes == 0 {
+	deleteLength := len(columns)
+	if deleteLength == 0 {
 		return s
 	}
 
-	deletes := make(map[int]*struct{}, removes)
+	deleteIndex := make(map[int]*struct{}, deleteLength)
 	for _, column := range columns {
 		if column == cst.Empty {
 			continue
 		}
-		index, ok := s.columnsMap[column]
+		index, ok := s.columnsIndexMap[column]
 		if !ok {
 			continue
 		}
-		deletes[index] = nil
+		deleteIndex[index] = nil
 	}
 	length := len(s.columns)
 	result := make([]string, 0, length)
-	resultMap := make(map[string]int, length)
 	resultArgs := make(map[int][]any, length)
+	resultIndexMap := make(map[string]int, length)
 	index := 0
 	for key, column := range s.columns {
-		if _, ok := deletes[key]; ok {
+		if _, ok := deleteIndex[key]; ok {
 			continue
 		}
 		result = append(result, column)
-		resultMap[column] = index
 		resultArgs[index] = s.columnsArgs[key]
+		resultIndexMap[column] = index
 		index++
 	}
-	s.columnsMap = resultMap
-	s.columnsArgs = resultArgs
 	s.columns = result
+	s.columnsArgs = resultArgs
+	s.columnsIndexMap = resultIndexMap
 	return s
 }
 
@@ -439,7 +443,14 @@ func (s *sqlSelect) Len() int {
 }
 
 func (s *sqlSelect) Get() ([]string, map[int][]any) {
-	return s.columns, s.columnsArgs
+	// Return copies so the caller cannot corrupt this select's internal state.
+	columns := make([]string, len(s.columns))
+	copy(columns, s.columns)
+	args := make(map[int][]any, len(s.columnsArgs))
+	for index, value := range s.columnsArgs {
+		args[index] = value
+	}
+	return columns, args
 }
 
 func (s *sqlSelect) Set(columns []string, args map[int][]any) SQLSelect {
@@ -447,14 +458,21 @@ func (s *sqlSelect) Set(columns []string, args map[int][]any) SQLSelect {
 	if length != len(args) {
 		return s
 	}
-	columnsMap := make(map[string]int, length)
+	// Copy the caller's column slice and args map so later mutations by the caller
+	// cannot corrupt this select's internal state.
+	columnsCopy := make([]string, length)
+	columnsArgsCopy := make(map[int][]any, length)
+	columnsIndexMap := make(map[string]int, length)
 	for i, column := range columns {
-		columnsMap[column] = i
-		if _, ok := args[i]; !ok {
-			args[i] = nil
+		columnsCopy[i] = column
+		if value, ok := args[i]; ok {
+			columnsArgsCopy[i] = value
+		} else {
+			columnsArgsCopy[i] = nil
 		}
+		columnsIndexMap[column] = i
 	}
-	s.columns, s.columnsMap, s.columnsArgs = columns, columnsMap, args
+	s.columns, s.columnsArgs, s.columnsIndexMap = columnsCopy, columnsArgsCopy, columnsIndexMap
 	return s
 }
 
@@ -553,7 +571,8 @@ func (s *sqlJoinOn) And(filter func(f Filter)) SQLJoinOn {
 
 func (s *sqlJoinOn) Equal(table1column string, table2column string) SQLJoinOn {
 	return s.And(func(f Filter) {
-		f.And(JoinSQLSpace(table1column, cst.Equal, table2column))
+		// Route both identifiers through the shared column-comparison path.
+		f.CompareEqual(table1column, table2column)
 	})
 }
 
@@ -562,7 +581,11 @@ func (s *sqlJoinOn) Equals(table1 string, column1 string, table2 string, column2
 		if table1 == cst.Empty || column1 == cst.Empty || table2 == cst.Empty || column2 == cst.Empty {
 			return
 		}
-		f.And(JoinSQLSpace(Prefix(s.way.Replace(table1), s.way.Replace(column1)), cst.Equal, Prefix(s.way.Replace(table2), s.way.Replace(column2))))
+		// Build qualified identifiers before applying the common comparison logic.
+		f.CompareEqual(
+			Prefix(s.way.Replace(table1), s.way.Replace(column1)),
+			Prefix(s.way.Replace(table2), s.way.Replace(column2)),
+		)
 	})
 }
 
@@ -1735,63 +1758,68 @@ type SQLUpdateSet interface {
 }
 
 type sqlUpdateSet struct {
+	// way *Way
 	way *Way
 
+	// forbidSet Column not allowed to update.
 	forbidSet map[string]*struct{}
 
-	exists map[string]string // Existing update column, map[column-name]column-update-expression
+	// updateAllow Columns that can only be updated.
+	updateAllow map[string]*struct{}
 
-	onlyAllow map[string]*struct{} // Set columns that only allow updates.
+	// updateExist The list of updates we have now, map[column-name]column-update-expression.
+	updateExist map[string]string
 
-	updateMap map[string]int
-
-	defaults *sqlUpdateSet
-
+	// updateExpr Update expression.
 	updateExpr []string
 
-	updateArgs [][]any
+	// updateExprArgs Update the value corresponding to the expression.
+	updateExprArgs [][]any
+
+	// updateExprIndexMap Update the column index.
+	updateExprIndexMap map[string]int
+
+	// updateDefault Default updated column.
+	updateDefault *sqlUpdateSet
 }
 
 func (s *sqlUpdateSet) init() {
 	s.forbidSet = make(map[string]*struct{}, 1<<3)
-	s.exists = make(map[string]string, 1<<3)
-	s.updateMap = make(map[string]int, 1<<3)
+	s.updateExist = make(map[string]string, 1<<3)
 	s.updateExpr = make([]string, 0, 1<<3)
-	s.updateArgs = make([][]any, 0, 1<<3)
+	s.updateExprArgs = make([][]any, 0, 1<<3)
+	s.updateExprIndexMap = make(map[string]int, 1<<3)
 }
 
-func (s *sqlUpdateSet) toEmpty() {
+func (s *sqlUpdateSet) ToEmpty() {
 	s.forbidSet = make(map[string]*struct{}, 1<<3)
-	s.exists = make(map[string]string, 1<<3)
-	s.onlyAllow = nil
-	s.updateMap = make(map[string]int, 1<<3)
+	for _, column := range s.way.cfg.UpdateForbidColumn {
+		s.forbidSet[column] = nil
+	}
+	s.updateAllow = nil
+	s.updateExist = make(map[string]string, 1<<3)
 	s.updateExpr = make([]string, 0, 1<<3)
-	s.updateArgs = make([][]any, 0, 1<<3)
+	s.updateExprArgs = make([][]any, 0, 1<<3)
+	s.updateExprIndexMap = make(map[string]int, 1<<3)
+	if s.updateDefault != nil {
+		s.updateDefault.ToEmpty()
+	}
 }
 
 func newSQLUpdateSet(way *Way) SQLUpdateSet {
 	if way == nil {
 		panic(nilPointer)
 	}
-	result := &sqlUpdateSet{
-		way: way,
-	}
-	defaults := &sqlUpdateSet{
-		way: way,
-	}
-	result.init()
-	defaults.init()
-	result.defaults = defaults
-	forbid := way.cfg.UpdateForbidColumn
-	if len(forbid) > 0 {
-		result.Forbid(forbid...)
-	}
-	return result
-}
-
-func (s *sqlUpdateSet) ToEmpty() {
-	s.toEmpty()
-	s.defaults.toEmpty()
+	updateSetValue := sqlUpdateSet{}
+	updateSetValue.way = way
+	updateDefaultValue := updateSetValue
+	updateSet := &updateSetValue
+	updateSet.init()
+	updateDefault := &updateDefaultValue
+	updateDefault.init()
+	updateSet.updateDefault = updateDefault
+	updateSet.Forbid(way.cfg.UpdateForbidColumn...)
+	return updateSet
 }
 
 func (s *sqlUpdateSet) IsEmpty() bool {
@@ -1805,23 +1833,35 @@ func (s *sqlUpdateSet) ToSQL() *SQL {
 		return script
 	}
 
-	updates := make([]string, length)
-	copy(updates, s.updateExpr)
-	params := make([][]any, length)
-	copy(params, s.updateArgs)
+	updateExpr := make([]string, length)
+	copy(updateExpr, s.updateExpr)
+	updateExprArgs := make([][]any, length)
+	copy(updateExprArgs, s.updateExprArgs)
 
-	defaultUpdates := s.defaults.updateExpr
-	if len(defaultUpdates) > 0 {
-		for index, defaultUpdate := range defaultUpdates {
-			if _, ok := s.updateMap[defaultUpdate]; !ok {
-				updates = append(updates, defaultUpdate)
-				params = append(params, s.defaults.updateArgs[index])
+	updateDefaultExpr := s.updateDefault.updateExpr
+	if len(updateDefaultExpr) > 0 {
+		updateDefaultExprArgs := s.updateDefault.updateExprArgs
+		// Build an expression -> column reverse map so defaults are deduplicated by
+		// column rather than by expression string: an explicit non-"col = ?" update
+		// (e.g. "col = col + ?" from Incr/Decr) must still suppress the default for
+		// the same column.
+		defaultColumn := make(map[string]string, len(s.updateDefault.updateExist))
+		for column, expr := range s.updateDefault.updateExist {
+			defaultColumn[expr] = column
+		}
+		for index, value := range updateDefaultExpr {
+			if column, ok := defaultColumn[value]; ok {
+				if _, set := s.updateExist[column]; set {
+					continue
+				}
 			}
+			updateExpr = append(updateExpr, value)
+			updateExprArgs = append(updateExprArgs, updateDefaultExprArgs[index])
 		}
 	}
 
-	script.Prepare = strings.Join(updates, cst.CommaSpace)
-	for _, tmp := range params {
+	script.Prepare = strings.Join(updateExpr, cst.CommaSpace)
+	for _, tmp := range updateExprArgs {
 		script.Args = append(script.Args, tmp...)
 	}
 	return script
@@ -1831,18 +1871,18 @@ func (s *sqlUpdateSet) exprArgs(value *SQL) SQLUpdateSet {
 	if value == nil || value.IsEmpty() {
 		return s
 	}
-	update := strings.TrimSpace(value.Prepare)
-	if update == cst.Empty {
+	expr := strings.TrimSpace(value.Prepare)
+	if expr == cst.Empty {
 		return s
 	}
-	index, ok := s.updateMap[update]
+	index, ok := s.updateExprIndexMap[expr]
 	if ok {
-		s.updateExpr[index], s.updateArgs[index] = update, value.Args
+		s.updateExpr[index], s.updateExprArgs[index] = expr, value.Args
 		return s
 	}
-	s.updateMap[update] = len(s.updateExpr)
-	s.updateExpr = append(s.updateExpr, update)
-	s.updateArgs = append(s.updateArgs, value.Args)
+	s.updateExpr = append(s.updateExpr, expr)
+	s.updateExprArgs = append(s.updateExprArgs, value.Args)
+	s.updateExprIndexMap[expr] = len(s.updateExpr) - 1
 	return s
 }
 
@@ -1853,8 +1893,8 @@ func (s *sqlUpdateSet) Len() int {
 func (s *sqlUpdateSet) Forbid(columns ...string) SQLUpdateSet {
 	for _, column := range columns {
 		s.forbidSet[column] = nil
-		if s.defaults != nil {
-			s.defaults.forbidSet[column] = nil
+		if s.updateDefault != nil {
+			s.updateDefault.forbidSet[column] = nil
 		}
 	}
 	return s
@@ -1870,36 +1910,68 @@ func (s *sqlUpdateSet) GetForbid() []string {
 }
 
 func (s *sqlUpdateSet) Select(columns ...string) SQLUpdateSet {
-	onlyAllow := make(map[string]*struct{}, len(columns))
+	updateAllow := make(map[string]*struct{}, len(columns))
 	for _, column := range columns {
 		if column != cst.Empty {
-			onlyAllow[column] = nil
+			updateAllow[column] = nil
 		}
 	}
-	length := len(onlyAllow)
+	length := len(updateAllow)
 	if length == 0 {
 		return s
 	}
-	if s.onlyAllow == nil {
-		s.onlyAllow = make(map[string]*struct{}, length)
+	if s.updateAllow == nil {
+		s.updateAllow = make(map[string]*struct{}, length)
 	}
-	maps.Copy(s.onlyAllow, onlyAllow)
+	maps.Copy(s.updateAllow, updateAllow)
 	return s
 }
 
+// removeUpdateExpr removes a previously recorded update expression and its args so that a
+// column updated more than once keeps only the latest value.
+func (s *sqlUpdateSet) removeUpdateExpr(columnExpr string) {
+	index, ok := s.updateExprIndexMap[columnExpr]
+	if !ok {
+		return
+	}
+	delete(s.updateExprIndexMap, columnExpr)
+	length := len(s.updateExpr)
+	updateExpr := make([]string, 0, length-1)
+	updateExprArgs := make([][]any, 0, length-1)
+	for i := 0; i < length; i++ {
+		if i == index {
+			continue
+		}
+		updateExpr = append(updateExpr, s.updateExpr[i])
+		updateExprArgs = append(updateExprArgs, s.updateExprArgs[i])
+	}
+	// Reindex the remaining expressions so updateExprIndexMap stays consistent after
+	// the element at `index` is dropped.
+	for i, expr := range updateExpr {
+		s.updateExprIndexMap[expr] = i
+	}
+	s.updateExpr = updateExpr
+	s.updateExprArgs = updateExprArgs
+}
+
 func (s *sqlUpdateSet) columnUpdate(column string, script *SQL) SQLUpdateSet {
-	if column == cst.Empty {
+	if column == cst.Empty || script == nil || script.IsEmpty() {
 		return s
 	}
-	if s.onlyAllow != nil {
-		if _, ok := s.onlyAllow[column]; !ok {
+	if _, ok := s.forbidSet[column]; ok {
+		return s
+	}
+	if s.updateAllow != nil {
+		if _, ok := s.updateAllow[column]; !ok {
 			return s
 		}
 	}
-	if _, ok := s.exists[column]; ok {
-		return s
+	// The last write to a column wins: drop any previous expression for this column
+	// before recording the new one.
+	if expr, ok := s.updateExist[column]; ok {
+		s.removeUpdateExpr(expr)
 	}
-	s.exists[column] = script.Prepare
+	s.updateExist[column] = script.Prepare
 	return s.exprArgs(script)
 }
 
@@ -1912,14 +1984,25 @@ func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 		script.Args = append(script.Args, nil)
 		return s.columnUpdate(column, script)
 	}
-	values := make([]any, 0, 1)
+
 	update := make([]any, 0, 3)
 	update = append(update, s.way.Replace(column), cst.Equal)
+	values := make([]any, 0, 1)
 	switch tmp := value.(type) {
 	case *SQL:
-		update = append(update, ParcelSQL(tmp))
+		if tmp == nil {
+			return s
+		}
+		val := tmp.Clone()
+		val.Prepare = ParcelPrepare(val.Prepare)
+		update = append(update, val)
 	case Maker:
-		update = append(update, ParcelSQL(tmp.ToSQL()))
+		val := tmp.ToSQL()
+		if val == nil {
+			return s
+		}
+		val.Prepare = ParcelPrepare(val.Prepare)
+		update = append(update, val)
 	default:
 		update = append(update, cst.Placeholder)
 		values = append(values, value)
@@ -1931,22 +2014,20 @@ func (s *sqlUpdateSet) Set(column string, value any) SQLUpdateSet {
 	return s.columnUpdate(column, script)
 }
 
-func (s *sqlUpdateSet) Decr(column string, decrement any) SQLUpdateSet {
+func (s *sqlUpdateSet) decrOrIncr(column string, keyword string, value any) *SQL {
 	if _, ok := s.forbidSet[column]; ok {
-		return s
+		return NewEmptySQL()
 	}
 	replace := s.way.Replace(column)
-	script := NewSQL(fmt.Sprintf("%s %s %s %s %s", replace, cst.Equal, replace, cst.Minus, cst.Placeholder), decrement)
-	return s.columnUpdate(column, script)
+	return NewSQL(fmt.Sprintf("%s %s %s %s %s", replace, cst.Equal, replace, keyword, cst.Placeholder), value)
+}
+
+func (s *sqlUpdateSet) Decr(column string, decrement any) SQLUpdateSet {
+	return s.columnUpdate(column, s.decrOrIncr(column, cst.Minus, decrement))
 }
 
 func (s *sqlUpdateSet) Incr(column string, increment any) SQLUpdateSet {
-	if _, ok := s.forbidSet[column]; ok {
-		return s
-	}
-	replace := s.way.Replace(column)
-	script := NewSQL(fmt.Sprintf("%s %s %s %s %s", replace, cst.Equal, replace, cst.Plus, cst.Placeholder), increment)
-	return s.columnUpdate(column, script)
+	return s.columnUpdate(column, s.decrOrIncr(column, cst.Plus, increment))
 }
 
 // batchSet SET column = value by slice, require len(columns) == len(values).
@@ -1990,50 +2071,46 @@ func (s *sqlUpdateSet) Default(column string, value any) SQLUpdateSet {
 	if _, ok := s.forbidSet[column]; ok {
 		return s
 	}
-	script := NewSQL(fmt.Sprintf("%s = %s", s.way.Replace(column), cst.Placeholder), value)
-	if _, ok := s.updateMap[script.Prepare]; ok {
-		return s
+	if s.updateDefault != nil {
+		script := NewSQL(fmt.Sprintf("%s = %s", s.way.Replace(column), cst.Placeholder), value)
+		s.updateDefault.columnUpdate(column, script)
 	}
-	s.defaults.columnUpdate(column, script)
 	return s
 }
 
 // Remove Delete a column-value.
 func (s *sqlUpdateSet) Remove(columns ...string) SQLUpdateSet {
-	removes := make(map[string]*struct{})
+	removeExpr := make(map[string]*struct{}, len(columns))
 	for _, column := range columns {
-		if value, ok := s.exists[column]; ok {
-			removes[value] = nil
+		if value, ok := s.updateExist[column]; ok {
+			removeExpr[value] = nil
 		}
 	}
-	dropExpr := make(map[string]*struct{}, 1<<3)
-	dropArgs := make(map[int]*struct{}, 1<<3)
-	for index, value := range s.updateExpr {
-		if _, ok := removes[value]; ok {
-			dropExpr[value] = nil
-			dropArgs[index] = nil
+	if len(removeExpr) != 0 {
+		length := len(s.updateExpr)
+		updateExpr := make([]string, 0, length)
+		updateExprArgs := make([][]any, 0, length)
+		for i := 0; i < length; i++ {
+			if _, ok := removeExpr[s.updateExpr[i]]; ok {
+				continue
+			}
+			updateExpr = append(updateExpr, s.updateExpr[i])
+			updateExprArgs = append(updateExprArgs, s.updateExprArgs[i])
 		}
+		updateExprIndexMap := make(map[string]int, len(updateExpr))
+		for index, expr := range updateExpr {
+			updateExprIndexMap[expr] = index
+		}
+		updateExist := make(map[string]string, len(s.updateExist))
+		for column, expr := range s.updateExist {
+			if _, ok := removeExpr[expr]; !ok {
+				updateExist[column] = expr
+			}
+		}
+		s.updateExpr, s.updateExprArgs, s.updateExprIndexMap, s.updateExist = updateExpr, updateExprArgs, updateExprIndexMap, updateExist
 	}
-	updateExpr := SliceDiscard(s.updateExpr, func(k int, v string) bool {
-		_, ok := dropExpr[v]
-		return ok
-	})
-
-	updateArgs := SliceDiscard(s.updateArgs, func(k int, v []any) bool {
-		_, ok := dropArgs[k]
-		return ok
-	})
-	updateMap := make(map[string]int, len(updateExpr))
-	for index, value := range updateExpr {
-		updateMap[value] = index
-	}
-	updateExists := MapDiscard(s.exists, func(k string, v string) bool {
-		_, ok := dropExpr[v]
-		return ok
-	})
-	s.updateExpr, s.updateArgs, s.updateMap, s.exists = updateExpr, updateArgs, updateMap, updateExists
-	if s.defaults != nil {
-		s.defaults.Remove(columns...)
+	if s.updateDefault != nil {
+		s.updateDefault.Remove(columns...)
 	}
 	return s
 }
@@ -2062,7 +2139,7 @@ func (s *sqlUpdateSet) SetNull(columns ...string) SQLUpdateSet {
 }
 
 func (s *sqlUpdateSet) GetUpdate() ([]string, [][]any) {
-	return s.updateExpr, s.updateArgs
+	return s.updateExpr, s.updateExprArgs
 }
 
 func (s *sqlUpdateSet) SetUpdate(updates []string, params [][]any) SQLUpdateSet {
@@ -2398,7 +2475,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 	}
 	makers := []any{NewSQL(cst.INSERT), NewSQL(cst.INTO), s.table}
 
-	columns1, params1 := s.columns.Get()
+	columns1, _ := s.columns.Get()
 	srcValues := s.values.GetValues()
 
 	columns := make([]string, len(columns1))
@@ -2407,13 +2484,11 @@ func (s *sqlInsert) ToSQL() *SQL {
 	for i := range srcValues {
 		values[i] = append([]any(nil), srcValues[i]...)
 	}
-	params := make(map[int][]any, len(params1))
-	maps.Copy(params, params1)
 	if len(columns) > 0 {
 		defaultsValues := s.defaults.values.GetValues()
 		if len(values) > 0 && len(defaultsValues) == 1 {
 			// add default columns and values.
-			defaultColumns, defaultParams := s.defaults.columns.Get()
+			defaultColumns, _ := s.defaults.columns.Get()
 			defaultValuesSlice := defaultsValues[0]
 			defaultValues := make([]any, len(defaultValuesSlice))
 			copy(defaultValues, defaultValuesSlice)
@@ -2427,11 +2502,7 @@ func (s *sqlInsert) ToSQL() *SQL {
 					if _, ok := had[column]; ok {
 						continue
 					}
-					next := len(columns)
 					columns = append(columns, column)
-					if len(defaultParams[index]) > 0 {
-						params[next] = defaultParams[index]
-					}
 					for i := range values {
 						values[i] = append(values[i], defaultValues[index])
 					}
@@ -2601,8 +2672,14 @@ func (s *sqlInsert) Create(create any) SQLInsert {
 	forbid := MapToSlice(s.forbidSet, func(k string, v *struct{}) string { return k })
 	onlyAllow := MapToSlice(s.onlyAllow, func(k string, v *struct{}) string { return k })
 	columns, values, category := ObjectInsert(create, s.way.cfg.ScanTag, forbid, onlyAllow)
-	if category == CategoryInsertOne {
+	switch category {
+	case CategoryInsertOne:
 		defer s.ReturningId()
+	case CategoryInsertAll:
+	case CategoryInsertUnknown:
+		return s
+	default:
+		return s
 	}
 	removes := make(map[int]*struct{}, len(columns))
 	for index, column := range columns {
