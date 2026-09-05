@@ -12,6 +12,7 @@ import (
 	"maps"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -282,13 +283,28 @@ func prepare63236(prepare string) string {
 				i++
 			}
 		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
-			for i < length {
-				latest.WriteByte(origin[i])
-				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+			// PostgreSQL supports nested block comments, so track depth instead of
+			// stopping at the first '*/'.
+			depth := 1
+			latest.WriteByte(origin[i])
+			latest.WriteByte(origin[i+1])
+			i += 2
+			for i < length && depth > 0 {
+				if origin[i] == '/' && i+1 < length && origin[i+1] == '*' {
+					latest.WriteByte(origin[i])
 					latest.WriteByte(origin[i+1])
 					i += 2
-					break
+					depth++
+					continue
 				}
+				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+					latest.WriteByte(origin[i])
+					latest.WriteByte(origin[i+1])
+					i += 2
+					depth--
+					continue
+				}
+				latest.WriteByte(origin[i])
 				i++
 			}
 		case origin[i] == c36:
@@ -318,18 +334,31 @@ func prepare63236(prepare string) string {
 				continue
 			}
 			// A '?' followed (ignoring whitespace) by a string literal is the JSONB
-			// existence operator (jsonb ? 'key'), not a placeholder.
+			// existence operator (jsonb ? 'key'), not a placeholder. The literal may be
+			// single-quoted, escape-string (E'...'), or dollar-quoted ($$...$$).
 			j := i + 1
 			for j < length && (origin[j] == ' ' || origin[j] == '\t' || origin[j] == '\n' || origin[j] == '\r') {
 				j++
 			}
-			if j < length && origin[j] == cst.SingleQuotationMark[0] {
+			isJSONBExistence := false
+			if j < length {
+				switch {
+				case origin[j] == cst.SingleQuotationMark[0]:
+					isJSONBExistence = true
+				case (origin[j] == 'E' || origin[j] == 'e') && j+1 < length && origin[j+1] == cst.SingleQuotationMark[0]:
+					isJSONBExistence = true
+				case origin[j] == c36 && dollarQuoteDelimiter(origin, j) != nil:
+					isJSONBExistence = true
+				}
+			}
+			if isJSONBExistence {
 				latest.WriteByte(origin[i])
 				i++
 				continue
 			}
 			num++
-			fmt.Fprintf(latest, "%c%d", c36, num)
+			latest.WriteByte(c36)
+			latest.WriteString(strconv.Itoa(num))
 			i++
 		default:
 			latest.WriteByte(origin[i])
