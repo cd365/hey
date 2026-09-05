@@ -169,14 +169,11 @@ func SQLToString(script *SQL) string {
 
 // transaction Information for transaction.
 type transaction struct {
-	// ctx Context object.
-	ctx context.Context
+	// tx Transaction object.
+	tx *sql.Tx
 
 	// way Original *Way object.
 	way *Way
-
-	// tx Transaction object.
-	tx *sql.Tx
 
 	// track Tracking transaction.
 	track *MyTrack
@@ -958,17 +955,15 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 	}
 
 	way.transaction = &transaction{}
-	way.transaction.ctx = ctx
-	way.transaction.way = way
 	if conn != nil {
 		way.transaction.tx, err = conn.BeginTx(ctx, opt)
 	} else {
 		way.transaction.tx, err = way.db.BeginTx(ctx, opt)
 	}
 	if err != nil {
-		way = nil
 		return
 	}
+	way.transaction.way = way
 	start := time.Now()
 	tracked := trackTransaction(ctx, start)
 	tracked.TxId = fmt.Sprintf("%d%s%d%s%p", start.UnixNano(), cst.Point, os.Getpid(), cst.Point, way.transaction)
@@ -1350,6 +1345,9 @@ func (s *Way) QueryExists(ctx context.Context, maker Maker) (bool, error) {
 		return rows.Err()
 	})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
 		return false, err
 	}
 

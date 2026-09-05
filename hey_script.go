@@ -2088,7 +2088,7 @@ type TableColumn interface {
 	Min(column string, alias ...string) string
 
 	// Sum Call an aggregate function SUM() on a column and give it an alias.
-	// balance => COALESCE(SUM(a.balance),0) AS balance || COALESCE(SUM(a.balance),0) AS all_balance
+	// salary => COALESCE(SUM(a.salary),0) AS salary || COALESCE(SUM(a.salary),0) AS all_salary
 	Sum(column string, alias ...string) string
 
 	// ColumnSQL Single column to *SQL.

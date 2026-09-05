@@ -185,9 +185,9 @@ func (s *multi) AddQueryScan(maker Maker, result any) Multi {
 		return s
 	}
 	return s.Add(func(ctx context.Context) error {
-		fx, ok := result.(func(rows *sql.Rows) error)
-		if ok && fx != nil {
-			return s.way.Query(ctx, script, fx)
+		fc, ok := result.(func(rows *sql.Rows) error)
+		if ok && fc != nil {
+			return s.way.Query(ctx, script, fc)
 		}
 		return s.way.Scan(ctx, script, result)
 	})
@@ -274,9 +274,9 @@ func (s *multi) AddExec(maker Maker, result ...any) Multi {
 			return nil
 		}
 		if custom != nil {
-			fx, ok := custom.(func(tmp sql.Result) error)
-			if ok && fx != nil {
-				handle = fx
+			fc, ok := custom.(func(tmp sql.Result) error)
+			if ok && fc != nil {
+				handle = fc
 			}
 		}
 		tmp, err := s.way.Exec(ctx, script)
