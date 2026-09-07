@@ -1737,6 +1737,12 @@ type SQLUpdateSet interface {
 	// Compare Compare struct assignment update.
 	Compare(old, new any, except ...string) SQLUpdateSet
 
+	// ForbidUpdate Exclude specific key-value pairs from an update-object for updating.
+	ForbidUpdate(update any, forbids ...string) SQLUpdateSet
+
+	// SelectUpdate Extract specific key-value pairs from an update-object for updating.
+	SelectUpdate(update any, selects ...string) SQLUpdateSet
+
 	// Default Set the default columns that need to be updated, such as update timestamp.
 	Default(column string, value any) SQLUpdateSet
 
@@ -2060,6 +2066,50 @@ func (s *sqlUpdateSet) Update(update any) SQLUpdateSet {
 func (s *sqlUpdateSet) Compare(old, new any, except ...string) SQLUpdateSet {
 	columns, values := StructUpdate(old, new, s.way.cfg.ScanTag, except...)
 	return s.batchSet(columns, values)
+}
+
+// ForbidUpdate Exclude specific key-value pairs from an update-object for updating.
+func (s *sqlUpdateSet) ForbidUpdate(update any, forbids ...string) SQLUpdateSet {
+	length := len(forbids)
+	updateMap := make(map[string]*struct{}, length)
+	for _, column := range forbids {
+		if column != cst.Empty {
+			updateMap[column] = nil
+		}
+	}
+	column, values := ObjectModify(update, s.way.cfg.ScanTag, forbids...)
+	length = len(column)
+	result := make(map[string]any, length)
+	for i := 0; i < length; i++ {
+		if _, ok := updateMap[column[i]]; ok {
+			continue
+		}
+		result[column[i]] = values[i]
+	}
+	return s.Update(result)
+}
+
+// SelectUpdate Extract specific key-value pairs from an update-object for updating.
+func (s *sqlUpdateSet) SelectUpdate(update any, selects ...string) SQLUpdateSet {
+	length := len(selects)
+	if length == 0 {
+		return s
+	}
+	updateMap := make(map[string]*struct{}, length)
+	for _, column := range selects {
+		if column != cst.Empty {
+			updateMap[column] = nil
+		}
+	}
+	column, values := ObjectModify(update, s.way.cfg.ScanTag)
+	length = len(column)
+	result := make(map[string]any, length)
+	for i := 0; i < length; i++ {
+		if _, ok := updateMap[column[i]]; ok {
+			result[column[i]] = values[i]
+		}
+	}
+	return s.Update(result)
 }
 
 // Default Set the default columns that need to be updated, such as update timestamp.

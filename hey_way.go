@@ -1559,35 +1559,17 @@ func (s *Way) F(values ...Maker) Filter {
 	return s.cfg.NewSQLFilter(s).Use(values...)
 }
 
+// V Get the currently used *Way object value, implement interface V.
+func (s *Way) V() *Way {
+	return s
+}
+
 // W prioritize the specified non-nil object, otherwise use the current object.
 func (s *Way) W(way *Way) *Way {
 	if way != nil {
 		return way
 	}
 	return s
-}
-
-// SelectUpdate Extract specific key-value pairs from an object for updating.
-func (s *Way) SelectUpdate(object any, columns ...string) map[string]any {
-	length := len(columns)
-	if length == 0 {
-		return make(map[string]any, 0)
-	}
-	update := make(map[string]*struct{}, length)
-	for _, column := range columns {
-		if column != cst.Empty {
-			update[column] = nil
-		}
-	}
-	column, values := ObjectModify(object, s.cfg.ScanTag)
-	length = len(column)
-	result := make(map[string]any, length)
-	for i := 0; i < length; i++ {
-		if _, ok := update[column[i]]; ok {
-			result[column[i]] = values[i]
-		}
-	}
-	return result
 }
 
 // reader Implement Reader.
