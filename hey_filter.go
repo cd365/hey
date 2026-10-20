@@ -706,10 +706,12 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 		return s
 	}
 
+	values = inArgs(values...)
 	length := len(values)
 	if length == 0 {
 		return s
 	}
+
 	if length == 1 {
 		if value, ok := values[0].(Maker); ok {
 			// IN ( subquery )
@@ -728,14 +730,6 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 		}
 	}
 
-	// IN ( value1, value2, value3 ... )
-	values = inArgs(values...)
-	length = len(values)
-	if length == 0 {
-		return s
-	}
-
-	// Remove duplicates
 	values = DiscardDuplicateAny(filterNilValue, values...)
 	length = len(values)
 	if length == 0 {
@@ -743,6 +737,11 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 	}
 
 	if length == 1 {
+		if _, ok := values[0].(Maker); ok {
+			// A subquery remaining after filtering (e.g. In(column, nil, subquery)
+			// or a duplicated subquery) is not a legal form; discard it.
+			return s
+		}
 		// Single value
 		if not {
 			return s.NotEqual(script, values[0])

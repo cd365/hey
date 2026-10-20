@@ -90,30 +90,37 @@ func (s *sqlLabel) ToSQL() *SQL {
 }
 
 // aliasValueIsEmpty writes the alias name of a CTE (WITH) or WINDOW entry into builder,
-// separating entries with ", " (comma + space) when index > 0. It also validates
-// and normalizes the entry's SQL script by trimming surrounding spaces.
+// separating entries with ", " (comma + space) after the first written entry.
 //
-// It returns true when the entry must be skipped: the script is nil, its prepare
-// string is empty, or it becomes empty after trimming. In that case nothing is
-// written to builder. Otherwise it writes the alias (plus a leading separator when
-// needed) and returns false so the caller can continue emitting the entry body.
-func aliasValueIsEmpty(alias string, script *SQL, index int, builder *strings.Builder) bool {
+// written tracks whether any entry has already been written to builder; the loop
+// index cannot be used for that because earlier entries may be skipped without
+// writing anything, which would emit a stray leading comma.
+//
+// It returns a nil script and true when the entry must be skipped: the script is nil,
+// its prepare string is empty, or it becomes empty after trimming. In that case nothing
+// is written to builder. Otherwise it writes the alias (plus a leading separator when
+// needed) and returns a cloned script with its prepare trimmed, leaving the caller's
+// maker untouched, along with false so the caller can continue emitting the entry body.
+func aliasValueIsEmpty(alias string, script *SQL, written *bool, builder *strings.Builder) (*SQL, bool) {
 	if script == nil || script.IsEmpty() {
-		return true
+		return nil, true
 	}
 
-	script.Prepare = strings.TrimSpace(script.Prepare)
-	if script.Prepare == cst.Empty {
-		return true
+	normalized := script.Clone()
+	normalized.Prepare = strings.TrimSpace(normalized.Prepare)
+	if normalized.Prepare == cst.Empty {
+		return nil, true
 	}
 
-	if index > 0 {
+	if *written {
 		builder.WriteString(cst.CommaSpace)
+	} else {
+		*written = true
 	}
 
 	builder.WriteString(alias)
 	builder.WriteString(cst.Space)
-	return false
+	return normalized, false
 }
 
 /*
@@ -194,13 +201,15 @@ func (s *sqlWith) ToSQL() *SQL {
 		b.WriteString(cst.Space)
 	}
 	result := NewEmptySQL()
-	for index, alias := range s.alias {
+	written := false
+	for _, alias := range s.alias {
 		prepare := s.prepare[alias]
 		if prepare == nil {
 			continue
 		}
 		script := prepare.ToSQL()
-		if aliasValueIsEmpty(alias, script, index, b) {
+		script, skip := aliasValueIsEmpty(alias, script, &written, b)
+		if skip {
 			continue
 		}
 
@@ -911,13 +920,15 @@ func (s *sqlWindow) ToSQL() *SQL {
 	b.WriteString(cst.WINDOW)
 	b.WriteString(cst.Space)
 	result := NewEmptySQL()
-	for index, alias := range s.alias {
+	written := false
+	for _, alias := range s.alias {
 		prepare := s.prepare[alias]
 		if prepare == nil {
 			continue
 		}
 		script := prepare.ToSQL()
-		if aliasValueIsEmpty(alias, script, index, b) {
+		script, skip := aliasValueIsEmpty(alias, script, &written, b)
+		if skip {
 			continue
 		}
 
