@@ -1107,7 +1107,11 @@ func (s *Way) newTransaction(ctx context.Context, timeout time.Duration, transac
 	defer func() {
 		if err == nil && ok {
 			if e := way.commit(); e != nil {
-				err = e
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					err = fmt.Errorf("transaction aborted by context: %w (commit: %s)", ctxErr, e.Error())
+				} else {
+					err = e
+				}
 			}
 		} else {
 			if e := way.rollback(); e != nil {

@@ -502,17 +502,17 @@ func parcelSingleFilter(tmp Filter) *SQL {
 // keysJoin Connect multiple SQL substatements using one or more keywords.
 func keysJoin(scripts []*SQL, keys ...string) *SQL {
 	length := len(keys)
-	separators := make([]string, 0, length*2+1)
+	keywords := make([]string, 0, length*2+1)
 	for index := range keys {
 		if keys[index] == cst.Empty {
 			continue
 		}
-		separators = append(separators, cst.Space, keys[index])
+		keywords = append(keywords, cst.Space, keys[index])
 	}
-	if len(separators) == 0 {
+	if len(keywords) == 0 {
 		return NewEmptySQL()
 	}
-	separators = append(separators, cst.Space)
+	keywords = append(keywords, cst.Space)
 	result := make([]any, 0, len(scripts))
 	for _, value := range scripts {
 		if value == nil || value.IsEmpty() {
@@ -522,7 +522,7 @@ func keysJoin(scripts []*SQL, keys ...string) *SQL {
 		clone.Prepare = ParcelPrepare(clone.Prepare) // The addition of "( " and " )" is mandatory.
 		result = append(result, clone)
 	}
-	return JoinSQL(result, JoinString(separators...))
+	return JoinSQL(result, JoinString(keywords...))
 }
 
 // UnionSQL *SQL1, *SQL2, *SQL3 ... => ( QUERY_A ) UNION ( QUERY_B ) UNION ( QUERY_C )...

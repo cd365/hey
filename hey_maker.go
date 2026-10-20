@@ -9,6 +9,7 @@ import (
 	"maps"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -455,9 +456,6 @@ func (s *sqlSelect) Get() ([]string, map[int][]any) {
 
 func (s *sqlSelect) Set(columns []string, args map[int][]any) SQLSelect {
 	length := len(columns)
-	if length != len(args) {
-		return s
-	}
 	// Copy the caller's column slice and args map so later mutations by the caller
 	// cannot corrupt this select's internal state.
 	columnsCopy := make([]string, length)
@@ -466,7 +464,7 @@ func (s *sqlSelect) Set(columns []string, args map[int][]any) SQLSelect {
 	for i, column := range columns {
 		columnsCopy[i] = column
 		if value, ok := args[i]; ok {
-			columnsArgsCopy[i] = value
+			columnsArgsCopy[i] = slices.Clone(value)
 		} else {
 			columnsArgsCopy[i] = nil
 		}

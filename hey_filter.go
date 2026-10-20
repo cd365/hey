@@ -197,7 +197,9 @@ func filterUsingColumn(where Filter, column any) any {
 		return column
 	}
 	if value, ok := filterUsingString(column); ok {
-		return where.V().Replace(value)
+		if way := where.V(); way != nil {
+			return way.Replace(value)
+		}
 	}
 	return column
 }
@@ -704,24 +706,19 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 		return s
 	}
 
-	values = inArgs(values...)
 	length := len(values)
 	if length == 0 {
 		return s
 	}
-
-	values = DiscardDuplicateAny(filterNilValue, values...)
-	length = len(values)
-	if length == 0 {
-		return s
-	}
-
 	if length == 1 {
 		if value, ok := values[0].(Maker); ok {
-			latest := ParcelSQL(AnyToSQL(value))
+			// IN ( subquery )
+			latest := AnyToSQL(value)
 			if latest.IsEmpty() {
 				return s
 			}
+			latest = latest.Clone()
+			latest.Prepare = ParcelPrepare(latest.Prepare)
 			lists := make([]any, 0, 3)
 			if not {
 				lists = append(lists, cst.NOT)
@@ -729,6 +726,24 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 			lists = append(lists, cst.IN, latest)
 			return s.add(logic, s.firstNext(script, lists...))
 		}
+	}
+
+	// IN ( value1, value2, value3 ... )
+	values = inArgs(values...)
+	length = len(values)
+	if length == 0 {
+		return s
+	}
+
+	// Remove duplicates
+	values = DiscardDuplicateAny(filterNilValue, values...)
+	length = len(values)
+	if length == 0 {
+		return s
+	}
+
+	if length == 1 {
+		// Single value
 		if not {
 			return s.NotEqual(script, values[0])
 		}
@@ -738,10 +753,12 @@ func (s *filter) in(logic string, column any, values []any, not bool) Filter {
 	// A subquery must be the only IN value; it cannot be mixed with bound scalar values.
 	for _, value := range values {
 		if _, ok := value.(Maker); ok {
+			// Invalid parameter values.
 			return s
 		}
 	}
 
+	// IN ( value1, value2, value3 ... )
 	places := make([]string, length)
 	for i := 0; i < length; i++ {
 		places[i] = cst.Placeholder
