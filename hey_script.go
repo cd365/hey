@@ -790,6 +790,13 @@ func newSQLTable(way *Way, table any) SQLAlias {
 	if way == nil {
 		panic(nilPointer)
 	}
+	return newSQLTableVisited(way, table, make(map[reflect.Type]*struct{}, 1<<1))
+}
+
+// newSQLTableVisited Implementation of newSQLTable with a visited set keyed by the
+// dereferenced struct type, to prevent self-referential Table methods (a method whose
+// return value is the same struct type) from causing infinite recursion.
+func newSQLTableVisited(way *Way, table any, visited map[reflect.Type]*struct{}) SQLAlias {
 	result := way.Alias(cst.Empty)
 	if table == nil {
 		result.SetSQL(AnyToSQL(table))
@@ -833,11 +840,20 @@ func newSQLTable(way *Way, table any) SQLAlias {
 			result.SetSQL(AnyToSQL(refValue.String()))
 			return result
 		case reflect.Pointer, reflect.Struct: // struct OR struct pointer
+			visitedType := refValue.Type()
+			if visitedType.Kind() == reflect.Pointer {
+				visitedType = visitedType.Elem()
+			}
+			if _, ok := visited[visitedType]; ok {
+				// prevent self-referential Table methods from causing infinite recursion.
+				return result
+			}
+			visited[visitedType] = nil
 			method := refValue.MethodByName(methodName)
 			if method.IsValid() {
 				returns := method.Call(nil)
 				if len(returns) == 1 {
-					return newSQLTable(way, returns[0].Interface())
+					return newSQLTableVisited(way, returns[0].Interface(), visited)
 				}
 			}
 		default:

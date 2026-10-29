@@ -157,6 +157,8 @@ type SQLWith interface {
 }
 
 type sqlWith struct {
+	way *Way
+
 	column map[string][]string
 
 	prepare map[string]Maker
@@ -171,6 +173,7 @@ func newSQLWith(way *Way) SQLWith {
 		panic(nilPointer)
 	}
 	return &sqlWith{
+		way:     way,
 		column:  make(map[string][]string, 1<<1),
 		prepare: make(map[string]Maker, 1<<1),
 		alias:   make([]string, 0, 1<<1),
@@ -208,7 +211,9 @@ func (s *sqlWith) ToSQL() *SQL {
 			continue
 		}
 		script := prepare.ToSQL()
-		script, skip := aliasValueIsEmpty(alias, script, &written, b)
+		// The alias is written after being replaced by the Replacer; the map lookups
+		// above still use the original alias.
+		script, skip := aliasValueIsEmpty(s.way.Replace(alias), script, &written, b)
 		if skip {
 			continue
 		}
@@ -217,7 +222,7 @@ func (s *sqlWith) ToSQL() *SQL {
 			// Displays the column alias that defines the CTE, overwriting the original column name of the query result.
 			b.WriteString(cst.LeftParenthesis)
 			b.WriteString(cst.Space)
-			b.WriteString(strings.Join(columns, cst.CommaSpace))
+			b.WriteString(strings.Join(s.way.ReplaceAll(columns), cst.CommaSpace))
 			b.WriteString(cst.Space)
 			b.WriteString(cst.RightParenthesis)
 			b.WriteString(cst.Space)
@@ -927,7 +932,9 @@ func (s *sqlWindow) ToSQL() *SQL {
 			continue
 		}
 		script := prepare.ToSQL()
-		script, skip := aliasValueIsEmpty(alias, script, &written, b)
+		// The alias is written after being replaced by the Replacer; the map lookup
+		// above still uses the original alias.
+		script, skip := aliasValueIsEmpty(s.way.Replace(alias), script, &written, b)
 		if skip {
 			continue
 		}
@@ -2707,7 +2714,13 @@ func (s *sqlInsert) ColumnValue(column string, value any) SQLInsert {
 	s.columns.Add(NewSQL(column))
 	values := s.values.GetValues()
 	for index := range values {
-		values[index] = append(values[index], value)
+		// Clone the row before appending: GetValues returns the internal slice whose
+		// rows may share backing arrays with the caller's own slices, and an in-place
+		// append would write into the caller's data when spare capacity exists.
+		row := make([]any, 0, len(values[index])+1)
+		row = append(row, values[index]...)
+		row = append(row, value)
+		values[index] = row
 	}
 	s.values.SetValues(values...)
 	return s
