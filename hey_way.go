@@ -63,9 +63,9 @@ func argValueToString(i any) string {
 
 // SQLToString Use parameter values to replace placeholders in SQL statements and build a visual SQL script.
 // Warning: Binary byte slice will be converted to hexadecimal strings.
-// Placeholder '?' characters inside single-quoted string literals, line comments (--),
-// block comments (/* ... */), dollar-quoted strings and JSONB operators are left
-// unchanged, mirroring prepare63236.
+// Placeholder '?' characters inside single-quoted string literals (including
+// escape-string literals E'...'), line comments (--), block comments (/* ... */),
+// dollar-quoted strings and JSONB operators are left unchanged, mirroring prepare63236.
 func SQLToString(script *SQL) string {
 	if script == nil {
 		return cst.Empty
@@ -79,13 +79,24 @@ func SQLToString(script *SQL) string {
 	result := poolGetStringBuilder()
 	defer poolPutStringBuilder(result)
 	length := len(origin)
-	c63 := cst.Placeholder[0]
+	c36 := cst.Dollar[0]      // $
+	c63 := cst.Placeholder[0] // ?
+	c92 := cst.Backslash[0]   // \
 	for i := 0; i < length; {
 		switch {
 		case origin[i] == cst.SingleQuotationMark[0]:
+			// Escape-string literals (E'...') honor backslash escapes; standard string
+			// literals treat backslash as a regular character (standard_conforming_strings=on).
+			escape := isEscapeString(origin, i)
 			result.WriteByte(origin[i])
 			i++
 			for i < length {
+				if escape && origin[i] == c92 && i+1 < length {
+					result.WriteByte(origin[i])
+					result.WriteByte(origin[i+1])
+					i += 2
+					continue
+				}
 				result.WriteByte(origin[i])
 				if origin[i] == cst.SingleQuotationMark[0] {
 					if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
@@ -108,13 +119,28 @@ func SQLToString(script *SQL) string {
 				i++
 			}
 		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
-			for i < length {
-				result.WriteByte(origin[i])
-				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+			// PostgreSQL supports nested block comments, so track depth instead of
+			// stopping at the first '*/'.
+			depth := 1
+			result.WriteByte(origin[i])
+			result.WriteByte(origin[i+1])
+			i += 2
+			for i < length && depth > 0 {
+				if origin[i] == '/' && i+1 < length && origin[i+1] == '*' {
+					result.WriteByte(origin[i])
 					result.WriteByte(origin[i+1])
 					i += 2
-					break
+					depth++
+					continue
 				}
+				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+					result.WriteByte(origin[i])
+					result.WriteByte(origin[i+1])
+					i += 2
+					depth--
+					continue
+				}
+				result.WriteByte(origin[i])
 				i++
 			}
 		case origin[i] == cst.Dollar[0]:
@@ -143,12 +169,24 @@ func SQLToString(script *SQL) string {
 				continue
 			}
 			// A '?' followed (ignoring whitespace) by a string literal is the JSONB
-			// existence operator (jsonb ? 'key'), not a placeholder.
+			// existence operator (jsonb ? 'key'), not a placeholder. The literal may be
+			// single-quoted, escape-string (E'...'), or dollar-quoted ($$...$$).
 			j := i + 1
 			for j < length && (origin[j] == ' ' || origin[j] == '\t' || origin[j] == '\n' || origin[j] == '\r') {
 				j++
 			}
-			if j < length && origin[j] == cst.SingleQuotationMark[0] {
+			isJSONBExistence := false
+			if j < length {
+				switch {
+				case origin[j] == cst.SingleQuotationMark[0]:
+					isJSONBExistence = true
+				case (origin[j] == 'E' || origin[j] == 'e') && j+1 < length && origin[j+1] == cst.SingleQuotationMark[0]:
+					isJSONBExistence = true
+				case origin[j] == c36 && dollarQuoteDelimiter(origin, j) != nil:
+					isJSONBExistence = true
+				}
+			}
+			if isJSONBExistence {
 				result.WriteByte(origin[i])
 				i++
 				continue
@@ -245,8 +283,9 @@ func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 }
 
 // prepare63236 Replace '?' in the SQL statement with '$n'.
-// '?' characters inside single-quoted string literals, line comments (--) and
-// block comments (/* ... */) are left unchanged because they are not placeholders.
+// '?' characters inside single-quoted string literals (including escape-string
+// literals E'...'), line comments (--) and block comments (/* ... */) are left
+// unchanged because they are not placeholders.
 func prepare63236(prepare string) string {
 	latest := poolGetStringBuilder()
 	defer poolPutStringBuilder(latest)
@@ -254,13 +293,23 @@ func prepare63236(prepare string) string {
 	length := len(origin)
 	c36 := cst.Dollar[0]      // $
 	c63 := cst.Placeholder[0] // ?
+	c92 := cst.Backslash[0]   // \
 	num := 0
 	for i := 0; i < length; {
 		switch {
 		case origin[i] == cst.SingleQuotationMark[0]:
+			// Escape-string literals (E'...') honor backslash escapes; standard string
+			// literals treat backslash as a regular character (standard_conforming_strings=on).
+			escape := isEscapeString(origin, i)
 			latest.WriteByte(origin[i])
 			i++
 			for i < length {
+				if escape && origin[i] == c92 && i+1 < length {
+					latest.WriteByte(origin[i])
+					latest.WriteByte(origin[i+1])
+					i += 2
+					continue
+				}
 				latest.WriteByte(origin[i])
 				if origin[i] == cst.SingleQuotationMark[0] {
 					if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
@@ -366,6 +415,27 @@ func prepare63236(prepare string) string {
 		}
 	}
 	return latest.String()
+}
+
+// isEscapeString reports whether the single-quoted string literal whose leading
+// quote is at index i is an escape-string (E'...' or e'...') that honors
+// backslash escapes. The character before the leading quote must itself be 'E'
+// or 'e' and must not be part of a longer identifier (TIME'...' and NAME'...'
+// are type casts whose strings treat backslash as a regular character).
+func isEscapeString(origin []byte, i int) bool {
+	if i == 0 {
+		return false
+	}
+	if c := origin[i-1]; c == 'E' || c == 'e' {
+		if i == 1 {
+			return true
+		}
+		if p := origin[i-2]; p >= 'a' && p <= 'z' || p >= 'A' && p <= 'Z' || p >= '0' && p <= '9' || p == '_' {
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 // dollarQuoteDelimiter Return the PostgreSQL dollar-quote delimiter starting at origin[i]
