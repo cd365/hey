@@ -34,7 +34,7 @@ func (s *pointerFilterValuer) Value() (driver.Value, error) {
 func TestFilter_Equal(t *testing.T) {
 	where := way.F()
 	where.Equal(cst.Id, 32)
-	assert(where, "id = ?")
+	assert(where, "id = $?")
 }
 
 func TestFilter_NamedStringValues(t *testing.T) {
@@ -46,7 +46,7 @@ func TestFilter_NamedStringValues(t *testing.T) {
 		Like(columnName("name"), likePattern("%example%"))
 	script := where.ToSQL()
 
-	assert(script, "( id = ? AND name LIKE ? )")
+	assert(script, "( id = $? AND name LIKE $? )")
 	if !reflect.DeepEqual(script.Args, []any{32, "%example%"}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -55,47 +55,47 @@ func TestFilter_NamedStringValues(t *testing.T) {
 func TestFilter_LessThan(t *testing.T) {
 	where := way.F()
 	where.LessThan(cst.Id, 32)
-	assert(where, "id < ?")
+	assert(where, "id < $?")
 }
 
 func TestFilter_LessThanEqual(t *testing.T) {
 	where := way.F()
 	where.LessThanEqual(cst.Id, 32)
-	assert(where, "id <= ?")
+	assert(where, "id <= $?")
 }
 
 func TestFilter_GreaterThan(t *testing.T) {
 	where := way.F()
 	where.GreaterThan(cst.Id, 32)
-	assert(where, "id > ?")
+	assert(where, "id > $?")
 }
 
 func TestFilter_GreaterThanEqual(t *testing.T) {
 	where := way.F()
 	where.GreaterThanEqual(cst.Id, 32)
-	assert(where, "id >= ?")
+	assert(where, "id >= $?")
 }
 
 func TestFilter_Between(t *testing.T) {
 	where := way.F()
 	where.Between(cst.Id, 1, 2)
-	assert(where, "id BETWEEN ? AND ?")
+	assert(where, "id BETWEEN $? AND $?")
 	where.ToEmpty()
 	now := way.Now()
 	where.Between("created_at", now.Format(time.DateTime), now.Add(time.Hour*8).Format(time.DateTime))
-	assert(where, "created_at BETWEEN ? AND ?")
+	assert(where, "created_at BETWEEN $? AND $?")
 }
 
 func TestFilter_BetweenSubqueryArgumentOrder(t *testing.T) {
-	subquery := NewSQL("SELECT max_id FROM limits WHERE kind = ?", "upper")
+	subquery := NewSQL("SELECT max_id FROM limits WHERE kind = $?", "upper")
 	where := way.F().Between(cst.Id, 10, subquery)
 	script := where.ToSQL()
 
-	assert(script, "id BETWEEN ? AND ( SELECT max_id FROM limits WHERE kind = ? )")
+	assert(script, "id BETWEEN $? AND ( SELECT max_id FROM limits WHERE kind = $? )")
 	if !reflect.DeepEqual(script.Args, []any{10, "upper"}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
-	if subquery.Prepare != "SELECT max_id FROM limits WHERE kind = ?" {
+	if subquery.Prepare != "SELECT max_id FROM limits WHERE kind = $?" {
 		t.Fatalf("subquery was modified: %q", subquery.Prepare)
 	}
 }
@@ -104,27 +104,27 @@ func TestFilter_BetweenTypedNilBoundary(t *testing.T) {
 	var upper *SQL
 
 	where := way.F().Between(cst.Id, 10, upper)
-	assert(where, "id >= ?")
+	assert(where, "id >= $?")
 
 	where.ToEmpty()
 	where.NotBetween(cst.Id, 10, upper)
-	assert(where, "id < ?")
+	assert(where, "id < $?")
 }
 
 func TestFilter_In(t *testing.T) {
 	where := way.F()
 	where.In(cst.Id, 1)
-	assert(where, "id = ?")
+	assert(where, "id = $?")
 	where.ToEmpty()
 	where.In(cst.Id, "1")
-	assert(where, "id = ?")
+	assert(where, "id = $?")
 	where.ToEmpty()
 	where.In(cst.Id, 0.5)
-	assert(where, "id = ?")
+	assert(where, "id = $?")
 	where.ToEmpty()
 
 	where.In(cst.Id, []string{"1"})
-	assert(where, "id = ?")
+	assert(where, "id = $?")
 	where.ToEmpty()
 
 	where.In(cst.Id, []string{})
@@ -132,40 +132,40 @@ func TestFilter_In(t *testing.T) {
 	where.ToEmpty()
 
 	where.In(cst.Id, 1, 2, 3)
-	assert(where, "id IN ( ?, ?, ? )")
+	assert(where, "id IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.In(cst.Id, "1", "2", "3")
-	assert(where, "id IN ( ?, ?, ? )")
+	assert(where, "id IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.In(cst.Id, 1.1, 2.2, 3.3)
-	assert(where, "id IN ( ?, ?, ? )")
+	assert(where, "id IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.In(cst.Id, []int{1, 2, 3})
-	assert(where, "id IN ( ?, ?, ? )")
+	assert(where, "id IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.In(cst.Id, []int64{1, 2, 3})
-	assert(where, "id IN ( ?, ?, ? )")
+	assert(where, "id IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.In(cst.Id, []float64{1.1, 2.2, 3.3})
-	assert(where, "id IN ( ?, ?, ? )")
+	assert(where, "id IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.In(cst.Id, []string{"1", "2", "3"})
-	assert(where, "id IN ( ?, ?, ? )")
+	assert(where, "id IN ( $?, $?, $? )")
 	where.ToEmpty()
 }
 
 func TestFilter_InSliceSubquery(t *testing.T) {
-	subquery := NewSQL("SELECT id FROM account WHERE age >= ?", 18)
+	subquery := NewSQL("SELECT id FROM account WHERE age >= $?", 18)
 	where := way.F().In(cst.Id, []any{subquery})
 	script := where.ToSQL()
 
-	assert(script, "id IN ( SELECT id FROM account WHERE age >= ? )")
+	assert(script, "id IN ( SELECT id FROM account WHERE age >= $? )")
 	if !reflect.DeepEqual(script.Args, []any{18}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -204,7 +204,7 @@ func TestFilter_InGroup(t *testing.T) {
 			{"Jerry", 30, "jerry@gmail.com"},
 		},
 	)
-	assert(where, "( name, age, email ) IN ( ( ?, ?, ? ), ( ?, ?, ? ), ( ?, ?, ? ) )")
+	assert(where, "( name, age, email ) IN ( ( $?, $?, $? ), ( $?, $?, $? ), ( $?, $?, $? ) )")
 	where.ToEmpty()
 }
 
@@ -253,7 +253,7 @@ func TestFilter_Exists(t *testing.T) {
 func TestFilter_Like(t *testing.T) {
 	where := way.F()
 	where.Like("name", "%example%")
-	assert(where, "name LIKE ?")
+	assert(where, "name LIKE $?")
 
 	where.ToEmpty()
 	where.Like("name", NewSQL("other_name"))
@@ -269,41 +269,41 @@ func TestFilter_IsNull(t *testing.T) {
 func TestFilter_NotEqual(t *testing.T) {
 	where := way.F()
 	where.NotEqual(cst.Id, 32)
-	assert(where, "id <> ?")
+	assert(where, "id <> $?")
 }
 
 func TestFilter_NotBetween(t *testing.T) {
 	where := way.F()
 	where.NotBetween(cst.Id, 1, 2)
-	assert(where, "id NOT BETWEEN ? AND ?")
+	assert(where, "id NOT BETWEEN $? AND $?")
 	where.ToEmpty()
 	now := way.Now()
 	where.NotBetween("created_at", now.Format(time.DateTime), now.Add(time.Hour*8).Format(time.DateTime))
-	assert(where, "created_at NOT BETWEEN ? AND ?")
+	assert(where, "created_at NOT BETWEEN $? AND $?")
 
 	where.ToEmpty()
 	where.NotBetween(cst.Id, nil, 18)
-	assert(where, "id > ?")
+	assert(where, "id > $?")
 
 	where.ToEmpty()
 	where.NotBetween(cst.Id, 18, nil)
-	assert(where, "id < ?")
+	assert(where, "id < $?")
 }
 
 func TestFilter_NotIn(t *testing.T) {
 	where := way.F()
 	where.NotIn(cst.Id, 1)
-	assert(where, "id <> ?")
+	assert(where, "id <> $?")
 	where.ToEmpty()
 	where.NotIn(cst.Id, "1")
-	assert(where, "id <> ?")
+	assert(where, "id <> $?")
 	where.ToEmpty()
 	where.NotIn(cst.Id, 0.5)
-	assert(where, "id <> ?")
+	assert(where, "id <> $?")
 	where.ToEmpty()
 
 	where.NotIn(cst.Id, []string{"1"})
-	assert(where, "id <> ?")
+	assert(where, "id <> $?")
 	where.ToEmpty()
 
 	where.NotIn(cst.Id, []string{})
@@ -311,19 +311,19 @@ func TestFilter_NotIn(t *testing.T) {
 	where.ToEmpty()
 
 	where.NotIn(cst.Id, 1, 2, 3)
-	assert(where, "id NOT IN ( ?, ?, ? )")
+	assert(where, "id NOT IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.NotIn(cst.Id, "1", "2", "3")
-	assert(where, "id NOT IN ( ?, ?, ? )")
+	assert(where, "id NOT IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.NotIn(cst.Id, []int{1, 2, 3})
-	assert(where, "id NOT IN ( ?, ?, ? )")
+	assert(where, "id NOT IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.NotIn(cst.Id, []string{"1", "2", "3"})
-	assert(where, "id NOT IN ( ?, ?, ? )")
+	assert(where, "id NOT IN ( $?, $?, $? )")
 	where.ToEmpty()
 
 	where.NotIn(cst.Id, nil)
@@ -331,7 +331,7 @@ func TestFilter_NotIn(t *testing.T) {
 
 	where.NotIn(cst.Id, 1, nil, 2)
 	script := where.ToSQL()
-	assert(script, "id NOT IN ( ?, ? )")
+	assert(script, "id NOT IN ( $?, $? )")
 	if !reflect.DeepEqual(script.Args, []any{1, 2}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -344,7 +344,7 @@ func TestFilter_NotInDiscardsNestedNilPointers(t *testing.T) {
 	where := way.F().NotIn(cst.Id, 1, nested, 2)
 	script := where.ToSQL()
 
-	assert(script, "id NOT IN ( ?, ? )")
+	assert(script, "id NOT IN ( $?, $? )")
 	if !reflect.DeepEqual(script.Args, []any{1, 2}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -362,7 +362,7 @@ func TestFilter_NotInGroup(t *testing.T) {
 			{"Jerry", 30, "jerry@gmail.com"},
 		},
 	)
-	assert(where, "( name, age, email ) NOT IN ( ( ?, ?, ? ), ( ?, ?, ? ), ( ?, ?, ? ) )")
+	assert(where, "( name, age, email ) NOT IN ( ( $?, $?, $? ), ( $?, $?, $? ), ( $?, $?, $? ) )")
 	where.ToEmpty()
 
 	var emptyAge *int
@@ -375,7 +375,7 @@ func TestFilter_NotInGroup(t *testing.T) {
 		},
 	)
 	script := where.ToSQL()
-	assert(script, "( name, age ) NOT IN ( ( ?, ? ) )")
+	assert(script, "( name, age ) NOT IN ( ( $?, $? ) )")
 	if !reflect.DeepEqual(script.Args, []any{"user2", 18}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -401,7 +401,7 @@ func TestFilter_NotInGroupDiscardsNestedNilPointers(t *testing.T) {
 	)
 	script := where.ToSQL()
 
-	assert(script, "( name, age ) NOT IN ( ( ?, ? ) )")
+	assert(script, "( name, age ) NOT IN ( ( $?, $? ) )")
 	if !reflect.DeepEqual(script.Args, []any{"retained", 18}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -424,7 +424,7 @@ func TestFilter_NotExists(t *testing.T) {
 func TestFilter_NotLike(t *testing.T) {
 	where := way.F()
 	where.NotLike("name", "%example%")
-	assert(where, "name NOT LIKE ?")
+	assert(where, "name NOT LIKE $?")
 
 	where.ToEmpty()
 	where.NotLike("name", NewSQL("other_name"))
@@ -440,7 +440,7 @@ func TestFilter_IsNotNull(t *testing.T) {
 func TestFilter_Keyword(t *testing.T) {
 	where := way.F()
 	where.GroupLike("keyword-value", "name", "username", "email")
-	assert(where, "( name LIKE ? OR username LIKE ? OR email LIKE ? )")
+	assert(where, "( name LIKE $? OR username LIKE $? OR email LIKE $? )")
 }
 
 func TestFilter_AllCompare(t *testing.T) {
@@ -454,7 +454,7 @@ func TestFilter_AllCompare(t *testing.T) {
 				ToSelect(),
 		)
 	})
-	assert(where, "id = ALL ( SELECT id FROM account WHERE ( age BETWEEN ? AND ? ) )")
+	assert(where, "id = ALL ( SELECT id FROM account WHERE ( age BETWEEN $? AND $? ) )")
 }
 
 func TestFilter_CompareDoesNotModifySubquery(t *testing.T) {
@@ -483,26 +483,26 @@ func TestFilter_ToSQLCopiesArgs(t *testing.T) {
 
 func TestFilter_CustomMakerPreservesLogicalBoundary(t *testing.T) {
 	where := way.F().
-		And(NewSQL("a = ? OR b = ?", 1, 2)).
+		And(NewSQL("a = $? OR b = $?", 1, 2)).
 		Equal("c", 3)
 	script := where.ToSQL()
 
-	assert(script, "( ( a = ? OR b = ? ) AND c = ? )")
+	assert(script, "( ( a = $? OR b = $? ) AND c = $? )")
 	if !reflect.DeepEqual(script.Args, []any{1, 2, 3}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
 
 	partiallyParenthesized := way.F().
-		And(NewSQL("(a = ?) OR b = ?", 1, 2)).
+		And(NewSQL("(a = $?) OR b = $?", 1, 2)).
 		Equal("c", 3).
 		ToSQL()
-	assert(partiallyParenthesized, "( ( (a = ?) OR b = ? ) AND c = ? )")
+	assert(partiallyParenthesized, "( ( (a = $?) OR b = $? ) AND c = $? )")
 
 	negated := way.F().
-		And(NewSQL("a = ? OR b = ?", 1, 2)).
+		And(NewSQL("a = $? OR b = $?", 1, 2)).
 		Not().
 		ToSQL()
-	assert(negated, "NOT ( ( a = ? OR b = ? ) )")
+	assert(negated, "NOT ( ( a = $? OR b = $? ) )")
 }
 
 func TestFilter_TypedNilMaker(t *testing.T) {
@@ -526,7 +526,7 @@ func TestFilter_PreservesPointerDriverValuer(t *testing.T) {
 		Like("like_value", value)
 	script := where.ToSQL()
 
-	assert(script, "( equal_value = ? AND range_value BETWEEN ? AND ? AND like_value LIKE ? )")
+	assert(script, "( equal_value = $? AND range_value BETWEEN $? AND $? AND like_value LIKE $? )")
 	if len(script.Args) != 4 {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -546,7 +546,7 @@ func TestFilter_PreservesPointerDriverValuer(t *testing.T) {
 	where.ToEmpty()
 	where.In("in_value", value)
 	inSQL := where.ToSQL()
-	assert(inSQL, "in_value = ?")
+	assert(inSQL, "in_value = $?")
 	if len(inSQL.Args) != 1 || inSQL.Args[0] != value {
 		t.Fatalf("single-value IN lost driver.Valuer identity: %#v", inSQL.Args)
 	}
@@ -557,7 +557,7 @@ func TestFilter_DiscardsNullDriverValuerFromNotIn(t *testing.T) {
 	where := way.F().NotIn(cst.Id, 1, value, 2)
 	script := where.ToSQL()
 
-	assert(script, "id NOT IN ( ?, ? )")
+	assert(script, "id NOT IN ( $?, $? )")
 	if !reflect.DeepEqual(script.Args, []any{1, 2}) {
 		t.Fatalf("unexpected args: %#v", script.Args)
 	}
@@ -574,7 +574,7 @@ func TestFilter_AnyCompare(t *testing.T) {
 				ToSelect(),
 		)
 	})
-	assert(where, "age > ANY ( SELECT AVG(age) AS age FROM account WHERE ( age >= ? ) )")
+	assert(where, "age > ANY ( SELECT AVG(age) AS age FROM account WHERE ( age >= $? ) )")
 }
 
 func TestFilter_CompareEqual(t *testing.T) {
@@ -636,14 +636,14 @@ func TestStringFilter(t *testing.T) {
 		Int64Between(updatedAt, &updatedAtValue).
 		Float64Between(salary, &salaryValue).
 		StringBetween(name, &nameValue)
-	assert(where, "( created_at BETWEEN ? AND ? AND updated_at BETWEEN ? AND ? AND salary BETWEEN ? AND ? AND name BETWEEN ? AND ? )")
+	assert(where, "( created_at BETWEEN $? AND $? AND updated_at BETWEEN $? AND $? AND salary BETWEEN $? AND $? AND name BETWEEN $? AND $? )")
 
 	where.ToEmpty()
 	way.NewStringFilter(where).
 		IntIn(id, &idValue).
 		Int64In(id, &idValue).
 		StringIn(id, &idValue)
-	assert(where, "( id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) AND id IN ( ?, ?, ? ) )")
+	assert(where, "( id IN ( $?, $?, $? ) AND id IN ( $?, $?, $? ) AND id IN ( $?, $?, $? ) )")
 
 	where.ToEmpty()
 	like := ""
@@ -652,12 +652,12 @@ func TestStringFilter(t *testing.T) {
 
 	like = "Jack"
 	where.GroupLike(like, email, name, username)
-	assert(where, "( email LIKE ? OR name LIKE ? OR username LIKE ? )")
+	assert(where, "( email LIKE $? OR name LIKE $? OR username LIKE $? )")
 
 	where.ToEmpty()
 	like = "Jerry"
 	where.GroupLikeSearch(like, email, name)
-	assert(where, "( email LIKE ? OR name LIKE ? )")
+	assert(where, "( email LIKE $? OR name LIKE $? )")
 
 	where.ToEmpty()
 	like = ""
@@ -670,7 +670,7 @@ func TestStringFilter_StringBetweenOpenBounds(t *testing.T) {
 	left := way.F()
 	way.NewStringFilter(left).StringBetween("name", &leftValue)
 	leftSQL := left.ToSQL()
-	assert(leftSQL, "name <= ?")
+	assert(leftSQL, "name <= $?")
 	if !reflect.DeepEqual(leftSQL.Args, []any{"m"}) {
 		t.Fatalf("unexpected left args: %#v", leftSQL.Args)
 	}
@@ -679,7 +679,7 @@ func TestStringFilter_StringBetweenOpenBounds(t *testing.T) {
 	right := way.F()
 	way.NewStringFilter(right).StringBetween("name", &rightValue)
 	rightSQL := right.ToSQL()
-	assert(rightSQL, "name >= ?")
+	assert(rightSQL, "name >= $?")
 	if !reflect.DeepEqual(rightSQL.Args, []any{"m"}) {
 		t.Fatalf("unexpected right args: %#v", rightSQL.Args)
 	}
@@ -716,7 +716,7 @@ func TestTimeFilter(t *testing.T) {
 		ThisYear(createdAt).
 		LastYear(createdAt).
 		LastYears(createdAt, 3)
-	assert(where, "( created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND created_at BETWEEN ? AND ? )")
+	assert(where, "( created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? AND created_at BETWEEN $? AND $? )")
 }
 
 func TestTimeFilter_UsesConfiguredLocation(t *testing.T) {

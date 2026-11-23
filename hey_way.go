@@ -3,7 +3,6 @@
 package hey
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -63,9 +62,9 @@ func argValueToString(i any) string {
 
 // SQLToString Use parameter values to replace placeholders in SQL statements and build a visual SQL script.
 // Warning: Binary byte slice will be converted to hexadecimal strings.
-// Placeholder '?' characters inside single-quoted string literals (including
-// escape-string literals E'...'), line comments (--), block comments (/* ... */),
-// dollar-quoted strings and JSONB operators are left unchanged, mirroring prepare63236.
+// Placeholder marker '$?' sequences inside single-quoted string literals (including
+// escape-string literals E'...'), line comments (--), block comments (/* ... */) and
+// dollar-quoted strings are left unchanged, mirroring prepareDollar.
 func SQLToString(script *SQL) string {
 	if script == nil {
 		return cst.Empty
@@ -74,130 +73,42 @@ func SQLToString(script *SQL) string {
 	if counts == 0 {
 		return script.Prepare
 	}
+	// Fast path: without any placeholder marker the statement is returned as-is.
+	if !strings.Contains(script.Prepare, cst.Placeholder) {
+		return script.Prepare
+	}
 	index := 0
-	origin := []byte(script.Prepare)
+	origin := script.Prepare
 	result := poolGetStringBuilder()
 	defer poolPutStringBuilder(result)
-	length := len(origin)
-	c36 := cst.Dollar[0]      // $
-	c63 := cst.Placeholder[0] // ?
-	c92 := cst.Backslash[0]   // \
-	for i := 0; i < length; {
+	result.Grow(len(origin))
+	for i := 0; i < len(origin); {
 		switch {
 		case origin[i] == cst.SingleQuotationMark[0]:
-			// Escape-string literals (E'...') honor backslash escapes; standard string
-			// literals treat backslash as a regular character (standard_conforming_strings=on).
-			escape := isEscapeString(origin, i)
-			result.WriteByte(origin[i])
-			i++
-			for i < length {
-				if escape && origin[i] == c92 && i+1 < length {
-					result.WriteByte(origin[i])
-					result.WriteByte(origin[i+1])
-					i += 2
-					continue
-				}
-				result.WriteByte(origin[i])
-				if origin[i] == cst.SingleQuotationMark[0] {
-					if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
-						result.WriteByte(origin[i+1])
-						i += 2
-						continue
-					}
-					i++
-					break
-				}
-				i++
-			}
-		case origin[i] == '-' && i+1 < length && origin[i+1] == '-':
-			for i < length {
-				result.WriteByte(origin[i])
-				if origin[i] == '\n' {
-					i++
-					break
-				}
-				i++
-			}
-		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
-			// PostgreSQL supports nested block comments, so track depth instead of
-			// stopping at the first '*/'.
-			depth := 1
-			result.WriteByte(origin[i])
-			result.WriteByte(origin[i+1])
-			i += 2
-			for i < length && depth > 0 {
-				if origin[i] == '/' && i+1 < length && origin[i+1] == '*' {
-					result.WriteByte(origin[i])
-					result.WriteByte(origin[i+1])
-					i += 2
-					depth++
-					continue
-				}
-				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
-					result.WriteByte(origin[i])
-					result.WriteByte(origin[i+1])
-					i += 2
-					depth--
-					continue
-				}
-				result.WriteByte(origin[i])
-				i++
-			}
-		case origin[i] == cst.Dollar[0]:
-			delimiter := dollarQuoteDelimiter(origin, i)
-			if delimiter == nil {
-				result.WriteByte(origin[i])
-				i++
-				break
-			}
-			result.Write(delimiter)
-			i += len(delimiter)
-			for i < length {
-				if bytes.HasPrefix(origin[i:], delimiter) {
-					result.Write(delimiter)
-					i += len(delimiter)
-					break
-				}
-				result.WriteByte(origin[i])
-				i++
-			}
-		case origin[i] == c63:
-			// JSONB operators '?|' and '?&' are not placeholders.
-			if i+1 < length && (origin[i+1] == '|' || origin[i+1] == '&') {
-				result.WriteByte(origin[i])
-				i++
-				continue
-			}
-			// A '?' followed (ignoring whitespace) by a string literal is the JSONB
-			// existence operator (jsonb ? 'key'), not a placeholder. The literal may be
-			// single-quoted, escape-string (E'...'), or dollar-quoted ($$...$$).
-			j := i + 1
-			for j < length && (origin[j] == ' ' || origin[j] == '\t' || origin[j] == '\n' || origin[j] == '\r') {
-				j++
-			}
-			isJSONBExistence := false
-			if j < length {
-				switch {
-				case origin[j] == cst.SingleQuotationMark[0]:
-					isJSONBExistence = true
-				case (origin[j] == 'E' || origin[j] == 'e') && j+1 < length && origin[j+1] == cst.SingleQuotationMark[0]:
-					isJSONBExistence = true
-				case origin[j] == c36 && dollarQuoteDelimiter(origin, j) != nil:
-					isJSONBExistence = true
-				}
-			}
-			if isJSONBExistence {
-				result.WriteByte(origin[i])
-				i++
-				continue
-			}
+			i = scanSingleQuoted(origin, i, result)
+		case isLineComment(origin, i):
+			i = scanLineComment(origin, i, result)
+		case isBlockComment(origin, i):
+			i = scanBlockComment(origin, i, result)
+		case isPlaceholderMarker(origin, i):
+			// The placeholder marker '$?' is checked before the dollar-quoted string
+			// case. dollarQuoteDelimiter never matches '$?' because '?' is not a
+			// valid dollar-quote tag character.
 			if index < counts {
 				result.WriteString(argValueToString(script.Args[index]))
 				index++
 			} else {
-				result.WriteByte(origin[i])
+				result.WriteString(cst.Placeholder)
 			}
-			i++
+			i += len(cst.Placeholder)
+		case origin[i] == cst.Dollar[0]:
+			delimiter := dollarQuoteDelimiter(origin, i)
+			if delimiter == cst.Empty {
+				result.WriteByte(origin[i])
+				i++
+				break
+			}
+			i = scanDollarQuoted(origin, i, delimiter, result)
 		default:
 			result.WriteByte(origin[i])
 			i++
@@ -282,133 +193,44 @@ func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 	}
 }
 
-// prepare63236 Replace '?' in the SQL statement with '$n'.
-// '?' characters inside single-quoted string literals (including escape-string
-// literals E'...'), line comments (--) and block comments (/* ... */) are left
-// unchanged because they are not placeholders.
-func prepare63236(prepare string) string {
+// prepareDollar Replace the placeholder marker '$?' in the SQL statement with '$n'.
+// Marker sequences inside single-quoted string literals (including escape-string
+// literals E'...'), line comments (--), block comments (/* ... */) and dollar-quoted
+// strings are left unchanged because they are not placeholders.
+func prepareDollar(prepare string) string {
+	// Fast path: without any placeholder marker the statement is returned as-is.
+	if !strings.Contains(prepare, cst.Placeholder) {
+		return prepare
+	}
 	latest := poolGetStringBuilder()
 	defer poolPutStringBuilder(latest)
-	origin := []byte(prepare)
-	length := len(origin)
-	c36 := cst.Dollar[0]      // $
-	c63 := cst.Placeholder[0] // ?
-	c92 := cst.Backslash[0]   // \
+	origin := prepare
+	latest.Grow(len(origin))
 	num := 0
-	for i := 0; i < length; {
+	for i := 0; i < len(origin); {
 		switch {
 		case origin[i] == cst.SingleQuotationMark[0]:
-			// Escape-string literals (E'...') honor backslash escapes; standard string
-			// literals treat backslash as a regular character (standard_conforming_strings=on).
-			escape := isEscapeString(origin, i)
-			latest.WriteByte(origin[i])
-			i++
-			for i < length {
-				if escape && origin[i] == c92 && i+1 < length {
-					latest.WriteByte(origin[i])
-					latest.WriteByte(origin[i+1])
-					i += 2
-					continue
-				}
-				latest.WriteByte(origin[i])
-				if origin[i] == cst.SingleQuotationMark[0] {
-					if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
-						latest.WriteByte(origin[i+1])
-						i += 2
-						continue
-					}
-					i++
-					break
-				}
-				i++
-			}
-		case origin[i] == '-' && i+1 < length && origin[i+1] == '-':
-			for i < length {
-				latest.WriteByte(origin[i])
-				if origin[i] == '\n' {
-					i++
-					break
-				}
-				i++
-			}
-		case origin[i] == '/' && i+1 < length && origin[i+1] == '*':
-			// PostgreSQL supports nested block comments, so track depth instead of
-			// stopping at the first '*/'.
-			depth := 1
-			latest.WriteByte(origin[i])
-			latest.WriteByte(origin[i+1])
-			i += 2
-			for i < length && depth > 0 {
-				if origin[i] == '/' && i+1 < length && origin[i+1] == '*' {
-					latest.WriteByte(origin[i])
-					latest.WriteByte(origin[i+1])
-					i += 2
-					depth++
-					continue
-				}
-				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
-					latest.WriteByte(origin[i])
-					latest.WriteByte(origin[i+1])
-					i += 2
-					depth--
-					continue
-				}
-				latest.WriteByte(origin[i])
-				i++
-			}
-		case origin[i] == c36:
+			i = scanSingleQuoted(origin, i, latest)
+		case isLineComment(origin, i):
+			i = scanLineComment(origin, i, latest)
+		case isBlockComment(origin, i):
+			i = scanBlockComment(origin, i, latest)
+		case isPlaceholderMarker(origin, i):
+			// The placeholder marker '$?' is checked before the dollar-quoted string
+			// case. dollarQuoteDelimiter never matches '$?' because '?' is not a
+			// valid dollar-quote tag character.
+			num++
+			latest.WriteByte(cst.Dollar[0])
+			latest.WriteString(strconv.Itoa(num))
+			i += len(cst.Placeholder)
+		case origin[i] == cst.Dollar[0]:
 			delimiter := dollarQuoteDelimiter(origin, i)
-			if delimiter == nil {
+			if delimiter == cst.Empty {
 				latest.WriteByte(origin[i])
 				i++
 				break
 			}
-			latest.Write(delimiter)
-			i += len(delimiter)
-			for i < length {
-				if bytes.HasPrefix(origin[i:], delimiter) {
-					latest.Write(delimiter)
-					i += len(delimiter)
-					break
-				}
-				latest.WriteByte(origin[i])
-				i++
-			}
-		case origin[i] == c63:
-			// The PostgreSQL JSONB operators '?|' and '?&' are two-character tokens and
-			// are never placeholders.
-			if i+1 < length && (origin[i+1] == '|' || origin[i+1] == '&') {
-				latest.WriteByte(origin[i])
-				i++
-				continue
-			}
-			// A '?' followed (ignoring whitespace) by a string literal is the JSONB
-			// existence operator (jsonb ? 'key'), not a placeholder. The literal may be
-			// single-quoted, escape-string (E'...'), or dollar-quoted ($$...$$).
-			j := i + 1
-			for j < length && (origin[j] == ' ' || origin[j] == '\t' || origin[j] == '\n' || origin[j] == '\r') {
-				j++
-			}
-			isJSONBExistence := false
-			if j < length {
-				switch {
-				case origin[j] == cst.SingleQuotationMark[0]:
-					isJSONBExistence = true
-				case (origin[j] == 'E' || origin[j] == 'e') && j+1 < length && origin[j+1] == cst.SingleQuotationMark[0]:
-					isJSONBExistence = true
-				case origin[j] == c36 && dollarQuoteDelimiter(origin, j) != nil:
-					isJSONBExistence = true
-				}
-			}
-			if isJSONBExistence {
-				latest.WriteByte(origin[i])
-				i++
-				continue
-			}
-			num++
-			latest.WriteByte(c36)
-			latest.WriteString(strconv.Itoa(num))
-			i++
+			i = scanDollarQuoted(origin, i, delimiter, latest)
 		default:
 			latest.WriteByte(origin[i])
 			i++
@@ -417,12 +239,165 @@ func prepare63236(prepare string) string {
 	return latest.String()
 }
 
+// prepareQuestionMark Replace the placeholder marker '$?' in the SQL statement with '?'.
+// Marker sequences inside single-quoted string literals (including escape-string
+// literals E'...'), line comments (--), block comments (/* ... */) and dollar-quoted
+// strings are left unchanged because they are not placeholders.
+func prepareQuestionMark(prepare string) string {
+	// Fast path: without any placeholder marker the statement is returned as-is.
+	if !strings.Contains(prepare, cst.Placeholder) {
+		return prepare
+	}
+	latest := poolGetStringBuilder()
+	defer poolPutStringBuilder(latest)
+	origin := prepare
+	latest.Grow(len(origin))
+	for i := 0; i < len(origin); {
+		switch {
+		case origin[i] == cst.SingleQuotationMark[0]:
+			i = scanSingleQuoted(origin, i, latest)
+		case isLineComment(origin, i):
+			i = scanLineComment(origin, i, latest)
+		case isBlockComment(origin, i):
+			i = scanBlockComment(origin, i, latest)
+		case isPlaceholderMarker(origin, i):
+			// The placeholder marker '$?' is checked before the dollar-quoted string
+			// case. dollarQuoteDelimiter never matches '$?' because '?' is not a
+			// valid dollar-quote tag character.
+			latest.WriteByte(cst.Placeholder[1])
+			i += len(cst.Placeholder)
+		case origin[i] == cst.Dollar[0]:
+			delimiter := dollarQuoteDelimiter(origin, i)
+			if delimiter == cst.Empty {
+				latest.WriteByte(origin[i])
+				i++
+				break
+			}
+			i = scanDollarQuoted(origin, i, delimiter, latest)
+		default:
+			latest.WriteByte(origin[i])
+			i++
+		}
+	}
+	return latest.String()
+}
+
+// isPlaceholderMarker reports whether the placeholder marker '$?' starts at index i.
+func isPlaceholderMarker(origin string, i int) bool {
+	return i+1 < len(origin) && origin[i] == cst.Placeholder[0] && origin[i+1] == cst.Placeholder[1]
+}
+
+// isLineComment reports whether a line comment starts at index i.
+func isLineComment(origin string, i int) bool {
+	return origin[i] == '-' && i+1 < len(origin) && origin[i+1] == '-'
+}
+
+// isBlockComment reports whether a block comment starts at index i.
+func isBlockComment(origin string, i int) bool {
+	return origin[i] == '/' && i+1 < len(origin) && origin[i+1] == '*'
+}
+
+// scanSingleQuoted writes the single-quoted string literal starting at index i
+// (its leading quote) to the builder and returns the index just after the literal.
+// Escape-string literals (E'...') honor backslash escapes; standard string literals
+// treat backslash as a regular character (standard_conforming_strings=on).
+func scanSingleQuoted(origin string, i int, builder *strings.Builder) int {
+	escape := isEscapeString(origin, i)
+	c92 := cst.Backslash[0]
+	length := len(origin)
+	builder.WriteByte(origin[i])
+	i++
+	for i < length {
+		if escape && origin[i] == c92 && i+1 < length {
+			builder.WriteByte(origin[i])
+			builder.WriteByte(origin[i+1])
+			i += 2
+			continue
+		}
+		builder.WriteByte(origin[i])
+		if origin[i] == cst.SingleQuotationMark[0] {
+			if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
+				builder.WriteByte(origin[i+1])
+				i += 2
+				continue
+			}
+			return i + 1
+		}
+		i++
+	}
+	return i
+}
+
+// scanLineComment writes the line comment starting at index i (its leading "--")
+// to the builder and returns the index just after the terminating newline.
+func scanLineComment(origin string, i int, builder *strings.Builder) int {
+	length := len(origin)
+	for i < length {
+		builder.WriteByte(origin[i])
+		if origin[i] == '\n' {
+			i++
+			break
+		}
+		i++
+	}
+	return i
+}
+
+// scanBlockComment writes the block comment starting at index i (its leading "/*")
+// to the builder and returns the index just after the closing "*/". PostgreSQL
+// supports nested block comments, so the nesting depth is tracked instead of
+// stopping at the first "*/".
+func scanBlockComment(origin string, i int, builder *strings.Builder) int {
+	length := len(origin)
+	depth := 1
+	builder.WriteByte(origin[i])
+	builder.WriteByte(origin[i+1])
+	i += 2
+	for i < length && depth > 0 {
+		if isBlockComment(origin, i) {
+			builder.WriteByte(origin[i])
+			builder.WriteByte(origin[i+1])
+			i += 2
+			depth++
+			continue
+		}
+		if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+			builder.WriteByte(origin[i])
+			builder.WriteByte(origin[i+1])
+			i += 2
+			depth--
+			continue
+		}
+		builder.WriteByte(origin[i])
+		i++
+	}
+	return i
+}
+
+// scanDollarQuoted writes the dollar-quoted string whose opening delimiter starts
+// at index i to the builder and returns the index just after the closing delimiter.
+func scanDollarQuoted(origin string, i int, delimiter string, builder *strings.Builder) int {
+	length := len(origin)
+	builder.WriteString(delimiter)
+	i += len(delimiter)
+	for i < length {
+		if strings.HasPrefix(origin[i:], delimiter) {
+			builder.WriteString(delimiter)
+			i += len(delimiter)
+			break
+		}
+		builder.WriteByte(origin[i])
+		i++
+	}
+	return i
+}
+
 // isEscapeString reports whether the single-quoted string literal whose leading
 // quote is at index i is an escape-string (E'...' or e'...') that honors
 // backslash escapes. The character before the leading quote must itself be 'E'
 // or 'e' and must not be part of a longer identifier (TIME'...' and NAME'...'
 // are type casts whose strings treat backslash as a regular character).
-func isEscapeString(origin []byte, i int) bool {
+func isEscapeString(origin string, i int) bool {
 	if i == 0 {
 		return false
 	}
@@ -439,20 +414,20 @@ func isEscapeString(origin []byte, i int) bool {
 }
 
 // dollarQuoteDelimiter Return the PostgreSQL dollar-quote delimiter starting at origin[i]
-// ($$ or $tag$, where tag follows unquoted-identifier rules), or nil if none starts there.
-func dollarQuoteDelimiter(origin []byte, i int) []byte {
+// ($$ or $tag$, where tag follows unquoted-identifier rules), or empty string if none starts there.
+func dollarQuoteDelimiter(origin string, i int) string {
 	if i < 0 || i >= len(origin) || origin[i] != '$' {
-		return nil
+		return cst.Empty
 	}
 	j := i + 1
 	if j < len(origin) && origin[j] == '$' {
 		return origin[i : j+1]
 	}
 	if j >= len(origin) {
-		return nil
+		return cst.Empty
 	}
 	if c := origin[j]; c != '_' && !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') {
-		return nil
+		return cst.Empty
 	}
 	for j < len(origin) {
 		c := origin[j]
@@ -465,14 +440,14 @@ func dollarQuoteDelimiter(origin []byte, i int) []byte {
 	if j < len(origin) && origin[j] == '$' {
 		return origin[i : j+1]
 	}
-	return nil
+	return cst.Empty
 }
 
 // manualPostgresql Postgresql manual.
 func manualPostgresql() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Postgresql
-	manual.Prepare = prepare63236
+	manual.Prepare = prepareDollar
 	manual.InsertOneReturningId = manual.InsertOneAndScanInsertId()
 	return manual
 }
@@ -481,6 +456,7 @@ func manualPostgresql() Manual {
 func manualSqlite() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Sqlite
+	manual.Prepare = prepareQuestionMark
 	manual.InsertOneReturningId = manual.InsertOneGetLastInsertId()
 	return manual
 }
@@ -489,6 +465,7 @@ func manualSqlite() Manual {
 func manualMysql() Manual {
 	manual := Manual{}
 	manual.DatabaseType = cst.Mysql
+	manual.Prepare = prepareQuestionMark
 	manual.InsertOneReturningId = manual.InsertOneGetLastInsertId()
 	return manual
 }
@@ -785,6 +762,29 @@ func mergeConfig(base, over *Config) *Config {
 	result := *base
 	if over.Manual.DatabaseType != cst.Empty {
 		result.Manual = over.Manual
+		// A user-provided Manual may omit the Prepare converter; fall back to the
+		// builtin converter for the declared database type, otherwise placeholder
+		// markers would be sent to the driver without rewriting.
+		if result.Manual.Prepare == nil {
+			switch result.Manual.DatabaseType {
+			case cst.Postgresql:
+				result.Manual.Prepare = prepareDollar
+			case cst.Mysql, cst.Sqlite:
+				result.Manual.Prepare = prepareQuestionMark
+			default:
+				// add more database types
+			}
+		}
+		if result.Manual.InsertOneReturningId == nil {
+			switch result.Manual.DatabaseType {
+			case cst.Postgresql:
+				result.Manual.InsertOneReturningId = result.Manual.InsertOneAndScanInsertId()
+			case cst.Mysql, cst.Sqlite:
+				result.Manual.InsertOneReturningId = result.Manual.InsertOneGetLastInsertId()
+			default:
+				// add more database types
+			}
+		}
 	}
 	if over.TxOptions != nil {
 		result.TxOptions = over.TxOptions

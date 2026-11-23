@@ -73,7 +73,7 @@ const (
 )
 
 const (
-	Placeholder      = "?"
+	Placeholder      = "$?"
 	Equal            = "="
 	NotEqual         = "<>"
 	GreaterThan      = ">"

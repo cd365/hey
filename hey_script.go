@@ -3,7 +3,6 @@
 package hey
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -335,7 +334,7 @@ func ParcelPrepare(prepare string) string {
 // prepareIsParenthesized reports whether the first opening parenthesis encloses
 // the complete SQL fragment. Parentheses inside literals and comments are ignored.
 func prepareIsParenthesized(prepare string) bool {
-	origin := []byte(strings.TrimSpace(prepare))
+	origin := strings.TrimSpace(prepare)
 	length := len(origin)
 	if length < 2 || origin[0] != cst.LeftParenthesis[0] {
 		return false
@@ -386,12 +385,12 @@ func prepareIsParenthesized(prepare string) bool {
 			}
 		case origin[i] == '$':
 			delimiter := dollarQuoteDelimiter(origin, i)
-			if delimiter == nil {
+			if delimiter == cst.Empty {
 				i++
 				continue
 			}
 			i += len(delimiter)
-			offset := bytes.Index(origin[i:], delimiter)
+			offset := strings.Index(origin[i:], delimiter)
 			if offset < 0 {
 				return false
 			}
@@ -417,7 +416,7 @@ func prepareIsParenthesized(prepare string) bool {
 }
 
 // skipSQLQuoted skips a single-, double-, or backtick-quoted SQL token.
-func skipSQLQuoted(origin []byte, index int, quote byte) (int, bool) {
+func skipSQLQuoted(origin string, index int, quote byte) (int, bool) {
 	for i := index + 1; i < len(origin); i++ {
 		if origin[i] == '\\' && i+1 < len(origin) {
 			i++
@@ -436,7 +435,7 @@ func skipSQLQuoted(origin []byte, index int, quote byte) (int, bool) {
 }
 
 // skipSQLBracketIdentifier skips a SQL Server-style bracket-quoted identifier.
-func skipSQLBracketIdentifier(origin []byte, index int) (int, bool) {
+func skipSQLBracketIdentifier(origin string, index int) (int, bool) {
 	for i := index + 1; i < len(origin); i++ {
 		if origin[i] != ']' {
 			continue

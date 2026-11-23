@@ -749,6 +749,12 @@ func (s *Table) Modify(ctx context.Context, modify any) (int64, error) {
 }
 
 // Complex Execute a set of SQL statements within a transaction.
+//
+// Warning: not safe for concurrent use. Upsert and DeleteCreate temporarily rebind
+// the underlying Table's Way to the transaction Way and restore it afterwards, so
+// the Table is mutated during execution. Never share one Table (or one Complex)
+// across goroutines; create a separate Table per concurrent transaction, e.g.
+// way.Table("your_table") for each goroutine.
 type Complex interface {
 	// Upsert Update or insert data.
 	Upsert(ctx context.Context) (updateAffectedRows int64, insertResult int64, err error)
@@ -762,6 +768,11 @@ type myComplex struct {
 	table *Table
 }
 
+// atomic Run the group within a transaction. When the Way of the Table is not
+// already inside a transaction, the Table's Way is temporarily rebound to the
+// new transaction Way and restored after the group returns. Because of this
+// rebinding, a Table and its Complex are not safe for concurrent use across
+// goroutines (see the Complex interface for details).
 func (s myComplex) atomic(ctx context.Context, group func(ctx context.Context, way *Way) error) error {
 	way := s.table.way
 	if way.IsInTransaction() {
@@ -822,6 +833,8 @@ func (s myComplex) DeleteCreate(ctx context.Context) (deleteAffectedRows int64, 
 }
 
 // NewComplex Create a Complex object.
+// Warning: the returned Complex is bound to the given Table and is not safe for
+// concurrent use (see the Complex interface for details).
 func NewComplex(table *Table) Complex {
 	return myComplex{
 		table: table,

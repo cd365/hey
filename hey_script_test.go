@@ -264,8 +264,8 @@ func TestUpdateSetComparePointerNull(t *testing.T) {
 	latest := &Row{Name: nil, Age: &age}
 	u.Compare(old, latest)
 	exprs, args := u.GetUpdate()
-	if !reflect.DeepEqual(exprs, []string{"name = ?"}) {
-		t.Fatalf("exprs = %v, want [name = ?]", exprs)
+	if !reflect.DeepEqual(exprs, []string{"name = $?"}) {
+		t.Fatalf("exprs = %v, want [name = $?]", exprs)
 	}
 	if len(args) != 1 || len(args[0]) != 1 || args[0][0] != nil {
 		t.Fatalf("args = %#v, want [[nil]]", args)
@@ -284,7 +284,7 @@ func TestUpdateSetRepeatSetThenRemove(t *testing.T) {
 	u.Set("city", "SF")
 
 	exprs, args := u.GetUpdate()
-	wantExprs := []string{"name = ?", "age = ?", "city = ?"}
+	wantExprs := []string{"name = $?", "age = $?", "city = $?"}
 	wantArgs := [][]any{{"b"}, {1}, {"SF"}}
 	if !reflect.DeepEqual(exprs, wantExprs) {
 		t.Fatalf("before remove: exprs = %v, want %v", exprs, wantExprs)
@@ -296,7 +296,7 @@ func TestUpdateSetRepeatSetThenRemove(t *testing.T) {
 	u.Remove("name")
 
 	exprs, args = u.GetUpdate()
-	wantExprs = []string{"age = ?", "city = ?"}
+	wantExprs = []string{"age = $?", "city = $?"}
 	wantArgs = [][]any{{1}, {"SF"}}
 	if !reflect.DeepEqual(exprs, wantExprs) {
 		t.Fatalf("after remove: exprs = %v, want %v", exprs, wantExprs)
@@ -309,7 +309,7 @@ func TestUpdateSetRepeatSetThenRemove(t *testing.T) {
 	// Remove should overwrite in place rather than duplicate or panic.
 	u.Set("city", "LA")
 	exprs, args = u.GetUpdate()
-	wantExprs = []string{"age = ?", "city = ?"}
+	wantExprs = []string{"age = $?", "city = $?"}
 	wantArgs = [][]any{{1}, {"LA"}}
 	if !reflect.DeepEqual(exprs, wantExprs) {
 		t.Fatalf("after re-set: exprs = %v, want %v", exprs, wantExprs)

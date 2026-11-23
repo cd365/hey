@@ -55,17 +55,17 @@ func TestTable_With(t *testing.T) {
 	table.Desc(ac("id"))
 	table.Limit(10)
 	table.Offset(0)
-	assert(table.ToSelect(), "WITH a AS ( SELECT id, name, email FROM account WHERE ( created_at BETWEEN ? AND ? ) ), b AS ( SELECT id, name, email, username FROM account WHERE ( age >= ? ) ) SELECT a.id, a.name, a.email, b.username AS username FROM a LEFT JOIN b ON a.id = b.id WHERE ( b.username IS NOT NULL ) ORDER BY a.id DESC LIMIT 10 OFFSET 0")
+	assert(table.ToSelect(), "WITH a AS ( SELECT id, name, email FROM account WHERE ( created_at BETWEEN $? AND $? ) ), b AS ( SELECT id, name, email, username FROM account WHERE ( age >= $? ) ) SELECT a.id, a.name, a.email, b.username AS username FROM a LEFT JOIN b ON a.id = b.id WHERE ( b.username IS NOT NULL ) ORDER BY a.id DESC LIMIT 10 OFFSET 0")
 
 	// Add c
 	table.With(cst.C, way.Table(account).ToSelect())
-	assert(table.ToSelect(), "WITH a AS ( SELECT id, name, email FROM account WHERE ( created_at BETWEEN ? AND ? ) ), b AS ( SELECT id, name, email, username FROM account WHERE ( age >= ? ) ), c AS ( SELECT * FROM account ) SELECT a.id, a.name, a.email, b.username AS username FROM a LEFT JOIN b ON a.id = b.id WHERE ( b.username IS NOT NULL ) ORDER BY a.id DESC LIMIT 10 OFFSET 0")
+	assert(table.ToSelect(), "WITH a AS ( SELECT id, name, email FROM account WHERE ( created_at BETWEEN $? AND $? ) ), b AS ( SELECT id, name, email, username FROM account WHERE ( age >= $? ) ), c AS ( SELECT * FROM account ) SELECT a.id, a.name, a.email, b.username AS username FROM a LEFT JOIN b ON a.id = b.id WHERE ( b.username IS NOT NULL ) ORDER BY a.id DESC LIMIT 10 OFFSET 0")
 
 	// Delete c
 	table.WithFunc(func(w SQLWith) {
 		w.Del(cst.C)
 	})
-	assert(table.ToSelect(), "WITH a AS ( SELECT id, name, email FROM account WHERE ( created_at BETWEEN ? AND ? ) ), b AS ( SELECT id, name, email, username FROM account WHERE ( age >= ? ) ) SELECT a.id, a.name, a.email, b.username AS username FROM a LEFT JOIN b ON a.id = b.id WHERE ( b.username IS NOT NULL ) ORDER BY a.id DESC LIMIT 10 OFFSET 0")
+	assert(table.ToSelect(), "WITH a AS ( SELECT id, name, email FROM account WHERE ( created_at BETWEEN $? AND $? ) ), b AS ( SELECT id, name, email, username FROM account WHERE ( age >= $? ) ) SELECT a.id, a.name, a.email, b.username AS username FROM a LEFT JOIN b ON a.id = b.id WHERE ( b.username IS NOT NULL ) ORDER BY a.id DESC LIMIT 10 OFFSET 0")
 }
 
 func TestTable_Select(t *testing.T) {
@@ -165,13 +165,13 @@ func TestTable_Table(t *testing.T) {
 	table.ToEmpty()
 	subquery := way.Table(account).
 		Where(
-			NewSQL("id IN ( ?, ?, ? )", 1, 2, 3),
+			NewSQL("id IN ( $?, $?, $? )", 1, 2, 3),
 		).
 		Select("id", "name", "age").
 		ToSelect()
 	subquery.Prepare = ParcelPrepare(subquery.Prepare)
 	table.Table(subquery).Alias(cst.A).Asc("id").Limit(10).Offset(10)
-	assert(table.ToSelect(), "SELECT * FROM ( SELECT id, name, age FROM account WHERE ( id IN ( ?, ?, ? ) ) ) AS a ORDER BY id ASC LIMIT 10 OFFSET 10")
+	assert(table.ToSelect(), "SELECT * FROM ( SELECT id, name, age FROM account WHERE ( id IN ( $?, $?, $? ) ) ) AS a ORDER BY id ASC LIMIT 10 OFFSET 10")
 }
 
 func TestTable_Alias(t *testing.T) {
@@ -215,13 +215,13 @@ func TestTable_Where(t *testing.T) {
 	where := way.F()
 	where.Equal("id", 1)
 	table.Where(where)
-	assert(table.ToSelect(), "SELECT * FROM account WHERE ( id = ? )")
+	assert(table.ToSelect(), "SELECT * FROM account WHERE ( id = $? )")
 
 	table.WhereFunc(func(f Filter) {
 		f.ToEmpty()
 		f.Between("status", 1, 3)
 	})
-	assert(table.ToSelect(), "SELECT * FROM account WHERE ( status BETWEEN ? AND ? )")
+	assert(table.ToSelect(), "SELECT * FROM account WHERE ( status BETWEEN $? AND $? )")
 
 	table.ToEmpty()
 
@@ -243,19 +243,19 @@ func TestTable_Where(t *testing.T) {
 		where.ToEmpty()
 		parse.Int64Between("created_at", &createdAt)
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at >= ? )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at >= $? )")
 
 		createdAt = ",1701234567"
 		where.ToEmpty()
 		parse.Int64Between("created_at", &createdAt)
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at <= ? )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at <= $? )")
 
 		createdAt = "1701234567,1711234567"
 		where.ToEmpty()
 		parse.Int64Between("created_at", &createdAt)
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at BETWEEN ? AND ? )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at BETWEEN $? AND $? )")
 	}
 
 	{
@@ -274,13 +274,13 @@ func TestTable_Where(t *testing.T) {
 		where.ToEmpty()
 		parse.StringIn("username", &username)
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( username = ? )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( username = $? )")
 
 		username = "username1,username2,username3"
 		where.ToEmpty()
 		parse.StringIn("username", &username)
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( username IN ( ?, ?, ? ) )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( username IN ( $?, $?, $? ) )")
 	}
 
 	{
@@ -299,7 +299,7 @@ func TestTable_Where(t *testing.T) {
 		where.ToEmpty()
 		where.GroupLike(like, "name", "username", "email")
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( name LIKE ? OR username LIKE ? OR email LIKE ? )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( name LIKE $? OR username LIKE $? OR email LIKE $? )")
 
 		where.ToEmpty()
 		where.GroupLike(like, "name", "username")
@@ -314,19 +314,19 @@ func TestTable_Where(t *testing.T) {
 				g.Use(where)
 			})
 		})
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( ( email = ? AND ( name LIKE ? OR username LIKE ? ) ) OR ( age >= ? AND ( name LIKE ? OR username LIKE ? ) ) )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( ( email = $? AND ( name LIKE $? OR username LIKE $? ) ) OR ( age >= $? AND ( name LIKE $? OR username LIKE $? ) ) )")
 	}
 
 	{
 		where.ToEmpty()
 		way.NewTimeFilter(where).LastMinutes("created_at", 15)
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at BETWEEN ? AND ? )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( created_at BETWEEN $? AND $? )")
 
 		where.ToEmpty()
 		way.NewTimeFilter(where).LastHours("updated_at", 24)
 		table.Where(where)
-		assert(table.ToSelect(), "SELECT * FROM account WHERE ( updated_at BETWEEN ? AND ? )")
+		assert(table.ToSelect(), "SELECT * FROM account WHERE ( updated_at BETWEEN $? AND $? )")
 	}
 }
 
@@ -394,7 +394,7 @@ func TestTable_Window(t *testing.T) {
 		query.Desc(ac(id))
 		query.Desc(ac(serialNum))
 		query.Limit(1)
-		assert(query.ToSelect(), "SELECT a.id AS id, a.name, a.email, a.department_id, MAX(a.department_id) OVER ( PARTITION BY a.department_id ORDER BY a.id DESC ) AS max_salary, AVG(a.department_id) OVER ( PARTITION BY a.department_id ORDER BY a.id DESC ) AS avg_salary, MIN(a.department_id) OVER ( PARTITION BY a.department_id ORDER BY a.id DESC ) AS min_salary, b.name AS department_name, COALESCE(b.created_at,0) AS department_created_at FROM employee AS a LEFT JOIN company AS b ON a.department_id = b.id WHERE ( a.id > ? ) ORDER BY a.id DESC, a.serial_num DESC LIMIT 1")
+		assert(query.ToSelect(), "SELECT a.id AS id, a.name, a.email, a.department_id, MAX(a.department_id) OVER ( PARTITION BY a.department_id ORDER BY a.id DESC ) AS max_salary, AVG(a.department_id) OVER ( PARTITION BY a.department_id ORDER BY a.id DESC ) AS avg_salary, MIN(a.department_id) OVER ( PARTITION BY a.department_id ORDER BY a.id DESC ) AS min_salary, b.name AS department_name, COALESCE(b.created_at,0) AS department_created_at FROM employee AS a LEFT JOIN company AS b ON a.department_id = b.id WHERE ( a.id > $? ) ORDER BY a.id DESC, a.serial_num DESC LIMIT 1")
 	}
 
 	// With window alias
@@ -428,7 +428,7 @@ func TestTable_Window(t *testing.T) {
 		query.Desc(ac(id))
 		query.Desc(ac(serialNum))
 		query.Limit(1)
-		assert(query.ToSelect(), "SELECT a.id AS id, a.name, a.email, a.department_id, MAX(a.department_id) OVER wa AS max_salary, AVG(a.department_id) OVER wa AS avg_salary, MIN(a.department_id) OVER wa AS min_salary, b.name AS department_name, COALESCE(b.created_at,0) AS department_created_at FROM employee AS a LEFT JOIN company AS b ON a.department_id = b.id WHERE ( a.id > ? ) WINDOW wa AS ( PARTITION BY a.department_id ORDER BY a.id DESC ) ORDER BY a.id DESC, a.serial_num DESC LIMIT 1")
+		assert(query.ToSelect(), "SELECT a.id AS id, a.name, a.email, a.department_id, MAX(a.department_id) OVER wa AS max_salary, AVG(a.department_id) OVER wa AS avg_salary, MIN(a.department_id) OVER wa AS min_salary, b.name AS department_name, COALESCE(b.created_at,0) AS department_created_at FROM employee AS a LEFT JOIN company AS b ON a.department_id = b.id WHERE ( a.id > $? ) WINDOW wa AS ( PARTITION BY a.department_id ORDER BY a.id DESC ) ORDER BY a.id DESC, a.serial_num DESC LIMIT 1")
 	}
 }
 
@@ -480,7 +480,7 @@ func TestTable_Exists(t *testing.T) {
 	where := way.F()
 	where.Equal(cst.Id, 1)
 	table.Where(where)
-	assert(table.ToExists(), "SELECT EXISTS ( SELECT 1 FROM account WHERE ( id = ? ) ) AS a")
+	assert(table.ToExists(), "SELECT EXISTS ( SELECT 1 FROM account WHERE ( id = $? ) ) AS a")
 
 	{
 		table.ToEmpty()
@@ -491,7 +491,7 @@ func TestTable_Exists(t *testing.T) {
 		subquery.Prepare = ParcelPrepare(subquery.Prepare)
 		table.Table(subquery)
 		table.Alias(cst.B)
-		assert(table.ToExists(), "SELECT EXISTS ( SELECT 1 FROM ( SELECT id, username FROM account WHERE ( status = ? ) ORDER BY id DESC LIMIT 1 ) AS b ) AS a")
+		assert(table.ToExists(), "SELECT EXISTS ( SELECT 1 FROM ( SELECT id, username FROM account WHERE ( status = $? ) ORDER BY id DESC LIMIT 1 ) AS b ) AS a")
 	}
 }
 
@@ -501,7 +501,7 @@ func TestTable_Insert(t *testing.T) {
 		i.ColumnValue("name", "name1")
 		i.ColumnValue("age", 18)
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( name, age ) VALUES ( ?, ? )")
+	assert(table.ToInsert(), "INSERT INTO account ( name, age ) VALUES ( $?, $? )")
 
 	table.ToEmpty()
 	table.InsertFunc(func(i SQLInsert) {
@@ -512,7 +512,7 @@ func TestTable_Insert(t *testing.T) {
 			r.SetExecute(r.QueryRowScan())
 		})
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( name, age ) VALUES ( ?, ? ) RETURNING id")
+	assert(table.ToInsert(), "INSERT INTO account ( name, age ) VALUES ( $?, $? ) RETURNING id")
 
 	table.ToEmpty()
 	table.InsertFunc(func(i SQLInsert) {
@@ -523,7 +523,7 @@ func TestTable_Insert(t *testing.T) {
 		i.Default("created_at", now.Unix())
 		i.Default("updated_at", now.Unix())
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( name, age, integrity_score, created_at, updated_at ) VALUES ( ?, ?, ?, ?, ? )")
+	assert(table.ToInsert(), "INSERT INTO account ( name, age, integrity_score, created_at, updated_at ) VALUES ( $?, $?, $?, $?, $? )")
 
 	table.ToEmpty()
 	table.InsertFunc(func(i SQLInsert) {
@@ -535,7 +535,7 @@ func TestTable_Insert(t *testing.T) {
 		i.Default("created_at", now.Unix())
 		i.Default("updated_at", now.Unix())
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( ?, ?, ?, ? ) RETURNING id")
+	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( $?, $?, $?, $? ) RETURNING id")
 
 	table.ToEmpty()
 	table.InsertFunc(func(i SQLInsert) {
@@ -547,7 +547,7 @@ func TestTable_Insert(t *testing.T) {
 		i.Default("created_at", now.Unix())
 		i.Default("updated_at", now.Unix())
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( ?, ?, ?, ? ) RETURNING id")
+	assert(table.ToInsert(), "INSERT INTO account ( age, username, created_at, updated_at ) VALUES ( $?, $?, $?, $? ) RETURNING id")
 
 	// Insert one and return the id, *Table.Insert will return the id of the inserted row.
 	switch way.Config().Manual.DatabaseType {
@@ -560,7 +560,7 @@ func TestTable_Insert(t *testing.T) {
 			i.Default("updated_at", now.Unix())
 			i.ReturningId()
 		})
-		assert(table.ToInsert(), "INSERT INTO account ( username, created_at, updated_at ) VALUES ( ?, ?, ? )")
+		assert(table.ToInsert(), "INSERT INTO account ( username, created_at, updated_at ) VALUES ( $?, $?, $? )")
 	case cst.Postgresql:
 		table.ToEmpty()
 		table.InsertFunc(func(i SQLInsert) {
@@ -570,7 +570,7 @@ func TestTable_Insert(t *testing.T) {
 			i.Default("updated_at", now.Unix())
 			i.ReturningId()
 		})
-		assert(table.ToInsert(), "INSERT INTO account ( username, created_at, updated_at ) VALUES ( ?, ?, ? ) RETURNING id")
+		assert(table.ToInsert(), "INSERT INTO account ( username, created_at, updated_at ) VALUES ( $?, $?, $? ) RETURNING id")
 
 		table.ToEmpty()
 		table.InsertFunc(func(i SQLInsert) {
@@ -587,7 +587,7 @@ func TestTable_Insert(t *testing.T) {
 				})
 			})
 		})
-		assert(table.ToInsert(), "INSERT INTO account ( email, username, nickname, created_at, updated_at ) VALUES ( ?, ?, ?, ?, ? ) ON CONFLICT ( email, username ) DO UPDATE SET nickname = EXCLUDED.nickname, updated_at = EXCLUDED.updated_at")
+		assert(table.ToInsert(), "INSERT INTO account ( email, username, nickname, created_at, updated_at ) VALUES ( $?, $?, $?, $?, $? ) ON CONFLICT ( email, username ) DO UPDATE SET nickname = EXCLUDED.nickname, updated_at = EXCLUDED.updated_at")
 	default:
 
 	}
@@ -603,7 +603,7 @@ func TestTable_Insert(t *testing.T) {
 			way.Table(account).Select("age", "name", "username").Where(where).ToSelect(),
 		)
 	})
-	assert(table.ToInsert(), "INSERT INTO account ( age, name, username ) SELECT age, name, username FROM account WHERE ( status = ? AND created_at BETWEEN ? AND ? AND deleted_at = ? )")
+	assert(table.ToInsert(), "INSERT INTO account ( age, name, username ) SELECT age, name, username FROM account WHERE ( status = $? AND created_at BETWEEN $? AND $? AND deleted_at = $? )")
 }
 
 func TestTable_Delete(t *testing.T) {
@@ -614,17 +614,17 @@ func TestTable_Delete(t *testing.T) {
 	table.WhereFunc(func(f Filter) {
 		f.Equal(cst.Id, 1)
 	})
-	assert(table.ToDelete(), "DELETE FROM account WHERE ( id = ? )")
+	assert(table.ToDelete(), "DELETE FROM account WHERE ( id = $? )")
 
 	table.Labels("delete one")
-	assert(table.ToDelete(), "/*delete one*/ DELETE FROM account WHERE ( id = ? )")
+	assert(table.ToDelete(), "/*delete one*/ DELETE FROM account WHERE ( id = $? )")
 
 	where := way.F()
 	table.ToEmpty()
 	where.In(cst.Id, 1, 2, 3)
 	where.IsNull("deleted_at")
 	table.Where(where)
-	assert(table.ToDelete(), "DELETE FROM account WHERE ( id IN ( ?, ?, ? ) AND deleted_at IS NULL )")
+	assert(table.ToDelete(), "DELETE FROM account WHERE ( id IN ( $?, $?, $? ) AND deleted_at IS NULL )")
 }
 
 func TestTable_Update(t *testing.T) {
@@ -643,12 +643,12 @@ func TestTable_Update(t *testing.T) {
 		f.Equal(cst.Id, 1)
 		u.Set("username", "username1")
 	})
-	assert(table.ToUpdate(), "/*update example*/ UPDATE account SET username = ? WHERE ( id = ? )")
+	assert(table.ToUpdate(), "/*update example*/ UPDATE account SET username = $? WHERE ( id = $? )")
 
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) {
 		u.Default("updated_at", way.Now().Unix())
 	})
-	assert(table.ToUpdate(), "/*update example*/ UPDATE account SET username = ?, updated_at = ? WHERE ( id = ? )")
+	assert(table.ToUpdate(), "/*update example*/ UPDATE account SET username = $?, updated_at = $? WHERE ( id = $? )")
 
 	table.ToEmpty()
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) {
@@ -657,7 +657,7 @@ func TestTable_Update(t *testing.T) {
 		u.Set("username", "username1")
 		u.Incr("version_num", 1)
 	})
-	assert(table.ToUpdate(), "UPDATE account SET username = ?, version_num = version_num + ? WHERE ( id = ? )")
+	assert(table.ToUpdate(), "UPDATE account SET username = $?, version_num = version_num + $? WHERE ( id = $? )")
 
 	table.ToEmpty()
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) {
@@ -667,7 +667,7 @@ func TestTable_Update(t *testing.T) {
 		})
 		u.Default("updated_at", way.Now().Unix())
 	})
-	assert(table.ToUpdate(), "UPDATE account SET username = ?, updated_at = ? WHERE ( id = ? )")
+	assert(table.ToUpdate(), "UPDATE account SET username = $?, updated_at = $? WHERE ( id = $? )")
 
 	table.ToEmpty()
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) {
@@ -679,7 +679,7 @@ func TestTable_Update(t *testing.T) {
 		u.Assign("column1", "column2")
 		u.Default("updated_at", way.Now().Unix())
 	})
-	assert(table.ToUpdate(), "UPDATE account SET username = ?, email = NULL, column1 = column2, updated_at = ? WHERE ( id = ? )")
+	assert(table.ToUpdate(), "UPDATE account SET username = $?, email = NULL, column1 = column2, updated_at = $? WHERE ( id = $? )")
 
 	table.ToEmpty()
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) {
@@ -693,7 +693,7 @@ func TestTable_Update(t *testing.T) {
 		u.Assign("column1", "column2")
 		u.Default("updated_at", way.Now().Unix())
 	})
-	assert(table.ToUpdate(), "UPDATE account SET email = NULL, column1 = column2, updated_at = ? WHERE ( id = ? AND deleted_at = ? )")
+	assert(table.ToUpdate(), "UPDATE account SET email = NULL, column1 = column2, updated_at = $? WHERE ( id = $? AND deleted_at = $? )")
 
 	table.ToEmpty()
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) {
@@ -705,7 +705,7 @@ func TestTable_Update(t *testing.T) {
 		u.Update(m)
 		u.Default("updated_at", way.Now().Unix())
 	})
-	assert(table.ToUpdate(), "UPDATE account SET age = ?, username = ?, updated_at = ? WHERE ( id = ? AND deleted_at IS NOT NULL )")
+	assert(table.ToUpdate(), "UPDATE account SET age = $?, username = $?, updated_at = $? WHERE ( id = $? AND deleted_at IS NOT NULL )")
 
 	table.ToEmpty()
 	table.UpdateFunc(func(f Filter, u SQLUpdateSet) {
@@ -725,5 +725,5 @@ func TestTable_Update(t *testing.T) {
 		// Set the default update column, The update will only take effect if at least one non-default update column exists.
 		u.Default("updated_at", way.Now().Unix())
 	})
-	assert(table.ToUpdate(), "UPDATE account SET age = ?, name = ?, updated_at = ? WHERE ( id = ? AND deleted_at IS NOT NULL )")
+	assert(table.ToUpdate(), "UPDATE account SET age = $?, name = $?, updated_at = $? WHERE ( id = $? AND deleted_at IS NOT NULL )")
 }

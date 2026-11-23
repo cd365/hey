@@ -10,7 +10,7 @@ Log the executed SQL statements and transactions(Use it as an ORM).<br>
 
 ## hey's mission
 1. Support as many SQL general syntax as possible.
-2. Write less or no original strings in business code, such as "username", "SUM(salary)", "id = ?", "SELECT id, name FROM your_table_name" ...
+2. Write less or no original strings in business code, such as "username", "SUM(salary)", "id = $?", "SELECT id, name FROM your_table_name" ...
 3. Try to avoid using reflection when scanning and querying data to reduce time consumption.
 4. Through the template code of the table structure, when the database table structure changes, your code can immediately perceive it.
 5. When you implement a business, focus more on the business rather than on building SQL statements.
@@ -21,9 +21,11 @@ Log the executed SQL statements and transactions(Use it as an ORM).<br>
 
 
 ## Special requirements:
-1. All SQL parameters should be passed using parameter placeholders "?" and a list of parameter values.
-2. Parameter placeholders "?" are prohibited in SQL statement comments.
-3. Parameter placeholders "?" are prohibited in SQL statement string constants.
+1. All SQL parameters should be passed using parameter placeholders "$?" and a list of parameter values.
+2. Parameter placeholders "$?" are prohibited in SQL statement comments.
+3. Parameter placeholders "$?" are prohibited in SQL statement string constants.
+4. Unlike the plain "?" placeholder, the "$?" marker never conflicts with SQL syntax: the PostgreSQL JSONB operators "?", "?|", "?&" can be used in raw SQL fragments without any ambiguity, while "?..." inside string literals and comments is left untouched.
+5. In PostgreSQL mode the "$?" markers are automatically rewritten to numbered parameters "$1, $2, ..."; in MySQL mode they are rewritten to "?".
 
 
 
