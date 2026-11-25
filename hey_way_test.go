@@ -50,14 +50,14 @@ func TestPrepareDollar(t *testing.T) {
 		"SELECT * FROM t WHERE a = $?":            "SELECT * FROM t WHERE a = $1",
 		"SELECT * FROM t WHERE a = $? AND b = $?": "SELECT * FROM t WHERE a = $1 AND b = $2",
 		"data ? 'key' AND id = $?":                "data ? 'key' AND id = $1",
-		// Marker sequences inside string literals, comments and dollar-quoted
-		// strings are not placeholders.
+		// Marker sequences inside string literals and comments are not placeholders.
 		"SELECT '$?' FROM t": "SELECT '$?' FROM t",
 		"SELECT '$?', $?":    "SELECT '$?', $1",
 		"/* $? */ $?":        "/* $? */ $1",
 		"-- $? \n $?":        "-- $? \n $1",
-		"$$?$$ $?":           "$$?$$ $1",
-		"$tag$ $? $tag$ $?":  "$tag$ $? $tag$ $1",
+		// Dollar-quoted strings are not treated specially.
+		"$$?$$ $?":          "$$1$$ $2",
+		"$tag$ $? $tag$ $?": "$tag$ $1 $tag$ $2",
 	}
 	for in, want := range cases {
 		if got := prepareDollar(in); got != want {
@@ -107,14 +107,16 @@ func TestPrepareQuestionMark(t *testing.T) {
 		"SELECT * FROM t WHERE a = $? AND b = $?": "SELECT * FROM t WHERE a = ? AND b = ?",
 		// Plain '$' and numbered parameters are left untouched.
 		"SELECT $1, $2, $ FROM t": "SELECT $1, $2, $ FROM t",
-		// Marker sequences inside string literals, comments and dollar-quoted
-		// strings are not placeholders.
-		"SELECT '$?' FROM t":       "SELECT '$?' FROM t",
-		"SELECT E'a\\'b$?' FROM t": "SELECT E'a\\'b$?' FROM t",
+		// Marker sequences inside string literals and comments are not placeholders.
+		"SELECT '$?' FROM t": "SELECT '$?' FROM t",
+		// Backslash is not an escape character, only '' is, so the literal ends at
+		// the quote right after the backslash.
+		"SELECT E'a\\'b$?' FROM t": "SELECT E'a\\'b?' FROM t",
 		"/* $? */ $?":              "/* $? */ ?",
 		"-- $? \n $?":              "-- $? \n ?",
-		"$$?$$ $?":                 "$$?$$ ?",
-		"$tag$ $? $tag$ $?":        "$tag$ $? $tag$ ?",
+		// Dollar-quoted strings are not treated specially.
+		"$$?$$ $?":          "$?$$ ?",
+		"$tag$ $? $tag$ $?": "$tag$ ? $tag$ ?",
 		// The '?' character is inert.
 		"data ? 'key' AND id = $?": "data ? 'key' AND id = ?",
 	}

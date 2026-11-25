@@ -454,23 +454,18 @@ func TestTable_Count(t *testing.T) {
 
 	assert(table.ToCount(), "SELECT COUNT(*) AS counts FROM account")
 
-	assert(table.ToCount("COUNT(*)"), "SELECT COUNT(*) FROM account")
+	assert(table.ToCount("id"), "SELECT COUNT(id) AS counts FROM account")
 
-	assert(table.ToCount("COUNT(*) counts"), "SELECT COUNT(*) counts FROM account")
+	assert(table.ToCount("DISTINCT id"), "SELECT COUNT(DISTINCT id) AS counts FROM account")
 
-	assert(table.ToCount("COUNT(*) AS counts"), "SELECT COUNT(*) AS counts FROM account")
+	// All empty arguments fall back to COUNT(*).
+	assert(table.ToCount(""), "SELECT COUNT(*) AS counts FROM account")
+	assert(table.ToCount("", ""), "SELECT COUNT(*) AS counts FROM account")
 
-	assert(table.ToCount("COUNT(1)"), "SELECT COUNT(1) FROM account")
-
-	assert(table.ToCount("COUNT(1) counts"), "SELECT COUNT(1) counts FROM account")
-
-	assert(table.ToCount("COUNT(1) AS counts"), "SELECT COUNT(1) AS counts FROM account")
-
-	assert(table.ToCount("COUNT(id)"), "SELECT COUNT(id) FROM account")
-
-	assert(table.ToCount("COUNT(id) counts"), "SELECT COUNT(id) counts FROM account")
-
-	assert(table.ToCount("COUNT(id) AS counts"), "SELECT COUNT(id) AS counts FROM account")
+	// The last non-empty argument wins.
+	assert(table.ToCount("", "id"), "SELECT COUNT(id) AS counts FROM account")
+	assert(table.ToCount("id", "email"), "SELECT COUNT(email) AS counts FROM account")
+	assert(table.ToCount("id", "", "email"), "SELECT COUNT(email) AS counts FROM account")
 }
 
 func TestTable_Exists(t *testing.T) {

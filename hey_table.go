@@ -5,6 +5,7 @@ package hey
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/cd365/hey/v8/cst"
 )
@@ -206,12 +207,15 @@ func toSQLSelectCount(s MakeSQL) *SQL {
 	if s.Table == nil || s.Table.IsEmpty() {
 		return NewEmptySQL()
 	}
-	counts := s.customCountColumns[:]
 	way := s.Way
-	query := JoinSQLSpace("COUNT(*)", cst.AS, way.Replace("counts"))
-	if len(counts) > 0 {
-		query = JoinSQLSpace(AnyAny(counts)...)
+	column := cst.Asterisk
+	if len(s.customCountColumns) > 0 {
+		if tmp := LastNotEmptyString(s.customCountColumns); tmp != cst.Empty {
+			column = tmp
+		}
 	}
+	count := fmt.Sprintf("COUNT(%s)", way.Replace(column))
+	query := JoinSQLSpace(count, cst.AS, way.Replace("counts"))
 	lists := make([]any, 0, 9)
 	lists = append(
 		lists,
@@ -387,6 +391,10 @@ func (s *Table) JoinFunc(fx func(join SQLJoin)) *Table {
 	}
 	if s.joins == nil {
 		s.joins = s.way.cfg.NewSQLJoin(s.way, s.query)
+	}
+	// ToEmpty clears the join main table, so restore it whenever it is missing
+	// instead of only when the join object is first created.
+	if main := s.joins.GetMain(); main == nil || main.IsEmpty() {
 		s.joins.SetMain(s.table)
 	}
 	fx(s.joins)

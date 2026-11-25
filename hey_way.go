@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cd365/hey/v8/cst"
@@ -62,59 +63,16 @@ func argValueToString(i any) string {
 
 // SQLToString Use parameter values to replace placeholders in SQL statements and build a visual SQL script.
 // Warning: Binary byte slice will be converted to hexadecimal strings.
-// Placeholder marker '$?' sequences inside single-quoted string literals (including
-// escape-string literals E'...'), line comments (--), block comments (/* ... */) and
-// dollar-quoted strings are left unchanged, mirroring prepareDollar.
+// Placeholder marker '$?' sequences inside single-quoted string literals and
+// comments (-- and /* ... */) are left unchanged, mirroring prepareDollar.
 func SQLToString(script *SQL) string {
 	if script == nil {
 		return cst.Empty
 	}
-	counts := len(script.Args)
-	if counts == 0 {
+	if len(script.Args) == 0 {
 		return script.Prepare
 	}
-	// Fast path: without any placeholder marker the statement is returned as-is.
-	if !strings.Contains(script.Prepare, cst.Placeholder) {
-		return script.Prepare
-	}
-	index := 0
-	origin := script.Prepare
-	result := poolGetStringBuilder()
-	defer poolPutStringBuilder(result)
-	result.Grow(len(origin))
-	for i := 0; i < len(origin); {
-		switch {
-		case origin[i] == cst.SingleQuotationMark[0]:
-			i = scanSingleQuoted(origin, i, result)
-		case isLineComment(origin, i):
-			i = scanLineComment(origin, i, result)
-		case isBlockComment(origin, i):
-			i = scanBlockComment(origin, i, result)
-		case isPlaceholderMarker(origin, i):
-			// The placeholder marker '$?' is checked before the dollar-quoted string
-			// case. dollarQuoteDelimiter never matches '$?' because '?' is not a
-			// valid dollar-quote tag character.
-			if index < counts {
-				result.WriteString(argValueToString(script.Args[index]))
-				index++
-			} else {
-				result.WriteString(cst.Placeholder)
-			}
-			i += len(cst.Placeholder)
-		case origin[i] == cst.Dollar[0]:
-			delimiter := dollarQuoteDelimiter(origin, i)
-			if delimiter == cst.Empty {
-				result.WriteByte(origin[i])
-				i++
-				break
-			}
-			i = scanDollarQuoted(origin, i, delimiter, result)
-		default:
-			result.WriteByte(origin[i])
-			i++
-		}
-	}
-	return result.String()
+	return rewritePlaceholders(script.Prepare, false, script.Args)
 }
 
 // transaction Information for transaction.
@@ -193,224 +151,101 @@ func (s *Manual) InsertOneGetLastInsertId() func(r SQLReturning) {
 	}
 }
 
-// prepareDollar Replace the placeholder marker '$?' in the SQL statement with '$n'.
-// Marker sequences inside single-quoted string literals (including escape-string
-// literals E'...'), line comments (--), block comments (/* ... */) and dollar-quoted
-// strings are left unchanged because they are not placeholders.
+// prepareDollar Replace the placeholder marker '$?' in the SQL statement with
+// '$1', '$2', '$3' ...
+// Marker sequences inside single-quoted string literals and comments (-- and
+// /* ... */) are left unchanged because they are not placeholders.
 func prepareDollar(prepare string) string {
-	// Fast path: without any placeholder marker the statement is returned as-is.
-	if !strings.Contains(prepare, cst.Placeholder) {
-		return prepare
-	}
-	latest := poolGetStringBuilder()
-	defer poolPutStringBuilder(latest)
-	origin := prepare
-	latest.Grow(len(origin))
-	num := 0
-	for i := 0; i < len(origin); {
-		switch {
-		case origin[i] == cst.SingleQuotationMark[0]:
-			i = scanSingleQuoted(origin, i, latest)
-		case isLineComment(origin, i):
-			i = scanLineComment(origin, i, latest)
-		case isBlockComment(origin, i):
-			i = scanBlockComment(origin, i, latest)
-		case isPlaceholderMarker(origin, i):
-			// The placeholder marker '$?' is checked before the dollar-quoted string
-			// case. dollarQuoteDelimiter never matches '$?' because '?' is not a
-			// valid dollar-quote tag character.
-			num++
-			latest.WriteByte(cst.Dollar[0])
-			latest.WriteString(strconv.Itoa(num))
-			i += len(cst.Placeholder)
-		case origin[i] == cst.Dollar[0]:
-			delimiter := dollarQuoteDelimiter(origin, i)
-			if delimiter == cst.Empty {
-				latest.WriteByte(origin[i])
-				i++
-				break
-			}
-			i = scanDollarQuoted(origin, i, delimiter, latest)
-		default:
-			latest.WriteByte(origin[i])
-			i++
-		}
-	}
-	return latest.String()
+	return rewritePlaceholders(prepare, true, nil)
 }
 
-// prepareQuestionMark Replace the placeholder marker '$?' in the SQL statement with '?'.
-// Marker sequences inside single-quoted string literals (including escape-string
-// literals E'...'), line comments (--), block comments (/* ... */) and dollar-quoted
-// strings are left unchanged because they are not placeholders.
+// prepareQuestionMark Replace the placeholder marker '$?' in the SQL statement
+// with '?', '?', '?' ...
+// Marker sequences inside single-quoted string literals and comments (-- and
+// /* ... */) are left unchanged because they are not placeholders.
 func prepareQuestionMark(prepare string) string {
+	return rewritePlaceholders(prepare, false, nil)
+}
+
+// rewritePlaceholders replaces every placeholder marker '$?' that is not inside a
+// single-quoted string literal or a comment (-- and /* ... */). When args is nil
+// the marker becomes '$1', '$2', ... (number=true) or '?' (number=false),
+// otherwise it becomes the matching argument value.
+func rewritePlaceholders(origin string, number bool, args []any) string {
 	// Fast path: without any placeholder marker the statement is returned as-is.
-	if !strings.Contains(prepare, cst.Placeholder) {
-		return prepare
+	if !strings.Contains(origin, cst.Placeholder) {
+		return origin
 	}
-	latest := poolGetStringBuilder()
-	defer poolPutStringBuilder(latest)
-	origin := prepare
-	latest.Grow(len(origin))
-	for i := 0; i < len(origin); {
+	builder := poolGetStringBuilder()
+	defer poolPutStringBuilder(builder)
+	builder.Grow(len(origin))
+	length := len(origin)
+	num, index := 0, 0
+	for i := 0; i < length; {
+		c := origin[i]
 		switch {
-		case origin[i] == cst.SingleQuotationMark[0]:
-			i = scanSingleQuoted(origin, i, latest)
-		case isLineComment(origin, i):
-			i = scanLineComment(origin, i, latest)
-		case isBlockComment(origin, i):
-			i = scanBlockComment(origin, i, latest)
-		case isPlaceholderMarker(origin, i):
-			// The placeholder marker '$?' is checked before the dollar-quoted string
-			// case. dollarQuoteDelimiter never matches '$?' because '?' is not a
-			// valid dollar-quote tag character.
-			latest.WriteByte(cst.Placeholder[1])
-			i += len(cst.Placeholder)
-		case origin[i] == cst.Dollar[0]:
-			delimiter := dollarQuoteDelimiter(origin, i)
-			if delimiter == cst.Empty {
-				latest.WriteByte(origin[i])
+		case c == cst.SingleQuotationMark[0]:
+			// Copy the string literal as-is; '' is an escaped quote.
+			start := i
+			i++
+			for i < length {
+				if origin[i] != cst.SingleQuotationMark[0] {
+					i++
+					continue
+				}
+				if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
+					i += 2
+					continue
+				}
 				i++
 				break
 			}
-			i = scanDollarQuoted(origin, i, delimiter, latest)
-		default:
-			latest.WriteByte(origin[i])
-			i++
-		}
-	}
-	return latest.String()
-}
-
-// isPlaceholderMarker reports whether the placeholder marker '$?' starts at index i.
-func isPlaceholderMarker(origin string, i int) bool {
-	return i+1 < len(origin) && origin[i] == cst.Placeholder[0] && origin[i+1] == cst.Placeholder[1]
-}
-
-// isLineComment reports whether a line comment starts at index i.
-func isLineComment(origin string, i int) bool {
-	return origin[i] == '-' && i+1 < len(origin) && origin[i+1] == '-'
-}
-
-// isBlockComment reports whether a block comment starts at index i.
-func isBlockComment(origin string, i int) bool {
-	return origin[i] == '/' && i+1 < len(origin) && origin[i+1] == '*'
-}
-
-// scanSingleQuoted writes the single-quoted string literal starting at index i
-// (its leading quote) to the builder and returns the index just after the literal.
-// Escape-string literals (E'...') honor backslash escapes; standard string literals
-// treat backslash as a regular character (standard_conforming_strings=on).
-func scanSingleQuoted(origin string, i int, builder *strings.Builder) int {
-	escape := isEscapeString(origin, i)
-	c92 := cst.Backslash[0]
-	length := len(origin)
-	builder.WriteByte(origin[i])
-	i++
-	for i < length {
-		if escape && origin[i] == c92 && i+1 < length {
-			builder.WriteByte(origin[i])
-			builder.WriteByte(origin[i+1])
-			i += 2
-			continue
-		}
-		builder.WriteByte(origin[i])
-		if origin[i] == cst.SingleQuotationMark[0] {
-			if i+1 < length && origin[i+1] == cst.SingleQuotationMark[0] {
-				builder.WriteByte(origin[i+1])
-				i += 2
-				continue
+			builder.WriteString(origin[start:i])
+		case c == '-' && i+1 < length && origin[i+1] == '-':
+			// Copy the line comment as-is, including the terminating newline.
+			start := i
+			for i < length && origin[i] != '\n' {
+				i++
 			}
-			return i + 1
-		}
-		i++
-	}
-	return i
-}
-
-// scanLineComment writes the line comment starting at index i (its leading "--")
-// to the builder and returns the index just after the terminating newline.
-func scanLineComment(origin string, i int, builder *strings.Builder) int {
-	length := len(origin)
-	for i < length {
-		builder.WriteByte(origin[i])
-		if origin[i] == '\n' {
+			if i < length {
+				i++
+			}
+			builder.WriteString(origin[start:i])
+		case c == '/' && i+1 < length && origin[i+1] == '*':
+			// Copy the block comment as-is.
+			start := i
+			i += 2
+			for i < length {
+				if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
+					i += 2
+					break
+				}
+				i++
+			}
+			builder.WriteString(origin[start:i])
+		case c == cst.Placeholder[0] && i+1 < length && origin[i+1] == cst.Placeholder[1]:
+			switch {
+			case args != nil:
+				if index < len(args) {
+					builder.WriteString(argValueToString(args[index]))
+					index++
+				} else {
+					builder.WriteString(cst.Placeholder)
+				}
+			case number:
+				num++
+				builder.WriteByte(cst.Dollar[0])
+				builder.WriteString(strconv.Itoa(num))
+			default:
+				builder.WriteByte(cst.Placeholder[1])
+			}
+			i += len(cst.Placeholder)
+		default:
+			builder.WriteByte(c)
 			i++
-			break
 		}
-		i++
 	}
-	return i
-}
-
-// scanBlockComment writes the block comment starting at index i (its leading "/*")
-// to the builder and returns the index just after the closing "*/". PostgreSQL
-// supports nested block comments, so the nesting depth is tracked instead of
-// stopping at the first "*/".
-func scanBlockComment(origin string, i int, builder *strings.Builder) int {
-	length := len(origin)
-	depth := 1
-	builder.WriteByte(origin[i])
-	builder.WriteByte(origin[i+1])
-	i += 2
-	for i < length && depth > 0 {
-		if isBlockComment(origin, i) {
-			builder.WriteByte(origin[i])
-			builder.WriteByte(origin[i+1])
-			i += 2
-			depth++
-			continue
-		}
-		if origin[i] == '*' && i+1 < length && origin[i+1] == '/' {
-			builder.WriteByte(origin[i])
-			builder.WriteByte(origin[i+1])
-			i += 2
-			depth--
-			continue
-		}
-		builder.WriteByte(origin[i])
-		i++
-	}
-	return i
-}
-
-// scanDollarQuoted writes the dollar-quoted string whose opening delimiter starts
-// at index i to the builder and returns the index just after the closing delimiter.
-func scanDollarQuoted(origin string, i int, delimiter string, builder *strings.Builder) int {
-	length := len(origin)
-	builder.WriteString(delimiter)
-	i += len(delimiter)
-	for i < length {
-		if strings.HasPrefix(origin[i:], delimiter) {
-			builder.WriteString(delimiter)
-			i += len(delimiter)
-			break
-		}
-		builder.WriteByte(origin[i])
-		i++
-	}
-	return i
-}
-
-// isEscapeString reports whether the single-quoted string literal whose leading
-// quote is at index i is an escape-string (E'...' or e'...') that honors
-// backslash escapes. The character before the leading quote must itself be 'E'
-// or 'e' and must not be part of a longer identifier (TIME'...' and NAME'...'
-// are type casts whose strings treat backslash as a regular character).
-func isEscapeString(origin string, i int) bool {
-	if i == 0 {
-		return false
-	}
-	if c := origin[i-1]; c == 'E' || c == 'e' {
-		if i == 1 {
-			return true
-		}
-		if p := origin[i-2]; p >= 'a' && p <= 'z' || p >= 'A' && p <= 'Z' || p >= '0' && p <= '9' || p == '_' {
-			return false
-		}
-		return true
-	}
-	return false
+	return builder.String()
 }
 
 // dollarQuoteDelimiter Return the PostgreSQL dollar-quote delimiter starting at origin[i]
@@ -965,7 +800,7 @@ type Way struct {
 	reader Reader
 
 	// isRead Is the current object a read-only object?
-	isRead bool
+	isRead atomic.Bool
 }
 
 // NewWay Create a *Way object.
@@ -1001,13 +836,13 @@ func (s *Way) Read() *Way {
 		return s
 	}
 	result := s.reader.Read()
-	result.isRead = true
+	result.isRead.CompareAndSwap(false, true)
 	return result
 }
 
 // IsRead is an object for read?
 func (s *Way) IsRead() bool {
-	return s.isRead
+	return s.isRead.Load()
 }
 
 // Replace get a single identifier mapping value, if it does not exist, return the original value.
@@ -1035,8 +870,16 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		return
 	}
 
-	tmp := *s
-	way = &tmp
+	// Way contains an atomic.Bool, so it must not be copied by value.
+	// Keep this field list in sync with the Way structure.
+	way = &Way{
+		cfg:         s.cfg,
+		db:          s.db,
+		track:       s.track,
+		transaction: s.transaction,
+		reader:      s.reader,
+	}
+	way.isRead.Store(s.isRead.Load())
 
 	opt := way.cfg.TxOptions
 	length := len(opts)
@@ -1060,6 +903,7 @@ func (s *Way) begin(ctx context.Context, conn *sql.Conn, opts ...*sql.TxOptions)
 		way.transaction.tx, err = way.db.BeginTx(ctx, opt)
 	}
 	if err != nil {
+		way = nil
 		return
 	}
 	way.transaction.way = way

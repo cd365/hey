@@ -789,6 +789,11 @@ func newSQLTable(way *Way, table any) SQLAlias {
 	if way == nil {
 		panic(nilPointer)
 	}
+	if tmp, ok := table.(*Table); ok && tmp != nil {
+		subquery := tmp.ToSelect()
+		subquery.Prepare = ParcelPrepare(subquery.Prepare)
+		return newSQLTableVisited(way, subquery, make(map[reflect.Type]*struct{}, 0))
+	}
 	return newSQLTableVisited(way, table, make(map[reflect.Type]*struct{}, 1<<1))
 }
 
@@ -1750,6 +1755,11 @@ func objectValuesDeep(object any, tag string, except []string, ignoreNil bool, v
 
 	for i := 0; i < length; i++ {
 		field := ofType.Field(i)
+		// Accessing an unexported field via Interface() panics; skip it,
+		// mirroring the guards in binding and walkStruct.
+		if !field.IsExported() {
+			continue
+		}
 
 		fieldType := field.Type
 		fieldKind := fieldType.Kind()

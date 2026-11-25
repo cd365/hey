@@ -291,7 +291,9 @@ func NamingCamel(value string) string {
 	if value == cst.Empty {
 		return cst.Empty
 	}
-	return JoinString(strings.ToLower(value[0:1]), value[1:])
+	// Split by rune to keep multi-byte UTF-8 leading characters intact.
+	runes := []rune(value)
+	return JoinString(strings.ToLower(string(runes[0])), string(runes[1:]))
 }
 
 // NamingUnderline Naming underline case.
